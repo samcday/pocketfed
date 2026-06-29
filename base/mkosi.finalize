@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="${BUILDROOT:?}"
+
+find "$root/boot" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+find "$root/run" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+find "$root/tmp" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+find "$root/var" -mindepth 1 -maxdepth 1 \
+    ! -name home \
+    ! -name lib \
+    ! -name roothome \
+    ! -name run \
+    ! -name tmp \
+    -exec rm -rf -- {} +
+find "$root/var/lib" -mindepth 1 -maxdepth 1 ! -name rpm-state -exec rm -rf -- {} +
+find "$root/var/tmp" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+rm -rf "$root/buildroot"
+
+if [[ -d "$root/usr/lib/sysimage/rpm" && ! -L "$root/usr/lib/sysimage/rpm" ]]; then
+    mkdir -p "$root/usr/share/rpm"
+    cp -a "$root/usr/lib/sysimage/rpm/." "$root/usr/share/rpm/"
+    rm -rf "$root/usr/lib/sysimage/rpm"
+    ln -snf ../../share/rpm "$root/usr/lib/sysimage/rpm"
+fi

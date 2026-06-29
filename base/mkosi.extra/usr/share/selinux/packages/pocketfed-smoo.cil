@@ -1,0 +1,6 @@
+; Temporary live-boot policy for kboop/smoo bring-up.
+; Move this into smoo packaging once the required allows stabilize.
+(allow kernel_t device_t (io_uring (cmd)))
+(allow kernel_t self (process (setfscreate)))
+(allow kernel_t removable_device_t (blk_file (relabelto)))
+(allow kernel_t tty_device_t (chr_file (relabelto)))

@@ -27,13 +27,16 @@ base-summary:
     {{mkosi}} -C "{{base_dir}}" summary
 
 base-rootfs:
-    {{mkosi}} -f -C "{{base_dir}}" build
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    SUDO="{{sudo}}"
+    $SUDO {{mkosi}} -f -C "{{base_dir}}" build
 
 base-normalize-rootfs: base-rootfs
     #!/usr/bin/env bash
     set -euo pipefail
 
-    SUDO="{{sudo}}"
     rootfs="{{base_rootfs}}"
 
     if [[ ! -d "$rootfs" ]]; then
@@ -41,25 +44,11 @@ base-normalize-rootfs: base-rootfs
         exit 1
     fi
 
-    $SUDO mkdir -p "$rootfs/run" "$rootfs/tmp" "$rootfs/var/tmp"
-    $SUDO find "$rootfs/run" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-    $SUDO find "$rootfs/tmp" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-    $SUDO find "$rootfs/var/tmp" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-    $SUDO rm -rf "$rootfs/buildroot"
-    $SUDO chmod 1777 "$rootfs/tmp" "$rootfs/var/tmp"
-
-    if [[ -d "$rootfs/usr/lib/sysimage/rpm" && ! -L "$rootfs/usr/lib/sysimage/rpm" ]]; then
-        $SUDO mkdir -p "$rootfs/usr/share/rpm"
-        $SUDO cp -a "$rootfs/usr/lib/sysimage/rpm/." "$rootfs/usr/share/rpm/"
-        $SUDO rm -rf "$rootfs/usr/lib/sysimage/rpm"
-        $SUDO ln -snf ../../share/rpm "$rootfs/usr/lib/sysimage/rpm"
-    fi
-
 base-clean:
-    {{mkosi}} -C "{{base_dir}}" clean
+    {{sudo}} {{mkosi}} -C "{{base_dir}}" clean
 
 base-lint-rootfs: base-normalize-rootfs
-    bootc container lint --rootfs "{{base_rootfs}}" --no-truncate
+    {{sudo}} bootc container lint --rootfs "{{base_rootfs}}" --no-truncate
 
 base-erofs: base-normalize-rootfs
     #!/usr/bin/env bash
@@ -96,11 +85,15 @@ base-oci-build: base-lint-rootfs
 
     ctr="$($SUDO buildah from --arch "{{arch}}" scratch)"
     cleanup() {
+        $SUDO buildah umount "$ctr" >/dev/null 2>&1 || true
         $SUDO buildah rm "$ctr" >/dev/null 2>&1 || true
     }
     trap cleanup EXIT
 
-    $SUDO buildah copy "$ctr" "$rootfs/." /
+    mnt="$($SUDO buildah mount "$ctr")"
+    $SUDO cp -a --preserve=all "$rootfs/." "$mnt/"
+    $SUDO buildah umount "$ctr"
+
     $SUDO buildah config \
         --arch "{{arch}}" \
         --os linux \
