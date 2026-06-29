@@ -21,3 +21,8 @@ chmod 0755 /var/home /var/lib /var/lib/rpm-state
 chmod 0700 /var/roothome
 chmod 1777 /tmp /var/tmp
 ln -snf ../run /var/run
+
+systemd-sysusers
+ldconfig -X
+systemd-hwdb --usr update
+journalctl --update-catalog
