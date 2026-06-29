@@ -1,0 +1,3 @@
+disable dnf-makecache.timer
+enable NetworkManager.service
+enable sshd.service

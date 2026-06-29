@@ -1,0 +1,7 @@
+/base/mkosi.builddir/
+/base/mkosi.cache/
+/base/mkosi.output/
+/base/mkosi.tools/
+/base/mkosi.tools.build.cache/
+/base/mkosi.tools.manifest
+/.env

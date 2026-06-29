@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p /boot /run /sysroot/ostree /tmp /var
+rm -rf /ostree
+ln -snf sysroot/ostree /ostree
+
+find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+find /run -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+find /var -mindepth 1 -maxdepth 1 ! -name tmp -exec rm -rf -- {} +
+find /var/tmp -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+rm -rf /buildroot
+
+if [[ -d /usr/lib/sysimage/rpm && ! -L /usr/lib/sysimage/rpm ]]; then
+    mkdir -p /usr/share/rpm
+    cp -a /usr/lib/sysimage/rpm/. /usr/share/rpm/
+    rm -rf /usr/lib/sysimage/rpm
+    ln -snf ../../share/rpm /usr/lib/sysimage/rpm
+fi
+
+mkdir -p /var/home /var/lib/rpm-state /var/roothome /var/tmp
+chmod 0755 /var/home /var/lib /var/lib/rpm-state
+chmod 0700 /var/roothome
+chmod 1777 /tmp /var/tmp
+ln -snf ../run /var/run
+
+systemctl preset-all
+systemctl --user --global preset-all
