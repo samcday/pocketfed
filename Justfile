@@ -3,6 +3,13 @@ set dotenv-load
 mkosi := env("PF_MKOSI", "mkosi")
 sudo := env("PF_SUDO", "sudo")
 
+kernel_tree := env("PF_KERNEL_TREE", "linux")
+kernel_build_dir := env("PF_KERNEL_BUILD_DIR", ".linux-build")
+kernel_stage := env("PF_KERNEL_STAGE", "base/mkosi.local/kernel")
+kernel_profile := env("PF_KERNEL_PROFILE", "pocketfed-configs/profiles/oneplus-fajita-fedora.list")
+kernel_config := env("PF_KERNEL_CONFIG", "pocketfed-local.config")
+kernel_image := env("PF_KERNEL_IMAGE", "Image")
+
 base_dir := env("PF_BASE_DIR", "base")
 base_output := env("PF_BASE_OUTPUT", base_dir / "mkosi.output")
 base_rootfs := env("PF_BASE_ROOTFS", base_output / "rootfs")
@@ -23,10 +30,78 @@ default: base
 
 base: base-erofs
 
+kernel-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    tree="{{kernel_tree}}"
+    build_dir="{{kernel_build_dir}}"
+    profile="{{kernel_profile}}"
+    extra_config="{{kernel_config}}"
+
+    if [[ ! -f "$tree/Makefile" ]]; then
+        echo "missing kernel submodule: $tree" >&2
+        echo "run: git submodule update --init linux" >&2
+        exit 1
+    fi
+    if [[ ! -f "$tree/$profile" ]]; then
+        echo "missing kernel profile: $tree/$profile" >&2
+        exit 1
+    fi
+    if [[ ! -f "$extra_config" ]]; then
+        echo "missing kernel config override: $extra_config" >&2
+        exit 1
+    fi
+
+    mkdir -p "$build_dir"
+    tree=$(realpath "$tree")
+    build_dir=$(realpath "$build_dir")
+    extra_config=$(realpath "$extra_config")
+
+    cross_compile="${PF_KERNEL_CROSS_COMPILE:-}"
+    if [[ -z "$cross_compile" && "$(uname -m)" != "aarch64" ]]; then
+        cross_compile=aarch64-linux-gnu-
+    fi
+
+    make_args=(ARCH=arm64)
+    if [[ -n "$cross_compile" ]]; then
+        make_args+=(CROSS_COMPILE="$cross_compile")
+    fi
+    if [[ -n "${PF_KERNEL_LLVM:-}" ]]; then
+        make_args+=(LLVM="$PF_KERNEL_LLVM")
+    fi
+
+    jobs="${PF_KERNEL_JOBS:-}"
+    if [[ -z "$jobs" ]]; then
+        jobs=$(nproc)
+    fi
+
+    mapfile -t fragments < <(grep -vE '^[[:space:]]*($|#)' "$tree/$profile")
+    (
+        cd "$tree"
+        env "${make_args[@]}" scripts/kconfig/merge_config.sh -n -r -O "$build_dir" /dev/null "${fragments[@]}" "$extra_config"
+    )
+
+    make -C "$tree" O="$build_dir" "${make_args[@]}" olddefconfig
+    make -C "$tree" O="$build_dir" "${make_args[@]}" -j "$jobs" Image Image.gz modules dtbs
+
+kernel-stage: kernel-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    scripts/stage-local-kernel \
+        --tree "{{kernel_tree}}" \
+        --build-dir "{{kernel_build_dir}}" \
+        --stage "{{kernel_stage}}" \
+        --image "{{kernel_image}}"
+
+kernel-clean:
+    rm -rf "{{kernel_build_dir}}" "{{kernel_stage}}"
+
 base-summary:
     {{mkosi}} -C "{{base_dir}}" summary
 
-base-rootfs:
+base-rootfs: kernel-stage
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -203,6 +278,12 @@ vars:
     @printf 'base_ostree_erofs=%s\n' "{{base_ostree_erofs}}"
     @printf 'base_ostree_metadata=%s\n' "{{base_ostree_metadata}}"
     @printf 'base_aboot_output=%s\n' "{{base_aboot_output}}"
+    @printf 'kernel_tree=%s\n' "{{kernel_tree}}"
+    @printf 'kernel_build_dir=%s\n' "{{kernel_build_dir}}"
+    @printf 'kernel_stage=%s\n' "{{kernel_stage}}"
+    @printf 'kernel_profile=%s\n' "{{kernel_profile}}"
+    @printf 'kernel_config=%s\n' "{{kernel_config}}"
+    @printf 'kernel_image=%s\n' "{{kernel_image}}"
     @printf 'ostree_stateroot=%s\n' "{{ostree_stateroot}}"
     @printf 'aboot_compatible=%s\n' "{{aboot_compatible}}"
     @printf 'aboot_root_label=%s\n' "{{aboot_root_label}}"

@@ -234,6 +234,9 @@ relabel_sysroot() {
     fi
 
     setfiles -r "$deployment_root" -p "$policy" "$deployment_root"
+    # setfiles labels descendants relative to deployment_root, but not the
+    # directory that represents the deployed filesystem's /.
+    chcon "$(matchpathcon -n -f "$policy" /)" "$deployment_root"
 
     stateroot_root="$sysroot/ostree/deploy/$stateroot"
     setfiles -r "$stateroot_root" -p "$policy" "$stateroot_root/var"
@@ -374,7 +377,7 @@ if (( EUID != 0 )); then
     die "run as root so OSTree deployment and EROFS metadata preserve ownership and xattrs"
 fi
 
-require_cmd grep jq mkfs.erofs ostree realpath setfiles sha512sum stat tee
+require_cmd chcon grep jq matchpathcon mkfs.erofs ostree realpath setfiles sha512sum stat tee
 
 parse_source_imgref "$requested_imgref"
 if [[ -n "$target_imgref" ]]; then

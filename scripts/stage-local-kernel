@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: stage-local-kernel --tree PATH --build-dir PATH --stage PATH [OPTIONS]
+
+Install an existing host-built arm64 Linux kernel build into a rootfs overlay
+tree suitable for mkosi ExtraTrees=.
+
+Options:
+  --tree PATH         Linux source tree.
+  --build-dir PATH    Existing Linux O= build directory.
+  --stage PATH        Output rootfs overlay directory.
+  --image NAME        Kernel image under arch/arm64/boot. Defaults to Image.
+  -h, --help          Show this help.
+
+Environment:
+  PF_KERNEL_CROSS_COMPILE  CROSS_COMPILE value. Defaults to aarch64-linux-gnu-
+                           on non-aarch64 hosts.
+  PF_KERNEL_LLVM           Optional LLVM= value for kernel make.
+  PF_KERNEL_INSTALL_MOD_STRIP
+                           INSTALL_MOD_STRIP value. Defaults to 1.
+EOF
+}
+
+die() {
+    printf 'error: %s\n' "$*" >&2
+    exit 1
+}
+
+require_cmd() {
+    local cmd
+    for cmd in "$@"; do
+        command -v "$cmd" >/dev/null 2>&1 || die "missing required command: $cmd"
+    done
+}
+
+tree=
+build_dir=
+stage=
+kernel_image="${PF_KERNEL_IMAGE:-Image}"
+
+while (( $# > 0 )); do
+    case "$1" in
+        --tree)
+            [[ $# -ge 2 ]] || die "--tree requires a value"
+            tree=$2
+            shift 2
+            ;;
+        --build-dir)
+            [[ $# -ge 2 ]] || die "--build-dir requires a value"
+            build_dir=$2
+            shift 2
+            ;;
+        --stage)
+            [[ $# -ge 2 ]] || die "--stage requires a value"
+            stage=$2
+            shift 2
+            ;;
+        --image)
+            [[ $# -ge 2 ]] || die "--image requires a value"
+            kernel_image=$2
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            die "unknown argument: $1"
+            ;;
+    esac
+done
+
+[[ -n "$tree" ]] || die "--tree is required"
+[[ -n "$build_dir" ]] || die "--build-dir is required"
+[[ -n "$stage" ]] || die "--stage is required"
+[[ -n "$kernel_image" ]] || die "--image must not be empty"
+
+require_cmd depmod find grep install make modinfo realpath rm
+
+tree=$(realpath "$tree")
+build_dir=$(realpath "$build_dir")
+stage=$(realpath -m "$stage")
+
+[[ -f "$tree/Makefile" ]] || die "missing Linux source tree: $tree"
+[[ -f "$build_dir/include/config/kernel.release" ]] || die "missing kernel release file; run just kernel-build first"
+[[ -f "$build_dir/modules.order" ]] || die "missing modules.order; run just kernel-build first"
+[[ -f "$build_dir/arch/arm64/boot/$kernel_image" ]] || die "missing kernel image: $build_dir/arch/arm64/boot/$kernel_image"
+[[ -d "$build_dir/arch/arm64/boot/dts" ]] || die "missing built DTBs: $build_dir/arch/arm64/boot/dts"
+
+kver=$(<"$build_dir/include/config/kernel.release")
+[[ -n "$kver" ]] || die "empty kernel release"
+case "$kver" in
+    */*) die "invalid kernel release: $kver" ;;
+esac
+
+cross_compile="${PF_KERNEL_CROSS_COMPILE:-}"
+if [[ -z "$cross_compile" && "$(uname -m)" != "aarch64" ]]; then
+    cross_compile=aarch64-linux-gnu-
+fi
+
+make_args=(ARCH=arm64)
+if [[ -n "$cross_compile" ]]; then
+    make_args+=(CROSS_COMPILE="$cross_compile")
+fi
+if [[ -n "${PF_KERNEL_LLVM:-}" ]]; then
+    make_args+=(LLVM="$PF_KERNEL_LLVM")
+fi
+
+rm -rf "$stage"
+mkdir -p "$stage"
+
+make -C "$tree" O="$build_dir" \
+    "${make_args[@]}" \
+    INSTALL_MOD_PATH="$stage/usr" \
+    INSTALL_MOD_STRIP="${PF_KERNEL_INSTALL_MOD_STRIP:-1}" \
+    DEPMOD=true \
+    modules_install
+
+module_dir="$stage/usr/lib/modules/$kver"
+[[ -d "$module_dir" ]] || die "modules_install did not create $module_dir"
+
+rm -f "$module_dir/build" "$module_dir/source"
+install -Dm0644 "$build_dir/arch/arm64/boot/$kernel_image" "$module_dir/vmlinuz"
+install -Dm0644 "$build_dir/.config" "$module_dir/config"
+if [[ -f "$build_dir/System.map" ]]; then
+    install -Dm0644 "$build_dir/System.map" "$module_dir/System.map"
+fi
+
+dtb_src="$build_dir/arch/arm64/boot/dts"
+dtb_dst="$module_dir/dtb"
+while IFS= read -r -d '' dtb; do
+    rel=${dtb#"$dtb_src"/}
+    install -Dm0644 "$dtb" "$dtb_dst/$rel"
+done < <(find "$dtb_src" -type f -name '*.dtb' -print0)
+
+depmod -b "$stage/usr" "$kver"
+
+[[ -f "$module_dir/dtb/qcom/sdm845-oneplus-fajita.dtb" ]] \
+    || die "staged kernel is missing fajita DTB"
+if ! modinfo -b "$stage/usr" -k "$kver" ublk_drv >/dev/null 2>&1 \
+    && ! grep -Eq '^CONFIG_BLK_DEV_UBLK=y$' "$module_dir/config"; then
+    die "staged kernel is missing ublk_drv; CONFIG_BLK_DEV_UBLK must be m or y"
+fi
+
+printf 'staged local kernel %s at %s\n' "$kver" "$stage"

@@ -23,6 +23,8 @@ Useful smaller steps:
 
 ```sh
 just base-summary
+just kernel-build
+just kernel-stage
 just base-rootfs
 just base-erofs
 just base-oci
@@ -41,6 +43,35 @@ when inspecting or converting a different image ref:
 
 ```sh
 PF_OCI_OUTPUT=docker://registry.example/pocketfed/base:rawhide just base-ostree-erofs
+```
+
+## Kernel
+
+PocketFed's kernel is built as part of the image workflow from the pinned Linux
+submodule at `./linux`. Initialize it before the first build:
+
+```sh
+git submodule update --init ./linux
+```
+
+The default `just base` path depends on `just kernel-stage`, which cross-builds
+the kernel on the host and stages it into `base/mkosi.local/kernel` for mkosi to
+copy into the rootfs. No kernel RPM is built or installed.
+
+Useful kernel-only steps:
+
+```sh
+just kernel-build
+just kernel-stage
+just kernel-clean
+```
+
+Useful overrides:
+
+```sh
+PF_KERNEL_JOBS=16 just kernel-build
+PF_KERNEL_TREE=/path/to/linux PF_KERNEL_BUILD_DIR=/path/to/build just kernel-stage
+PF_KERNEL_IMAGE=Image.gz just base
 ```
 
 ## Android Boot / OSTree Bring-Up
@@ -118,7 +149,8 @@ The `base/` mkosi config intentionally stays boring:
 
 - Fedora Rawhide only.
 - arm64 only for now.
-- kernel package from the `samcday/pocketfed` COPR.
+- curated kernel from the pinned `linux` submodule, staged directly into
+  the image rather than packaged as an RPM.
 - no mkosi-managed initramfs generation; image finalization owns the dracut
   policy needed for OSTree boot.
 - no bootupd or generic bootloader payload.
