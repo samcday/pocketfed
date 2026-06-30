@@ -1,13 +1,14 @@
 %undefine _debugsource_packages
 %global debug_package %{nil}
 
-%global commit 1e727c55e66d2cd89316acd6453241f1761e6b5c
+%global commit 821ec862c21a3b9544af02254814197d9eeed8b7
 %global shortcommit %(echo %{commit} | cut -c1-12)
-%global profile pocketfed-configs/profiles/oneplus-fajita-fedora.list
+%global buildrel 1
+%global profile pocketfed-configs/profiles/fedora.list
 
 Name:           kernel
 Version:        7.2.0
-Release:        0.rc1.1.g%{shortcommit}.pocketfed%{?dist}
+Release:        0.rc1.%{buildrel}.g%{shortcommit}.pocketfed%{?dist}
 Summary:        PocketFed Linux kernel
 License:        GPL-2.0-only
 URL:            https://github.com/samcday/linux
@@ -51,7 +52,7 @@ Provides:       kernel-modules-core = %{version}-%{release}
 Provides:       kernel-uname-r = %{uname_r}
 
 %description
-Linux kernel built from the PocketFed branch for OnePlus 6T/fajita.
+Linux kernel built from the PocketFed branch for supported PocketFed devices.
 
 %prep
 %autosetup -n linux-%{commit}
@@ -74,10 +75,12 @@ ARCH=arm64 scripts/kconfig/merge_config.sh -n -r -O build /dev/null \
   DEPMOD=true \
   modules_install headers_install
 
-install -Dm644 build/arch/arm64/boot/dts/qcom/sdm845-oneplus-enchilada.dtb \
-  %{buildroot}%{_prefix}/lib/modules/%{uname_r}/dtb/qcom/sdm845-oneplus-enchilada.dtb
-install -Dm644 build/arch/arm64/boot/dts/qcom/sdm845-oneplus-fajita.dtb \
-  %{buildroot}%{_prefix}/lib/modules/%{uname_r}/dtb/qcom/sdm845-oneplus-fajita.dtb
+dtb_src=build/arch/arm64/boot/dts
+dtb_dst=%{buildroot}%{_prefix}/lib/modules/%{uname_r}/dtb
+mkdir -p "$dtb_dst"
+rsync -a --chmod=D755,F644 \
+  --include='*/' --include='*.dtb' --exclude='*' \
+  "$dtb_src/" "$dtb_dst/"
 install -Dm644 build/arch/arm64/boot/Image \
   %{buildroot}%{_prefix}/lib/modules/%{uname_r}/vmlinuz
 install -Dm644 build/System.map \
@@ -102,5 +105,4 @@ if [ "$1" -eq 0 ]; then
 fi
 
 %changelog
-* Mon Jun 29 2026 Sam Day <samcday@users.noreply.github.com> - 7.2.0-0.rc1.1.g1e727c55e66d.pocketfed
-- Build PocketFed kernel from samcday/linux pocketfed/main.
+%autochangelog
