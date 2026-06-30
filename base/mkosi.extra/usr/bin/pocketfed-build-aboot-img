@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+sysroot=
+output=
+compatible=
+cmdline=
+droid_exorcist=
+droid_exorcist_assembler=
+droid_exorcist_shim=
+entry=
+verbose=0
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: pocketfed-build-aboot-img --sysroot PATH --output PATH [OPTIONS]
+Options:
+  --compatible VALUE      Device-tree compatible, e.g. oneplus,fajita
+  --cmdline VALUE         Kernel command line written to boot.img
+  --droid-exorcist        Prepare kernel with droid-exorcist
+  --droid-exorcist-assembler PATH
+                          droid-exorcist-assembler host binary
+  --droid-exorcist-shim PATH
+                          Raw droid-exorcist arm64 Image
+  --entry PATH            BLS entry to use instead of the first installed entry
+  -v, --verbose           Show verbose aboot-deploy output
+  -h, --help              Show this help message
+EOF
+}
+
+die() {
+    printf 'pocketfed-build-aboot-img: %s\n' "$*" >&2
+    exit 1
+}
+
+read_bls_key() {
+    local path=$1
+    local key=$2
+    local line
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == "$key "* ]]; then
+            printf '%s' "${line#"$key "}"
+            return 0
+        fi
+    done <"$path"
+
+    return 1
+}
+
+select_entry() {
+    local found=()
+
+    if [[ -n "$entry" ]]; then
+        [[ -f "$entry" ]] || die "BLS entry does not exist: $entry"
+        printf '%s' "$entry"
+        return 0
+    fi
+
+    shopt -s nullglob
+    found=("$sysroot"/boot/loader/entries/*.conf)
+    shopt -u nullglob
+    (( ${#found[@]} > 0 )) || die "no BLS entries found under $sysroot/boot/loader/entries"
+    printf '%s' "${found[0]}"
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --sysroot)
+            [[ $# -ge 2 ]] || die "$1 requires an argument"
+            sysroot=$2
+            shift 2
+            ;;
+        --output)
+            [[ $# -ge 2 ]] || die "$1 requires an argument"
+            output=$2
+            shift 2
+            ;;
+        --compatible)
+            [[ $# -ge 2 ]] || die "$1 requires an argument"
+            compatible=$2
+            shift 2
+            ;;
+        --cmdline)
+            [[ $# -ge 2 ]] || die "$1 requires an argument"
+            cmdline=$2
+            shift 2
+            ;;
+        --droid-exorcist)
+            droid_exorcist=1
+            shift
+            ;;
+        --droid-exorcist-assembler)
+            [[ $# -ge 2 ]] || die "$1 requires an argument"
+            droid_exorcist_assembler=$2
+            shift 2
+            ;;
+        --droid-exorcist-shim)
+            [[ $# -ge 2 ]] || die "$1 requires an argument"
+            droid_exorcist_shim=$2
+            shift 2
+            ;;
+        --entry)
+            [[ $# -ge 2 ]] || die "$1 requires an argument"
+            entry=$2
+            shift 2
+            ;;
+        -v | --verbose)
+            verbose=1
+            shift
+            ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            die "unknown argument: $1"
+            ;;
+    esac
+done
+
+[[ -n "$sysroot" ]] || die '--sysroot is required'
+[[ -n "$output" ]] || die '--output is required'
+[[ -d "$sysroot" ]] || die "sysroot does not exist: $sysroot"
+
+sysroot=$(realpath -m "$sysroot")
+output=$(realpath -m "$output")
+entry=$(select_entry)
+
+options=$(read_bls_key "$entry" options) || die "BLS entry is missing options: $entry"
+aboot=$(read_bls_key "$entry" aboot) || die "BLS entry is missing aboot: $entry"
+abootcfg=$(read_bls_key "$entry" abootcfg) || die "BLS entry is missing abootcfg: $entry"
+
+script_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+if [[ -x "$script_dir/aboot-deploy" ]]; then
+    aboot_deploy=$script_dir/aboot-deploy
+else
+    aboot_deploy="aboot-deploy"
+fi
+
+env_args=(
+    POCKETFED_ABOOT_NO_FLASH=1
+    POCKETFED_ABOOT_OUTPUT="$output"
+)
+if [[ -n "$compatible" ]]; then
+    env_args+=(POCKETFED_ABOOT_COMPATIBLE="$compatible")
+fi
+if [[ -n "$cmdline" ]]; then
+    env_args+=(POCKETFED_ABOOT_CMDLINE="$cmdline")
+fi
+if [[ -n "$droid_exorcist" ]]; then
+    env_args+=(POCKETFED_DROID_EXORCIST=1)
+fi
+if [[ -n "$droid_exorcist_assembler" ]]; then
+    env_args+=(POCKETFED_DROID_EXORCIST_ASSEMBLER="$droid_exorcist_assembler")
+fi
+if [[ -n "$droid_exorcist_shim" ]]; then
+    env_args+=(POCKETFED_DROID_EXORCIST_SHIM="$droid_exorcist_shim")
+fi
+
+deploy_args=(-r "$sysroot" -c "$abootcfg" -o "$options")
+if (( verbose )); then
+    deploy_args+=(-v)
+fi
+deploy_args+=("$aboot")
+
+env "${env_args[@]}" "$aboot_deploy" "${deploy_args[@]}"

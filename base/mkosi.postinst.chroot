@@ -9,6 +9,14 @@ if [[ -f /usr/share/selinux/packages/pocketfed-smoo.cil ]]; then
     semodule -N -s targeted -i /usr/share/selinux/packages/pocketfed-smoo.cil
 fi
 
+if [[ -d /usr/lib/modules ]]; then
+    while IFS= read -r -d '' module_dir; do
+        [[ -f "$module_dir/vmlinuz" ]] || continue
+        : >"$module_dir/aboot.img"
+        chmod 0644 "$module_dir/aboot.img"
+    done < <(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -print0)
+fi
+
 find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 find /run -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +

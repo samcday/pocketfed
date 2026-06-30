@@ -1,0 +1,604 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: oci-to-aboot-ext4 --imgref IMGREF --output-dir PATH [OPTIONS]
+
+Deploy a bootc/OSTree container image into an offline OSTree sysroot, pack it
+as an ext4 userdata image, convert that image to Android sparse format, and
+generate an Android boot.img for aboot devices.
+
+Options:
+  --imgref IMGREF          Source image reference. Supports ostree container
+                           image deploy transports such as oci:/path:tag,
+                           containers-storage:NAME:TAG, docker://..., and
+                           oci-archive:/path.tar:tag.
+  --output-dir PATH        Output directory. Artifacts are written below
+                           PATH/images and metadata to PATH/metadata.json.
+  --compatible VALUE       Device-tree compatible, e.g. oneplus,fajita.
+                           Defaults to oneplus,fajita.
+  --name NAME              Artifact name prefix. Defaults to pocketfed-fajita
+                           for oneplus,fajita, otherwise pocketfed-aboot.
+  --root-label LABEL       ext4 filesystem label. Defaults to pfroot.
+  --size SIZE              Raw ext4 filesystem size for truncate(1).
+                           Defaults to 8G.
+  --stateroot NAME         OSTree stateroot/osname. Defaults to pocketfed.
+  --target-imgref IMGREF   Image reference written into the deployment origin.
+  --karg ARG               Add an extra deployment kernel argument. May repeat.
+  --runtime-cmdline TEXT   Kernel command line written to boot.img. Defaults to
+                           "root=LABEL=<label> rw rootwait androidboot.slot_suffix=_a".
+  --droid-exorcist MODE    Use droid-exorcist for the boot.img kernel payload.
+                           MODE is auto, on, or off. Defaults to auto, which
+                           enables it for oneplus,fajita.
+  --droid-exorcist-assembler PATH
+                           droid-exorcist-assembler host binary.
+  --droid-exorcist-shim PATH
+                           Raw droid-exorcist arm64 Image.
+  --work-dir PATH          Use this empty/nonexistent work directory.
+  --keep-work              Keep the temporary work directory after exit.
+  -h, --help               Show this help.
+
+Example:
+  sudo scripts/oci-to-aboot-ext4 \
+    --imgref oci:base/mkosi.output/pocketfed-base.oci:rawhide \
+    --output-dir base/mkosi.output/fajita \
+    --compatible oneplus,fajita
+EOF
+}
+
+die() {
+    printf 'oci-to-aboot-ext4: %s\n' "$*" >&2
+    exit 1
+}
+
+require_cmd() {
+    local cmd
+    for cmd in "$@"; do
+        command -v "$cmd" >/dev/null 2>&1 || die "missing required command: $cmd"
+    done
+}
+
+normalize_path_ref_payload() {
+    local rest=$1
+    local path suffix
+
+    suffix=
+    path=$rest
+    if [[ "$rest" == *:* && "${rest##*:}" != */* ]]; then
+        suffix=":${rest##*:}"
+        path=${rest%:*}
+    fi
+
+    [[ -n "$path" ]] || die "invalid path image reference payload: $rest"
+    if [[ "$path" != /* ]]; then
+        path=$(realpath "$path")
+    fi
+
+    printf '%s%s\n' "$path" "$suffix"
+}
+
+normalize_imgref() {
+    local ref=$1
+
+    case "$ref" in
+        oci:*) printf 'oci:%s\n' "$(normalize_path_ref_payload "${ref#oci:}")" ;;
+        oci-archive:*) printf 'oci-archive:%s\n' "$(normalize_path_ref_payload "${ref#oci-archive:}")" ;;
+        dir:*) printf 'dir:%s\n' "$(normalize_path_ref_payload "${ref#dir:}")" ;;
+        docker://*) printf 'registry:%s\n' "${ref#docker://}" ;;
+        containers-storage:* | registry:*) printf '%s\n' "$ref" ;;
+        *) printf '%s\n' "$ref" ;;
+    esac
+}
+
+parse_source_imgref() {
+    local ref=$1
+
+    case "$ref" in
+        oci:*)
+            deploy_transport=oci
+            deploy_image=$(normalize_path_ref_payload "${ref#oci:}")
+            imgref="oci:$deploy_image"
+            ;;
+        oci-archive:*)
+            deploy_transport=oci-archive
+            deploy_image=$(normalize_path_ref_payload "${ref#oci-archive:}")
+            imgref="oci-archive:$deploy_image"
+            ;;
+        dir:*)
+            deploy_transport=dir
+            deploy_image=$(normalize_path_ref_payload "${ref#dir:}")
+            imgref="dir:$deploy_image"
+            ;;
+        containers-storage:*)
+            deploy_transport=containers-storage
+            deploy_image=${ref#containers-storage:}
+            [[ -n "$deploy_image" ]] || die "invalid containers-storage image reference: $ref"
+            imgref=$ref
+            ;;
+        registry:*)
+            deploy_transport=registry
+            deploy_image=${ref#registry:}
+            [[ -n "$deploy_image" ]] || die "invalid registry image reference: $ref"
+            imgref=$ref
+            ;;
+        docker://*)
+            deploy_transport=registry
+            deploy_image=${ref#docker://}
+            [[ -n "$deploy_image" ]] || die "invalid docker image reference: $ref"
+            imgref="registry:$deploy_image"
+            ;;
+        *)
+            deploy_transport=registry
+            deploy_image=$ref
+            imgref="registry:$ref"
+            ;;
+    esac
+}
+
+bytes_for_file() {
+    stat -c '%s' "$1"
+}
+
+sha256_for_file() {
+    local digest
+    read -r digest _ < <(sha256sum "$1")
+    printf '%s' "$digest"
+}
+
+make_work_dir() {
+    if [[ -n "$work_dir" ]]; then
+        [[ ! -e "$work_dir" ]] || die "work directory already exists: $work_dir"
+        mkdir -p "$work_dir"
+    else
+        mkdir -p "$output_dir"
+        work_dir=$(mktemp -d "$output_dir/.pocketfed-aboot-ext4.XXXXXX")
+    fi
+}
+
+cleanup() {
+    if (( mounted )); then
+        umount "$mount_dir" 2>/dev/null || true
+        mounted=0
+    fi
+
+    if [[ "$keep_work" == 1 ]]; then
+        printf 'kept work directory: %s\n' "$work_dir" >&2
+        return 0
+    fi
+
+    if [[ -n "$work_dir" && -d "$work_dir" ]]; then
+        if command -v chattr >/dev/null 2>&1; then
+            chattr -R -i "$work_dir" 2>/dev/null || true
+        fi
+        chmod -R u+w "$work_dir" 2>/dev/null || true
+        rm -rf "$work_dir" 2>/dev/null || true
+    fi
+}
+
+find_policy() {
+    local deployment_root=$1
+    local path
+    local candidates=(
+        "$deployment_root/etc/selinux/targeted/contexts/files/file_contexts"
+        "$deployment_root/usr/etc/selinux/targeted/contexts/files/file_contexts"
+    )
+
+    for path in "${candidates[@]}"; do
+        if [[ -f "$path" ]]; then
+            printf '%s' "$path"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+extract_ostree_path_from_bls() {
+    local bls_entry line token
+    shopt -s nullglob
+    bls_entries=("$sysroot"/boot/loader/entries/*.conf)
+    shopt -u nullglob
+
+    if (( ${#bls_entries[@]} == 0 )); then
+        die "no BLS entries found under $sysroot/boot/loader/entries"
+    fi
+
+    for bls_entry in "${bls_entries[@]}"; do
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ "$line" == options* ]] || continue
+
+            for token in ${line#options }; do
+                if [[ "$token" == ostree=* ]]; then
+                    printf '%s\n' "${token#ostree=}"
+                    return 0
+                fi
+            done
+        done <"$bls_entry"
+    done
+
+    die "BLS entries exist, but none contain an ostree= kernel argument"
+}
+
+deployment_root_from_ostree_path() {
+    local ostree_path=$1
+    local ostree_rel=${ostree_path#/}
+    local ostree_link=$sysroot/$ostree_rel
+    local resolved
+
+    [[ -L "$ostree_link" ]] || die "ostree= target is not a symlink in the sysroot: /$ostree_rel"
+    resolved=$(realpath "$ostree_link")
+    case "$resolved" in
+        "$sysroot"/ostree/*) ;;
+        *) die "resolved deployment root escapes sysroot: $resolved" ;;
+    esac
+
+    printf '%s' "$resolved"
+}
+
+validate_root_links() {
+    local slot link target
+    for slot in a b; do
+        link="$sysroot/ostree/root.$slot"
+        [[ -L "$link" ]] || die "missing aboot root link: /ostree/root.$slot"
+        target=$(readlink "$link")
+        [[ -n "$target" ]] || die "empty aboot root link: /ostree/root.$slot"
+    done
+}
+
+relabel_sysroot() {
+    local deployment_root=$1
+    local policy stateroot_root
+
+    policy=$(find_policy "$deployment_root") \
+        || die "unable to find SELinux file_contexts in deployed image"
+
+    if command -v chattr >/dev/null 2>&1; then
+        chattr -R -i "$deployment_root" "$sysroot/ostree/deploy/$stateroot/var" 2>/dev/null || true
+    fi
+
+    setfiles -r "$deployment_root" -p "$policy" "$deployment_root"
+
+    stateroot_root="$sysroot/ostree/deploy/$stateroot"
+    setfiles -r "$stateroot_root" -p "$policy" "$stateroot_root/var"
+
+    if [[ -d "$sysroot/boot" ]]; then
+        setfiles -r "$sysroot" -p "$policy" "$sysroot/boot"
+    fi
+}
+
+make_ext4_image() {
+    rm -f "$raw_image"
+    truncate -s "$image_size" "$raw_image"
+    mke2fs -q -t ext4 -F -L "$root_label" "$raw_image"
+
+    mount -o loop "$raw_image" "$mount_dir"
+    mounted=1
+    rsync -aHAX --numeric-ids "$sysroot"/ "$mount_dir"/
+    sync
+    umount "$mount_dir"
+    mounted=0
+
+    e2fsck -fy "$raw_image" >/dev/null
+    chmod 0644 "$raw_image"
+}
+
+write_flash_script() {
+    cat >"$flash_script" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir=\$(dirname "\$(realpath "\${BASH_SOURCE[0]}")")
+
+command -v fastboot >/dev/null 2>&1 || {
+    printf 'missing required command: fastboot\n' >&2
+    exit 1
+}
+
+fastboot getvar product 2>&1 | grep -E '(^|[[:space:]])product: sdm845([[:space:]]|$)'
+fastboot flash userdata "\$script_dir/images/${artifact_name}-userdata.simg"
+fastboot boot "\$script_dir/images/${artifact_name}-boot.img"
+EOF
+    chmod 0755 "$flash_script"
+}
+
+write_metadata() {
+    jq -n \
+        --arg imgref "$imgref" \
+        --arg requested_imgref "$requested_imgref" \
+        --arg target_imgref "$target_imgref" \
+        --arg stateroot "$stateroot" \
+        --arg commit "$commit" \
+        --arg compatible "$compatible" \
+        --arg droid_exorcist "$droid_exorcist" \
+        --argjson droid_exorcist_enabled "$droid_exorcist_enabled" \
+        --arg root_label "$root_label" \
+        --arg image_size "$image_size" \
+        --arg runtime_cmdline "$runtime_cmdline" \
+        --arg raw_path "$raw_image" \
+        --arg raw_sha256 "$(sha256_for_file "$raw_image")" \
+        --argjson raw_size "$(bytes_for_file "$raw_image")" \
+        --arg sparse_path "$sparse_image" \
+        --arg sparse_sha256 "$(sha256_for_file "$sparse_image")" \
+        --argjson sparse_size "$(bytes_for_file "$sparse_image")" \
+        --arg boot_path "$boot_image" \
+        --arg boot_sha256 "$(sha256_for_file "$boot_image")" \
+        --argjson boot_size "$(bytes_for_file "$boot_image")" \
+        --arg flash_script "$flash_script" \
+        --arg work_dir "${work_dir_if_kept:-}" \
+        '{
+          imgref: $imgref,
+          requested_imgref: $requested_imgref,
+          target_imgref: (if $target_imgref == "" then null else $target_imgref end),
+          stateroot: $stateroot,
+          commit: $commit,
+          compatible: $compatible,
+          droid_exorcist: {
+            mode: $droid_exorcist,
+            enabled: $droid_exorcist_enabled
+          },
+          root_label: $root_label,
+          image_size: $image_size,
+          runtime_cmdline: $runtime_cmdline,
+          userdata: {
+            raw: { path: $raw_path, size_bytes: $raw_size, sha256: $raw_sha256 },
+            sparse: { path: $sparse_path, size_bytes: $sparse_size, sha256: $sparse_sha256 }
+          },
+          boot: { path: $boot_path, size_bytes: $boot_size, sha256: $boot_sha256 },
+          flash_script: $flash_script,
+          work_dir: (if $work_dir == "" then null else $work_dir end)
+        }' >"$metadata"
+    chmod 0644 "$metadata"
+}
+
+requested_imgref=
+imgref=
+deploy_transport=
+deploy_image=
+target_imgref=
+output_dir=
+compatible=oneplus,fajita
+artifact_name=
+root_label=pfroot
+image_size=8G
+stateroot=${PF_OSTREE_STATEROOT:-pocketfed}
+runtime_cmdline=
+droid_exorcist=${PF_DROID_EXORCIST:-auto}
+droid_exorcist_assembler=${PF_DROID_EXORCIST_ASSEMBLER:-}
+droid_exorcist_shim=${PF_DROID_EXORCIST_SHIM:-}
+droid_exorcist_enabled=false
+work_dir=
+keep_work=0
+extra_kargs=()
+bls_entries=()
+mounted=0
+
+while (( $# > 0 )); do
+    case "$1" in
+        --imgref)
+            [[ $# -ge 2 ]] || die "--imgref requires a value"
+            requested_imgref=$2
+            shift 2
+            ;;
+        --output-dir)
+            [[ $# -ge 2 ]] || die "--output-dir requires a value"
+            output_dir=$2
+            shift 2
+            ;;
+        --compatible)
+            [[ $# -ge 2 ]] || die "--compatible requires a value"
+            compatible=$2
+            shift 2
+            ;;
+        --name)
+            [[ $# -ge 2 ]] || die "--name requires a value"
+            artifact_name=$2
+            shift 2
+            ;;
+        --root-label)
+            [[ $# -ge 2 ]] || die "--root-label requires a value"
+            root_label=$2
+            shift 2
+            ;;
+        --size)
+            [[ $# -ge 2 ]] || die "--size requires a value"
+            image_size=$2
+            shift 2
+            ;;
+        --stateroot)
+            [[ $# -ge 2 ]] || die "--stateroot requires a value"
+            stateroot=$2
+            shift 2
+            ;;
+        --target-imgref)
+            [[ $# -ge 2 ]] || die "--target-imgref requires a value"
+            target_imgref=$2
+            shift 2
+            ;;
+        --karg)
+            [[ $# -ge 2 ]] || die "--karg requires a value"
+            extra_kargs+=("$2")
+            shift 2
+            ;;
+        --runtime-cmdline)
+            [[ $# -ge 2 ]] || die "--runtime-cmdline requires a value"
+            runtime_cmdline=$2
+            shift 2
+            ;;
+        --droid-exorcist)
+            [[ $# -ge 2 ]] || die "--droid-exorcist requires a value"
+            droid_exorcist=$2
+            shift 2
+            ;;
+        --droid-exorcist-assembler)
+            [[ $# -ge 2 ]] || die "--droid-exorcist-assembler requires a value"
+            droid_exorcist_assembler=$2
+            shift 2
+            ;;
+        --droid-exorcist-shim)
+            [[ $# -ge 2 ]] || die "--droid-exorcist-shim requires a value"
+            droid_exorcist_shim=$2
+            shift 2
+            ;;
+        --work-dir)
+            [[ $# -ge 2 ]] || die "--work-dir requires a value"
+            work_dir=$2
+            shift 2
+            ;;
+        --keep-work)
+            keep_work=1
+            shift
+            ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            die "unknown argument: $1"
+            ;;
+    esac
+done
+
+[[ -n "$requested_imgref" ]] || die "--imgref is required"
+[[ -n "$output_dir" ]] || die "--output-dir is required"
+[[ -n "$stateroot" ]] || die "--stateroot must not be empty"
+[[ -n "$root_label" ]] || die "--root-label must not be empty"
+(( ${#root_label} <= 16 )) || die "--root-label must be 16 characters or fewer for ext4"
+
+if (( EUID != 0 )); then
+    die "run as root so OSTree deployment, ext4 ownership, and xattrs are preserved"
+fi
+
+require_cmd e2fsck grep img2simg jq mke2fs mount ostree readlink realpath rsync setfiles sha256sum stat sync truncate umount
+
+script_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+repo_root=$(realpath "$script_dir/..")
+helper_dir=$repo_root/base/mkosi.extra/usr/bin
+if [[ -x "$helper_dir/aboot-deploy" ]]; then
+    export PATH="$helper_dir:$PATH"
+fi
+command -v aboot-deploy >/dev/null 2>&1 || die "aboot-deploy not found in PATH"
+
+if [[ -z "$artifact_name" ]]; then
+    case "$compatible" in
+        oneplus,fajita) artifact_name=pocketfed-fajita ;;
+        *) artifact_name=pocketfed-aboot ;;
+    esac
+fi
+
+if [[ -z "$runtime_cmdline" ]]; then
+    runtime_cmdline="root=LABEL=$root_label rw rootwait androidboot.slot_suffix=_a"
+fi
+
+case "$droid_exorcist" in
+    auto)
+        if [[ "$compatible" == oneplus,fajita ]]; then
+            droid_exorcist_enabled=true
+        fi
+        ;;
+    1 | yes | true | on)
+        droid_exorcist=on
+        droid_exorcist_enabled=true
+        ;;
+    0 | no | false | off)
+        droid_exorcist=off
+        droid_exorcist_enabled=false
+        ;;
+    *)
+        die "--droid-exorcist must be auto, on, or off"
+        ;;
+esac
+
+parse_source_imgref "$requested_imgref"
+if [[ -n "$target_imgref" ]]; then
+    target_imgref=$(normalize_imgref "$target_imgref")
+fi
+
+output_dir=$(realpath -m "$output_dir")
+images_dir=$output_dir/images
+metadata=$output_dir/metadata.json
+flash_script=$output_dir/flash.sh
+raw_image=$images_dir/$artifact_name-userdata.raw
+sparse_image=$images_dir/$artifact_name-userdata.simg
+boot_image=$images_dir/$artifact_name-boot.img
+
+mkdir -p "$images_dir"
+make_work_dir
+trap cleanup EXIT
+
+sysroot=$work_dir/sysroot
+mount_dir=$work_dir/mnt
+commit_file=$work_dir/commit.txt
+mkdir -p "$sysroot" "$mount_dir"
+
+ostree admin init-fs --modern "$sysroot"
+ostree admin --sysroot="$sysroot" stateroot-init "$stateroot"
+ostree --repo="$sysroot/ostree/repo" config set sysroot.bootloader aboot
+
+deploy_args=(
+    container image deploy
+    --sysroot "$sysroot"
+    --stateroot "$stateroot"
+    --transport "$deploy_transport"
+    --image "$deploy_image"
+    --write-commitid-to "$commit_file"
+    --karg "root=LABEL=$root_label"
+    --karg rw
+    --karg rootwait
+)
+if [[ -n "$target_imgref" ]]; then
+    deploy_args+=(--target-imgref "$target_imgref")
+fi
+for karg in "${extra_kargs[@]}"; do
+    deploy_args+=(--karg "$karg")
+done
+
+ostree "${deploy_args[@]}"
+[[ -s "$commit_file" ]] || die "ostree deploy did not write a commit id"
+commit=$(<"$commit_file")
+
+ostree_path=$(extract_ostree_path_from_bls)
+deployment_root=$(deployment_root_from_ostree_path "$ostree_path")
+validate_root_links
+
+build_boot_args=(
+    --sysroot "$sysroot"
+    --compatible "$compatible"
+    --cmdline "$runtime_cmdline"
+    --output "$boot_image"
+)
+if [[ "$droid_exorcist_enabled" == true ]]; then
+    build_boot_args+=(--droid-exorcist)
+fi
+if [[ -n "$droid_exorcist_assembler" ]]; then
+    build_boot_args+=(--droid-exorcist-assembler "$droid_exorcist_assembler")
+fi
+if [[ -n "$droid_exorcist_shim" ]]; then
+    build_boot_args+=(--droid-exorcist-shim "$droid_exorcist_shim")
+fi
+
+pocketfed-build-aboot-img "${build_boot_args[@]}"
+
+relabel_sysroot "$deployment_root"
+make_ext4_image
+
+rm -f "$sparse_image"
+img2simg "$raw_image" "$sparse_image"
+chmod 0644 "$sparse_image" "$boot_image"
+
+write_flash_script
+work_dir_if_kept=
+if [[ "$keep_work" == 1 ]]; then
+    work_dir_if_kept=$work_dir
+fi
+write_metadata
+
+if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+    chown -R "$SUDO_UID:$SUDO_GID" "$output_dir"
+fi
+
+printf '%s\n' "$raw_image"
+printf '%s\n' "$sparse_image"
+printf '%s\n' "$boot_image"
+printf '%s\n' "$metadata"
+printf '%s\n' "$flash_script"
