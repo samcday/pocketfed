@@ -95,14 +95,22 @@ ABL-injected junk such as `root=dm-1`. Override this with
 The preserved runtime command line is short by default:
 
 ```text
-root=LABEL=pfroot rw rootwait androidboot.slot_suffix=_a
+root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/root.a
 ```
+
+The real `androidboot.*` tokens provided by ABL are preserved outside the
+markers by `droid-exorcist`; if `androidboot.slot_suffix` is present, OSTree's
+aboot path prefers that over the fallback `ostree=/ostree/root.a` target.
 
 The offline OSTree deployment still carries the full BLS metadata and creates
 both `/ostree/root.a` and `/ostree/root.b` in the userdata image. Runtime
 partition flashing remains gated behind `POCKETFED_ABOOT_FLASH=1` and still
 expects `aboot-gptctl`; use generated no-flash artifacts until A/B switching is
 proven on-device.
+
+Composefs is intentionally disabled in `ostree-prepare-root` for this bring-up
+path while the aboot boot flow is stabilized. The physical sysroot remains
+configured read-only through `/usr/lib/ostree/prepare-root.conf`.
 
 ## Base Contract
 
@@ -111,7 +119,8 @@ The `base/` mkosi config intentionally stays boring:
 - Fedora Rawhide only.
 - arm64 only for now.
 - kernel package from the `samcday/pocketfed` COPR.
-- no initramfs generation.
+- no mkosi-managed initramfs generation; image finalization owns the dracut
+  policy needed for OSTree boot.
 - no bootupd or generic bootloader payload.
 - Android boot image metadata for OSTree aboot experiments.
 - no Linux firmware payloads; firmware is extracted from device partitions by

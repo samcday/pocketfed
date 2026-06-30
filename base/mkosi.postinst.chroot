@@ -12,6 +12,9 @@ fi
 if [[ -d /usr/lib/modules ]]; then
     while IFS= read -r -d '' module_dir; do
         [[ -f "$module_dir/vmlinuz" ]] || continue
+        kver=${module_dir##*/}
+        depmod -a "$kver"
+        dracut --force "$module_dir/initramfs.img" "$kver"
         : >"$module_dir/aboot.img"
         chmod 0644 "$module_dir/aboot.img"
     done < <(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -print0)

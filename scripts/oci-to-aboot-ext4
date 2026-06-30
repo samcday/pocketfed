@@ -27,7 +27,7 @@ Options:
   --target-imgref IMGREF   Image reference written into the deployment origin.
   --karg ARG               Add an extra deployment kernel argument. May repeat.
   --runtime-cmdline TEXT   Kernel command line written to boot.img. Defaults to
-                           "root=LABEL=<label> rw rootwait androidboot.slot_suffix=_a".
+                           "root=LABEL=<label> rw rootwait rootfstype=ext4 ostree=/ostree/root.a".
   --droid-exorcist MODE    Use droid-exorcist for the boot.img kernel payload.
                            MODE is auto, on, or off. Defaults to auto, which
                            enables it for oneplus,fajita.
@@ -487,7 +487,7 @@ if [[ -z "$artifact_name" ]]; then
 fi
 
 if [[ -z "$runtime_cmdline" ]]; then
-    runtime_cmdline="root=LABEL=$root_label rw rootwait androidboot.slot_suffix=_a"
+    runtime_cmdline="root=LABEL=$root_label rw rootwait rootfstype=ext4 ostree=/ostree/root.a"
 fi
 
 case "$droid_exorcist" in
@@ -545,6 +545,7 @@ deploy_args=(
     --karg "root=LABEL=$root_label"
     --karg rw
     --karg rootwait
+    --karg rootfstype=ext4
 )
 if [[ -n "$target_imgref" ]]; then
     deploy_args+=(--target-imgref "$target_imgref")
