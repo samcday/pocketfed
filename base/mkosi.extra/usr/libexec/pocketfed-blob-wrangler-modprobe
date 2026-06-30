@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+drivers=(
+    qcom_q6v5
+    qcom_q6v5_pas
+    qcom_q6v5_adsp
+    qcom_q6v5_mss
+    qcom_q6v5_wcss
+    qcom_wcnss_pil
+    qcom_common
+    qcom_sysmon
+    qcom_pil_info
+    ath10k_snoc
+    wcn36xx
+    wcnss_ctrl
+    btqca
+    btqcomsmd
+    hci_uart
+    ipa
+)
+
+available=()
+for driver in "${drivers[@]}"; do
+    if modprobe --show-depends "$driver" >/dev/null 2>&1; then
+        available+=("$driver")
+    else
+        printf 'pocketfed-blob-wrangler-modprobe: skipping unavailable module: %s\n' "$driver" >&2
+    fi
+done
+
+if ((${#available[@]} > 0)); then
+    modprobe -a "${available[@]}"
+fi

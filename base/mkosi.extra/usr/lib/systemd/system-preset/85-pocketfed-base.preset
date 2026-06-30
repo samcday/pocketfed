@@ -1,3 +1,6 @@
 disable dnf-makecache.timer
+enable blob-wrangler.service
+enable rmtfs.service
+enable tqftpserv.service
 enable NetworkManager.service
 enable sshd.service

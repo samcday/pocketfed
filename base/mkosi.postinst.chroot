@@ -34,3 +34,12 @@ systemd-sysusers
 ldconfig -X
 systemd-hwdb --usr update
 journalctl --update-catalog
+
+blob_services=(blob-wrangler.service rmtfs.service tqftpserv.service)
+systemctl --root=/ preset "${blob_services[@]}"
+for service in "${blob_services[@]}"; do
+    systemctl --root=/ is-enabled "$service" >/dev/null || {
+        echo "$service is not enabled" >&2
+        exit 1
+    }
+done
