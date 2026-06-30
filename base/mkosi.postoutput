@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+rootfs="${OUTPUTDIR:?}/rootfs"
+image_id="${IMAGE_ID:-pocketfed-base}"
+reference="${IMAGE_VERSION:-${RELEASE:-rawhide}}"
+oci_dir="$OUTPUTDIR/$image_id.oci"
+
+if [[ ! -d "$rootfs" ]]; then
+    echo "missing rootfs output: $rootfs" >&2
+    exit 1
+fi
+
+bootc container lint --rootfs "$rootfs" --no-truncate
+
+rm -rf "$oci_dir"
+mkdir -p "$oci_dir/blobs/sha256"
+printf '{"imageLayoutVersion":"1.0.0"}\n' >"$oci_dir/oci-layout"
+printf '{"schemaVersion":2,"manifests":[]}\n' >"$oci_dir/index.json"
+
+rpm-ostree experimental compose build-chunked-oci \
+    --bootc \
+    --format-version=1 \
+    --rootfs="$rootfs" \
+    --reference="$reference" \
+    --output="oci:$oci_dir:$reference" \
+    --label containers.bootc=1 \
+    --label ostree.bootable=true \
+    --label org.opencontainers.image.title="PocketFed Base" \
+    --label org.opencontainers.image.description="PocketFed headless base" \
+    --label org.opencontainers.image.version="$reference"

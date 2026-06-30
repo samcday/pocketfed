@@ -7,21 +7,17 @@ base_dir := env("PF_BASE_DIR", "base")
 base_output := env("PF_BASE_OUTPUT", base_dir / "mkosi.output")
 base_rootfs := env("PF_BASE_ROOTFS", base_output / "rootfs")
 base_erofs := env("PF_BASE_EROFS", base_output / "rootfs.ero")
+base_oci_dir := env("PF_BASE_OCI_DIR", base_output / "pocketfed-base.oci")
+base_ostree_erofs := env("PF_BASE_OSTREE_EROFS", base_output / "rootfs.ostree.ero")
+base_ostree_metadata := env("PF_BASE_OSTREE_METADATA", base_output / "rootfs.ostree.json")
+ostree_stateroot := env("PF_OSTREE_STATEROOT", "pocketfed")
 
-arch := env("PF_ARCH", "arm64")
 tag := env("PF_TAG", "rawhide")
-base_image := env("PF_BASE_IMAGE", "localhost/pocketfed/base")
-base_full_image := env("PF_BASE_FULL_IMAGE", base_image + ":" + tag)
-base_build_image := env("PF_BASE_BUILD_IMAGE", base_full_image + "-build")
-oci_output := env("PF_OCI_OUTPUT", "containers-storage:" + base_full_image)
-oci_reference := env("PF_OCI_REFERENCE", tag)
-
-image_title := env("PF_IMAGE_TITLE", "PocketFed Base")
-image_description := env("PF_IMAGE_DESCRIPTION", "Kernel-less PocketFed headless base")
+oci_output := env("PF_OCI_OUTPUT", "oci:" + base_oci_dir + ":" + tag)
 
 default: base
 
-base: base-erofs base-oci
+base: base-erofs
 
 base-summary:
     {{mkosi}} -C "{{base_dir}}" summary
@@ -31,7 +27,7 @@ base-rootfs:
     set -euo pipefail
 
     SUDO="{{sudo}}"
-    $SUDO {{mkosi}} -f -C "{{base_dir}}" build
+    $SUDO {{mkosi}} -f -C "{{base_dir}}" --image-version "{{tag}}" build
 
 base-normalize-rootfs: base-rootfs
     #!/usr/bin/env bash
@@ -70,64 +66,80 @@ base-erofs: base-normalize-rootfs
         $SUDO chown "$(id -u):$(id -g)" "$output"
     fi
 
-base-oci-build: base-lint-rootfs
+base-oci: base-rootfs
     #!/usr/bin/env bash
     set -euo pipefail
 
-    SUDO="{{sudo}}"
-    rootfs="{{base_rootfs}}"
-    image="{{base_build_image}}"
+    oci_dir="{{base_oci_dir}}"
 
-    if [[ ! -d "$rootfs" ]]; then
-        echo "missing base rootfs: $rootfs" >&2
+    if [[ ! -f "$oci_dir/index.json" ]]; then
+        echo "missing base OCI layout: $oci_dir" >&2
         exit 1
     fi
 
-    ctr="$($SUDO buildah from --arch "{{arch}}" scratch)"
-    cleanup() {
-        $SUDO buildah umount "$ctr" >/dev/null 2>&1 || true
-        $SUDO buildah rm "$ctr" >/dev/null 2>&1 || true
-    }
-    trap cleanup EXIT
+    printf '%s\n' "$oci_dir"
 
-    mnt="$($SUDO buildah mount "$ctr")"
-    $SUDO cp -a --preserve=all "$rootfs/." "$mnt/"
-    $SUDO buildah umount "$ctr"
-
-    $SUDO buildah config \
-        --arch "{{arch}}" \
-        --os linux \
-        --env container=oci \
-        --label containers.bootc=1 \
-        --label ostree.bootable=true \
-        --label org.opencontainers.image.title="{{image_title}}" \
-        --label org.opencontainers.image.description="{{image_description}}" \
-        --label org.opencontainers.image.version="{{tag}}" \
-        --stop-signal SIGRTMIN+3 \
-        --cmd '["/sbin/init"]' \
-        "$ctr"
-    $SUDO buildah commit --format oci "$ctr" "$image"
-
-    trap - EXIT
-    cleanup
-
-base-oci: base-oci-build
+ostree-erofs imgref output:
     #!/usr/bin/env bash
     set -euo pipefail
 
     SUDO="{{sudo}}"
+    args=(
+        --imgref "{{imgref}}"
+        --output "{{output}}"
+        --stateroot "{{ostree_stateroot}}"
+    )
 
-    $SUDO rpm-ostree experimental compose build-chunked-oci \
-        --bootc \
-        --format-version=1 \
-        --from="{{base_build_image}}" \
-        --reference="{{oci_reference}}" \
-        --output="{{oci_output}}" \
-        --label containers.bootc=1 \
-        --label ostree.bootable=true \
-        --label org.opencontainers.image.title="{{image_title}}" \
-        --label org.opencontainers.image.description="{{image_description}}" \
-        --label org.opencontainers.image.version="{{tag}}"
+    if [[ -n "${PF_OSTREE_METADATA:-}" ]]; then
+        args+=(--metadata "$PF_OSTREE_METADATA")
+    fi
+    if [[ -n "${PF_OSTREE_TARGET_IMGREF:-}" ]]; then
+        args+=(--target-imgref "$PF_OSTREE_TARGET_IMGREF")
+    fi
+    if [[ -n "${PF_OSTREE_EROFS_CLUSTER_SIZE:-}" ]]; then
+        args+=(--erofs-cluster-size "$PF_OSTREE_EROFS_CLUSTER_SIZE")
+    fi
+    if [[ -n "${PF_OSTREE_KEEP_WORK:-}" ]]; then
+        args+=(--keep-work)
+    fi
+    if [[ -n "${PF_OSTREE_KARGS:-}" ]]; then
+        while IFS= read -r karg; do
+            [[ -n "$karg" ]] || continue
+            args+=(--karg "$karg")
+        done <<<"$PF_OSTREE_KARGS"
+    fi
+
+    $SUDO scripts/oci-to-ostree-erofs "${args[@]}"
+
+base-ostree-erofs: base-oci
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    SUDO="{{sudo}}"
+    args=(
+        --imgref "{{oci_output}}"
+        --output "{{base_ostree_erofs}}"
+        --metadata "{{base_ostree_metadata}}"
+        --stateroot "{{ostree_stateroot}}"
+    )
+
+    if [[ -n "${PF_OSTREE_TARGET_IMGREF:-}" ]]; then
+        args+=(--target-imgref "$PF_OSTREE_TARGET_IMGREF")
+    fi
+    if [[ -n "${PF_OSTREE_EROFS_CLUSTER_SIZE:-}" ]]; then
+        args+=(--erofs-cluster-size "$PF_OSTREE_EROFS_CLUSTER_SIZE")
+    fi
+    if [[ -n "${PF_OSTREE_KEEP_WORK:-}" ]]; then
+        args+=(--keep-work)
+    fi
+    if [[ -n "${PF_OSTREE_KARGS:-}" ]]; then
+        while IFS= read -r karg; do
+            [[ -n "$karg" ]] || continue
+            args+=(--karg "$karg")
+        done <<<"$PF_OSTREE_KARGS"
+    fi
+
+    $SUDO scripts/oci-to-ostree-erofs "${args[@]}"
 
 base-inspect:
     {{sudo}} skopeo inspect "{{oci_output}}"
@@ -136,5 +148,8 @@ vars:
     @printf 'base_dir=%s\n' "{{base_dir}}"
     @printf 'base_rootfs=%s\n' "{{base_rootfs}}"
     @printf 'base_erofs=%s\n' "{{base_erofs}}"
-    @printf 'base_build_image=%s\n' "{{base_build_image}}"
+    @printf 'base_oci_dir=%s\n' "{{base_oci_dir}}"
+    @printf 'base_ostree_erofs=%s\n' "{{base_ostree_erofs}}"
+    @printf 'base_ostree_metadata=%s\n' "{{base_ostree_metadata}}"
+    @printf 'ostree_stateroot=%s\n' "{{ostree_stateroot}}"
     @printf 'oci_output=%s\n' "{{oci_output}}"

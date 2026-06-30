@@ -52,6 +52,9 @@ write_update_stamp "$root/var"
 
 if [[ -f "$root/etc/selinux/targeted/contexts/files/file_contexts" ]] && command -v setfiles >/dev/null; then
     relabel_paths=("$root/etc/.updated" "$root/var/.updated")
+    if [[ -L "$root/usr/lib/sysimage/rpm" ]]; then
+        relabel_paths+=("$root/usr/lib/sysimage/rpm")
+    fi
     if [[ -e "$root/var/lib/systemd/catalog/database" ]]; then
         relabel_paths+=("$root/var/lib/systemd/catalog/database")
     fi
