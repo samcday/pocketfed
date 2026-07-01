@@ -1,0 +1,199 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_COMPILERCHECK: content
+  CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
+  CCACHE_MAXSIZE: 2G
+  CCACHE_WRAPPER_DIR: ${{ github.workspace }}/.cache/ccache-wrappers
+
+jobs:
+  base-oci:
+    name: Build base OCI
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout pocketfed
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout kernel submodule
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive --depth=1 --recommend-shallow linux
+          test "$(git -C linux rev-parse --is-shallow-repository)" = true
+
+      - name: Set up mkosi
+        uses: systemd/mkosi@v26
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --assume-yes --no-install-recommends \
+            bc \
+            bison \
+            build-essential \
+            ccache \
+            flex \
+            just \
+            kmod \
+            libelf-dev \
+            libssl-dev \
+            pkg-config \
+            skopeo \
+            zstd
+
+      - name: Restore kernel ccache
+        uses: actions/cache/restore@v5
+        with:
+          path: .cache/ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('.gitmodules', 'Justfile', 'pocketfed-local.config', 'scripts/stage-local-kernel', 'linux/pocketfed-configs/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('.gitmodules', 'Justfile', 'pocketfed-local.config', 'scripts/stage-local-kernel', 'linux/pocketfed-configs/**') }}
+            ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-
+
+      - name: Restore mkosi cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .cache/mkosi-archives
+          key: ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**') }}
+            ${{ runner.os }}-${{ runner.arch }}-mkosi-
+
+      - name: Unpack mkosi cache
+        run: |
+          archive=".cache/mkosi-archives/mkosi.tar.zst"
+          if [[ -f "$archive" ]]; then
+            sudo tar --extract --file "$archive" --zstd --same-owner --numeric-owner --xattrs --acls --selinux
+          fi
+
+      - name: Configure ccache
+        run: |
+          mkdir -p "$CCACHE_DIR" "$CCACHE_WRAPPER_DIR"
+          ccache --set-config=max_size="$CCACHE_MAXSIZE"
+          ccache --zero-stats
+          for compiler in cc c++ gcc g++ aarch64-linux-gnu-gcc clang clang++; do
+            if command -v "$compiler" >/dev/null 2>&1; then
+              ln -sf "$(command -v ccache)" "$CCACHE_WRAPPER_DIR/$compiler"
+            fi
+          done
+          echo "$CCACHE_WRAPPER_DIR" >> "$GITHUB_PATH"
+          ccache --show-config
+
+      - name: Build kernel
+        run: just kernel-build
+
+      - name: Build base OCI
+        run: just base-oci
+
+      - name: Show ccache stats
+        if: always()
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            ccache --show-stats
+          fi
+
+      - name: Verify ccache was used
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          import sys
+
+          stats = {}
+          output = subprocess.check_output(["ccache", "--print-stats"], text=True)
+          for line in output.splitlines():
+              if "\t" not in line:
+                  continue
+              key, value = line.split("\t", 1)
+              try:
+                  stats[key] = int(value)
+              except ValueError:
+                  pass
+
+          cacheable = (
+              stats.get("cache_miss", 0)
+              + stats.get("direct_cache_hit", 0)
+              + stats.get("preprocessed_cache_hit", 0)
+          )
+          if cacheable == 0:
+              print("ccache did not see any cacheable compiler invocations", file=sys.stderr)
+              sys.exit(1)
+          print(f"ccache cacheable invocations: {cacheable}")
+          PY
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push base OCI to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner}/pocketfed-base"
+          source="oci:base/mkosi.output/pocketfed-base.oci:rawhide"
+          skopeo copy --all "$source" "docker://${image}:rawhide"
+          skopeo copy --all "$source" "docker://${image}:sha-${GITHUB_SHA::12}"
+
+      - name: Pack mkosi cache
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          if ! command -v zstd >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          paths=()
+          for path in \
+            base/mkosi.cache \
+            base/mkosi.builddir \
+            base/mkosi.tools \
+            base/mkosi.tools.build.cache \
+            base/mkosi.tools.manifest; do
+            if [[ -e "$path" ]]; then
+              paths+=("$path")
+            fi
+          done
+
+          if (( ${#paths[@]} == 0 )); then
+            exit 0
+          fi
+
+          mkdir -p .cache/mkosi-archives
+          sudo tar --create --file .cache/mkosi-archives/mkosi.tar.zst --zstd --numeric-owner --xattrs --acls --selinux "${paths[@]}"
+          sudo chown "$(id -u):$(id -g)" .cache/mkosi-archives/mkosi.tar.zst
+
+      - name: Save kernel ccache
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('.gitmodules', 'Justfile', 'pocketfed-local.config', 'scripts/stage-local-kernel', 'linux/pocketfed-configs/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Save mkosi cache
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/mkosi-archives
+          key: ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
