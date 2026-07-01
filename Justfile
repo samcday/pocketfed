@@ -6,7 +6,7 @@ sudo := env("PF_SUDO", "sudo")
 kernel_tree := env("PF_KERNEL_TREE", "linux")
 kernel_build_dir := env("PF_KERNEL_BUILD_DIR", ".linux-build")
 kernel_stage := env("PF_KERNEL_STAGE", "base/mkosi.local/kernel")
-kernel_profile := env("PF_KERNEL_PROFILE", "pocketfed-configs/profiles/oneplus-fajita-fedora.list")
+kernel_profile := env("PF_KERNEL_PROFILE", "pocketfed-configs/profiles/fedora.list")
 kernel_config := env("PF_KERNEL_CONFIG", "pocketfed-local.config")
 kernel_image := env("PF_KERNEL_IMAGE", "Image")
 
