@@ -65,16 +65,19 @@ PF_OCI_OUTPUT=docker://registry.example/pocketfed/base:rawhide just base-ostree-
 
 ## Kernel
 
-PocketFed's kernel is built as part of the image workflow from the pinned Linux
-submodule at `./linux`. Initialize it before the first build:
+PocketFed's kernel is built as part of the image workflow from a local Linux
+checkout. By default, `just kernel-fetch` prepares the ignored `.linux-src/`
+checkout from the pinned `samcday/linux` integration branch:
 
 ```sh
-git submodule update --init ./linux
+just kernel-fetch
 ```
 
 The default `just base` path depends on `just kernel-stage`, which cross-builds
 the kernel on the host and stages it into `base/mkosi.local/kernel` for mkosi to
-copy into the rootfs. No kernel RPM is built or installed.
+copy into the rootfs. PocketFed-owned config fragments live in `kernel/configs/`;
+the kernel source tree only carries kernel code. No kernel RPM is built or
+installed.
 
 Useful kernel-only steps:
 
@@ -89,6 +92,7 @@ Useful overrides:
 ```sh
 PF_KERNEL_JOBS=16 just kernel-build
 PF_KERNEL_TREE=/path/to/linux PF_KERNEL_BUILD_DIR=/path/to/build just kernel-stage
+PF_KERNEL_REF=pocketfed/main PF_KERNEL_COMMIT= just kernel-fetch
 PF_KERNEL_IMAGE=Image.gz just base
 ```
 
@@ -167,8 +171,8 @@ The `base/` mkosi config intentionally stays boring:
 
 - Fedora Rawhide only.
 - arm64 only for now.
-- curated kernel from the pinned `linux` submodule, staged directly into
-  the image rather than packaged as an RPM.
+- curated kernel from the pinned local checkout, staged directly into the image
+  rather than packaged as an RPM.
 - no mkosi-managed initramfs generation in the fast path; the `bootc` mkosi
   profile owns the dracut policy needed for OSTree boot.
 - no bootupd or generic bootloader payload.

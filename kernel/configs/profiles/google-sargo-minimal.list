@@ -1,0 +1,13 @@
+# Minimal Fedora-capable Google Pixel 3a profile: boot, eMMC storage, SELinux,
+# USB recovery/debug, input, battery, and basic userspace.  No display/GPU,
+# wireless, remoteproc, or audio modules beyond board basics.
+arch/arm64-base.config
+policy/fedora-userspace.config
+policy/fedora-selinux.config
+policy/fedora-storage.config
+policy/fedora-networking.config
+policy/containers.config
+policy/zram.config
+policy/usb-gadget.config
+soc/qcom-sdm670-core.config
+device/google-sargo.config

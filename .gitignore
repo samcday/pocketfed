@@ -6,4 +6,6 @@
 /base/mkosi.tools.build.cache/
 /base/mkosi.tools.manifest
 /.linux-build/
+/.linux-src/
+/linux/
 /.env

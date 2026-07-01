@@ -3,10 +3,15 @@ set dotenv-load
 mkosi := env("PF_MKOSI", "mkosi")
 sudo := env("PF_SUDO", "sudo")
 
-kernel_tree := env("PF_KERNEL_TREE", "linux")
+kernel_tree := env("PF_KERNEL_TREE", ".linux-src")
+kernel_repo := env("PF_KERNEL_REPO", "https://github.com/samcday/linux.git")
+kernel_ref := env("PF_KERNEL_REF", "pocketfed/main")
+kernel_commit := env("PF_KERNEL_COMMIT", "7d55451ba659a1eb94f977a1b9a77e9b44e5fb20")
+kernel_fetch_depth := env("PF_KERNEL_FETCH_DEPTH", "1")
 kernel_build_dir := env("PF_KERNEL_BUILD_DIR", ".linux-build")
 kernel_stage := env("PF_KERNEL_STAGE", "base/mkosi.local/kernel")
-kernel_profile := env("PF_KERNEL_PROFILE", "pocketfed-configs/profiles/fedora.list")
+kernel_configs := env("PF_KERNEL_CONFIGS", "kernel/configs")
+kernel_profile := env("PF_KERNEL_PROFILE", kernel_configs / "profiles/fedora.list")
 kernel_config := env("PF_KERNEL_CONFIG", "pocketfed-local.config")
 kernel_image := env("PF_KERNEL_IMAGE", "Image")
 
@@ -30,7 +35,54 @@ default: base
 
 base: base-erofs
 
-kernel-build:
+kernel-fetch:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    tree="{{kernel_tree}}"
+    repo="{{kernel_repo}}"
+    ref="{{kernel_ref}}"
+    commit="{{kernel_commit}}"
+    depth="{{kernel_fetch_depth}}"
+
+    if [[ "$tree" != ".linux-src" ]]; then
+        if [[ -f "$tree/Makefile" ]]; then
+            exit 0
+        fi
+        echo "missing kernel tree: $tree" >&2
+        echo "unset PF_KERNEL_TREE to use the managed .linux-src checkout" >&2
+        exit 1
+    fi
+
+    if [[ -e "$tree" && ! -d "$tree/.git" ]]; then
+        shopt -s nullglob dotglob
+        entries=("$tree"/*)
+        shopt -u nullglob dotglob
+        if (( ${#entries[@]} != 0 )); then
+            echo "refusing to clone into non-git, non-empty path: $tree" >&2
+            exit 1
+        fi
+    fi
+
+    if [[ ! -d "$tree/.git" ]]; then
+        git clone --depth "$depth" --single-branch --branch "$ref" "$repo" "$tree"
+    fi
+
+    git -C "$tree" remote set-url origin "$repo"
+    git -C "$tree" fetch --depth "$depth" origin "$ref"
+    target=$(git -C "$tree" rev-parse FETCH_HEAD)
+
+    if [[ -n "$commit" ]]; then
+        if ! git -C "$tree" cat-file -e "$commit^{commit}" 2>/dev/null; then
+            git -C "$tree" fetch --depth "$depth" origin "$commit"
+        fi
+        target="$commit"
+    fi
+
+    git -C "$tree" checkout --detach "$target"
+    test -f "$tree/Makefile"
+
+kernel-build: kernel-fetch
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -40,12 +92,12 @@ kernel-build:
     extra_config="{{kernel_config}}"
 
     if [[ ! -f "$tree/Makefile" ]]; then
-        echo "missing kernel submodule: $tree" >&2
-        echo "run: git submodule update --init linux" >&2
+        echo "missing kernel tree: $tree" >&2
+        echo "run: just kernel-fetch" >&2
         exit 1
     fi
-    if [[ ! -f "$tree/$profile" ]]; then
-        echo "missing kernel profile: $tree/$profile" >&2
+    if [[ ! -f "$profile" ]]; then
+        echo "missing kernel profile: $profile" >&2
         exit 1
     fi
     if [[ ! -f "$extra_config" ]]; then
@@ -56,6 +108,8 @@ kernel-build:
     mkdir -p "$build_dir"
     tree=$(realpath "$tree")
     build_dir=$(realpath "$build_dir")
+    profile=$(realpath "$profile")
+    config_dir=$(realpath "$(dirname "$profile")/..")
     extra_config=$(realpath "$extra_config")
 
     cross_compile="${PF_KERNEL_CROSS_COMPILE:-}"
@@ -76,7 +130,22 @@ kernel-build:
         jobs=$(nproc)
     fi
 
-    mapfile -t fragments < <(grep -vE '^[[:space:]]*($|#)' "$tree/$profile")
+    mapfile -t fragment_specs < <(grep -vE '^[[:space:]]*($|#)' "$profile")
+    fragments=()
+    for fragment in "${fragment_specs[@]}"; do
+        if [[ "$fragment" = /* ]]; then
+            fragment_path="$fragment"
+        else
+            fragment_path="$config_dir/$fragment"
+        fi
+        if [[ ! -f "$fragment_path" ]]; then
+            echo "missing kernel config fragment: $fragment" >&2
+            echo "looked under: $config_dir" >&2
+            exit 1
+        fi
+        fragments+=("$fragment_path")
+    done
+
     (
         cd "$tree"
         env "${make_args[@]}" scripts/kconfig/merge_config.sh -n -r -O "$build_dir" /dev/null "${fragments[@]}" "$extra_config"
@@ -286,8 +355,13 @@ vars:
     @printf 'base_ostree_metadata=%s\n' "{{base_ostree_metadata}}"
     @printf 'base_aboot_output=%s\n' "{{base_aboot_output}}"
     @printf 'kernel_tree=%s\n' "{{kernel_tree}}"
+    @printf 'kernel_repo=%s\n' "{{kernel_repo}}"
+    @printf 'kernel_ref=%s\n' "{{kernel_ref}}"
+    @printf 'kernel_commit=%s\n' "{{kernel_commit}}"
+    @printf 'kernel_fetch_depth=%s\n' "{{kernel_fetch_depth}}"
     @printf 'kernel_build_dir=%s\n' "{{kernel_build_dir}}"
     @printf 'kernel_stage=%s\n' "{{kernel_stage}}"
+    @printf 'kernel_configs=%s\n' "{{kernel_configs}}"
     @printf 'kernel_profile=%s\n' "{{kernel_profile}}"
     @printf 'kernel_config=%s\n' "{{kernel_config}}"
     @printf 'kernel_image=%s\n' "{{kernel_image}}"
