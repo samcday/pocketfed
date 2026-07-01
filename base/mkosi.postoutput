@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+profile_enabled() {
+    case ",${PROFILES:-}," in
+        *,"$1",*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+if [[ "${PF_BOOTC_PROFILE:-0}" != 1 ]] && ! profile_enabled bootc; then
+    exit 0
+fi
+
 rootfs="${OUTPUTDIR:?}/rootfs"
 image_id="${IMAGE_ID:-pocketfed-base}"
 reference="${IMAGE_VERSION:-${RELEASE:-rawhide}}"

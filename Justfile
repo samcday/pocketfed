@@ -108,6 +108,13 @@ base-rootfs: kernel-stage
     SUDO="{{sudo}}"
     $SUDO {{mkosi}} -f -C "{{base_dir}}" --image-version "{{tag}}" build
 
+base-bootc-rootfs: kernel-stage
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    SUDO="{{sudo}}"
+    $SUDO {{mkosi}} -f -C "{{base_dir}}" --profile bootc --image-version "{{tag}}" build
+
 base-normalize-rootfs: base-rootfs
     #!/usr/bin/env bash
     set -euo pipefail
@@ -122,7 +129,7 @@ base-normalize-rootfs: base-rootfs
 base-clean:
     {{sudo}} {{mkosi}} -C "{{base_dir}}" clean
 
-base-lint-rootfs: base-normalize-rootfs
+base-lint-rootfs: base-bootc-rootfs
     {{sudo}} bootc container lint --rootfs "{{base_rootfs}}" --no-truncate
 
 base-erofs: base-normalize-rootfs
@@ -145,7 +152,7 @@ base-erofs: base-normalize-rootfs
         $SUDO chown "$(id -u):$(id -g)" "$output"
     fi
 
-base-oci: base-rootfs
+base-oci: base-bootc-rootfs
     #!/usr/bin/env bash
     set -euo pipefail
 

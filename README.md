@@ -27,10 +27,28 @@ just kernel-build
 just kernel-stage
 just base-rootfs
 just base-erofs
+just base-bootc-rootfs
 just base-oci
 just base-ostree-erofs
 just base-fajita-images
 ```
+
+## Fastboop Iteration
+
+The fastest device loop is `just base-erofs`. It builds the unprofiled base
+rootfs and packs it as `base/mkosi.output/rootfs.ero`, skipping bootc lint,
+OCI compose, OSTree deployment, dracut initrd generation, and aboot marker
+generation.
+
+Boot the resulting EROFS from the fastboop checkout:
+
+```sh
+cargo run --release --bin fastboop -- boot /var/home/sam/src/pocketfed/base/mkosi.output/rootfs.ero --device-profile oneplus-fajita --cmdline 'sysrq_always_enabled=1'
+```
+
+Use `just base-bootc-rootfs` or any target depending on `base-oci` when you
+need the bootc/OSTree branch. Those targets build mkosi with the `bootc`
+profile, which re-enables the bootc-specific postinstall and postoutput work.
 
 Show configurable paths and image refs:
 
@@ -151,8 +169,8 @@ The `base/` mkosi config intentionally stays boring:
 - arm64 only for now.
 - curated kernel from the pinned `linux` submodule, staged directly into
   the image rather than packaged as an RPM.
-- no mkosi-managed initramfs generation; image finalization owns the dracut
-  policy needed for OSTree boot.
+- no mkosi-managed initramfs generation in the fast path; the `bootc` mkosi
+  profile owns the dracut policy needed for OSTree boot.
 - no bootupd or generic bootloader payload.
 - Android boot image metadata for OSTree aboot experiments.
 - no Linux firmware payloads; firmware is extracted from device partitions by
@@ -160,7 +178,8 @@ The `base/` mkosi config intentionally stays boring:
 - Qualcomm firmware-access services are enabled, with dependent modules and
   services deferred until `blob-wrangler.service` succeeds.
 - no desktop environment.
-- bootc/OSTree userspace and rootfs layout only.
+- bootc/OSTree userspace is present, but bootc/OSTree artifacts are generated
+  only through the `bootc` mkosi profile.
 
 Desktop and device-specific work should layer on top of this base instead of
 being folded into it.
