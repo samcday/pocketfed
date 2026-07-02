@@ -1,3 +1,6 @@
 [submodule "vendor/make-dynpart-mappings"]
 	path = vendor/make-dynpart-mappings
 	url = https://gitlab.com/flamingradian/make-dynpart-mappings.git
+[submodule "vendor/abl-exorcist"]
+	path = vendor/abl-exorcist
+	url = https://github.com/samcday/abl-exorcist.git

@@ -71,9 +71,9 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: .cache/mkosi-archives
-          key: ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.conf.d/**', 'base/mkosi.build', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**', '.gitmodules', 'vendor/make-dynpart-mappings/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.conf.d/**', 'base/mkosi.build', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**', '.gitmodules', 'vendor/make-dynpart-mappings/**', 'vendor/abl-exorcist/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.conf.d/**', 'base/mkosi.build', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**', '.gitmodules', 'vendor/make-dynpart-mappings/**') }}
+            ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.conf.d/**', 'base/mkosi.build', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**', '.gitmodules', 'vendor/make-dynpart-mappings/**', 'vendor/abl-exorcist/**') }}
             ${{ runner.os }}-${{ runner.arch }}-mkosi-
 
       - name: Unpack mkosi cache
@@ -196,4 +196,4 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: .cache/mkosi-archives
-          key: ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.conf.d/**', 'base/mkosi.build', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**', '.gitmodules', 'vendor/make-dynpart-mappings/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.conf.d/**', 'base/mkosi.build', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**', '.gitmodules', 'vendor/make-dynpart-mappings/**', 'vendor/abl-exorcist/**') }}-${{ github.run_id }}-${{ github.run_attempt }}

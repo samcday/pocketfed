@@ -2,57 +2,109 @@
 set -euo pipefail
 
 case "${ARCHITECTURE:?}" in
-    arm64) target_triplet=aarch64-linux-gnu ;;
+    arm64)
+        target_triplet=aarch64-linux-gnu
+        rust_generator_target=aarch64-unknown-linux-musl
+        rust_none_target=aarch64-unknown-none
+        ;;
     *)
-        echo "unsupported make-dynpart-mappings target architecture: $ARCHITECTURE" >&2
+        echo "unsupported target architecture: $ARCHITECTURE" >&2
         exit 1
         ;;
 esac
 
-src="${SRCDIR:?}/make-dynpart-mappings"
-build="${BUILDDIR:?}/make-dynpart-mappings"
 sysroot="${BUILDROOT:?}"
 
-if [[ ! -f "$src/Makefile" || ! -f "$src/main.c" ]]; then
-    echo "missing make-dynpart-mappings source under $src" >&2
-    exit 1
-fi
+build_make_dynpart_mappings() {
+    local src build linker_dir atomic_libs make_args
 
-rm -rf "$build"
-mkdir -p "$build"
-cp -a "$src/." "$build/"
-rm -f "$build/make-dynpart-mappings"
+    src="${SRCDIR:?}/make-dynpart-mappings"
+    build="${BUILDDIR:?}/make-dynpart-mappings"
 
-linker_dir="$build/.linker"
-mkdir -p "$linker_dir"
-shopt -s nullglob
-atomic_libs=("$sysroot"/usr/lib64/libatomic.so.*)
-shopt -u nullglob
-if (( ${#atomic_libs[@]} == 0 )); then
-    echo "missing target libatomic under $sysroot/usr/lib64" >&2
-    exit 1
-fi
-ln -sf "${atomic_libs[0]}" "$linker_dir/libatomic.so"
-cat >"$linker_dir/libatomic_asneeded.so" <<'EOF'
+    if [[ ! -f "$src/Makefile" || ! -f "$src/main.c" ]]; then
+        echo "missing make-dynpart-mappings source under $src" >&2
+        exit 1
+    fi
+
+    rm -rf "$build"
+    mkdir -p "$build"
+    cp -a "$src/." "$build/"
+    rm -f "$build/make-dynpart-mappings"
+
+    linker_dir="$build/.linker"
+    mkdir -p "$linker_dir"
+    shopt -s nullglob
+    atomic_libs=("$sysroot"/usr/lib64/libatomic.so.*)
+    shopt -u nullglob
+    if (( ${#atomic_libs[@]} == 0 )); then
+        echo "missing target libatomic under $sysroot/usr/lib64" >&2
+        exit 1
+    fi
+    ln -sf "${atomic_libs[0]}" "$linker_dir/libatomic.so"
+    cat >"$linker_dir/libatomic_asneeded.so" <<'EOF'
 /* GNU ld script
    Add DT_NEEDED entry for -latomic only if needed. */
 OUTPUT_FORMAT(elf64-littleaarch64)
 INPUT ( AS_NEEDED ( -latomic ) )
 EOF
 
-make_args=(
-    PKG_CONFIG=pkg-config
-    CFLAGS="--sysroot=$sysroot"
-    LDFLAGS="-L$linker_dir --sysroot=$sysroot -Wl,-rpath-link,$sysroot/usr/lib64 -Wl,-rpath-link,$sysroot/lib64"
-)
+    make_args=(
+        PKG_CONFIG=pkg-config
+        CFLAGS="--sysroot=$sysroot"
+        LDFLAGS="-L$linker_dir --sysroot=$sysroot -Wl,-rpath-link,$sysroot/usr/lib64 -Wl,-rpath-link,$sysroot/lib64"
+    )
 
-if [[ "$(uname -m)" != aarch64 ]]; then
-    make_args+=(CROSS_COMPILE="$target_triplet-")
-fi
+    if [[ "$(uname -m)" != aarch64 ]]; then
+        make_args+=(CROSS_COMPILE="$target_triplet-")
+    fi
 
-env \
-    PKG_CONFIG_SYSROOT_DIR="$sysroot" \
-    PKG_CONFIG_LIBDIR="$sysroot/usr/lib64/pkgconfig:$sysroot/usr/lib/pkgconfig:$sysroot/usr/share/pkgconfig" \
-    make -C "$build" "${make_args[@]}"
+    env \
+        PKG_CONFIG_SYSROOT_DIR="$sysroot" \
+        PKG_CONFIG_LIBDIR="$sysroot/usr/lib64/pkgconfig:$sysroot/usr/lib/pkgconfig:$sysroot/usr/share/pkgconfig" \
+        make -C "$build" "${make_args[@]}"
 
-install -Dm755 "$build/make-dynpart-mappings" "${DESTDIR:?}/usr/bin/make-dynpart-mappings"
+    install -Dm755 "$build/make-dynpart-mappings" "${DESTDIR:?}/usr/bin/make-dynpart-mappings"
+}
+
+build_abl_exorcist() {
+    local src build rust_toolchain cargo_env cargo generator_path
+
+    src="${SRCDIR:?}/abl-exorcist"
+    build="${BUILDDIR:?}/abl-exorcist"
+    rust_toolchain=1.96.0
+
+    if [[ ! -f "$src/Cargo.toml" || ! -f "$src/abl-exorcist/Cargo.toml" ]]; then
+        echo "missing abl-exorcist source under $src" >&2
+        exit 1
+    fi
+
+    rm -rf "$build"
+    mkdir -p "$build"
+    cp -a "$src/." "$build/"
+
+    cargo_env=(
+        CARGO_HOME="${BUILDDIR:?}/cargo-home"
+        RUSTUP_HOME="${BUILDDIR:?}/rustup-home"
+    )
+    env "${cargo_env[@]}" rustup toolchain install "$rust_toolchain" --profile minimal \
+        --target "$rust_none_target" \
+        --target "$rust_generator_target"
+    cargo=(env "${cargo_env[@]}" rustup run "$rust_toolchain" cargo)
+
+    "${cargo[@]}" build --locked --release --target "$rust_none_target" -p abl-exorcist --manifest-path "$build/Cargo.toml"
+    llvm-objcopy -O binary \
+        "$build/target/$rust_none_target/release/abl-exorcist" \
+        "$build/abl-exorcist.bin"
+
+    env \
+        "${cargo_env[@]}" \
+        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
+        rustup run "$rust_toolchain" cargo build --locked --release --target "$rust_generator_target" -p abl-exorcist-assembler --manifest-path "$build/Cargo.toml"
+
+    generator_path="$build/target/$rust_generator_target/release/abl-exorcist-assembler"
+    install -Dm644 "$build/abl-exorcist.bin" "${DESTDIR:?}/usr/share/abl-exorcist/abl-exorcist.bin"
+    install -Dm755 "$generator_path" "${DESTDIR:?}/usr/bin/abl-exorcist-generator"
+}
+
+build_make_dynpart_mappings
+build_abl_exorcist
