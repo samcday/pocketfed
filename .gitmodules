@@ -1,0 +1,3 @@
+[submodule "vendor/make-dynpart-mappings"]
+	path = vendor/make-dynpart-mappings
+	url = https://gitlab.com/flamingradian/make-dynpart-mappings.git

@@ -167,17 +167,20 @@ kernel-stage: kernel-build
 kernel-clean:
     rm -rf "{{kernel_build_dir}}" "{{kernel_stage}}"
 
+submodules:
+    git submodule update --init --recursive --depth 1
+
 base-summary:
     {{mkosi}} -C "{{base_dir}}" summary
 
-base-rootfs: kernel-stage
+base-rootfs: kernel-stage submodules
     #!/usr/bin/env bash
     set -euo pipefail
 
     SUDO="{{sudo}}"
     $SUDO {{mkosi}} -f -C "{{base_dir}}" --image-version "{{tag}}" build
 
-base-bootc-rootfs: kernel-stage
+base-bootc-rootfs: kernel-stage submodules
     #!/usr/bin/env bash
     set -euo pipefail
 

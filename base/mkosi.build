@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${ARCHITECTURE:?}" in
+    arm64) target_triplet=aarch64-linux-gnu ;;
+    *)
+        echo "unsupported make-dynpart-mappings target architecture: $ARCHITECTURE" >&2
+        exit 1
+        ;;
+esac
+
+src="${SRCDIR:?}/make-dynpart-mappings"
+build="${BUILDDIR:?}/make-dynpart-mappings"
+sysroot="${BUILDROOT:?}"
+
+if [[ ! -f "$src/Makefile" || ! -f "$src/main.c" ]]; then
+    echo "missing make-dynpart-mappings source under $src" >&2
+    exit 1
+fi
+
+rm -rf "$build"
+mkdir -p "$build"
+cp -a "$src/." "$build/"
+rm -f "$build/make-dynpart-mappings"
+
+linker_dir="$build/.linker"
+mkdir -p "$linker_dir"
+shopt -s nullglob
+atomic_libs=("$sysroot"/usr/lib64/libatomic.so.*)
+shopt -u nullglob
+if (( ${#atomic_libs[@]} == 0 )); then
+    echo "missing target libatomic under $sysroot/usr/lib64" >&2
+    exit 1
+fi
+ln -sf "${atomic_libs[0]}" "$linker_dir/libatomic.so"
+cat >"$linker_dir/libatomic_asneeded.so" <<'EOF'
+/* GNU ld script
+   Add DT_NEEDED entry for -latomic only if needed. */
+OUTPUT_FORMAT(elf64-littleaarch64)
+INPUT ( AS_NEEDED ( -latomic ) )
+EOF
+
+make_args=(
+    PKG_CONFIG=pkg-config
+    CFLAGS="--sysroot=$sysroot"
+    LDFLAGS="-L$linker_dir --sysroot=$sysroot -Wl,-rpath-link,$sysroot/usr/lib64 -Wl,-rpath-link,$sysroot/lib64"
+)
+
+if [[ "$(uname -m)" != aarch64 ]]; then
+    make_args+=(CROSS_COMPILE="$target_triplet-")
+fi
+
+env \
+    PKG_CONFIG_SYSROOT_DIR="$sysroot" \
+    PKG_CONFIG_LIBDIR="$sysroot/usr/lib64/pkgconfig:$sysroot/usr/lib/pkgconfig:$sysroot/usr/share/pkgconfig" \
+    make -C "$build" "${make_args[@]}"
+
+install -Dm755 "$build/make-dynpart-mappings" "${DESTDIR:?}/usr/bin/make-dynpart-mappings"
