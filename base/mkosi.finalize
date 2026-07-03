@@ -24,11 +24,17 @@ mkdir -p "$root/var"
 find "$root/var" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 
 # Recreate only tmpfiles-backed /var entries that should exist at first boot.
-mkdir -p "$root/var/home" "$root/var/lib/rpm-state" "$root/var/roothome" "$root/var/tmp"
-chmod 0755 "$root/var" "$root/var/home" "$root/var/lib" "$root/var/lib/rpm-state"
+mkdir -p "$root/var/home" "$root/var/lib/firmware-updates" "$root/var/lib/rpm-state" "$root/var/roothome" "$root/var/tmp"
+chmod 0755 "$root/var" "$root/var/home" "$root/var/lib" "$root/var/lib/firmware-updates" "$root/var/lib/rpm-state"
 chmod 0700 "$root/var/roothome"
 chmod 1777 "$root/var/tmp"
 ln -snf "../run" "$root/var/run"
+
+# Android firmware extracted on first boot must land in mutable state; /usr is
+# read-only on OSTree deployments, while the kernel still searches this path.
+mkdir -p "$root/usr/lib/firmware"
+rm -rf "$root/usr/lib/firmware/updates"
+ln -snf "/var/lib/firmware-updates" "$root/usr/lib/firmware/updates"
 
 # Keep generated boot/API state out of the rootfs image.
 find "$root/boot" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
@@ -40,6 +46,7 @@ if [[ -f "$root/etc/selinux/targeted/contexts/files/file_contexts" ]] && command
         "$root/etc/.updated" \
         "$root/ostree" \
         "$root/sysroot" \
+        "$root/usr/lib/firmware/updates" \
         "$root/usr/share/rpm" \
         "$root/usr/lib/sysimage/rpm" \
         "$root/var"
