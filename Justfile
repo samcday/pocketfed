@@ -2,6 +2,7 @@ set dotenv-load
 
 mkosi := env("PF_MKOSI", "mkosi")
 sudo := env("PF_SUDO", "sudo")
+podman := env("PF_PODMAN", "podman")
 
 kernel_tree := env("PF_KERNEL_TREE", "vendor/kernel")
 kernel_build_dir := env("PF_KERNEL_BUILD_DIR", ".linux-build")
@@ -23,6 +24,11 @@ oci_output := env("PF_OCI_OUTPUT", "oci:" + base_oci_dir + ":" + tag)
 base := env("PF_DEVICE_BASE", "ghcr.io/samcday/pocketfed-base:rawhide")
 device := env("PF_DEVICE", "")
 image := env("PF_DEVICE_IMAGE", "")
+desktop_base := env("PF_DESKTOP_BASE", "ghcr.io/samcday/pocketfed-base:rawhide")
+desktop := env("PF_DESKTOP", "")
+desktop_image := env("PF_DESKTOP_IMAGE", "")
+desktop_build_image := env("PF_DESKTOP_BUILD_IMAGE", "")
+desktop_pull := env("PF_DESKTOP_PULL", "missing")
 
 default: base
 
@@ -217,6 +223,59 @@ base-oci: base
 
     printf '%s\n' "$oci_dir"
 
+desktop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    desktop="{{desktop}}"
+    base="{{desktop_base}}"
+    image="{{desktop_image}}"
+    build_image="{{desktop_build_image}}"
+    pull="{{desktop_pull}}"
+
+    if [[ -z "$desktop" ]]; then
+        echo "PF_DESKTOP is required" >&2
+        exit 1
+    fi
+    if [[ -z "$image" ]]; then
+        image="ghcr.io/samcday/pocketfed-$desktop:rawhide"
+    fi
+    if [[ -z "$build_image" ]]; then
+        build_image="localhost/pocketfed-$desktop:build"
+    fi
+
+    containerfile="$desktop/Containerfile"
+    if [[ ! -f "$containerfile" ]]; then
+        echo "missing desktop Containerfile: $containerfile" >&2
+        exit 1
+    fi
+
+    {{podman}} build \
+        --arch arm64 \
+        --pull="$pull" \
+        --build-arg "BASE_IMAGE=$base" \
+        -f "$containerfile" \
+        -t "$build_image" \
+        .
+
+    if command -v rpm-ostree >/dev/null 2>&1; then
+        rpm-ostree compose build-chunked-oci \
+            --bootc \
+            --format-version=1 \
+            --from "$build_image" \
+            --output "containers-storage:$image"
+    else
+        graph_root=$({{podman}} info --format '{{ "{{" }}.Store.GraphRoot{{ "}}" }}')
+        {{podman}} run --rm --privileged \
+            -v "$graph_root:/var/lib/containers/storage" \
+            "$build_image" \
+            rpm-ostree compose build-chunked-oci \
+                --bootc \
+                --format-version=1 \
+                --from "$build_image" \
+                --output "containers-storage:$image"
+    fi
+
 device:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -239,7 +298,7 @@ device:
         exit 1
     fi
 
-    podman build \
+    {{podman}} build \
         --arch arm64 \
         --build-arg "BASE_IMAGE=$base" \
         -f "$containerfile" \
@@ -254,6 +313,12 @@ vars:
     @printf 'base_rootfs=%s\n' "{{base_rootfs}}"
     @printf 'base_erofs=%s\n' "{{base_erofs}}"
     @printf 'base_oci_dir=%s\n' "{{base_oci_dir}}"
+    @printf 'desktop=%s\n' "{{desktop}}"
+    @printf 'desktop_base=%s\n' "{{desktop_base}}"
+    @printf 'desktop_image=%s\n' "{{desktop_image}}"
+    @printf 'desktop_build_image=%s\n' "{{desktop_build_image}}"
+    @printf 'desktop_pull=%s\n' "{{desktop_pull}}"
+    @printf 'podman=%s\n' "{{podman}}"
     @printf 'kernel_tree=%s\n' "{{kernel_tree}}"
     @printf 'kernel_build_dir=%s\n' "{{kernel_build_dir}}"
     @printf 'kernel_stage=%s\n' "{{kernel_stage}}"

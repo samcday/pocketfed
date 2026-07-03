@@ -1,0 +1,61 @@
+ARG BASE_IMAGE=ghcr.io/samcday/pocketfed-base:rawhide
+
+FROM ${BASE_IMAGE}
+
+LABEL org.opencontainers.image.title="PocketFed Phosh"
+LABEL org.opencontainers.image.description="PocketFed Phosh desktop layer"
+
+RUN set -eux; \
+    dnf install -y --setopt=install_weak_deps=False \
+        alsa-ucm \
+        alsa-utils \
+        calls \
+        chatty \
+        epiphany \
+        feedbackd \
+        glib-networking \
+        gnome-calculator \
+        gnome-calendar \
+        gnome-clocks \
+        gnome-console \
+        gnome-contacts \
+        gnome-maps \
+        gnome-photos \
+        gnome-software \
+        gstreamer1-plugin-openh264 \
+        gstreamer1-plugins-bad-free \
+        gstreamer1-plugins-good \
+        gstreamer1-plugins-ugly-free \
+        mesa-dri-drivers \
+        NetworkManager-bluetooth \
+        NetworkManager-config-connectivity-fedora \
+        pavucontrol \
+        phoc \
+        phosh \
+        phosh-mobile-settings \
+        phosh-tour \
+        phrog \
+        pinentry-gnome3 \
+        pipewire-alsa \
+        pipewire-gstreamer \
+        pipewire-pulseaudio \
+        pipewire-utils \
+        showtime \
+        stevia \
+        wireplumber \
+        xdg-desktop-portal \
+        xdg-desktop-portal-gtk \
+        xdg-user-dirs-gtk; \
+    dnf clean all
+
+RUN set -eux; \
+    rm -rf /run/dnf /run/samba /run/selinux-policy; \
+    find /tmp /var -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
+    install -d -m0755 /var/home /var/lib /var/lib/rpm-state; \
+    install -d -m0700 /var/roothome; \
+    install -d -m1777 /var/tmp; \
+    ln -snf ../run /var/run; \
+    if [ -e /usr/lib/systemd/system/phrog.service ]; then \
+        systemctl enable phrog.service; \
+    fi; \
+    bootc container lint --no-truncate
