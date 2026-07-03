@@ -1,0 +1,65 @@
+ARG BASE_IMAGE=ghcr.io/samcday/pocketfed-base:rawhide
+ARG FEDORA_IMAGE=quay.io/fedora/fedora:rawhide
+ARG RUST_IMAGE=docker.io/library/rust:1.96-bookworm
+
+FROM ${BASE_IMAGE} AS device-root
+
+FROM device-root AS initrd
+RUN set -eu; \
+    set -- /usr/lib/modules/*; \
+    [ "$#" -eq 1 ]; \
+    [ -d "$1" ]; \
+    kver="${1##*/}"; \
+    install -d /out && \
+    dracut --force --no-hostonly /out/initramfs.img "$kver" && \
+    install -m0644 "/usr/lib/modules/$kver/vmlinuz" /out/vmlinuz && \
+    install -m0644 "/usr/lib/modules/$kver/dtb/qcom/sdm670-google-sargo.dtb" /out/sdm670-google-sargo.dtb && \
+    printf '%s\n' "$kver" >/out/kver
+
+FROM ${RUST_IMAGE} AS abl-exorcist-build
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends llvm && \
+    rm -rf /var/lib/apt/lists/*
+COPY vendor/abl-exorcist /src/abl-exorcist
+RUN rustup target add aarch64-unknown-none && \
+    install -d /out && \
+    cd /src/abl-exorcist && \
+    cargo build --locked --release --target aarch64-unknown-none -p abl-exorcist && \
+    llvm-objcopy -O binary target/aarch64-unknown-none/release/abl-exorcist /out/abl-exorcist.bin && \
+    cargo build --locked --release -p abl-exorcist-assembler && \
+    install -m0755 target/release/abl-exorcist-assembler /out/abl-exorcist-assembler
+
+FROM ${FEDORA_IMAGE} AS bootimg
+RUN dnf install -y android-tools gzip && dnf clean all
+COPY --from=initrd /out /in
+COPY --from=abl-exorcist-build /out/abl-exorcist.bin /tmp/abl-exorcist.bin
+COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/local/bin/abl-exorcist-assembler
+RUN install -d /out && \
+    abl-exorcist-assembler /in/vmlinuz /tmp/abl-exorcist.bin >/tmp/kernel.exorcised && \
+    gzip -n -9 -c /tmp/kernel.exorcised >/tmp/kernel.exorcised.gz && \
+    mkbootimg \
+        --header_version 2 \
+        --pagesize 4096 \
+        --base 0x0 \
+        --kernel_offset 0x00008000 \
+        --ramdisk_offset 0x01000000 \
+        --second_offset 0x00f00000 \
+        --tags_offset 0x00000100 \
+        --dtb_offset 0x01100000 \
+        --dtb /in/sdm670-google-sargo.dtb \
+        --kernel /tmp/kernel.exorcised.gz \
+        --ramdisk /in/initramfs.img \
+        --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true <E>' \
+        -o /out/aboot.img && \
+    install -m0644 /in/initramfs.img /out/initramfs.img && \
+    install -m0644 /in/kver /out/kver
+
+FROM device-root
+COPY --from=bootimg /out /tmp/pocketfed-device
+RUN set -eu; \
+    kver="$(cat /tmp/pocketfed-device/kver)"; \
+    module_dir="/usr/lib/modules/$kver" && \
+    [ -d "$module_dir" ] && \
+    install -m0644 /tmp/pocketfed-device/initramfs.img "$module_dir/initramfs.img" && \
+    install -m0644 /tmp/pocketfed-device/aboot.img "$module_dir/aboot.img" && \
+    rm -rf /tmp/pocketfed-device

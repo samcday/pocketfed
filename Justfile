@@ -20,6 +20,10 @@ base_oci_dir := env("PF_BASE_OCI_DIR", base_output / "pocketfed-base.oci")
 tag := env("PF_TAG", "rawhide")
 oci_output := env("PF_OCI_OUTPUT", "oci:" + base_oci_dir + ":" + tag)
 
+base := env("PF_DEVICE_BASE", "ghcr.io/samcday/pocketfed-base:rawhide")
+device := env("PF_DEVICE", "")
+image := env("PF_DEVICE_IMAGE", "")
+
 default: base
 
 base: kernel-stage
@@ -212,6 +216,35 @@ base-oci: base
     fi
 
     printf '%s\n' "$oci_dir"
+
+device:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    device="{{device}}"
+    base="{{base}}"
+    image="{{image}}"
+
+    if [[ -z "$device" ]]; then
+        echo "device= is required" >&2
+        exit 1
+    fi
+    if [[ -z "$image" ]]; then
+        image="ghcr.io/samcday/pocketfed-$device:rawhide"
+    fi
+
+    containerfile="devices/$device/Containerfile"
+    if [[ ! -f "$containerfile" ]]; then
+        echo "missing device Containerfile: $containerfile" >&2
+        exit 1
+    fi
+
+    podman build \
+        --arch arm64 \
+        --build-arg "BASE_IMAGE=$base" \
+        -f "$containerfile" \
+        -t "$image" \
+        .
 
 base-inspect:
     {{sudo}} skopeo inspect "{{oci_output}}"

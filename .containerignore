@@ -1,0 +1,16 @@
+/.git/
+/.env
+/.linux-build/
+/.linux-src/
+/base/mkosi.builddir/
+/base/mkosi.cache/
+/base/mkosi.local/
+/base/mkosi.output/
+/base/mkosi.tools/
+/base/mkosi.tools.build.cache/
+/base/mkosi.tools.manifest
+/linux/
+/vendor/abl-exorcist/.git
+/vendor/abl-exorcist/target/
+/vendor/make-dynpart-mappings/.git
+/vendor/kernel/
