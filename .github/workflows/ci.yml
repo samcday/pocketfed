@@ -62,9 +62,9 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: .cache/ccache
-          key: ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('Justfile', 'pocketfed-local.config', 'scripts/stage-local-kernel', 'kernel/configs/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('Justfile', '.gitmodules', 'pocketfed-local.config', 'kernel/configs/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('Justfile', 'pocketfed-local.config', 'scripts/stage-local-kernel', 'kernel/configs/**') }}
+            ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('Justfile', '.gitmodules', 'pocketfed-local.config', 'kernel/configs/**') }}
             ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-
 
       - name: Restore mkosi cache
@@ -95,12 +95,6 @@ jobs:
           done
           echo "$CCACHE_WRAPPER_DIR" >> "$GITHUB_PATH"
           ccache --show-config
-
-      - name: Prepare kernel source
-        run: just kernel-fetch
-
-      - name: Build kernel
-        run: just kernel-build
 
       - name: Build base OCI
         run: just base-oci
@@ -189,7 +183,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: .cache/ccache
-          key: ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('Justfile', 'pocketfed-local.config', 'scripts/stage-local-kernel', 'kernel/configs/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('Justfile', '.gitmodules', 'pocketfed-local.config', 'kernel/configs/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Save mkosi cache
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
