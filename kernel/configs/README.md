@@ -18,7 +18,7 @@ profile from `profiles/`:
 
 ```sh
 profile=oneplus-fajita-fedora
-kernel_tree=.linux-src
+kernel_tree=vendor/kernel
 config_root=$PWD/kernel/configs
 mkdir -p /tmp/pocketfed-$profile
 mapfile -t fragments < <(grep -vE '^[[:space:]]*($|#)' "$config_root/profiles/$profile.list")

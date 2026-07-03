@@ -1,35 +1,91 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -euxo pipefail
 
-profile_enabled() {
-    case ",${PROFILES:-}," in
-        *,"$1",*) return 0 ;;
-        *) return 1 ;;
-    esac
+# Hash rewritten OCI blobs so descriptor digests stay valid.
+digest_file() {
+    local file=$1 digest rest
+    read -r digest rest < <(sha256sum "$file")
+    printf '%s' "$digest"
 }
 
-if [[ "${PF_BOOTC_PROFILE:-0}" != 1 ]] && ! profile_enabled bootc; then
-    exit 0
-fi
+# rpm-ostree compose currently emits the host architecture, so patch OCI metadata.
+rewrite_oci_architecture() {
+    local oci_dir=$1 arch=$2 index blobs manifest_refs descriptor manifest_digest manifest_path
+    local config_ref config_digest config_path tmp new_config_digest new_config_size
+    local new_manifest_digest new_manifest_size
 
-rootfs="${OUTPUTDIR:?}/rootfs"
-image_id="${IMAGE_ID:-pocketfed-base}"
+    index="$oci_dir/index.json"
+    blobs="$oci_dir/blobs/sha256"
+
+    mapfile -t manifest_refs < <(jq -r '.manifests[].digest' "$index")
+    for descriptor in "${manifest_refs[@]}"; do
+        [[ "$descriptor" == sha256:* ]] || continue
+        manifest_digest=${descriptor#sha256:}
+        manifest_path="$blobs/$manifest_digest"
+        [[ -f "$manifest_path" ]] || continue
+
+        config_ref=$(jq -r '.config.digest' "$manifest_path")
+        [[ "$config_ref" == sha256:* ]] || continue
+        config_digest=${config_ref#sha256:}
+        config_path="$blobs/$config_digest"
+        [[ -f "$config_path" ]] || continue
+
+        tmp=$(mktemp)
+        jq --arg arch "$arch" '.architecture = $arch | .os = (.os // "linux")' \
+            "$config_path" >"$tmp"
+        new_config_digest=$(digest_file "$tmp")
+        new_config_size=$(stat -c %s "$tmp")
+        install -m0644 "$tmp" "$blobs/$new_config_digest"
+        rm -f "$tmp"
+
+        tmp=$(mktemp)
+        jq \
+            --arg digest "sha256:$new_config_digest" \
+            --argjson size "$new_config_size" \
+            '.config.digest = $digest | .config.size = $size' \
+            "$manifest_path" >"$tmp"
+        new_manifest_digest=$(digest_file "$tmp")
+        new_manifest_size=$(stat -c %s "$tmp")
+        install -m0644 "$tmp" "$blobs/$new_manifest_digest"
+        rm -f "$tmp"
+
+        tmp=$(mktemp)
+        jq \
+            --arg old "sha256:$manifest_digest" \
+            --arg new "sha256:$new_manifest_digest" \
+            --arg arch "$arch" \
+            --argjson size "$new_manifest_size" \
+            '(.manifests[] | select(.digest == $old)) |= (.digest = $new | .size = $size | .platform = ((.platform // {}) + {architecture: $arch, os: (.platform.os? // "linux")}))' \
+            "$index" >"$tmp"
+        mv -f "$tmp" "$index"
+    done
+}
+
+# Match mkosi's default directory output name, which appends ImageVersion.
+output_name="${IMAGE_ID:?}"
+if [[ -n "${IMAGE_VERSION:-}" ]]; then
+    output_name+="_$IMAGE_VERSION"
+fi
+rootfs="$OUTPUTDIR/$output_name"
+
+# Use the image version as the OCI reference; fall back for ad-hoc builds.
 reference="${IMAGE_VERSION:-${RELEASE:-rawhide}}"
-oci_dir="$OUTPUTDIR/$image_id.oci"
 
-if [[ ! -d "$rootfs" ]]; then
-    echo "missing rootfs output: $rootfs" >&2
-    exit 1
-fi
+# Keep the OCI layout filename stable; the reference/tag carries the version.
+oci_dir="$OUTPUTDIR/$IMAGE_ID.oci"
+oci_arch="${PF_OCI_ARCH:-arm64}"
 
+# Fail the mkosi build if bootc detects rootfs problems before compose.
 bootc container lint --rootfs "$rootfs" --no-truncate
 
+# Start from an empty OCI layout so stale blobs do not survive rebuilds.
 rm -rf "$oci_dir"
 mkdir -p "$oci_dir/blobs/sha256"
 printf '{"imageLayoutVersion":"1.0.0"}\n' >"$oci_dir/oci-layout"
 printf '{"schemaVersion":2,"manifests":[]}\n' >"$oci_dir/index.json"
 
-rpm-ostree experimental compose build-chunked-oci \
+# Convert the finalized rootfs directory into a bootc-compatible chunked OCI.
+rpm-ostree compose build-chunked-oci \
     --bootc \
     --format-version=1 \
     --rootfs="$rootfs" \
@@ -40,3 +96,6 @@ rpm-ostree experimental compose build-chunked-oci \
     --label org.opencontainers.image.title="PocketFed Base" \
     --label org.opencontainers.image.description="PocketFed headless base" \
     --label org.opencontainers.image.version="$reference"
+
+# Make the OCI platform match the target image, not the build host.
+rewrite_oci_architecture "$oci_dir" "$oci_arch"

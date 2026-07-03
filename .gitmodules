@@ -4,3 +4,7 @@
 [submodule "vendor/abl-exorcist"]
 	path = vendor/abl-exorcist
 	url = https://github.com/samcday/abl-exorcist.git
+[submodule "vendor/kernel"]
+	path = vendor/kernel
+	url = https://github.com/samcday/linux.git
+	branch = pocketfed/main

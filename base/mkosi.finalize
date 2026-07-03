@@ -1,62 +1,46 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -euxo pipefail
 
 root="${BUILDROOT:?}"
 
+# Mark /etc as initialized; /var is intentionally tmpfiles-owned state.
+echo "TIMESTAMP_NSEC=$SOURCE_DATE_EPOCH" > "$root/etc/.updated"
+
+# Create the ostree anchor expected by bootc/rpm-ostree.
+mkdir -p "$root/sysroot/ostree"
+ln -snf "sysroot/ostree" "$root/ostree"
+
+# Put the RPM database where rpm-ostree compose expects it.
+rm -rf "$root/usr/share/rpm"
+mv "$root/usr/lib/sysimage/rpm" "$root/usr/share/rpm"
+
+# Keep Fedora's RPM DB path as an in-image relative compatibility symlink.
+mkdir -p "$root/usr/lib/sysimage"
+rm -rf "$root/usr/lib/sysimage/rpm"
+ln -snf "../../share/rpm" "$root/usr/lib/sysimage/rpm"
+
+# Drop build-time /var state; bootc only seeds /var from the first image.
+mkdir -p "$root/var"
+find "$root/var" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+
+# Recreate only tmpfiles-backed /var entries that should exist at first boot.
+mkdir -p "$root/var/home" "$root/var/lib/rpm-state" "$root/var/roothome" "$root/var/tmp"
+chmod 0755 "$root/var" "$root/var/home" "$root/var/lib" "$root/var/lib/rpm-state"
+chmod 0700 "$root/var/roothome"
+chmod 1777 "$root/var/tmp"
+ln -snf "../run" "$root/var/run"
+
+# Keep generated boot/API state out of the rootfs image.
 find "$root/boot" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 find "$root/run" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-find "$root/tmp" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-find "$root/var" -mindepth 1 -maxdepth 1 \
-    ! -name home \
-    ! -name lib \
-    ! -name roothome \
-    ! -name run \
-    ! -name tmp \
-    -exec rm -rf -- {} +
-find "$root/var/lib" -mindepth 1 -maxdepth 1 \
-    ! -name rpm-state \
-    ! -name systemd \
-    -exec rm -rf -- {} +
-if [[ -d "$root/var/lib/systemd" ]]; then
-    find "$root/var/lib/systemd" -mindepth 1 -maxdepth 1 ! -name catalog -exec rm -rf -- {} +
-fi
-find "$root/var/tmp" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-rm -rf "$root/buildroot"
 
-if [[ -d "$root/usr/lib/sysimage/rpm" && ! -L "$root/usr/lib/sysimage/rpm" ]]; then
-    mkdir -p "$root/usr/share/rpm"
-    cp -a "$root/usr/lib/sysimage/rpm/." "$root/usr/share/rpm/"
-    rm -rf "$root/usr/lib/sysimage/rpm"
-    ln -snf ../../share/rpm "$root/usr/lib/sysimage/rpm"
-fi
-
-write_update_stamp() {
-    local dir="$1"
-    local rel="${dir#"$root"}"
-    local timestamp_nsec
-
-    timestamp_nsec="$(date -r "$root/usr" +%s%N)"
-
-    printf '%s\n%s\n%s\nTIMESTAMP_NSEC=%s\n' \
-        "# This file was created by pocketfed mkosi.finalize. The timestamp below is the" \
-        "# modification time of /usr/ for which the most recent updates of $rel/ have" \
-        "# been applied. See man:systemd-update-done.service(8) for details." \
-        "$timestamp_nsec" \
-        >"$dir/.updated"
-    touch -r "$root/usr" "$dir/.updated"
-}
-
-touch "$root/usr"
-write_update_stamp "$root/etc"
-write_update_stamp "$root/var"
-
+# Relabel the paths changed here after all final filesystem mutations.
 if [[ -f "$root/etc/selinux/targeted/contexts/files/file_contexts" ]] && command -v setfiles >/dev/null; then
-    relabel_paths=("$root/etc/.updated" "$root/var/.updated")
-    if [[ -L "$root/usr/lib/sysimage/rpm" ]]; then
-        relabel_paths+=("$root/usr/lib/sysimage/rpm")
-    fi
-    if [[ -e "$root/var/lib/systemd/catalog/database" ]]; then
-        relabel_paths+=("$root/var/lib/systemd/catalog/database")
-    fi
-    setfiles -r "$root" -p "$root/etc/selinux/targeted/contexts/files/file_contexts" "${relabel_paths[@]}"
+    setfiles -r "$root" -p "$root/etc/selinux/targeted/contexts/files/file_contexts" \
+        "$root/etc/.updated" \
+        "$root/ostree" \
+        "$root/sysroot" \
+        "$root/usr/share/rpm" \
+        "$root/usr/lib/sysimage/rpm" \
+        "$root/var"
 fi

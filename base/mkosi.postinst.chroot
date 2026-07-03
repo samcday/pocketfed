@@ -1,69 +1,11 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-profile_enabled() {
-    case ",${PROFILES:-}," in
-        *,"$1",*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-bootc_profile=0
-if [[ "${PF_BOOTC_PROFILE:-0}" == 1 ]] || profile_enabled bootc; then
-    bootc_profile=1
-fi
-
-mkdir -p /boot /run /tmp /var
-if ((bootc_profile)); then
-    mkdir -p /sysroot/ostree
-    rm -rf /ostree
-    ln -snf sysroot/ostree /ostree
-else
-    rm -rf /ostree /sysroot/ostree
-fi
-
-if [[ -f /usr/share/selinux/packages/pocketfed-smoo.cil ]]; then
-    semodule -N -s targeted -i /usr/share/selinux/packages/pocketfed-smoo.cil
-fi
-
-if ((bootc_profile)) && [[ -d /usr/lib/modules ]]; then
-    while IFS= read -r -d '' module_dir; do
-        [[ -f "$module_dir/vmlinuz" ]] || continue
-        kver=${module_dir##*/}
-        depmod -a "$kver"
-        dracut --force "$module_dir/initramfs.img" "$kver"
-        : >"$module_dir/aboot.img"
-        chmod 0644 "$module_dir/aboot.img"
-    done < <(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -print0)
-elif [[ -d /usr/lib/modules ]]; then
-    find /usr/lib/modules -mindepth 2 -maxdepth 2 \
-        \( -name initramfs.img -o -name aboot.img \) \
-        -type f -delete
-fi
-
-find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-find /run -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-find /var -mindepth 1 -maxdepth 1 ! -name tmp -exec rm -rf -- {} +
-find /var/tmp -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-rm -rf /buildroot
-
-mkdir -p /var/home /var/lib/rpm-state /var/roothome /var/tmp
-chmod 0755 /var/home /var/lib /var/lib/rpm-state
-chmod 0700 /var/roothome
-chmod 1777 /tmp /var/tmp
-ln -snf ../run /var/run
-
 systemd-sysusers
 ldconfig -X
 systemd-hwdb --usr update
 journalctl --update-catalog
 
-blob_services=(blob-wrangler.service rmtfs.service tqftpserv.service)
-systemctl --root=/ preset "${blob_services[@]}"
-for service in "${blob_services[@]}"; do
-    systemctl --root=/ is-enabled "$service" >/dev/null || {
-        echo "$service is not enabled" >&2
-        exit 1
-    }
-done
+if [[ -f /usr/share/selinux/packages/pocketfed-smoo.cil ]]; then
+    semodule -N -s targeted -i /usr/share/selinux/packages/pocketfed-smoo.cil
+fi
