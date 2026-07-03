@@ -19,12 +19,13 @@ base_erofs := env("PF_BASE_EROFS", base_output / "rootfs.ero")
 base_oci_dir := env("PF_BASE_OCI_DIR", base_output / "pocketfed-base.oci")
 
 tag := env("PF_TAG", "rawhide")
+owner := env("PF_OWNER", "samcday")
 oci_output := env("PF_OCI_OUTPUT", "oci:" + base_oci_dir + ":" + tag)
 
-base := env("PF_DEVICE_BASE", "ghcr.io/samcday/pocketfed-base:rawhide")
+base := env("PF_DEVICE_BASE", "ghcr.io/" + owner + "/pocketfed-phosh:" + tag)
 device := env("PF_DEVICE", "")
 image := env("PF_DEVICE_IMAGE", "")
-desktop_base := env("PF_DESKTOP_BASE", "ghcr.io/samcday/pocketfed-base:rawhide")
+desktop_base := env("PF_DESKTOP_BASE", "ghcr.io/" + owner + "/pocketfed-base:" + tag)
 desktop := env("PF_DESKTOP", "")
 desktop_image := env("PF_DESKTOP_IMAGE", "")
 desktop_build_image := env("PF_DESKTOP_BUILD_IMAGE", "")
@@ -32,14 +33,14 @@ desktop_pull := env("PF_DESKTOP_PULL", "missing")
 
 default: base
 
-base: kernel-stage
+base: (submodule "vendor/make-dynpart-mappings") kernel-stage
     #!/usr/bin/env bash
     set -euo pipefail
 
     SUDO="{{sudo}}"
     $SUDO {{mkosi}} -f -C "{{base_dir}}" --image-version "{{tag}}" build
 
-kernel-build: submodules
+kernel-build: (submodule "vendor/kernel")
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -50,7 +51,7 @@ kernel-build: submodules
 
     if [[ ! -f "$tree/Makefile" ]]; then
         echo "missing kernel tree: $tree" >&2
-        echo "run: just submodules" >&2
+        echo "run: just submodule vendor/kernel" >&2
         echo "or set PF_KERNEL_TREE to an existing kernel checkout" >&2
         exit 1
     fi
@@ -178,8 +179,8 @@ kernel-stage: kernel-build
 kernel-clean:
     rm -rf "{{kernel_build_dir}}" "{{kernel_stage}}"
 
-submodules:
-    git submodule update --init --recursive --depth 1
+submodule path:
+    git submodule update --init --recursive --depth 1 -- "{{path}}"
 
 base-summary:
     {{mkosi}} -C "{{base_dir}}" summary
@@ -238,7 +239,7 @@ desktop:
         exit 1
     fi
     if [[ -z "$image" ]]; then
-        image="ghcr.io/samcday/pocketfed-$desktop:rawhide"
+        image="ghcr.io/{{owner}}/pocketfed-$desktop:{{tag}}"
     fi
     if [[ -z "$build_image" ]]; then
         build_image="localhost/pocketfed-$desktop:build"
@@ -276,7 +277,7 @@ desktop:
                 --output "containers-storage:$image"
     fi
 
-device:
+device: (submodule "vendor/abl-exorcist")
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -289,7 +290,7 @@ device:
         exit 1
     fi
     if [[ -z "$image" ]]; then
-        image="ghcr.io/samcday/pocketfed-$device:rawhide"
+        image="ghcr.io/{{owner}}/pocketfed-phosh-$device:{{tag}}"
     fi
 
     containerfile="devices/$device/Containerfile"
@@ -313,6 +314,7 @@ vars:
     @printf 'base_rootfs=%s\n' "{{base_rootfs}}"
     @printf 'base_erofs=%s\n' "{{base_erofs}}"
     @printf 'base_oci_dir=%s\n' "{{base_oci_dir}}"
+    @printf 'owner=%s\n' "{{owner}}"
     @printf 'desktop=%s\n' "{{desktop}}"
     @printf 'desktop_base=%s\n' "{{desktop_base}}"
     @printf 'desktop_image=%s\n' "{{desktop_image}}"
