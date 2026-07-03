@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+rootdir=/
+options=
+config_path=
+verbose=0
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: aboot-deploy [OPTIONS] aboot_img
+
+Deploy a prebuilt Android boot image for an OSTree Android A/B sysroot.
+
+Options:
+  -c, --config PATH      Accepted for OSTree aboot hook compatibility
+  -o, --options CMDLINE  Kernel options for the deployment being staged
+  -r, --root PATH        OSTree sysroot root (default: /)
+  -v, --verbose          Show progress
+  -h, --help             Show this help
+EOF
+}
+
+die() {
+    printf 'aboot-deploy: %s\n' "$*" >&2
+    exit 1
+}
+
+log() {
+    (( verbose )) || return 0
+    printf 'aboot-deploy: %s\n' "$*" >&2
+}
+
+require_cmd() {
+    command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+cmdline_key() {
+    local cmdline=$1 key=$2 token
+
+    for token in $cmdline; do
+        if [[ "$token" == "$key="* ]]; then
+            printf '%s' "${token#"$key="}"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+root_path() {
+    local path=$1
+    if [[ "$rootdir" == / ]]; then
+        printf '/%s' "${path#/}"
+    else
+        printf '%s/%s' "$rootdir" "${path#/}"
+    fi
+}
+
+resolve_boot_image() {
+    local image=$1
+
+    if [[ "$image" == /* ]]; then
+        root_path "/boot/${image#/}"
+    else
+        root_path "/boot/$image"
+    fi
+}
+
+resolve_ostree_deployment() {
+    local ostree_arg target resolved ostree_root
+
+    ostree_arg=$(cmdline_key "$options" ostree) \
+        || die 'missing ostree= in kernel options passed by OSTree'
+    [[ "$ostree_arg" == /ostree/* ]] \
+        || die "unsupported ostree target outside /ostree: $ostree_arg"
+
+    target=$(root_path "$ostree_arg")
+    [[ -e "$target" || -L "$target" ]] \
+        || die "OSTree target does not exist in sysroot: $ostree_arg"
+
+    resolved=$(realpath "$target")
+    ostree_root=$(root_path /ostree)
+    case "$resolved" in
+        "$ostree_root"/*) ;;
+        *) die "resolved OSTree target escapes /ostree: $resolved" ;;
+    esac
+
+    deployment_rel=${resolved#"$ostree_root"/}
+    log "resolved staged deployment: /ostree/$deployment_rel"
+}
+
+root_link_path() {
+    local slot=$1
+    root_path "/ostree/root.$slot"
+}
+
+has_root_links() {
+    local root_a root_b
+    root_a=$(root_link_path a)
+    root_b=$(root_link_path b)
+    [[ -e "$root_a" || -L "$root_a" || -e "$root_b" || -L "$root_b" ]]
+}
+
+create_root_link() {
+    local slot=$1 target=$2 link tmp
+
+    link=$(root_link_path "$slot")
+    install -d "$(dirname "$link")"
+    tmp="$link.tmp.$$"
+    rm -f "$tmp"
+    ln -s "$target" "$tmp"
+    mv -Tf "$tmp" "$link"
+    log "linked $link -> $target"
+}
+
+current_slot_suffix() {
+    local suffix
+
+    suffix=$(qbootctl -x)
+    suffix=${suffix//$'\n'/}
+    suffix=${suffix//$'\r'/}
+    printf '%s' "$suffix"
+}
+
+select_target_slot() {
+    local suffix=$1
+
+    case "$suffix" in
+        _a | a)
+            current_slot=a
+            target_slot=b
+            target_slot_num=1
+            ;;
+        _b | b)
+            current_slot=b
+            target_slot=a
+            target_slot_num=0
+            ;;
+        *)
+            die "unsupported current slot suffix from qbootctl: $suffix"
+            ;;
+    esac
+
+    target_partition="/dev/disk/by-partlabel/boot_$target_slot"
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        -c | --config)
+            [[ $# -ge 2 ]] || die "$1 requires an argument"
+            config_path=$2
+            shift 2
+            ;;
+        -o | --options)
+            [[ $# -ge 2 ]] || die "$1 requires an argument"
+            options=$2
+            shift 2
+            ;;
+        -r | --root)
+            [[ $# -ge 2 ]] || die "$1 requires an argument"
+            rootdir=$2
+            shift 2
+            ;;
+        -v | --verbose)
+            verbose=1
+            shift
+            ;;
+        -l | --local)
+            die '--local kernel-install mode is not supported by PocketFed aboot-deploy'
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -* )
+            die "unknown option: $1"
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+[[ $# -eq 1 ]] || die 'exactly one aboot image argument is required'
+[[ -n "$options" ]] || die '--options is required'
+
+aboot_arg=$1
+rootdir=$(realpath -m "$rootdir")
+deployment_rel=
+
+resolve_ostree_deployment
+
+if ! has_root_links; then
+    create_root_link a "$deployment_rel"
+    create_root_link b "$deployment_rel"
+    log 'initialized /ostree/root.a and /ostree/root.b; not flashing during first install'
+    exit 0
+fi
+
+require_cmd qbootctl
+require_cmd blockdev
+require_cmd dd
+
+boot_image=$(resolve_boot_image "$aboot_arg")
+[[ -f "$boot_image" ]] || die "missing boot image: $boot_image"
+
+select_target_slot "$(current_slot_suffix)"
+[[ -b "$target_partition" ]] \
+    || die "target boot partition is not a block device: $target_partition"
+
+image_size=$(stat -c %s "$boot_image")
+partition_size=$(blockdev --getsize64 "$target_partition")
+(( image_size <= partition_size )) \
+    || die "boot image is too large for $target_partition: $image_size > $partition_size"
+
+log "writing $boot_image to inactive slot $target_slot ($target_partition); current slot is $current_slot"
+dd if="$boot_image" of="$target_partition" bs=4M conv=fsync status=none
+create_root_link "$target_slot" "$deployment_rel"
+sync
+qbootctl -s "$target_slot_num" >/dev/null
+log "set active slot to $target_slot"
