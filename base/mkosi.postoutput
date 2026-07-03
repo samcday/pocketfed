@@ -1,67 +1,6 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-# Hash rewritten OCI blobs so descriptor digests stay valid.
-digest_file() {
-    local file=$1 digest rest
-    read -r digest rest < <(sha256sum "$file")
-    printf '%s' "$digest"
-}
-
-# rpm-ostree compose currently emits the host architecture, so patch OCI metadata.
-rewrite_oci_architecture() {
-    local oci_dir=$1 arch=$2 index blobs manifest_refs descriptor manifest_digest manifest_path
-    local config_ref config_digest config_path tmp new_config_digest new_config_size
-    local new_manifest_digest new_manifest_size
-
-    index="$oci_dir/index.json"
-    blobs="$oci_dir/blobs/sha256"
-
-    mapfile -t manifest_refs < <(jq -r '.manifests[].digest' "$index")
-    for descriptor in "${manifest_refs[@]}"; do
-        [[ "$descriptor" == sha256:* ]] || continue
-        manifest_digest=${descriptor#sha256:}
-        manifest_path="$blobs/$manifest_digest"
-        [[ -f "$manifest_path" ]] || continue
-
-        config_ref=$(jq -r '.config.digest' "$manifest_path")
-        [[ "$config_ref" == sha256:* ]] || continue
-        config_digest=${config_ref#sha256:}
-        config_path="$blobs/$config_digest"
-        [[ -f "$config_path" ]] || continue
-
-        tmp=$(mktemp)
-        jq --arg arch "$arch" '.architecture = $arch | .os = (.os // "linux")' \
-            "$config_path" >"$tmp"
-        new_config_digest=$(digest_file "$tmp")
-        new_config_size=$(stat -c %s "$tmp")
-        install -m0644 "$tmp" "$blobs/$new_config_digest"
-        rm -f "$tmp"
-
-        tmp=$(mktemp)
-        jq \
-            --arg digest "sha256:$new_config_digest" \
-            --argjson size "$new_config_size" \
-            '.config.digest = $digest | .config.size = $size' \
-            "$manifest_path" >"$tmp"
-        new_manifest_digest=$(digest_file "$tmp")
-        new_manifest_size=$(stat -c %s "$tmp")
-        install -m0644 "$tmp" "$blobs/$new_manifest_digest"
-        rm -f "$tmp"
-
-        tmp=$(mktemp)
-        jq \
-            --arg old "sha256:$manifest_digest" \
-            --arg new "sha256:$new_manifest_digest" \
-            --arg arch "$arch" \
-            --argjson size "$new_manifest_size" \
-            '(.manifests[] | select(.digest == $old)) |= (.digest = $new | .size = $size | .platform = ((.platform // {}) + {architecture: $arch, os: (.platform.os? // "linux")}))' \
-            "$index" >"$tmp"
-        install -m0644 "$tmp" "$index"
-        rm -f "$tmp"
-    done
-}
-
 # Match mkosi's default directory output name, which appends ImageVersion.
 output_name="${IMAGE_ID:?}"
 if [[ -n "${IMAGE_VERSION:-}" ]]; then
@@ -98,8 +37,14 @@ rpm-ostree compose build-chunked-oci \
     --label org.opencontainers.image.description="PocketFed headless base" \
     --label org.opencontainers.image.version="$reference"
 
-# Make the OCI platform match the target image, not the build host.
-rewrite_oci_architecture "$oci_dir" "$oci_arch"
+# Make the OCI config match the target image and provide a useful interactive default.
+umoci config \
+    --image "$oci_dir:$reference" \
+    --no-history \
+    --platform.os linux \
+    --platform.arch "$oci_arch" \
+    --clear=config.cmd \
+    --config.cmd=/usr/bin/bash
 
 # mkosi runs this script as root, but later CI publishing uses the runner user.
 chmod go+rx "$OUTPUTDIR"
