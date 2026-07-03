@@ -57,7 +57,8 @@ rewrite_oci_architecture() {
             --argjson size "$new_manifest_size" \
             '(.manifests[] | select(.digest == $old)) |= (.digest = $new | .size = $size | .platform = ((.platform // {}) + {architecture: $arch, os: (.platform.os? // "linux")}))' \
             "$index" >"$tmp"
-        mv -f "$tmp" "$index"
+        install -m0644 "$tmp" "$index"
+        rm -f "$tmp"
     done
 }
 
@@ -99,3 +100,7 @@ rpm-ostree compose build-chunked-oci \
 
 # Make the OCI platform match the target image, not the build host.
 rewrite_oci_architecture "$oci_dir" "$oci_arch"
+
+# mkosi runs this script as root, but later CI publishing uses the runner user.
+chmod go+rx "$OUTPUTDIR"
+chmod -R go+rX "$oci_dir"

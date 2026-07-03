@@ -206,6 +206,10 @@ base-oci: base
         echo "missing base OCI layout: $oci_dir" >&2
         exit 1
     fi
+    if [[ ! -r "$oci_dir/index.json" ]]; then
+        echo "base OCI index is not readable: $oci_dir/index.json" >&2
+        exit 1
+    fi
 
     printf '%s\n' "$oci_dir"
 
