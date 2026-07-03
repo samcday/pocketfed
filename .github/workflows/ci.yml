@@ -134,6 +134,21 @@ jobs:
           print(f"ccache cacheable invocations: {cacheable}")
           PY
 
+      - name: Pack base OCI artifact
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p .cache/base-oci
+          tar --create --file .cache/base-oci/pocketfed-base.oci.tar.zst --zstd -C base/mkosi.output pocketfed-base.oci
+
+      - name: Upload base OCI artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v5
+        with:
+          name: pocketfed-base-oci
+          path: .cache/base-oci/pocketfed-base.oci.tar.zst
+          retention-days: 1
+          if-no-files-found: error
+
       - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v4
@@ -191,3 +206,102 @@ jobs:
         with:
           path: .cache/mkosi-archives
           key: ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.conf.d/**', 'base/mkosi.build', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**', '.gitmodules', 'vendor/make-dynpart-mappings/**', 'vendor/abl-exorcist/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  phosh-oci:
+    name: Build Phosh OCI
+    runs-on: ubuntu-24.04-arm
+    needs: base-oci
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout pocketfed
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --assume-yes --no-install-recommends \
+            just \
+            podman \
+            skopeo \
+            zstd
+
+      - name: Prepare image refs
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_image="localhost/pocketfed-base:rawhide"
+            phosh_image="localhost/pocketfed-phosh:rawhide"
+          else
+            base_image="ghcr.io/${owner}/pocketfed-base:rawhide"
+            phosh_image="ghcr.io/${owner}/pocketfed-phosh:rawhide"
+          fi
+
+          printf 'PF_CI_BASE_IMAGE=%s\n' "$base_image" >>"$GITHUB_ENV"
+          printf 'PF_CI_PHOSH_IMAGE=%s\n' "$phosh_image" >>"$GITHUB_ENV"
+          printf 'PF_CI_PHOSH_BUILD_IMAGE=%s\n' 'localhost/pocketfed-phosh:build' >>"$GITHUB_ENV"
+          printf 'PF_CI_OWNER=%s\n' "$owner" >>"$GITHUB_ENV"
+
+      - name: Download base OCI artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/download-artifact@v5
+        with:
+          name: pocketfed-base-oci
+          path: .cache/base-oci
+
+      - name: Import PR base OCI
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p .cache/base-oci/unpacked
+          tar --extract --file .cache/base-oci/pocketfed-base.oci.tar.zst --zstd -C .cache/base-oci/unpacked
+          sudo skopeo copy --all \
+            oci:.cache/base-oci/unpacked/pocketfed-base.oci:rawhide \
+            "containers-storage:$PF_CI_BASE_IMAGE"
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        run: |
+          printf '%s\n' '${{ secrets.GITHUB_TOKEN }}' | sudo skopeo login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Pull canonical base OCI
+        if: github.event_name != 'pull_request'
+        run: sudo podman pull --arch arm64 "$PF_CI_BASE_IMAGE"
+
+      - name: Inspect base OCI
+        run: |
+          sudo podman image inspect \
+            --format '{{.Id}} {{.Os}}/{{.Architecture}} {{.RepoTags}}' \
+            "$PF_CI_BASE_IMAGE"
+          sudo skopeo inspect "containers-storage:$PF_CI_BASE_IMAGE"
+          sudo skopeo inspect --config "containers-storage:$PF_CI_BASE_IMAGE"
+
+      - name: Build Phosh OCI
+        run: |
+          PF_PODMAN="sudo podman" \
+          PF_DESKTOP=phosh \
+          PF_DESKTOP_BASE="$PF_CI_BASE_IMAGE" \
+          PF_DESKTOP_IMAGE="$PF_CI_PHOSH_IMAGE" \
+          PF_DESKTOP_BUILD_IMAGE="$PF_CI_PHOSH_BUILD_IMAGE" \
+          PF_DESKTOP_PULL=never \
+          just desktop
+
+      - name: Verify Phosh packages
+        run: |
+          sudo podman run --rm --pull=never --arch arm64 "$PF_CI_PHOSH_IMAGE" \
+            rpm -q phosh phrog calls chatty feedbackd phosh-mobile-settings
+
+      - name: Inspect Phosh OCI
+        run: sudo skopeo inspect "containers-storage:$PF_CI_PHOSH_IMAGE"
+
+      - name: Push Phosh OCI to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          sudo skopeo copy --all \
+            "containers-storage:$PF_CI_PHOSH_IMAGE" \
+            "docker://$PF_CI_PHOSH_IMAGE"
+          sudo skopeo copy --all \
+            "containers-storage:$PF_CI_PHOSH_IMAGE" \
+            "docker://ghcr.io/${PF_CI_OWNER}/pocketfed-phosh:sha-${GITHUB_SHA::12}"
