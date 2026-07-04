@@ -4,3 +4,4 @@ enable rmtfs.service
 enable tqftpserv.service
 enable NetworkManager.service
 enable sshd.service
+enable qbootctl.service
