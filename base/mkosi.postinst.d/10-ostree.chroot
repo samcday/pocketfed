@@ -31,4 +31,5 @@ rm -rf /usr/local
 ln -s ../var/usrlocal /usr/local
 
 # firmware updates needs to be runtime mutable, so we point it into /var
+rmdir /usr/lib/firmware/updates
 ln -s ../../../var/lib/firmware-updates /usr/lib/firmware/updates
