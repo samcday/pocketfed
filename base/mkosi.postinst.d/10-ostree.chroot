@@ -4,7 +4,7 @@ set -uexo pipefail
 # Ensure filesystem layout matches ostree expectations/assumptions.
 
 mkdir -p /sysroot/ostree
-ln -snf sysroot/ostree ostree
+ln -snf sysroot/ostree /ostree
 
 # rpm-ostree expects RPM database to be here
 mv /usr/lib/sysimage/rpm /usr/share/rpm
