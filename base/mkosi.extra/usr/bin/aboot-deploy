@@ -5,6 +5,7 @@ rootdir=/
 options=
 config_path=
 verbose=0
+ostree_root=
 
 usage() {
     cat >&2 <<'EOF'
@@ -68,7 +69,7 @@ resolve_boot_image() {
 }
 
 resolve_ostree_deployment() {
-    local ostree_arg target resolved ostree_root
+    local ostree_arg target resolved
 
     ostree_arg=$(cmdline_key "$options" ostree) \
         || die 'missing ostree= in kernel options passed by OSTree'
@@ -80,7 +81,6 @@ resolve_ostree_deployment() {
         || die "OSTree target does not exist in sysroot: $ostree_arg"
 
     resolved=$(realpath "$target")
-    ostree_root=$(root_path /ostree)
     case "$resolved" in
         "$ostree_root"/*) ;;
         *) die "resolved OSTree target escapes /ostree: $resolved" ;;
@@ -92,7 +92,7 @@ resolve_ostree_deployment() {
 
 root_link_path() {
     local slot=$1
-    root_path "/ostree/root.$slot"
+    printf '%s/root.%s' "$ostree_root" "$slot"
 }
 
 has_root_links() {
@@ -191,6 +191,8 @@ done
 
 aboot_arg=$1
 rootdir=$(realpath -m "$rootdir")
+ostree_root=$(realpath "$(root_path /ostree)") \
+    || die "cannot resolve OSTree root: $(root_path /ostree)"
 deployment_rel=
 
 resolve_ostree_deployment
