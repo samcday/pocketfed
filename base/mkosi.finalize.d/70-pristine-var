@@ -1,0 +1,9 @@
+#!/bin/bash
+set -uexo pipefail
+
+# No idea where this is coming from? We're doing something weird elsewhere,
+# or this is a mkosi bug.
+rm -rf "$BUILDROOT/buildroot"
+
+# Nuke /var. Nothing in here makes it into a staged OSTree deployment. 
+find "$BUILDROOT/var" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +

@@ -1,0 +1,34 @@
+#!/bin/bash
+set -uexo pipefail
+
+# Ensure filesystem layout matches ostree expectations/assumptions.
+
+mkdir -p /sysroot/ostree
+ln -snf sysroot/ostree ostree
+
+# rpm-ostree expects RPM database to be here
+mv /usr/lib/sysimage/rpm /usr/share/rpm
+ln -snf ../../share/rpm /usr/lib/sysimage/rpm
+
+# These all need to point into /var
+rmdir /home
+ln -s var/home /home
+
+rm -rf /root
+ln -s var/roothome /root
+
+rmdir /opt
+ln -s var/opt /opt
+
+rmdir /srv
+ln -s var/srv /srv
+
+rmdir /mnt
+ln -s var/mnt /mnt
+
+# shellcheck disable=SC2114
+rm -rf /usr/local
+ln -s ../var/usrlocal /usr/local
+
+# firmware updates needs to be runtime mutable, so we point it into /var
+ln -s ../../../firmware-updates /usr/lib/firmware/updates

@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-systemd-sysusers
 ldconfig -X
-systemd-hwdb --usr update
-journalctl --update-catalog
-
-if [[ -f /usr/share/selinux/packages/pocketfed-smoo.cil ]]; then
-    semodule -N -s targeted -i /usr/share/selinux/packages/pocketfed-smoo.cil
-fi

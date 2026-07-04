@@ -6,48 +6,6 @@ root="${BUILDROOT:?}"
 # Mark /etc as initialized; /var is intentionally tmpfiles-owned state.
 echo "TIMESTAMP_NSEC=$SOURCE_DATE_EPOCH" > "$root/etc/.updated"
 
-# Create the ostree anchor expected by bootc/rpm-ostree.
-mkdir -p "$root/sysroot/ostree"
-ln -snf "sysroot/ostree" "$root/ostree"
-
-# Put the RPM database where rpm-ostree compose expects it.
-rm -rf "$root/usr/share/rpm"
-mv "$root/usr/lib/sysimage/rpm" "$root/usr/share/rpm"
-
-# Keep Fedora's RPM DB path as an in-image relative compatibility symlink.
-mkdir -p "$root/usr/lib/sysimage"
-rm -rf "$root/usr/lib/sysimage/rpm"
-ln -snf "../../share/rpm" "$root/usr/lib/sysimage/rpm"
-
-# Drop build-time /var state; bootc only seeds /var from the first image.
-mkdir -p "$root/var"
-find "$root/var" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-
-# Recreate only tmpfiles-backed /var entries that should exist at first boot.
-mkdir -p "$root/var/home" "$root/var/lib/firmware-updates" "$root/var/lib/rpm-state" "$root/var/roothome" "$root/var/tmp"
-chmod 0755 "$root/var" "$root/var/home" "$root/var/lib" "$root/var/lib/firmware-updates" "$root/var/lib/rpm-state"
-chmod 0700 "$root/var/roothome"
-chmod 1777 "$root/var/tmp"
-ln -snf "../run" "$root/var/run"
-
-# Android firmware extracted on first boot must land in mutable state; /usr is
-# read-only on OSTree deployments, while the kernel still searches this path.
-mkdir -p "$root/usr/lib/firmware"
-rm -rf "$root/usr/lib/firmware/updates"
-ln -snf "/var/lib/firmware-updates" "$root/usr/lib/firmware/updates"
-
 # Keep generated boot/API state out of the rootfs image.
 find "$root/boot" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 find "$root/run" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-
-# Relabel the paths changed here after all final filesystem mutations.
-if [[ -f "$root/etc/selinux/targeted/contexts/files/file_contexts" ]] && command -v setfiles >/dev/null; then
-    setfiles -r "$root" -p "$root/etc/selinux/targeted/contexts/files/file_contexts" \
-        "$root/etc/.updated" \
-        "$root/ostree" \
-        "$root/sysroot" \
-        "$root/usr/lib/firmware/updates" \
-        "$root/usr/share/rpm" \
-        "$root/usr/lib/sysimage/rpm" \
-        "$root/var"
-fi
