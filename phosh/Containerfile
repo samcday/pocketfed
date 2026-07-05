@@ -5,8 +5,9 @@ FROM ${BASE_IMAGE}
 LABEL org.opencontainers.image.title="PocketFed Phosh"
 LABEL org.opencontainers.image.description="PocketFed Phosh desktop layer"
 
-RUN set -eux; \
-    dnf install -y --setopt=install_weak_deps=False \
+RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=locked \
+    set -eux; \
+    dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True \
         calls \
         chatty \
         epiphany \
@@ -30,8 +31,7 @@ RUN set -eux; \
         stevia \
         xdg-desktop-portal \
         xdg-desktop-portal-gtk \
-        xdg-user-dirs-gtk; \
-    dnf clean all
+        xdg-user-dirs-gtk
 
 RUN set -eux; \
     systemctl enable phrog.service; \

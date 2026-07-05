@@ -5,8 +5,9 @@ FROM ${FEDORA_IMAGE}
 LABEL org.opencontainers.image.title="PocketFed Image Builder"
 LABEL org.opencontainers.image.description="Build PocketFed fastboot artifacts from device OCI images"
 
-RUN set -eux; \
-    dnf install -y --setopt=install_weak_deps=False \
+RUN --mount=type=cache,id=pocketfed-builder-dnf,target=/var/cache,sharing=locked \
+    set -eux; \
+    dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True \
         android-tools \
         bootc \
         coreutils \
@@ -14,8 +15,7 @@ RUN set -eux; \
         jq \
         ostree \
         skopeo \
-        util-linux; \
-    dnf clean all
+        util-linux
 
 COPY builder/bootc-to-fastboot /usr/local/bin/bootc-to-fastboot
 

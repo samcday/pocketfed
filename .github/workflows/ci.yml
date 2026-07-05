@@ -21,6 +21,7 @@ env:
   CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
   CCACHE_MAXSIZE: 2G
   CCACHE_WRAPPER_DIR: ${{ github.workspace }}/.cache/ccache-wrappers
+  PF_BUILDAH_CACHE_DIR: /var/tmp/buildah-cache-0
 
 jobs:
   image-builder:
@@ -42,6 +43,15 @@ jobs:
             just \
             podman \
             skopeo
+
+      - name: Restore Buildah cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ env.PF_BUILDAH_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-buildah-cache-image-builder-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-buildah-cache-image-builder-
+            ${{ runner.os }}-${{ runner.arch }}-buildah-cache-
 
       - name: Prepare image ref
         run: |
@@ -71,6 +81,19 @@ jobs:
           sudo skopeo copy --all \
             "containers-storage:$PF_CI_BUILDER_IMAGE" \
             "docker://ghcr.io/${PF_CI_OWNER}/pocketfed-image-builder:sha-${GITHUB_SHA::12}"
+
+      - name: Prepare Buildah cache for save
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          sudo mkdir -p "$PF_BUILDAH_CACHE_DIR"
+          sudo chmod -R a+rX "$PF_BUILDAH_CACHE_DIR"
+
+      - name: Save Buildah cache
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ env.PF_BUILDAH_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-buildah-cache-image-builder-${{ github.run_id }}-${{ github.run_attempt }}
 
   base-oci:
     name: Build base OCI
@@ -278,6 +301,15 @@ jobs:
             skopeo \
             zstd
 
+      - name: Restore Buildah cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ env.PF_BUILDAH_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-buildah-cache-phosh-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-buildah-cache-phosh-
+            ${{ runner.os }}-${{ runner.arch }}-buildah-cache-
+
       - name: Prepare image refs
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
@@ -374,6 +406,19 @@ jobs:
             "containers-storage:$PF_CI_PHOSH_IMAGE" \
             "docker://ghcr.io/${PF_CI_OWNER}/pocketfed-phosh:sha-${GITHUB_SHA::12}"
 
+      - name: Prepare Buildah cache for save
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          sudo mkdir -p "$PF_BUILDAH_CACHE_DIR"
+          sudo chmod -R a+rX "$PF_BUILDAH_CACHE_DIR"
+
+      - name: Save Buildah cache
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ env.PF_BUILDAH_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-buildah-cache-phosh-${{ github.run_id }}-${{ github.run_attempt }}
+
   device-oci:
     name: Build Device OCI (${{ matrix.device }})
     runs-on: ubuntu-24.04-arm
@@ -401,6 +446,16 @@ jobs:
             podman \
             skopeo \
             zstd
+
+      - name: Restore Buildah cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ env.PF_BUILDAH_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-buildah-cache-device-${{ matrix.device }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-buildah-cache-device-${{ matrix.device }}-
+            ${{ runner.os }}-${{ runner.arch }}-buildah-cache-device-
+            ${{ runner.os }}-${{ runner.arch }}-buildah-cache-
 
       - name: Prepare image refs
         run: |
@@ -482,3 +537,16 @@ jobs:
           sudo skopeo copy --all \
             "containers-storage:$PF_CI_DEVICE_IMAGE" \
             "docker://ghcr.io/${PF_CI_OWNER}/pocketfed-phosh-${PF_CI_DEVICE}:sha-${GITHUB_SHA::12}"
+
+      - name: Prepare Buildah cache for save
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        run: |
+          sudo mkdir -p "$PF_BUILDAH_CACHE_DIR"
+          sudo chmod -R a+rX "$PF_BUILDAH_CACHE_DIR"
+
+      - name: Save Buildah cache
+        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ env.PF_BUILDAH_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-buildah-cache-device-${{ matrix.device }}-${{ github.run_id }}-${{ github.run_attempt }}

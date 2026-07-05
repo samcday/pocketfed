@@ -17,11 +17,19 @@ RUN set -eu; \
     printf '%s\n' "$kver" >/out/kver
 
 FROM ${RUST_IMAGE} AS abl-exorcist-build
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends llvm && \
-    rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=pocketfed-google-sargo-arm64-apt-lists,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    mkdir -p /var/cache/apt/archives/partial /var/lib/apt/lists/partial && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends llvm
 COPY vendor/abl-exorcist /src/abl-exorcist
-RUN rustup target add aarch64-unknown-none && \
+RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=pocketfed-google-sargo-arm64-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=pocketfed-google-sargo-arm64-cargo-target,target=/src/abl-exorcist/target,sharing=locked \
+    --mount=type=cache,id=pocketfed-google-sargo-arm64-rustup-downloads,target=/usr/local/rustup/downloads,sharing=locked \
+    --mount=type=cache,id=pocketfed-google-sargo-arm64-rustup-tmp,target=/usr/local/rustup/tmp,sharing=locked \
+    rustup target add aarch64-unknown-none && \
     install -d /out && \
     cd /src/abl-exorcist && \
     cargo build --locked --release --target aarch64-unknown-none -p abl-exorcist && \
@@ -30,7 +38,8 @@ RUN rustup target add aarch64-unknown-none && \
     install -m0755 target/release/abl-exorcist-assembler /out/abl-exorcist-assembler
 
 FROM ${FEDORA_IMAGE} AS bootimg
-RUN dnf install -y android-tools gzip && dnf clean all
+RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-dnf,target=/var/cache,sharing=locked \
+    dnf install -y --setopt=keepcache=True android-tools gzip
 COPY --from=initrd /out /in
 COPY --from=abl-exorcist-build /out/abl-exorcist.bin /tmp/abl-exorcist.bin
 COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/local/bin/abl-exorcist-assembler
