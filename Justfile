@@ -2,7 +2,6 @@ set dotenv-load
 
 mkosi := env("PF_MKOSI", "mkosi")
 sudo := env("PF_SUDO", "sudo")
-podman := env("PF_PODMAN", "podman")
 
 kernel_tree := env("PF_KERNEL_TREE", "vendor/kernel")
 kernel_build_dir := env("PF_KERNEL_BUILD_DIR", ".linux-build")
@@ -20,12 +19,13 @@ base_oci_dir := env("PF_BASE_OCI_DIR", base_output / "pocketfed-base.oci")
 
 tag := env("PF_TAG", "rawhide")
 owner := env("PF_OWNER", "samcday")
+base_image := env("PF_BASE_IMAGE", "ghcr.io/" + owner + "/pocketfed-base:" + tag)
 oci_output := env("PF_OCI_OUTPUT", "oci:" + base_oci_dir + ":" + tag)
 
 base := env("PF_DEVICE_BASE", "ghcr.io/" + owner + "/pocketfed-phosh:" + tag)
 device := env("PF_DEVICE", "")
 image := env("PF_DEVICE_IMAGE", "")
-desktop_base := env("PF_DESKTOP_BASE", "ghcr.io/" + owner + "/pocketfed-base:" + tag)
+desktop_base := env("PF_DESKTOP_BASE", base_image)
 desktop := env("PF_DESKTOP", "")
 desktop_image := env("PF_DESKTOP_IMAGE", "")
 desktop_build_image := env("PF_DESKTOP_BUILD_IMAGE", "")
@@ -40,6 +40,7 @@ base: (submodule "vendor/make-dynpart-mappings") kernel-stage
 
     SUDO="{{sudo}}"
     $SUDO {{mkosi}} -f -C "{{base_dir}}" --image-version "{{tag}}" build
+    $SUDO skopeo copy --all "{{oci_output}}" "containers-storage:{{base_image}}"
 
 kernel-build: (submodule "vendor/kernel")
     #!/usr/bin/env bash
@@ -209,22 +210,6 @@ base-erofs: base
         $SUDO chown "$(id -u):$(id -g)" "$output"
     fi
 
-base-oci: base
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    oci_dir="{{base_oci_dir}}"
-    if [[ ! -f "$oci_dir/index.json" ]]; then
-        echo "missing base OCI layout: $oci_dir" >&2
-        exit 1
-    fi
-    if [[ ! -r "$oci_dir/index.json" ]]; then
-        echo "base OCI index is not readable: $oci_dir/index.json" >&2
-        exit 1
-    fi
-
-    printf '%s\n' "$oci_dir"
-
 desktop:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -234,6 +219,7 @@ desktop:
     image="{{desktop_image}}"
     build_image="{{desktop_build_image}}"
     pull="{{desktop_pull}}"
+    SUDO="{{sudo}}"
 
     if [[ -z "$desktop" ]]; then
         echo "PF_DESKTOP is required" >&2
@@ -252,7 +238,7 @@ desktop:
         exit 1
     fi
 
-    {{podman}} build \
+    $SUDO podman build \
         --arch arm64 \
         --pull="$pull" \
         --build-arg "BASE_IMAGE=$base" \
@@ -261,14 +247,14 @@ desktop:
         .
 
     if command -v rpm-ostree >/dev/null 2>&1; then
-        rpm-ostree compose build-chunked-oci \
+        $SUDO rpm-ostree compose build-chunked-oci \
             --bootc \
             --format-version=1 \
             --from "$build_image" \
             --output "containers-storage:$image"
     else
-        graph_root=$({{podman}} info --format '{{ "{{" }}.Store.GraphRoot{{ "}}" }}')
-        {{podman}} run --rm --privileged \
+        graph_root=$($SUDO podman info --format '{{ "{{" }}.Store.GraphRoot{{ "}}" }}')
+        $SUDO podman run --rm --privileged \
             -v "$graph_root:/var/lib/containers/storage" \
             "$build_image" \
             rpm-ostree compose build-chunked-oci \
@@ -285,6 +271,7 @@ device: (submodule "vendor/abl-exorcist")
     device="{{device}}"
     base="{{base}}"
     image="{{image}}"
+    SUDO="{{sudo}}"
 
     if [[ -z "$device" ]]; then
         echo "device= is required" >&2
@@ -300,7 +287,7 @@ device: (submodule "vendor/abl-exorcist")
         exit 1
     fi
 
-    {{podman}} build \
+    $SUDO podman build \
         --arch arm64 \
         --build-arg "BASE_IMAGE=$base" \
         -f "$containerfile" \
@@ -308,7 +295,7 @@ device: (submodule "vendor/abl-exorcist")
         .
 
 builder:
-    {{podman}} build \
+    {{sudo}} podman build \
         --pull=missing \
         -f builder/Containerfile \
         -t "{{builder_image}}" \
@@ -322,6 +309,7 @@ vars:
     @printf 'base_rootfs=%s\n' "{{base_rootfs}}"
     @printf 'base_erofs=%s\n' "{{base_erofs}}"
     @printf 'base_oci_dir=%s\n' "{{base_oci_dir}}"
+    @printf 'base_image=%s\n' "{{base_image}}"
     @printf 'owner=%s\n' "{{owner}}"
     @printf 'desktop=%s\n' "{{desktop}}"
     @printf 'desktop_base=%s\n' "{{desktop_base}}"
@@ -329,7 +317,7 @@ vars:
     @printf 'desktop_build_image=%s\n' "{{desktop_build_image}}"
     @printf 'desktop_pull=%s\n' "{{desktop_pull}}"
     @printf 'builder_image=%s\n' "{{builder_image}}"
-    @printf 'podman=%s\n' "{{podman}}"
+    @printf 'sudo=%s\n' "{{sudo}}"
     @printf 'kernel_tree=%s\n' "{{kernel_tree}}"
     @printf 'kernel_build_dir=%s\n' "{{kernel_build_dir}}"
     @printf 'kernel_stage=%s\n' "{{kernel_stage}}"
