@@ -1,0 +1,300 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+registry=${PF_REGISTRY:-ghcr.io}
+owner=${PF_OWNER:-samcday}
+output_dir=${PF_OUTPUT_DIR:-/out}
+size=${PF_IMAGE_SIZE:-8G}
+root_label=${PF_ROOT_LABEL:-pfroot}
+stateroot=${PF_STATEROOT:-pocketfed}
+source_ref=${PF_SOURCE_REF:-install}
+arch=${PF_ARCH:-arm64}
+deploy_arch=${PF_DEPLOY_ARCH:-}
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: bootc-to-fastboot <device> <desktop> [release]
+
+Create fastbootable Android userdata + boot artifacts from a PocketFed
+device-bound bootc/OSTree image. The release defaults to rawhide and outputs
+are written to /out/boot.img and /out/userdata.img.
+
+The source and future update image ref defaults to:
+  ghcr.io/samcday/pocketfed-<desktop>-<device>:<release>
+
+Environment overrides:
+  PF_IMAGE_REF       Full image ref used for both source and target
+  PF_OUTPUT_DIR      Output directory (default: /out)
+  PF_IMAGE_SIZE      Raw userdata image size (default: 8G)
+  PF_REGISTRY        Registry for computed image ref (default: ghcr.io)
+  PF_OWNER           Registry owner for computed image ref (default: samcday)
+EOF
+}
+
+die() {
+    printf 'bootc-to-fastboot: %s\n' "$*" >&2
+    exit 1
+}
+
+log() {
+    printf 'bootc-to-fastboot: %s\n' "$*" >&2
+}
+
+require_cmd() {
+    command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+host_oci_arch() {
+    case "$(uname -m)" in
+        x86_64) printf 'amd64' ;;
+        aarch64) printf 'arm64' ;;
+        armv7l) printf 'arm' ;;
+        *) uname -m ;;
+    esac
+}
+
+source_imgref_for() {
+    local ref=$1
+    case "$ref" in
+        containers-storage:* | docker://* | oci:* | oci-archive:* | docker-archive:* | dir:*)
+            printf '%s' "$ref"
+            ;;
+        *)
+            printf 'docker://%s' "$ref"
+            ;;
+    esac
+}
+
+target_imgref_for() {
+    local ref=$1
+    case "$ref" in
+        docker://*) printf '%s' "${ref#docker://}" ;;
+        *) printf '%s' "$ref" ;;
+    esac
+}
+
+oci_blob_path() {
+    local oci_dir=$1 digest=$2
+    local algo=${digest%%:*}
+    local hash=${digest#*:}
+
+    [[ "$algo" == sha256 ]] || die "unsupported OCI digest algorithm: $digest"
+    printf '%s/blobs/sha256/%s' "$oci_dir" "$hash"
+}
+
+sha256_file() {
+    local hash _
+    read -r hash _ < <(sha256sum "$1")
+    printf '%s' "$hash"
+}
+
+rewrite_oci_platform() {
+    local oci_dir=$1 ref=$2 platform_arch=$3 platform_os=linux
+    local index manifest_digest manifest_file config_digest config_file
+    local tmp_config tmp_manifest tmp_index
+    local new_config_hash new_config_size new_manifest_hash new_manifest_size
+
+    index="$oci_dir/index.json"
+    manifest_digest=$(jq -r --arg ref "$ref" '
+        .manifests as $manifests
+        | ($manifests | map(select(.annotations["org.opencontainers.image.ref.name"] == $ref))) as $matches
+        | if ($matches | length) == 1 then $matches[0].digest
+          elif ($manifests | length) == 1 then $manifests[0].digest
+          else empty end
+    ' "$index")
+    [[ -n "$manifest_digest" ]] || die "cannot identify OCI manifest for ref: $ref"
+
+    manifest_file=$(oci_blob_path "$oci_dir" "$manifest_digest")
+    config_digest=$(jq -r '.config.digest' "$manifest_file")
+    config_file=$(oci_blob_path "$oci_dir" "$config_digest")
+
+    tmp_config=$(mktemp "$oci_dir/.config.XXXXXX")
+    jq --arg arch "$platform_arch" --arg os "$platform_os" \
+        '.architecture = $arch | .os = $os' \
+        "$config_file" >"$tmp_config"
+    new_config_hash=$(sha256_file "$tmp_config")
+    new_config_size=$(stat -c %s "$tmp_config")
+    mv -f "$tmp_config" "$oci_dir/blobs/sha256/$new_config_hash"
+
+    tmp_manifest=$(mktemp "$oci_dir/.manifest.XXXXXX")
+    jq --arg digest "sha256:$new_config_hash" --argjson size "$new_config_size" \
+        '.config.digest = $digest | .config.size = $size' \
+        "$manifest_file" >"$tmp_manifest"
+    new_manifest_hash=$(sha256_file "$tmp_manifest")
+    new_manifest_size=$(stat -c %s "$tmp_manifest")
+    mv -f "$tmp_manifest" "$oci_dir/blobs/sha256/$new_manifest_hash"
+
+    tmp_index=$(mktemp "$oci_dir/.index.XXXXXX")
+    jq \
+        --arg old_digest "$manifest_digest" \
+        --arg new_digest "sha256:$new_manifest_hash" \
+        --arg arch "$platform_arch" \
+        --arg os "$platform_os" \
+        --argjson size "$new_manifest_size" \
+        '(.manifests[] | select(.digest == $old_digest)) |=
+            (.digest = $new_digest | .size = $size | .platform.os = $os | .platform.architecture = $arch)' \
+        "$index" >"$tmp_index"
+    mv -f "$tmp_index" "$index"
+}
+
+set_root_link() {
+    local slot=$1
+    local link tmp_link
+
+    link="$mnt/ostree/root.$slot"
+    tmp_link="$link.tmp.$$"
+    rm -f "$tmp_link"
+    ln -s "$deployment_rel" "$tmp_link"
+    mv -Tf "$tmp_link" "$link"
+}
+
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+    usage
+    exit 0
+fi
+
+(( $# == 2 || $# == 3 )) || {
+    usage
+    die 'expected <device> <desktop> [release]'
+}
+
+device=$1
+desktop=$2
+release=${3:-rawhide}
+[[ -n "$device" ]] || die 'device must not be empty'
+[[ -n "$desktop" ]] || die 'desktop must not be empty'
+[[ -n "$release" ]] || die 'release must not be empty'
+
+image_ref=${PF_IMAGE_REF:-$registry/$owner/pocketfed-$desktop-$device:$release}
+source_imgref=$(source_imgref_for "$image_ref")
+target_imgref=$(target_imgref_for "$image_ref")
+if [[ -z "$deploy_arch" ]]; then
+    deploy_arch=$(host_oci_arch)
+fi
+
+(( EUID == 0 )) || die 'must run as root; use a privileged container or sudo'
+
+require_cmd bootc
+require_cmd skopeo
+require_cmd ostree
+require_cmd jq
+require_cmd sha256sum
+require_cmd truncate
+require_cmd mkfs.ext4
+require_cmd mount
+require_cmd mountpoint
+require_cmd umount
+require_cmd e2fsck
+require_cmd img2simg
+require_cmd realpath
+
+output_dir=$(realpath -m "$output_dir")
+mkdir -p "$output_dir"
+
+boot_img="$output_dir/boot.img"
+sparse_img="$output_dir/userdata.img"
+
+tmp=$(mktemp -d "$output_dir/.bootc-to-fastboot.XXXXXX")
+mnt="$tmp/mnt"
+source_oci="$tmp/source.oci"
+raw_img="$tmp/userdata.raw.img"
+tmp_boot_img="$tmp/boot.img"
+tmp_sparse_img="$tmp/userdata.img"
+mounted=0
+
+cleanup() {
+    set +e
+    if (( mounted )) && mountpoint -q "$mnt"; then
+        umount "$mnt"
+    fi
+    rm -rf "$tmp"
+}
+trap cleanup EXIT
+
+install -d "$mnt"
+
+log "copying $source_imgref to temporary OCI layout"
+skopeo copy \
+    --override-os linux \
+    --override-arch "$arch" \
+    "$source_imgref" \
+    "oci:$source_oci:$source_ref"
+
+# bootc/ostree validate the source image architecture against the installer
+# process architecture. This temporary OCI source is installer-only; the arm64
+# rootfs content and future update ref remain unchanged.
+rewrite_oci_platform "$source_oci" "$source_ref" "$deploy_arch"
+
+log "creating ext4 userdata image"
+truncate -s "$size" "$raw_img"
+mkfs.ext4 -F -L "$root_label" "$raw_img" >/dev/null
+
+log "mounting userdata image"
+mount -o loop "$raw_img" "$mnt"
+mounted=1
+
+bootc_args=(
+    bootc install to-filesystem
+    --source-imgref "oci:$source_oci:$source_ref"
+    --target-imgref "$target_imgref"
+    --root-mount-spec "LABEL=$root_label"
+    --stateroot "$stateroot"
+    --bootloader none
+    --skip-finalize
+    --skip-fetch-check
+    --karg "root=LABEL=$root_label"
+    --karg rw
+    --karg rootwait
+    --karg rootfstype=ext4
+    "$mnt"
+)
+
+log "installing $target_imgref into userdata"
+"${bootc_args[@]}"
+
+deploy_base="$mnt/ostree/deploy/$stateroot/deploy"
+shopt -s nullglob
+deployments=("$deploy_base"/*.0)
+shopt -u nullglob
+(( ${#deployments[@]} == 1 )) || die "expected one deployment under $deploy_base, found ${#deployments[@]}"
+deployment=${deployments[0]}
+deployment_rel=${deployment#"$mnt/ostree/"}
+[[ "$deployment_rel" != "$deployment" ]] || die "deployment path is outside /ostree: $deployment"
+
+log "creating initial Android slot root links"
+set_root_link a
+set_root_link b
+
+shopt -s nullglob
+aboots=("$deployment/usr/lib/modules"/*/aboot.img)
+shopt -u nullglob
+(( ${#aboots[@]} == 1 )) || die "expected one aboot.img in deployment, found ${#aboots[@]}"
+
+log "copying boot image"
+install -m0644 "${aboots[0]}" "$tmp_boot_img"
+
+log "enabling aboot bootloader for future deployments"
+ostree config --repo "$mnt/ostree/repo" set sysroot.bootprefix true
+ostree config --repo "$mnt/ostree/repo" set sysroot.readonly true
+ostree config --repo "$mnt/ostree/repo" set sysroot.bootloader aboot
+
+log "unmounting userdata image"
+sync
+umount "$mnt"
+mounted=0
+
+log "checking ext4 image"
+set +e
+e2fsck -fy "$raw_img"
+e2fsck_rc=$?
+set -e
+(( e2fsck_rc == 0 || e2fsck_rc == 1 )) || die "e2fsck failed with exit code $e2fsck_rc"
+
+log "creating sparse userdata image"
+img2simg "$raw_img" "$tmp_sparse_img"
+
+mv -f "$tmp_boot_img" "$boot_img"
+mv -f "$tmp_sparse_img" "$sparse_img"
+chown "$(stat -c %u "$output_dir"):$(stat -c %g "$output_dir")" "$boot_img" "$sparse_img"
+
+log "wrote $boot_img and $sparse_img"
