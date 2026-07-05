@@ -30,6 +30,7 @@ desktop := env("PF_DESKTOP", "")
 desktop_image := env("PF_DESKTOP_IMAGE", "")
 desktop_build_image := env("PF_DESKTOP_BUILD_IMAGE", "")
 desktop_pull := env("PF_DESKTOP_PULL", "missing")
+builder_image := env("PF_BUILDER_IMAGE", "ghcr.io/" + owner + "/pocketfed-image-builder:" + tag)
 
 default: base
 
@@ -306,6 +307,13 @@ device: (submodule "vendor/abl-exorcist")
         -t "$image" \
         .
 
+builder:
+    {{podman}} build \
+        --pull=missing \
+        -f builder/Containerfile \
+        -t "{{builder_image}}" \
+        .
+
 base-inspect:
     {{sudo}} skopeo inspect "{{oci_output}}"
 
@@ -320,6 +328,7 @@ vars:
     @printf 'desktop_image=%s\n' "{{desktop_image}}"
     @printf 'desktop_build_image=%s\n' "{{desktop_build_image}}"
     @printf 'desktop_pull=%s\n' "{{desktop_pull}}"
+    @printf 'builder_image=%s\n' "{{builder_image}}"
     @printf 'podman=%s\n' "{{podman}}"
     @printf 'kernel_tree=%s\n' "{{kernel_tree}}"
     @printf 'kernel_build_dir=%s\n' "{{kernel_build_dir}}"

@@ -1,0 +1,22 @@
+ARG FEDORA_IMAGE=quay.io/fedora/fedora:rawhide
+
+FROM ${FEDORA_IMAGE}
+
+LABEL org.opencontainers.image.title="PocketFed Image Builder"
+LABEL org.opencontainers.image.description="Build PocketFed fastboot artifacts from device OCI images"
+
+RUN set -eux; \
+    dnf install -y --setopt=install_weak_deps=False \
+        android-tools \
+        bootc \
+        coreutils \
+        e2fsprogs \
+        jq \
+        ostree \
+        skopeo \
+        util-linux; \
+    dnf clean all
+
+COPY builder/bootc-to-fastboot /usr/local/bin/bootc-to-fastboot
+
+ENTRYPOINT ["/usr/local/bin/bootc-to-fastboot"]

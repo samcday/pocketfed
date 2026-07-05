@@ -23,6 +23,56 @@ env:
   CCACHE_WRAPPER_DIR: ${{ github.workspace }}/.cache/ccache-wrappers
 
 jobs:
+  image-builder:
+    name: Build image builder
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout pocketfed
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --assume-yes --no-install-recommends \
+            just \
+            podman \
+            skopeo
+
+      - name: Prepare image ref
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          printf 'PF_CI_BUILDER_IMAGE=%s\n' "ghcr.io/${owner}/pocketfed-image-builder:rawhide" >>"$GITHUB_ENV"
+          printf 'PF_CI_OWNER=%s\n' "$owner" >>"$GITHUB_ENV"
+
+      - name: Build image builder
+        run: |
+          PF_PODMAN="sudo podman" \
+          PF_BUILDER_IMAGE="$PF_CI_BUILDER_IMAGE" \
+          just builder
+
+      - name: Verify image builder
+        run: sudo podman run --rm --pull=never "$PF_CI_BUILDER_IMAGE" --help
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          printf '%s\n' '${{ secrets.GITHUB_TOKEN }}' | sudo skopeo login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Push image builder to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          sudo skopeo copy --all \
+            "containers-storage:$PF_CI_BUILDER_IMAGE" \
+            "docker://$PF_CI_BUILDER_IMAGE"
+          sudo skopeo copy --all \
+            "containers-storage:$PF_CI_BUILDER_IMAGE" \
+            "docker://ghcr.io/${PF_CI_OWNER}/pocketfed-image-builder:sha-${GITHUB_SHA::12}"
+
   base-oci:
     name: Build base OCI
     runs-on: ubuntu-24.04-arm
