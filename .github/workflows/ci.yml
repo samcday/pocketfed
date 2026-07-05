@@ -51,7 +51,6 @@ jobs:
 
       - name: Build image builder
         run: |
-          PF_PODMAN="sudo podman" \
           PF_BUILDER_IMAGE="$PF_CI_BUILDER_IMAGE" \
           just builder
 
@@ -147,7 +146,7 @@ jobs:
           ccache --show-config
 
       - name: Build base OCI
-        run: just base-oci
+        run: just base
 
       - name: Show ccache stats
         if: always()
@@ -330,7 +329,6 @@ jobs:
 
       - name: Build Phosh OCI
         run: |
-          PF_PODMAN="sudo podman" \
           PF_DESKTOP=phosh \
           PF_DESKTOP_BASE="$PF_CI_BASE_IMAGE" \
           PF_DESKTOP_IMAGE="$PF_CI_PHOSH_IMAGE" \
@@ -455,7 +453,6 @@ jobs:
 
       - name: Build Device OCI
         run: |
-          PF_PODMAN="sudo podman" \
           PF_DEVICE="$PF_CI_DEVICE" \
           PF_DEVICE_BASE="$PF_CI_PHOSH_IMAGE" \
           PF_DEVICE_IMAGE="$PF_CI_DEVICE_IMAGE" \
