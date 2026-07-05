@@ -6,6 +6,7 @@
 /base/mkosi.cache/
 /base/mkosi.local/
 /base/mkosi.output/
+/base/mkosi.pkgcache/
 /base/mkosi.tools/
 /base/mkosi.tools.build.cache/
 /base/mkosi.tools.manifest

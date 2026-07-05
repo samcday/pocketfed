@@ -116,24 +116,17 @@ jobs:
       - name: Prepare mkosi submodule
         run: just submodule vendor/make-dynpart-mappings
 
-      - name: Restore mkosi cache
+      - name: Restore mkosi package cache
         uses: actions/cache/restore@v5
         with:
-          path: .cache/mkosi-archives
-          key: ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.conf.d/**', 'base/mkosi.build', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**', '.gitmodules', 'vendor/make-dynpart-mappings/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: base/mkosi.pkgcache
+          key: ${{ runner.os }}-${{ runner.arch }}-mkosi-pkgcache-v1-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.conf.d/**', 'base/mkosi.build', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**', '.gitmodules', 'vendor/make-dynpart-mappings/**') }}
-            ${{ runner.os }}-${{ runner.arch }}-mkosi-
-
-      - name: Unpack mkosi cache
-        run: |
-          archive=".cache/mkosi-archives/mkosi.tar.zst"
-          if [[ -f "$archive" ]]; then
-            sudo tar --extract --file "$archive" --zstd --same-owner --numeric-owner --xattrs --acls --selinux
-          fi
+            ${{ runner.os }}-${{ runner.arch }}-mkosi-pkgcache-v1-
 
       - name: Build base OCI
-        run: just base
+        run: |
+          PF_MKOSI='mkosi -f --wipe-build-dir --cache-only=never' just base
 
       - name: Pack base OCI artifact
         if: github.event_name != 'push'
@@ -167,39 +160,18 @@ jobs:
           skopeo copy --all "$source" "docker://${image}:rawhide"
           skopeo copy --all "$source" "docker://${image}:sha-${GITHUB_SHA::12}"
 
-      - name: Pack mkosi cache
+      - name: Prepare mkosi package cache for save
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         run: |
-          if ! command -v zstd >/dev/null 2>&1; then
-            exit 0
-          fi
+          sudo mkdir -p base/mkosi.pkgcache
+          sudo chmod -R a+rX base/mkosi.pkgcache
 
-          paths=()
-          for path in \
-            base/mkosi.cache \
-            base/mkosi.builddir \
-            base/mkosi.tools \
-            base/mkosi.tools.build.cache \
-            base/mkosi.tools.manifest; do
-            if [[ -e "$path" ]]; then
-              paths+=("$path")
-            fi
-          done
-
-          if (( ${#paths[@]} == 0 )); then
-            exit 0
-          fi
-
-          mkdir -p .cache/mkosi-archives
-          sudo tar --create --file .cache/mkosi-archives/mkosi.tar.zst --zstd --numeric-owner --xattrs --acls --selinux "${paths[@]}"
-          sudo chown "$(id -u):$(id -g)" .cache/mkosi-archives/mkosi.tar.zst
-
-      - name: Save mkosi cache
+      - name: Save mkosi package cache
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: actions/cache/save@v5
         with:
-          path: .cache/mkosi-archives
-          key: ${{ runner.os }}-${{ runner.arch }}-mkosi-${{ hashFiles('base/mkosi.conf', 'base/mkosi.conf.d/**', 'base/mkosi.build', 'base/mkosi.profiles/**', 'base/mkosi.extra/**', 'base/mkosi.sandbox/**', '.gitmodules', 'vendor/make-dynpart-mappings/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: base/mkosi.pkgcache
+          key: ${{ runner.os }}-${{ runner.arch }}-mkosi-pkgcache-v1-${{ github.run_id }}-${{ github.run_attempt }}
 
   phosh-oci:
     name: Build Phosh OCI

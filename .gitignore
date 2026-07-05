@@ -1,6 +1,7 @@
 /base/mkosi.builddir/
 /base/mkosi.cache/
 /base/mkosi.output/
+/base/mkosi.pkgcache/
 /base/mkosi.local/
 /base/mkosi.tools/
 /base/mkosi.tools.build.cache/
