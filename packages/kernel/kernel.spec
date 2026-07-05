@@ -3,11 +3,13 @@
 
 %global commit 8f62f796de277aefff54af1191907927799431fb
 %global shortcommit %(echo %{commit} | cut -c1-12)
+%global buildrel 1
+%global rcver rc1
 %global profile pocketfed-configs/profiles/fedora.list
 
 Name:           kernel
-Version:        7.2~rc1
-Release:        %autorelease
+Version:        7.2.0
+Release:        0.%{rcver}.%{buildrel}.g%{shortcommit}.pocketfed%{?dist}
 Summary:        PocketFed Linux kernel
 License:        GPL-2.0-only
 URL:            https://github.com/samcday/linux
