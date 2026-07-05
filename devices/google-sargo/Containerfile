@@ -28,7 +28,6 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-cargo-registry,target=/us
     --mount=type=cache,id=pocketfed-google-sargo-arm64-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=pocketfed-google-sargo-arm64-cargo-target,target=/src/abl-exorcist/target,sharing=locked \
     --mount=type=cache,id=pocketfed-google-sargo-arm64-rustup-downloads,target=/usr/local/rustup/downloads,sharing=locked \
-    --mount=type=cache,id=pocketfed-google-sargo-arm64-rustup-tmp,target=/usr/local/rustup/tmp,sharing=locked \
     rustup target add aarch64-unknown-none && \
     install -d /out && \
     cd /src/abl-exorcist && \
