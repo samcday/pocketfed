@@ -7,7 +7,7 @@
 %global rcver rc1
 %global profile pocketfed-configs/profiles/fedora.list
 
-Name:           pocketfed-kernel
+Name:           kernel
 Version:        7.2.0
 Release:        0.%{rcver}.%{buildrel}.g%{shortcommit}.pocketfed%{?dist}
 Summary:        PocketFed Linux kernel
