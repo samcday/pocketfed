@@ -16,11 +16,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CCACHE_BASEDIR: ${{ github.workspace }}
-  CCACHE_COMPILERCHECK: content
-  CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
-  CCACHE_MAXSIZE: 2G
-  CCACHE_WRAPPER_DIR: ${{ github.workspace }}/.cache/ccache-wrappers
   PF_BUILDAH_CACHE_DIR: /var/tmp/buildah-cache-0
 
 jobs:
@@ -114,30 +109,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --assume-yes --no-install-recommends \
-            bc \
-            bison \
-            build-essential \
-            ccache \
-            flex \
             just \
-            kmod \
-            libelf-dev \
-            libssl-dev \
-            pkg-config \
             skopeo \
             zstd
 
       - name: Prepare mkosi submodule
         run: just submodule vendor/make-dynpart-mappings
-
-      - name: Restore kernel ccache
-        uses: actions/cache/restore@v5
-        with:
-          path: .cache/ccache
-          key: ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('Justfile', '.gitmodules', 'pocketfed-local.config', 'kernel/configs/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('Justfile', '.gitmodules', 'pocketfed-local.config', 'kernel/configs/**') }}
-            ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-
 
       - name: Restore mkosi cache
         uses: actions/cache/restore@v5
@@ -155,56 +132,8 @@ jobs:
             sudo tar --extract --file "$archive" --zstd --same-owner --numeric-owner --xattrs --acls --selinux
           fi
 
-      - name: Configure ccache
-        run: |
-          mkdir -p "$CCACHE_DIR" "$CCACHE_WRAPPER_DIR"
-          ccache --set-config=max_size="$CCACHE_MAXSIZE"
-          ccache --zero-stats
-          for compiler in cc c++ gcc g++ aarch64-linux-gnu-gcc clang clang++; do
-            if command -v "$compiler" >/dev/null 2>&1; then
-              ln -sf "$(command -v ccache)" "$CCACHE_WRAPPER_DIR/$compiler"
-            fi
-          done
-          echo "$CCACHE_WRAPPER_DIR" >> "$GITHUB_PATH"
-          ccache --show-config
-
       - name: Build base OCI
         run: just base
-
-      - name: Show ccache stats
-        if: always()
-        run: |
-          if command -v ccache >/dev/null 2>&1; then
-            ccache --show-stats
-          fi
-
-      - name: Verify ccache was used
-        run: |
-          python3 - <<'PY'
-          import subprocess
-          import sys
-
-          stats = {}
-          output = subprocess.check_output(["ccache", "--print-stats"], text=True)
-          for line in output.splitlines():
-              if "\t" not in line:
-                  continue
-              key, value = line.split("\t", 1)
-              try:
-                  stats[key] = int(value)
-              except ValueError:
-                  pass
-
-          cacheable = (
-              stats.get("cache_miss", 0)
-              + stats.get("direct_cache_hit", 0)
-              + stats.get("preprocessed_cache_hit", 0)
-          )
-          if cacheable == 0:
-              print("ccache did not see any cacheable compiler invocations", file=sys.stderr)
-              sys.exit(1)
-          print(f"ccache cacheable invocations: {cacheable}")
-          PY
 
       - name: Pack base OCI artifact
         if: github.event_name != 'push'
@@ -264,13 +193,6 @@ jobs:
           mkdir -p .cache/mkosi-archives
           sudo tar --create --file .cache/mkosi-archives/mkosi.tar.zst --zstd --numeric-owner --xattrs --acls --selinux "${paths[@]}"
           sudo chown "$(id -u):$(id -g)" .cache/mkosi-archives/mkosi.tar.zst
-
-      - name: Save kernel ccache
-        if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: actions/cache/save@v5
-        with:
-          path: .cache/ccache
-          key: ${{ runner.os }}-${{ runner.arch }}-kernel-ccache-${{ hashFiles('Justfile', '.gitmodules', 'pocketfed-local.config', 'kernel/configs/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Save mkosi cache
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
