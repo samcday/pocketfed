@@ -4,6 +4,7 @@ ARG RUST_IMAGE=docker.io/library/rust:1.96-bookworm
 
 FROM ${BASE_IMAGE} AS device-root
 COPY devices/google-sargo/samcday-kernel-sdm670-mainline.repo /etc/yum.repos.d/
+COPY devices/google-sargo/dracut.conf /etc/dracut.conf.d/60-google-sargo.conf
 RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/cache,sharing=locked \
     set -eux; \
     set -- $(rpm -qa \
@@ -27,7 +28,13 @@ RUN set -eu; \
     [ -d "$1" ]; \
     kver="${1##*/}"; \
     install -d /out && \
-    dracut --force --no-hostonly /out/initramfs.img "$kver" && \
+    dracut \
+        --force \
+        --hostonly \
+        --hostonly-mode=strict \
+        --no-hostonly-cmdline \
+        --no-hostonly-default-device \
+        /out/initramfs.img "$kver" && \
     install -m0644 "/usr/lib/modules/$kver/vmlinuz" /out/vmlinuz && \
     install -m0644 "/usr/lib/modules/$kver/dtb/qcom/sdm670-google-sargo.dtb" /out/sdm670-google-sargo.dtb && \
     printf '%s\n' "$kver" >/out/kver
