@@ -3,6 +3,22 @@ ARG FEDORA_IMAGE=quay.io/fedora/fedora:rawhide
 ARG RUST_IMAGE=docker.io/library/rust:1.96-bookworm
 
 FROM ${BASE_IMAGE} AS device-root
+COPY devices/google-sargo/samcday-kernel-sdm670-mainline.repo /etc/yum.repos.d/
+RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/cache,sharing=locked \
+    set -eux; \
+    set -- $(rpm -qa \
+        kernel \
+        kernel-core \
+        kernel-modules \
+        kernel-modules-core \
+        kernel-modules-extra \
+        kernel-modules-internal); \
+    if [ "$#" -gt 0 ]; then \
+        dnf remove -y "$@"; \
+    fi; \
+    rm -rf /usr/lib/modules/* /lib/modules/*; \
+    dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True kernel; \
+    find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 
 FROM device-root AS initrd
 RUN set -eu; \

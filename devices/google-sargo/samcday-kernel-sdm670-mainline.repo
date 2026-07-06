@@ -1,0 +1,11 @@
+[copr:copr.fedorainfracloud.org:samcday:kernel-sdm670-mainline]
+name=Copr repo for kernel-sdm670-mainline owned by samcday
+baseurl=https://download.copr.fedorainfracloud.org/results/samcday/kernel-sdm670-mainline/fedora-rawhide-$basearch/
+type=rpm-md
+skip_if_unavailable=False
+gpgcheck=1
+gpgkey=https://download.copr.fedorainfracloud.org/results/samcday/kernel-sdm670-mainline/pubkey.gpg
+repo_gpgcheck=0
+enabled=1
+enabled_metadata=1
+priority=50
