@@ -73,10 +73,10 @@ RUN install -d /out && \
         --pagesize 4096 \
         --base 0x0 \
         --kernel_offset 0x00008000 \
-        --ramdisk_offset 0x01000000 \
+        --ramdisk_offset 0x04000000 \
         --second_offset 0x00f00000 \
         --tags_offset 0x00000100 \
-        --dtb_offset 0x01100000 \
+        --dtb_offset 0x03000000 \
         --dtb /in/sdm670-google-sargo.dtb \
         --kernel /tmp/kernel.exorcised.gz \
         --ramdisk /in/initramfs.img \
