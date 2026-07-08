@@ -54,7 +54,7 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-cargo-registry,target=/us
     rustup target add aarch64-unknown-none && \
     install -d /out && \
     cd /src/abl-exorcist && \
-    cargo build --locked --release --target aarch64-unknown-none -p abl-exorcist && \
+    cargo build --locked --release --target aarch64-unknown-none -p abl-exorcist --features cache-sdm670-experiment && \
     llvm-objcopy -O binary target/aarch64-unknown-none/release/abl-exorcist /out/abl-exorcist.bin && \
     cargo build --locked --release -p abl-exorcist-assembler && \
     install -m0755 target/release/abl-exorcist-assembler /out/abl-exorcist-assembler
@@ -66,8 +66,8 @@ COPY --from=initrd /out /in
 COPY --from=abl-exorcist-build /out/abl-exorcist.bin /tmp/abl-exorcist.bin
 COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/local/bin/abl-exorcist-assembler
 RUN install -d /out && \
-    abl-exorcist-assembler /in/vmlinuz /tmp/abl-exorcist.bin >/tmp/kernel.exorcised && \
-    gzip -n -9 -c /tmp/kernel.exorcised >/tmp/kernel.exorcised.gz && \
+    gzip -n -9 -c /tmp/abl-exorcist.bin >/tmp/abl-exorcist.bin.gz && \
+    abl-exorcist-assembler --ramdisk /in/vmlinuz /in/initramfs.img >/tmp/ablx-ramdisk.img && \
     mkbootimg \
         --header_version 2 \
         --pagesize 4096 \
@@ -78,9 +78,9 @@ RUN install -d /out && \
         --tags_offset 0x00000100 \
         --dtb_offset 0x03000000 \
         --dtb /in/sdm670-google-sargo.dtb \
-        --kernel /tmp/kernel.exorcised.gz \
-        --ramdisk /in/initramfs.img \
-        --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true <E>' \
+        --kernel /tmp/abl-exorcist.bin.gz \
+        --ramdisk /tmp/ablx-ramdisk.img \
+        --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 <E>' \
         -o /out/aboot.img && \
     install -m0644 /in/initramfs.img /out/initramfs.img && \
     install -m0644 /in/kver /out/kver
