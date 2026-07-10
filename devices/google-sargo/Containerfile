@@ -80,7 +80,7 @@ RUN install -d /out && \
         --dtb /in/sdm670-google-sargo.dtb \
         --kernel /tmp/abl-exorcist.bin.gz \
         --ramdisk /tmp/ablx-ramdisk.img \
-        --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 <E>' \
+        --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 sysrq_always_enabled=1 <E>' \
         -o /out/aboot.img && \
     install -m0644 /in/initramfs.img /out/initramfs.img && \
     install -m0644 /in/kver /out/kver
