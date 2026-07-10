@@ -29,6 +29,7 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
         pinentry-gnome3 \
         showtime \
         stevia \
+        upower \
         xdg-desktop-portal \
         xdg-desktop-portal-gtk \
         xdg-user-dirs-gtk
