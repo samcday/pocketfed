@@ -10,6 +10,7 @@ COPY --chmod=0755 devices/google-sargo/pocketfed-swclock-offset /usr/libexec/poc
 COPY devices/google-sargo/pocketfed-swclock-offset.service /usr/lib/systemd/system/
 COPY devices/google-sargo/pocketfed-swclock-offset-save.service /usr/lib/systemd/system/
 COPY devices/google-sargo/pocketfed-swclock-offset-save.timer /usr/lib/systemd/system/
+COPY --chmod=0755 devices/google-sargo/pocketfed-verify-kernel /usr/libexec/
 RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/cache,sharing=locked \
     set -eux; \
     set -- $(rpm -qa \
@@ -29,15 +30,7 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
         --setopt=install_weak_deps=False \
         --setopt=keepcache=True \
         kernel; \
-    set -- /usr/lib/modules/*; \
-    [ "$#" -eq 1 ]; \
-    case "${1##*/}" in \
-        *.pocketfed.sdm670.*) ;; \
-        *) \
-            printf 'unexpected kernel release: %s\n' "${1##*/}" >&2; \
-            exit 1 \
-            ;; \
-    esac; \
+    /usr/libexec/pocketfed-verify-kernel; \
     find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
     systemctl enable \
         pocketfed-swclock-offset.service \

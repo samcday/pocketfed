@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+fail() {
+    printf 'pocketfed kernel verification failed: %s\n' "$*" >&2
+    exit 1
+}
+
+set -- /usr/lib/modules/*
+[ "$#" -eq 1 ] || fail "expected one module directory, found $#"
+[ -d "$1" ] || fail "module directory is missing: $1"
+module_dir="$1"
+kver="${module_dir##*/}"
+
+case "$kver" in
+    7.1.2-0.pocketfed.sdm670.2.fc*.aarch64) ;;
+    *) fail "unexpected release: $kver" ;;
+esac
+
+rpm_kver="$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core)" ||
+    fail 'kernel-core is not installed'
+[ "$rpm_kver" = "$kver" ] ||
+    fail "kernel-core release $rpm_kver does not match module directory $kver"
+
+module="$(find "$module_dir/kernel/drivers/mmc/host" \
+    -type f -name 'sdhci-msm.ko*' -print -quit 2>/dev/null)"
+[ -n "$module" ] || fail 'sdhci_msm module is missing'
+
+vermagic="$(modinfo -F vermagic "$module")" ||
+    fail "cannot read vermagic from $module"
+uts_release="${vermagic%% *}"
+[ "$uts_release" = "$kver" ] ||
+    fail "sdhci_msm vermagic $uts_release does not match module directory $kver"
+
+printf 'verified pocketfed kernel release %s\n' "$kver"
