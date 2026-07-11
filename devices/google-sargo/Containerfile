@@ -5,6 +5,7 @@ ARG RUST_IMAGE=docker.io/library/rust:1.96-bookworm
 FROM ${BASE_IMAGE} AS device-root
 COPY devices/google-sargo/samcday-kernel-sdm670-mainline.repo /etc/yum.repos.d/
 COPY devices/google-sargo/dracut.conf /etc/dracut.conf.d/60-google-sargo.conf
+COPY devices/google-sargo/rpmsg-wwan-blacklist.conf /etc/modprobe.d/
 RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/cache,sharing=locked \
     set -eux; \
     set -- $(rpm -qa \
@@ -80,7 +81,7 @@ RUN install -d /out && \
         --dtb /in/sdm670-google-sargo.dtb \
         --kernel /tmp/abl-exorcist.bin.gz \
         --ramdisk /tmp/ablx-ramdisk.img \
-        --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 sysrq_always_enabled=1 <E>' \
+        --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl <E>' \
         -o /out/aboot.img && \
     install -m0644 /in/initramfs.img /out/initramfs.img && \
     install -m0644 /in/kver /out/kver
