@@ -23,7 +23,21 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
         dnf remove -y "$@"; \
     fi; \
     rm -rf /usr/lib/modules/* /lib/modules/*; \
-    dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True kernel; \
+    dnf install -y \
+        --refresh \
+        --from-repo='copr:copr.fedorainfracloud.org:samcday:kernel-sdm670-mainline' \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        kernel; \
+    set -- /usr/lib/modules/*; \
+    [ "$#" -eq 1 ]; \
+    case "${1##*/}" in \
+        *.pocketfed.sdm670.*) ;; \
+        *) \
+            printf 'unexpected kernel release: %s\n' "${1##*/}" >&2; \
+            exit 1 \
+            ;; \
+    esac; \
     find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
     systemctl enable \
         pocketfed-swclock-offset.service \

@@ -415,6 +415,14 @@ jobs:
               rpm -q kernel;
               set -- /usr/lib/modules/*;
               [ "$#" -eq 1 ];
+              kver="${1##*/}";
+              case "$kver" in
+                *.pocketfed.sdm670.*) ;;
+                *)
+                  printf "unexpected kernel release: %s\n" "$kver" >&2
+                  exit 1
+                  ;;
+              esac;
               [ -f "$1/vmlinuz" ];
               [ -f "$1/dtb/qcom/sdm670-google-sargo.dtb" ];
               [ -f "$1/initramfs.img" ];
