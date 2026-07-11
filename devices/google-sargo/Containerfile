@@ -6,6 +6,10 @@ FROM ${BASE_IMAGE} AS device-root
 COPY devices/google-sargo/samcday-kernel-sdm670-mainline.repo /etc/yum.repos.d/
 COPY devices/google-sargo/dracut.conf /etc/dracut.conf.d/60-google-sargo.conf
 COPY devices/google-sargo/rpmsg-wwan-blacklist.conf /etc/modprobe.d/
+COPY --chmod=0755 devices/google-sargo/pocketfed-swclock-offset /usr/libexec/pocketfed-swclock-offset
+COPY devices/google-sargo/pocketfed-swclock-offset.service /usr/lib/systemd/system/
+COPY devices/google-sargo/pocketfed-swclock-offset-save.service /usr/lib/systemd/system/
+COPY devices/google-sargo/pocketfed-swclock-offset-save.timer /usr/lib/systemd/system/
 RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/cache,sharing=locked \
     set -eux; \
     set -- $(rpm -qa \
@@ -20,7 +24,11 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
     fi; \
     rm -rf /usr/lib/modules/* /lib/modules/*; \
     dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True kernel; \
-    find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+    find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
+    systemctl enable \
+        pocketfed-swclock-offset.service \
+        pocketfed-swclock-offset-save.timer \
+        systemd-timesyncd.service
 
 FROM device-root AS initrd
 RUN set -eu; \

@@ -1,0 +1,19 @@
+[Unit]
+Description=Restore Sargo wall clock from the PM660 RTC counter
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target NetworkManager.service shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+StateDirectory=pocketfed-swclock-offset
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/libexec/pocketfed-swclock-offset restore
+ExecStop=/usr/libexec/pocketfed-swclock-offset save
+TimeoutSec=10s
+
+[Install]
+WantedBy=sysinit.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Save Sargo wall-clock offset after network time synchronization
+After=pocketfed-swclock-offset.service systemd-timesyncd.service
+
+[Service]
+Type=oneshot
+StateDirectory=pocketfed-swclock-offset
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/libexec/pocketfed-swclock-offset save-synchronized

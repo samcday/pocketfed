@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodically save the synchronized Sargo wall-clock offset
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Unit=pocketfed-swclock-offset-save.service
+
+[Install]
+WantedBy=timers.target

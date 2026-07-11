@@ -1,0 +1,142 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly RTC_PATH="${RTC_PATH:-/sys/class/rtc/rtc0/since_epoch}"
+readonly STATE_DIRECTORY="${STATE_DIRECTORY:-/var/lib/pocketfed-swclock-offset}"
+readonly STATE_FILE="$STATE_DIRECTORY/state"
+readonly CLOCK_EPOCH_PATH="${CLOCK_EPOCH_PATH:-/usr/lib/clock-epoch}"
+readonly SYNC_PATH="${SYNC_PATH:-/run/systemd/timesync/synchronized}"
+readonly MAX_COUNTER=4294967295
+readonly FALLBACK_EPOCH=1577836800
+
+log() {
+	printf 'pocketfed-swclock-offset: %s\n' "$*"
+}
+
+is_counter() {
+	[[ "$1" =~ ^[0-9]+$ ]] && (( 10#$1 <= MAX_COUNTER ))
+}
+
+read_rtc() {
+	local value
+
+	if ! IFS= read -r value < "$RTC_PATH" || ! is_counter "$value"; then
+		log "invalid RTC counter at $RTC_PATH"
+		return 1
+	fi
+
+	printf '%s\n' "$value"
+}
+
+read_state() {
+	local extra version saved_rtc saved_wall
+
+	[[ -f "$STATE_FILE" && ! -L "$STATE_FILE" ]] || return 1
+	read -r version saved_rtc saved_wall extra < "$STATE_FILE" || return 1
+	[[ "$version" == 1 && -z "${extra:-}" ]] || return 1
+	is_counter "$saved_rtc" && is_counter "$saved_wall" || return 1
+
+	printf '%s %s\n' "$saved_rtc" "$saved_wall"
+}
+
+clock_epoch() {
+	local value
+
+	value=$(stat -c %Y "$CLOCK_EPOCH_PATH" 2>/dev/null || printf '%s' "$FALLBACK_EPOCH")
+	if ! is_counter "$value"; then
+		value=$FALLBACK_EPOCH
+	fi
+
+	printf '%s\n' "$value"
+}
+
+restore() {
+	local candidate current epoch rtc_now saved_rtc saved_wall state
+
+	rtc_now=$(read_rtc) || return 0
+	if ! state=$(read_state); then
+		log "no valid saved offset"
+		return 0
+	fi
+	read -r saved_rtc saved_wall <<< "$state"
+
+	if (( rtc_now < saved_rtc )); then
+		log "RTC counter reset; refusing stale offset"
+		return 0
+	fi
+
+	candidate=$((saved_wall + rtc_now - saved_rtc))
+	epoch=$(clock_epoch)
+	if (( candidate < epoch || candidate > MAX_COUNTER )); then
+		log "saved offset produces an implausible wall clock"
+		return 0
+	fi
+
+	current=$(date -u +%s)
+	if (( candidate <= current )); then
+		log "system clock is already at or ahead of saved offset"
+		return 0
+	fi
+
+	date -u -s "@$candidate" >/dev/null
+	log "restored wall clock from RTC counter"
+}
+
+save() {
+	local current_delta epoch new_delta old_delta rtc_now state
+	local saved_rtc saved_wall temp wall_now
+
+	if [[ "${1:-}" == synchronized && ! -e "$SYNC_PATH" ]]; then
+		log "network time is not synchronized yet"
+		return 0
+	fi
+
+	rtc_now=$(read_rtc) || return 0
+	wall_now=$(date -u +%s)
+	epoch=$(clock_epoch)
+	if ! is_counter "$wall_now" || (( wall_now < epoch )); then
+		log "system clock is not credible; preserving saved offset"
+		return 0
+	fi
+
+	new_delta=$((wall_now - rtc_now))
+	if state=$(read_state); then
+		read -r saved_rtc saved_wall <<< "$state"
+		if (( rtc_now >= saved_rtc )); then
+			old_delta=$((saved_wall - saved_rtc))
+			current_delta=$((new_delta - old_delta))
+			(( current_delta < 0 )) && current_delta=$((-current_delta))
+			if (( current_delta < 30 )); then
+				log "saved offset is still current"
+				return 0
+			fi
+		fi
+	fi
+
+	install -d -m 0700 "$STATE_DIRECTORY"
+	temp=$(mktemp "$STATE_DIRECTORY/.state.XXXXXX")
+	trap 'rm -f "$temp"' RETURN
+	printf '1 %s %s\n' "$rtc_now" "$wall_now" > "$temp"
+	chmod 0600 "$temp"
+	sync -f "$temp"
+	mv -f "$temp" "$STATE_FILE"
+	sync -f "$STATE_DIRECTORY"
+	trap - RETURN
+	log "saved wall-clock offset"
+}
+
+case "${1:-}" in
+	restore)
+		restore
+		;;
+	save)
+		save
+		;;
+	save-synchronized)
+		save synchronized
+		;;
+	*)
+		printf 'usage: %s {restore|save|save-synchronized}\n' "$0" >&2
+		exit 2
+		;;
+esac
