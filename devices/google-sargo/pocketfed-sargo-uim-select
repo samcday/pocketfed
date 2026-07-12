@@ -1,0 +1,116 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -eu
+
+readonly MODEM_WAIT_SECONDS="${MODEM_WAIT_SECONDS:-45}"
+readonly SIM_WAIT_SECONDS="${SIM_WAIT_SECONDS:-30}"
+readonly QMI_DEVICE="${QMI_DEVICE:-qrtr://0}"
+readonly PREFERRED_SLOT="${PREFERRED_SLOT:-1}"
+
+log() {
+	printf 'pocketfed-sargo-uim-select: %s\n' "$*"
+}
+
+find_usim() {
+	# Sargo's second physical slot is a soldered eUICC that may be present
+	# without a profile. Select an actual USIM application, not merely the
+	# first card that QMI reports as present.
+	awk -v preferred_slot="$PREFERRED_SLOT" '
+		/^Slot \[[0-9][0-9]*\]:$/ {
+			slot = $0
+			sub(/^Slot \[/, "", slot)
+			sub(/\]:$/, "", slot)
+			want_aid = 0
+			next
+		}
+
+		/Application type:/ {
+			want_aid = (slot == preferred_slot && $0 ~ /usim \(2\)/)
+			next
+		}
+
+		want_aid && /Application ID:/ {
+			if (getline <= 0)
+				exit
+
+			gsub(/^[[:space:]]+/, "")
+			gsub(/[[:space:]]+$/, "")
+			if (slot != "" && $0 != "") {
+				print slot " " $0
+				exit
+			}
+			want_aid = 0
+		}
+	'
+}
+
+case "$PREFERRED_SLOT" in
+	''|*[!0-9]*)
+		log "invalid preferred physical slot: ${PREFERRED_SLOT}"
+		exit 1
+		;;
+esac
+
+if ! command -v qmicli >/dev/null 2>&1; then
+	log 'qmicli is not installed'
+	exit 1
+fi
+
+count=0
+while ! qmicli --silent --device="$QMI_DEVICE" --uim-noop >/dev/null 2>&1; do
+	if [ "$count" -ge "$MODEM_WAIT_SECONDS" ]; then
+		log "UIM service did not appear after ${MODEM_WAIT_SECONDS}s; leaving discovery to ModemManager"
+		exit 0
+	fi
+
+	sleep 1
+	count=$((count + 1))
+done
+log "UIM service appeared after ${count}s"
+
+count=0
+selection=
+card_status=
+while [ -z "$selection" ]; do
+	if card_status="$(qmicli --silent --device="$QMI_DEVICE" --uim-get-card-status 2>/dev/null)"; then
+		selection="$(printf '%s\n' "$card_status" | find_usim)"
+	fi
+
+	if [ -n "$selection" ]; then
+		break
+	fi
+
+	if [ "$count" -ge "$SIM_WAIT_SECONDS" ]; then
+		log "no usable USIM application detected after ${SIM_WAIT_SECONDS}s"
+		exit 0
+	fi
+
+	sleep 1
+	count=$((count + 1))
+done
+
+case "$selection" in
+	*' '*)
+		slot=${selection%% *}
+		aid=${selection#* }
+		;;
+	*)
+		log 'could not parse the selected USIM application'
+		exit 1
+		;;
+esac
+
+if ! printf '%s\n' "$card_status" | grep -Eq "Primary GW:.*session doesn't exist"; then
+	log 'clearing the existing Primary-GW provisioning session'
+	if ! qmicli --silent --device="$QMI_DEVICE" \
+		--uim-change-provisioning-session='activate=no,session-type=primary-gw-provisioning' \
+		>/dev/null; then
+		log 'the existing Primary-GW session disappeared while clearing it; continuing'
+	fi
+fi
+
+log "selecting the USIM application in physical slot ${slot}"
+qmicli --silent --device="$QMI_DEVICE" \
+	--uim-change-provisioning-session="slot=${slot},activate=yes,session-type=primary-gw-provisioning,aid=${aid}" \
+	>/dev/null

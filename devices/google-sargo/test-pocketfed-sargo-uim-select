@@ -1,0 +1,103 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+helper="$repo_root/devices/google-sargo/pocketfed-sargo-uim-select"
+fake_bin="$repo_root/devices/google-sargo/tests/bin"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+
+log="$tmp/qmi.log"
+output="$tmp/output"
+state="$tmp/state"
+
+fail() {
+	printf 'sargo UIM helper test failed: %s\n' "$*" >&2
+	exit 1
+}
+
+run_case() {
+	scenario=$1
+	: >"$log"
+	rm -f "$state"
+	env \
+		PATH="$fake_bin:$PATH" \
+		QMI_LOG="$log" \
+		QMI_SCENARIO="$scenario" \
+		QMI_STATE="$state" \
+		MODEM_WAIT_SECONDS=0 \
+		SIM_WAIT_SECONDS="${2:-0}" \
+		sh "$helper" >"$output"
+}
+
+assert_no_changes() {
+	if grep -Fq -- '--uim-change-provisioning-session=' "$log"; then
+		fail "unexpected provisioning change in $1 case"
+	fi
+}
+
+assert_changes() {
+	expected=$1
+	actual="$(grep -F -- '--uim-change-provisioning-session=' "$log" || :)"
+	if [ "$actual" != "$expected" ]; then
+		printf 'expected provisioning changes:\n%s\nactual provisioning changes:\n%s\n' \
+			"$expected" "$actual" >&2
+		exit 1
+	fi
+}
+
+run_case absent
+assert_no_changes absent
+grep -Fq 'UIM service did not appear' "$output" ||
+	fail 'absent modem did not fail open'
+
+run_case blank
+assert_no_changes blank
+grep -Fq 'no usable USIM application detected' "$output" ||
+	fail 'blank eUICC did not fail open'
+
+run_case usim
+assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
+grep -Fq 'selecting the USIM application in physical slot 1' "$output" ||
+	fail 'usable USIM was not selected'
+
+run_case dual
+assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
+grep -Fq 'selecting the USIM application in physical slot 1' "$output" ||
+	fail 'physical USIM was not preferred over the eUICC USIM'
+
+run_case stale
+assert_no_changes stale
+grep -Fq 'no usable USIM application detected' "$output" ||
+	fail 'a stale application ID leaked into physical-slot selection'
+
+run_case delayed 1
+assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
+grep -Fq 'selecting the USIM application in physical slot 1' "$output" ||
+	fail 'delayed physical USIM enumeration was not retried'
+
+run_case existing
+assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=activate=no,session-type=primary-gw-provisioning
+--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
+grep -Fq 'clearing the existing Primary-GW provisioning session' "$output" ||
+	fail 'existing Primary-GW session was not cleared'
+
+run_case deactivate-failure
+assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=activate=no,session-type=primary-gw-provisioning
+--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
+grep -Fq 'existing Primary-GW session disappeared while clearing it' "$output" ||
+	fail 'a disappearing provisioning session did not fail open'
+
+: >"$log"
+if env \
+	PATH="$fake_bin:$PATH" \
+	QMI_LOG="$log" \
+	QMI_SCENARIO=usim \
+	PREFERRED_SLOT=invalid \
+	sh "$helper" >"$output" 2>&1; then
+	fail 'an invalid preferred slot was accepted'
+fi
+grep -Fq 'invalid preferred physical slot' "$output" ||
+	fail 'an invalid preferred slot was not diagnosed'
+
+printf 'sargo UIM helper tests passed\n'

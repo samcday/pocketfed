@@ -1,0 +1,13 @@
+[Unit]
+Description=Select the Sargo USIM application before ModemManager
+Requires=rmtfs.service
+After=rmtfs.service
+Before=ModemManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/pocketfed-sargo-uim-select
+TimeoutStartSec=90s
+
+[Install]
+WantedBy=multi-user.target ModemManager.service

@@ -13,7 +13,7 @@ module_dir="$1"
 kver="${module_dir##*/}"
 
 case "$kver" in
-    7.1.2-0.pocketfed.sdm670.2.fc*.aarch64) ;;
+    7.1.2-0.pocketfed.sdm670.3.fc*.aarch64) ;;
     *) fail "unexpected release: $kver" ;;
 esac
 
@@ -31,5 +31,15 @@ vermagic="$(modinfo -F vermagic "$module")" ||
 uts_release="${vermagic%% *}"
 [ "$uts_release" = "$kver" ] ||
     fail "sdhci_msm vermagic $uts_release does not match module directory $kver"
+
+rmnet_module="$(find "$module_dir/kernel/drivers/net/ethernet/qualcomm/rmnet" \
+    -type f -name 'rmnet.ko*' -print -quit 2>/dev/null)"
+[ -n "$rmnet_module" ] || fail 'rmnet module is missing'
+
+rmnet_vermagic="$(modinfo -F vermagic "$rmnet_module")" ||
+    fail "cannot read vermagic from $rmnet_module"
+rmnet_uts_release="${rmnet_vermagic%% *}"
+[ "$rmnet_uts_release" = "$kver" ] ||
+    fail "rmnet vermagic $rmnet_uts_release does not match module directory $kver"
 
 printf 'verified pocketfed kernel release %s\n' "$kver"

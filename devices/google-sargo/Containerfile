@@ -4,13 +4,18 @@ ARG RUST_IMAGE=docker.io/library/rust:1.96-bookworm
 
 FROM ${BASE_IMAGE} AS device-root
 COPY devices/google-sargo/samcday-kernel-sdm670-mainline.repo /etc/yum.repos.d/
+COPY devices/google-sargo/samcday-pocketfed.repo /etc/yum.repos.d/
 COPY devices/google-sargo/dracut.conf /etc/dracut.conf.d/60-google-sargo.conf
 COPY devices/google-sargo/rpmsg-wwan-blacklist.conf /etc/modprobe.d/
 COPY --chmod=0755 devices/google-sargo/pocketfed-swclock-offset /usr/libexec/pocketfed-swclock-offset
 COPY devices/google-sargo/pocketfed-swclock-offset.service /usr/lib/systemd/system/
 COPY devices/google-sargo/pocketfed-swclock-offset-save.service /usr/lib/systemd/system/
 COPY devices/google-sargo/pocketfed-swclock-offset-save.timer /usr/lib/systemd/system/
+COPY --chmod=0755 devices/google-sargo/pocketfed-sargo-uim-select /usr/libexec/pocketfed-sargo-uim-select
+COPY devices/google-sargo/pocketfed-sargo-uim-select.service /usr/lib/systemd/system/
 COPY --chmod=0755 devices/google-sargo/pocketfed-verify-kernel /usr/libexec/
+# ModemManager 1.24.2 has a netlink transaction use-after-free. The PocketFed
+# build below carries upstream fix c0900eefe196 until Fedora does.
 RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/cache,sharing=locked \
     set -eux; \
     set -- $(rpm -qa \
@@ -25,6 +30,20 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
     fi; \
     rm -rf /usr/lib/modules/* /lib/modules/*; \
     dnf install -y \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        clatd \
+        libqmi-utils; \
+    dnf upgrade -y \
+        --refresh \
+        --from-repo='copr:copr.fedorainfracloud.org:samcday:pocketfed' \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        ModemManager \
+        ModemManager-glib; \
+    rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager | grep -Eq '^1\.24\.2-4\.1\.pocketfed\.fc[0-9]+$'; \
+    test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
+    dnf install -y \
         --refresh \
         --from-repo='copr:copr.fedorainfracloud.org:samcday:kernel-sdm670-mainline' \
         --setopt=install_weak_deps=False \
@@ -33,6 +52,8 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
     /usr/libexec/pocketfed-verify-kernel; \
     find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
     systemctl enable \
+        clatd.service \
+        pocketfed-sargo-uim-select.service \
         pocketfed-swclock-offset.service \
         pocketfed-swclock-offset-save.timer \
         systemd-timesyncd.service

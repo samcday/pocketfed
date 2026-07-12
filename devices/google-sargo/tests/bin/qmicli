@@ -1,0 +1,132 @@
+#!/bin/sh
+set -eu
+
+: "${QMI_LOG:?QMI_LOG is required}"
+: "${QMI_SCENARIO:?QMI_SCENARIO is required}"
+
+printf '%s\n' "$*" >>"$QMI_LOG"
+
+action=
+for arg in "$@"; do
+	case "$arg" in
+		--uim-noop)
+			action=noop
+			;;
+		--uim-get-card-status)
+			action=status
+			;;
+		--uim-change-provisioning-session=*)
+			action=change
+			;;
+	esac
+done
+
+case "$action" in
+	noop)
+		[ "$QMI_SCENARIO" != absent ]
+		;;
+	status)
+		case "$QMI_SCENARIO" in
+			blank)
+				cat <<'EOF'
+Slot [2]:
+  Application type: 'unknown (0)'
+  Application ID:
+Primary GW:   session doesn't exist
+EOF
+				;;
+			usim)
+				cat <<'EOF'
+Slot [1]:
+  Application type: 'usim (2)'
+  Application ID:
+    A0:00:00:00:87:10:02
+Primary GW:   session doesn't exist
+EOF
+				;;
+			dual)
+				cat <<'EOF'
+Slot [2]:
+  Application type: 'usim (2)'
+  Application ID:
+    E0:00:00:00:87:10:04
+Slot [1]:
+  Application type: 'usim (2)'
+  Application ID:
+    A0:00:00:00:87:10:02
+Primary GW: session doesn't exist
+EOF
+				;;
+			stale)
+				cat <<'EOF'
+Slot [1]:
+  Application type: 'usim (2)'
+  Application ID:
+
+  Application type: 'unknown (0)'
+  Application ID:
+    A0:00:00:00:87:10:99
+Slot [2]:
+  Application type: 'unknown (0)'
+  Application ID:
+    E0:00:00:00:87:10:99
+Primary GW: session doesn't exist
+EOF
+				;;
+			delayed)
+				: "${QMI_STATE:?QMI_STATE is required for delayed scenario}"
+				attempt=0
+				if [ -f "$QMI_STATE" ]; then
+					attempt="$(cat "$QMI_STATE")"
+				fi
+				printf '%s\n' "$((attempt + 1))" >"$QMI_STATE"
+				if [ "$attempt" -eq 0 ]; then
+					cat <<'EOF'
+Slot [2]:
+  Application type: 'unknown (0)'
+  Application ID:
+Primary GW: session doesn't exist
+EOF
+				else
+					cat <<'EOF'
+Slot [1]:
+  Application type: 'usim (2)'
+  Application ID:
+    A0:00:00:00:87:10:02
+Primary GW: session doesn't exist
+EOF
+				fi
+				;;
+			existing)
+				cat <<'EOF'
+Slot [1]:
+  Application type: 'usim (2)'
+  Application ID:
+    A0:00:00:00:87:10:02
+Primary GW:   slot 1, application 1
+EOF
+				;;
+			deactivate-failure)
+				cat <<'EOF'
+Slot [1]:
+  Application type: 'usim (2)'
+  Application ID:
+    A0:00:00:00:87:10:02
+Primary GW:   slot 1, application 1
+EOF
+				;;
+			*)
+				exit 2
+				;;
+		esac
+		;;
+	change)
+		if [ "$QMI_SCENARIO" = deactivate-failure ] &&
+		   printf '%s\n' "$*" | grep -Fq 'activate=no'; then
+			exit 1
+		fi
+		;;
+	*)
+		exit 2
+		;;
+esac
