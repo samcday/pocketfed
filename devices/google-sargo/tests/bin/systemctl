@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+: "${SYSTEMCTL_LOG:?SYSTEMCTL_LOG is required}"
+printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"

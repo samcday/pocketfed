@@ -1,0 +1,18 @@
+#!/bin/sh
+
+# Restart CLAT whenever NetworkManager changes the available paths. The rmnet
+# mux is unmanaged, so its useful lifecycle events are device-add/delete rather
+# than connection up/down.
+
+iface=${DEVICE_IFACE:-${1:-}}
+action=${2:-}
+
+[ "$iface" = clat ] && exit 0
+
+case "$action" in
+	up|down|device-add|device-delete)
+		if command -v systemctl >/dev/null 2>&1; then
+			systemctl --no-block restart clatd.service
+		fi
+		;;
+esac

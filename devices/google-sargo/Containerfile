@@ -14,9 +14,9 @@ COPY devices/google-sargo/pocketfed-swclock-offset-save.timer /usr/lib/systemd/s
 COPY --chmod=0755 devices/google-sargo/pocketfed-sargo-uim-select /usr/libexec/pocketfed-sargo-uim-select
 COPY devices/google-sargo/pocketfed-sargo-uim-select.service /usr/lib/systemd/system/
 COPY --chmod=0755 devices/google-sargo/pocketfed-verify-kernel /usr/libexec/
+COPY --chmod=0755 devices/google-sargo/50-clatd /tmp/pocketfed-50-clatd
 # ModemManager 1.24.2 has a netlink transaction use-after-free. The PocketFed
 # build below carries upstream fix c0900eefe196 until Fedora does.
-# Fedora's clatd dispatcher also calls the external `which` command.
 RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/cache,sharing=locked \
     set -eux; \
     set -- $(rpm -qa \
@@ -34,8 +34,9 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
         --setopt=install_weak_deps=False \
         --setopt=keepcache=True \
         clatd \
-        libqmi-utils \
-        which; \
+        libqmi-utils; \
+    install -m0755 /tmp/pocketfed-50-clatd /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
+    rm -f /tmp/pocketfed-50-clatd; \
     dnf upgrade -y \
         --refresh \
         --from-repo='copr:copr.fedorainfracloud.org:samcday:pocketfed' \
@@ -45,7 +46,7 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
         ModemManager-glib; \
     rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager | grep -Eq '^1\.24\.2-4\.1\.pocketfed\.fc[0-9]+$'; \
     test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
-    command -v which; \
+    grep -Fq 'up|down|device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
     dnf install -y \
         --refresh \
         --from-repo='copr:copr.fedorainfracloud.org:samcday:kernel-sdm670-mainline' \

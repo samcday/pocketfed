@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+helper="$repo_root/devices/google-sargo/50-clatd"
+fake_bin="$repo_root/devices/google-sargo/tests/bin"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+log="$tmp/systemctl.log"
+
+assert_restart() {
+	iface=$1
+	action=$2
+	: >"$log"
+	DEVICE_IFACE="$iface" SYSTEMCTL_LOG="$log" PATH="$fake_bin:$PATH" \
+		"$helper" "$iface" "$action"
+	grep -Fxq -- '--no-block restart clatd.service' "$log"
+}
+
+assert_ignored() {
+	iface=$1
+	action=$2
+	: >"$log"
+	DEVICE_IFACE="$iface" SYSTEMCTL_LOG="$log" PATH="$fake_bin:$PATH" \
+		"$helper" "$iface" "$action"
+	test ! -s "$log"
+}
+
+for action in up down device-add device-delete; do
+	assert_restart qmapmux0.0 "$action"
+done
+
+for action in dhcp4-change connectivity-change hostname; do
+	assert_ignored qmapmux0.0 "$action"
+done
+
+assert_ignored clat device-add
+
+printf '%s\n' 'sargo CLAT dispatcher tests passed'
