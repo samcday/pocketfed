@@ -9,10 +9,18 @@ action=${2:-}
 
 [ "$iface" = clat ] && exit 0
 
+restart=
 case "$action" in
-	up|down|device-add|device-delete)
-		if command -v systemctl >/dev/null 2>&1; then
-			systemctl --no-block restart clatd.service
-		fi
+	up|down)
+		restart=1
+		;;
+	device-add|device-delete)
+		case "$iface" in
+			qmapmux*|rmnet*) restart=1 ;;
+		esac
 		;;
 esac
+
+if [ -n "$restart" ] && command -v systemctl >/dev/null 2>&1; then
+	systemctl --no-block restart clatd.service
+fi

@@ -26,8 +26,14 @@ assert_ignored() {
 	test ! -s "$log"
 }
 
-for action in up down device-add device-delete; do
+for action in up down; do
 	assert_restart qmapmux0.0 "$action"
+done
+
+for iface in qmapmux0.0 rmnet_ipa0; do
+	for action in device-add device-delete; do
+		assert_restart "$iface" "$action"
+	done
 done
 
 for action in dhcp4-change connectivity-change hostname; do
@@ -35,5 +41,7 @@ for action in dhcp4-change connectivity-change hostname; do
 done
 
 assert_ignored clat device-add
+assert_ignored tailscale0 device-add
+assert_ignored wlan0 device-delete
 
 printf '%s\n' 'sargo CLAT dispatcher tests passed'

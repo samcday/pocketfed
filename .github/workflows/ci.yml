@@ -424,7 +424,8 @@ jobs:
               rpm -q libqmi-utils;
               rpm -q --qf "%{VERSION}-%{RELEASE}\n" ModemManager | grep -Eq "^1\\.24\\.2-4\\.1\\.pocketfed\\.fc[0-9]+$";
               test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd;
-              grep -Fq "up|down|device-add|device-delete)" /usr/lib/NetworkManager/dispatcher.d/50-clatd;
+              grep -Fq "device-add|device-delete)" /usr/lib/NetworkManager/dispatcher.d/50-clatd;
+              grep -Fq "qmapmux*|rmnet*)" /usr/lib/NetworkManager/dispatcher.d/50-clatd;
               systemctl is-enabled clatd.service;
               test -x /usr/libexec/pocketfed-sargo-uim-select;
               systemctl is-enabled pocketfed-sargo-uim-select.service;

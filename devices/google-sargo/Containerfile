@@ -46,7 +46,8 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
         ModemManager-glib; \
     rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager | grep -Eq '^1\.24\.2-4\.1\.pocketfed\.fc[0-9]+$'; \
     test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
-    grep -Fq 'up|down|device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
+    grep -Fq 'device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
+    grep -Fq 'qmapmux*|rmnet*)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
     dnf install -y \
         --refresh \
         --from-repo='copr:copr.fedorainfracloud.org:samcday:kernel-sdm670-mainline' \
