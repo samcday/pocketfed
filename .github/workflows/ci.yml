@@ -37,6 +37,9 @@ jobs:
       - name: Test Sargo CLAT dispatcher
         run: devices/google-sargo/test-pocketfed-clat-dispatcher
 
+      - name: Test Sargo USB signaller policy
+        run: devices/google-sargo/test-pocketfed-usb-signaller-policy
+
       - name: Install host dependencies
         run: |
           sudo apt-get update

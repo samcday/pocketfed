@@ -2,6 +2,7 @@
 /.env
 /.linux-build/
 /.linux-src/
+/out/
 /base/mkosi.builddir/
 /base/mkosi.cache/
 /base/mkosi.local/

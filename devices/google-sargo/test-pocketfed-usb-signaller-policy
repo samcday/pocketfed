@@ -1,0 +1,22 @@
+#!/bin/sh
+
+set -eu
+
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+device_dir="$repo_root/devices/google-sargo"
+containerfile="$device_dir/Containerfile"
+policy="$device_dir/usb-signaller-sargo.conf"
+dropin="$device_dir/usb-signaller.service.d/10-pocketfed-sargo.conf"
+repo="$device_dir/samcday-usb-signaller.repo"
+
+grep -Fxq 'USB_SIGNALLER_AUTO_MODE=developer_mode' "$policy"
+grep -Fxq 'EnvironmentFile=' "$dropin"
+grep -Fxq 'EnvironmentFile=/usr/lib/pocketfed/usb-signaller-sargo.conf' "$dropin"
+grep -Fxq 'includepkgs=usb-signaller' "$repo"
+grep -Fxq 'enabled=0' "$repo"
+grep -Fq "usb_signaller_nevra='usb-signaller-0.3.0-1.20260713172459428921.stabilizesargo.usb.lab.impl.17.gbf2f2d6.fc45.aarch64'" "$containerfile"
+grep -Fq 'usb-signaller.service;' "$containerfile"
+grep -Fq -- "--enable-repo='copr:copr.fedorainfracloud.org:samcday:usb-signaller'" "$containerfile"
+grep -Fq 'usb-moded-developer-mode.service)" = static' "$containerfile"
+
+printf 'PocketFed sargo usb-signaller policy tests passed\n'
