@@ -35,6 +35,11 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
         --setopt=keepcache=True \
         clatd \
         libqmi-utils; \
+    # Tailscale's IPv6 mangle hook uses the same nftables priority as clatd
+    # and masks packet marks. Run clatd one step later so its full return-path
+    # mark is the last value written before policy routing.
+    sed -i 's/priority mangle; }/priority mangle + 1; }/' /usr/bin/clatd; \
+    grep -Fq 'priority mangle + 1; }' /usr/bin/clatd; \
     install -m0755 /tmp/pocketfed-50-clatd /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
     rm -f /tmp/pocketfed-50-clatd; \
     dnf upgrade -y \
@@ -48,6 +53,7 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
     test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
     grep -Fq 'device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
     grep -Fq 'qmapmux*|rmnet*)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
+    grep -Fq 'priority mangle + 1; }' /usr/bin/clatd; \
     dnf install -y \
         --refresh \
         --from-repo='copr:copr.fedorainfracloud.org:samcday:kernel-sdm670-mainline' \

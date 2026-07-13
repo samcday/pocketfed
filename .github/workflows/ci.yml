@@ -426,6 +426,7 @@ jobs:
               test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd;
               grep -Fq "device-add|device-delete)" /usr/lib/NetworkManager/dispatcher.d/50-clatd;
               grep -Fq "qmapmux*|rmnet*)" /usr/lib/NetworkManager/dispatcher.d/50-clatd;
+              grep -Fq "priority mangle + 1; }" /usr/bin/clatd;
               systemctl is-enabled clatd.service;
               test -x /usr/libexec/pocketfed-sargo-uim-select;
               systemctl is-enabled pocketfed-sargo-uim-select.service;
