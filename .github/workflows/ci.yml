@@ -274,7 +274,27 @@ jobs:
       - name: Verify Phosh packages
         run: |
           sudo podman run --rm --pull=never --arch arm64 "$PF_CI_PHOSH_IMAGE" \
-            rpm -q phosh phrog calls chatty feedbackd phosh-mobile-settings
+            sh -euxc '
+              rpm -q phosh phrog calls chatty feedbackd phosh-mobile-settings \
+                gnome-control-center gnome-keyring gnome-keyring-pam nautilus
+              test -x /usr/bin/gnome-control-center
+              test -x /usr/bin/nautilus
+              test -x /usr/bin/gnome-keyring-daemon
+              test -f /usr/share/applications/org.gnome.Settings.desktop
+              test -f /usr/share/applications/org.gnome.Nautilus.desktop
+              grep -Eq "^OnlyShowIn=.*GNOME(;|$)" \
+                /usr/share/applications/org.gnome.Settings.desktop
+              grep -Eq "^DesktopNames=.*GNOME(;|$)" \
+                /usr/share/wayland-sessions/phosh.desktop
+              test -f /usr/share/xdg-desktop-portal/portals/gnome-keyring.portal
+              test -f /usr/share/dbus-1/services/org.freedesktop.impl.portal.Secret.service
+              grep -Fqx "org.freedesktop.impl.portal.Secret=gnome-keyring;" \
+                /usr/share/xdg-desktop-portal/phosh-portals.conf
+              grep -Fqx "Interfaces=org.freedesktop.impl.portal.Secret" \
+                /usr/share/xdg-desktop-portal/portals/gnome-keyring.portal
+              test -f /usr/lib64/security/pam_gnome_keyring.so
+              grep -Fq "pam_gnome_keyring.so" /etc/pam.d/phosh
+            '
 
       - name: Inspect Phosh OCI
         run: sudo skopeo inspect "containers-storage:$PF_CI_PHOSH_IMAGE"

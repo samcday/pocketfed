@@ -18,9 +18,13 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
         gnome-clocks \
         gnome-console \
         gnome-contacts \
+        gnome-control-center \
+        gnome-keyring \
+        gnome-keyring-pam \
         gnome-maps \
         gnome-photos \
         gnome-software \
+        nautilus \
         phoc \
         phosh \
         phosh-mobile-settings \
