@@ -276,7 +276,10 @@ jobs:
           sudo podman run --rm --pull=never --arch arm64 "$PF_CI_PHOSH_IMAGE" \
             sh -euxc '
               rpm -q phosh phrog calls chatty feedbackd phosh-mobile-settings \
+                default-fonts-core-emoji google-noto-color-emoji-fonts \
                 gnome-control-center gnome-keyring gnome-keyring-pam nautilus
+              test "$(fc-match --format="%{family[0]}|%{color}" emoji)" = \
+                "Noto Color Emoji|True"
               test -x /usr/bin/gnome-control-center
               test -x /usr/bin/nautilus
               test -x /usr/bin/gnome-keyring-daemon

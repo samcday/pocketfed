@@ -10,6 +10,7 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
     dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True \
         calls \
         chatty \
+        default-fonts-core-emoji \
         epiphany \
         feedbackd \
         glib-networking \
