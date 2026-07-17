@@ -21,7 +21,7 @@ env:
 jobs:
   image-builder:
     name: Build image builder
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
 
     steps:
@@ -356,6 +356,7 @@ jobs:
       matrix:
         device:
           - google-sargo
+          - google-crosshatch
 
     steps:
       - name: Checkout pocketfed
@@ -440,32 +441,9 @@ jobs:
           just device
 
       - name: Verify Device OCI
-        run: |
-          sudo podman run --rm --pull=never --arch arm64 "$PF_CI_DEVICE_IMAGE" \
-            sh -eux -c '
-              rpm -q phosh upower upower-libs;
-              systemctl is-enabled upower.service;
-              rpm -q kernel;
-              rpm -q clatd tayga;
-              rpm -q libqmi-utils;
-              rpm -q --qf "%{VERSION}-%{RELEASE}\n" ModemManager | grep -Eq "^1\\.24\\.2-4\\.1\\.pocketfed\\.fc[0-9]+$";
-              test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd;
-              grep -Fq "device-add|device-delete)" /usr/lib/NetworkManager/dispatcher.d/50-clatd;
-              grep -Fq "qmapmux*|rmnet*)" /usr/lib/NetworkManager/dispatcher.d/50-clatd;
-              grep -Fq "priority mangle + 1; }" /usr/bin/clatd;
-              systemctl is-enabled clatd.service;
-              test -x /usr/libexec/pocketfed-sargo-uim-select;
-              systemctl is-enabled pocketfed-sargo-uim-select.service;
-              test -L /etc/systemd/system/ModemManager.service.wants/pocketfed-sargo-uim-select.service;
-              /usr/libexec/pocketfed-verify-kernel;
-              set -- /usr/lib/modules/*;
-              [ "$#" -eq 1 ];
-              kver="${1##*/}";
-              [ -f "$1/vmlinuz" ];
-              [ -f "$1/dtb/qcom/sdm670-google-sargo.dtb" ];
-              [ -f "$1/initramfs.img" ];
-              [ -f "$1/aboot.img" ];
-            '
+        run: >-
+          sudo podman run --rm --pull=never --arch arm64
+          "$PF_CI_DEVICE_IMAGE" /usr/libexec/pocketfed-verify-oci
 
       - name: Inspect Device OCI
         run: sudo skopeo inspect "containers-storage:$PF_CI_DEVICE_IMAGE"

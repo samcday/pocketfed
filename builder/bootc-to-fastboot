@@ -9,7 +9,7 @@ root_label=${PF_ROOT_LABEL:-pfroot}
 stateroot=${PF_STATEROOT:-pocketfed}
 source_ref=${PF_SOURCE_REF:-install}
 arch=${PF_ARCH:-arm64}
-deploy_arch=${PF_DEPLOY_ARCH:-}
+root_ssh_authorized_keys=${PF_ROOT_SSH_AUTHORIZED_KEYS:-}
 
 usage() {
     cat >&2 <<'EOF'
@@ -23,9 +23,15 @@ The source and future update image ref defaults to:
   ghcr.io/samcday/pocketfed-<desktop>-<device>:<release>
 
 Environment overrides:
-  PF_IMAGE_REF       Full image ref used for both source and target
+  PF_IMAGE_REF       Default image ref used for both source and target
+  PF_SOURCE_IMAGE_REF
+                     Skopeo source image ref (overrides PF_IMAGE_REF)
+  PF_TARGET_IMAGE_REF
+                     Future update image ref (overrides PF_IMAGE_REF)
   PF_OUTPUT_DIR      Output directory (default: /out)
   PF_IMAGE_SIZE      Raw userdata image size (default: 8G)
+  PF_ROOT_SSH_AUTHORIZED_KEYS
+                     Path to an authorized_keys file to inject for root
   PF_REGISTRY        Registry for computed image ref (default: ghcr.io)
   PF_OWNER           Registry owner for computed image ref (default: samcday)
 EOF
@@ -73,70 +79,6 @@ target_imgref_for() {
     esac
 }
 
-oci_blob_path() {
-    local oci_dir=$1 digest=$2
-    local algo=${digest%%:*}
-    local hash=${digest#*:}
-
-    [[ "$algo" == sha256 ]] || die "unsupported OCI digest algorithm: $digest"
-    printf '%s/blobs/sha256/%s' "$oci_dir" "$hash"
-}
-
-sha256_file() {
-    local hash _
-    read -r hash _ < <(sha256sum "$1")
-    printf '%s' "$hash"
-}
-
-rewrite_oci_platform() {
-    local oci_dir=$1 ref=$2 platform_arch=$3 platform_os=linux
-    local index manifest_digest manifest_file config_digest config_file
-    local tmp_config tmp_manifest tmp_index
-    local new_config_hash new_config_size new_manifest_hash new_manifest_size
-
-    index="$oci_dir/index.json"
-    manifest_digest=$(jq -r --arg ref "$ref" '
-        .manifests as $manifests
-        | ($manifests | map(select(.annotations["org.opencontainers.image.ref.name"] == $ref))) as $matches
-        | if ($matches | length) == 1 then $matches[0].digest
-          elif ($manifests | length) == 1 then $manifests[0].digest
-          else empty end
-    ' "$index")
-    [[ -n "$manifest_digest" ]] || die "cannot identify OCI manifest for ref: $ref"
-
-    manifest_file=$(oci_blob_path "$oci_dir" "$manifest_digest")
-    config_digest=$(jq -r '.config.digest' "$manifest_file")
-    config_file=$(oci_blob_path "$oci_dir" "$config_digest")
-
-    tmp_config=$(mktemp "$oci_dir/.config.XXXXXX")
-    jq --arg arch "$platform_arch" --arg os "$platform_os" \
-        '.architecture = $arch | .os = $os' \
-        "$config_file" >"$tmp_config"
-    new_config_hash=$(sha256_file "$tmp_config")
-    new_config_size=$(stat -c %s "$tmp_config")
-    mv -f "$tmp_config" "$oci_dir/blobs/sha256/$new_config_hash"
-
-    tmp_manifest=$(mktemp "$oci_dir/.manifest.XXXXXX")
-    jq --arg digest "sha256:$new_config_hash" --argjson size "$new_config_size" \
-        '.config.digest = $digest | .config.size = $size' \
-        "$manifest_file" >"$tmp_manifest"
-    new_manifest_hash=$(sha256_file "$tmp_manifest")
-    new_manifest_size=$(stat -c %s "$tmp_manifest")
-    mv -f "$tmp_manifest" "$oci_dir/blobs/sha256/$new_manifest_hash"
-
-    tmp_index=$(mktemp "$oci_dir/.index.XXXXXX")
-    jq \
-        --arg old_digest "$manifest_digest" \
-        --arg new_digest "sha256:$new_manifest_hash" \
-        --arg arch "$platform_arch" \
-        --arg os "$platform_os" \
-        --argjson size "$new_manifest_size" \
-        '(.manifests[] | select(.digest == $old_digest)) |=
-            (.digest = $new_digest | .size = $size | .platform.os = $os | .platform.architecture = $arch)' \
-        "$index" >"$tmp_index"
-    mv -f "$tmp_index" "$index"
-}
-
 set_root_link() {
     local slot=$1
     local link tmp_link
@@ -166,10 +108,18 @@ release=${3:-rawhide}
 [[ -n "$release" ]] || die 'release must not be empty'
 
 image_ref=${PF_IMAGE_REF:-$registry/$owner/pocketfed-$desktop-$device:$release}
-source_imgref=$(source_imgref_for "$image_ref")
-target_imgref=$(target_imgref_for "$image_ref")
-if [[ -z "$deploy_arch" ]]; then
-    deploy_arch=$(host_oci_arch)
+source_image_ref=${PF_SOURCE_IMAGE_REF:-$image_ref}
+target_image_ref=${PF_TARGET_IMAGE_REF:-$image_ref}
+source_imgref=$(source_imgref_for "$source_image_ref")
+target_imgref=$(target_imgref_for "$target_image_ref")
+installer_arch=$(host_oci_arch)
+[[ "$installer_arch" == "$arch" ]] ||
+    die "image builder architecture $installer_arch does not match target $arch"
+if [[ -n "$root_ssh_authorized_keys" ]]; then
+    [[ -f "$root_ssh_authorized_keys" ]] ||
+        die "root SSH authorized_keys file does not exist: $root_ssh_authorized_keys"
+    [[ -s "$root_ssh_authorized_keys" ]] ||
+        die "root SSH authorized_keys file is empty: $root_ssh_authorized_keys"
 fi
 
 (( EUID == 0 )) || die 'must run as root; use a privileged container or sudo'
@@ -177,8 +127,6 @@ fi
 require_cmd bootc
 require_cmd skopeo
 require_cmd ostree
-require_cmd jq
-require_cmd sha256sum
 require_cmd truncate
 require_cmd mkfs.ext4
 require_cmd mount
@@ -220,11 +168,6 @@ skopeo copy \
     "$source_imgref" \
     "oci:$source_oci:$source_ref"
 
-# bootc/ostree validate the source image architecture against the installer
-# process architecture. This temporary OCI source is installer-only; the arm64
-# rootfs content and future update ref remain unchanged.
-rewrite_oci_platform "$source_oci" "$source_ref" "$deploy_arch"
-
 log "creating ext4 userdata image"
 truncate -s "$size" "$raw_img"
 mkfs.ext4 -F -L "$root_label" "$raw_img" >/dev/null
@@ -246,8 +189,11 @@ bootc_args=(
     --karg rw
     --karg rootwait
     --karg rootfstype=ext4
-    "$mnt"
 )
+if [[ -n "$root_ssh_authorized_keys" ]]; then
+    bootc_args+=(--root-ssh-authorized-keys "$root_ssh_authorized_keys")
+fi
+bootc_args+=("$mnt")
 
 log "installing $target_imgref into userdata"
 "${bootc_args[@]}"

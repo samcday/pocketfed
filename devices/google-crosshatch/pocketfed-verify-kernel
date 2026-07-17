@@ -1,0 +1,114 @@
+#!/bin/sh
+set -eu
+
+fail() {
+    printf 'pocketfed crosshatch kernel verification failed: %s\n' "$*" >&2
+    exit 1
+}
+
+verify_module() {
+    description=$1
+    pattern=$2
+
+    module=$(find "$module_dir/kernel" -type f -name "$pattern" -print -quit 2>/dev/null)
+    [ -n "$module" ] || fail "$description module is missing"
+
+    vermagic=$(modinfo -F vermagic "$module") ||
+        fail "cannot read vermagic from $module"
+    uts_release=${vermagic%% *}
+    [ "$uts_release" = "$kver" ] ||
+        fail "$description vermagic $uts_release does not match $kver"
+}
+
+set -- /usr/lib/modules/*
+[ "$#" -eq 1 ] || fail "expected one module directory, found $#"
+[ -d "$1" ] || fail "module directory is missing: $1"
+module_dir=$1
+kver=${module_dir##*/}
+
+case "$kver" in
+    7.2.0-0.rc1.15.fc45.aarch64) watchdog_setting=m ;;
+    7.2.0-0.rc1.16.fc45.aarch64) watchdog_setting=y ;;
+    *) fail "unexpected release: $kver" ;;
+esac
+
+rpm_kver=$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core) ||
+    fail 'kernel-core is not installed'
+[ "$rpm_kver" = "$kver" ] ||
+    fail "kernel-core release $rpm_kver does not match module directory $kver"
+
+test -s "$module_dir/vmlinuz" || fail 'vmlinuz is missing'
+test -s "$module_dir/config" || fail 'kernel config is missing'
+test -s "$module_dir/dtb/qcom/sdm845-google-crosshatch.dtb" ||
+    fail 'sdm845-google-crosshatch.dtb is missing'
+test -s "$module_dir/dtb/qcom/sdm845-oneplus-fajita.dtb" ||
+    fail 'sdm845-oneplus-fajita.dtb is missing from the shared SDM845 kernel'
+grep -aFq 'google,crosshatch' "$module_dir/dtb/qcom/sdm845-google-crosshatch.dtb" ||
+    fail 'crosshatch DTB has the wrong compatible string'
+grep -aFq 'samsung,s6sy761' "$module_dir/dtb/qcom/sdm845-google-crosshatch.dtb" ||
+    fail 'crosshatch DTB does not describe the Samsung touchscreen'
+grep -aFq 'qcom,sdm845-ufshc' "$module_dir/dtb/qcom/sdm845-google-crosshatch.dtb" ||
+    fail 'crosshatch DTB does not enable the SDM845 UFS host'
+grep -aFq 'qcom,apss-wdt-sdm845' "$module_dir/dtb/qcom/sdm845-google-crosshatch.dtb" ||
+    fail 'crosshatch DTB does not describe the APSS watchdog'
+grep -aFq 'serial0:115200n8' "$module_dir/dtb/qcom/sdm845-google-crosshatch.dtb" ||
+    fail 'crosshatch DTB does not route stdout to the SBU UART'
+grep -aFq 'qcom,geni-debug-uart' "$module_dir/dtb/qcom/sdm845-google-crosshatch.dtb" ||
+    fail 'crosshatch DTB does not enable the debug UART'
+grep -aFq 'qcom/sdm845/Google/blueline/modem.mbn' \
+    "$module_dir/dtb/qcom/sdm845-google-crosshatch.dtb" ||
+    fail 'crosshatch DTB does not request the mainline modem firmware path'
+
+grep -Fxq 'CONFIG_SCSI_UFS_BSG=y' "$module_dir/config" ||
+    fail 'CONFIG_SCSI_UFS_BSG is not built in'
+grep -Fxq 'CONFIG_SCSI_UFSHCD=m' "$module_dir/config" ||
+    fail 'CONFIG_SCSI_UFSHCD is not modular'
+grep -Fxq 'CONFIG_SCSI_UFS_QCOM=m' "$module_dir/config" ||
+    fail 'CONFIG_SCSI_UFS_QCOM is not modular'
+grep -Fxq 'CONFIG_PHY_QCOM_QMP_UFS=m' "$module_dir/config" ||
+    fail 'CONFIG_PHY_QCOM_QMP_UFS is not modular'
+grep -Fxq "CONFIG_QCOM_WDT=$watchdog_setting" "$module_dir/config" ||
+    fail "CONFIG_QCOM_WDT is not $watchdog_setting for $kver"
+grep -Fxq 'CONFIG_RMNET=m' "$module_dir/config" ||
+    fail 'CONFIG_RMNET is not modular'
+grep -Fxq 'CONFIG_QCOM_IPA=m' "$module_dir/config" ||
+    fail 'CONFIG_QCOM_IPA is not modular'
+grep -Fxq 'CONFIG_QCOM_Q6V5_MSS=m' "$module_dir/config" ||
+    fail 'CONFIG_QCOM_Q6V5_MSS is not modular'
+grep -Fxq 'CONFIG_EXT4_FS=y' "$module_dir/config" ||
+    fail 'CONFIG_EXT4_FS is not built in'
+grep -Fxq 'CONFIG_SERIAL_QCOM_GENI=y' "$module_dir/config" ||
+    fail 'CONFIG_SERIAL_QCOM_GENI is not built in'
+grep -Fxq 'CONFIG_SERIAL_QCOM_GENI_CONSOLE=y' "$module_dir/config" ||
+    fail 'CONFIG_SERIAL_QCOM_GENI_CONSOLE is not built in'
+grep -Fxq 'CONFIG_SERIAL_QCOM_EUD=y' "$module_dir/config" ||
+    fail 'CONFIG_SERIAL_QCOM_EUD is not built in for the shared SDM845 kernel'
+grep -Fxq 'CONFIG_SERIAL_QCOM_EUD_EARLYCON=y' "$module_dir/config" ||
+    fail 'CONFIG_SERIAL_QCOM_EUD_EARLYCON is not built in'
+grep -Fxq 'CONFIG_SERIAL_QCOM_EUD_CONSOLE=y' "$module_dir/config" ||
+    fail 'CONFIG_SERIAL_QCOM_EUD_CONSOLE is not built in'
+grep -Fxq 'CONFIG_DRM_SIMPLEDRM=y' "$module_dir/config" ||
+    fail 'CONFIG_DRM_SIMPLEDRM is not built in'
+grep -Fxq 'CONFIG_TOUCHSCREEN_S6SY761=m' "$module_dir/config" ||
+    fail 'CONFIG_TOUCHSCREEN_S6SY761 is not modular'
+
+verify_module 'Qualcomm UFS host' 'ufs-qcom.ko*'
+verify_module 'Qualcomm UFS PHY' 'phy-qcom-qmp-ufs.ko*'
+verify_module 'SDM845 pinctrl' 'pinctrl-sdm845.ko*'
+verify_module 'SDM845 interconnect' 'qnoc-sdm845.ko*'
+verify_module 'SDM845 GCC' 'gcc-sdm845.ko*'
+verify_module 'Qualcomm inline crypto' 'qcom_ice.ko*'
+if [ "$watchdog_setting" = m ]; then
+    verify_module 'Qualcomm APSS watchdog' 'qcom-wdt.ko*'
+else
+    watchdog_filename=$(modinfo -k "$kver" -F filename qcom_wdt) ||
+        fail 'cannot inspect built-in Qualcomm APSS watchdog'
+    [ "$watchdog_filename" = '(builtin)' ] ||
+        fail "Qualcomm APSS watchdog is not built in: $watchdog_filename"
+fi
+verify_module 'Qualcomm RMNET' 'rmnet.ko*'
+verify_module 'Qualcomm IPA' 'ipa.ko*'
+verify_module 'Qualcomm modem remoteproc' 'qcom_q6v5_mss.ko*'
+verify_module 'Crosshatch touchscreen' 's6sy761.ko*'
+
+printf 'verified pocketfed crosshatch kernel release %s\n' "$kver"

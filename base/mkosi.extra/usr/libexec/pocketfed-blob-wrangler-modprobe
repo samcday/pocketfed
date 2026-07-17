@@ -32,3 +32,28 @@ done
 if ((${#available[@]} > 0)); then
     modprobe -a "${available[@]}"
 fi
+
+# Firmware-backed platform drivers may be auto-loaded before blob-wrangler has
+# populated /usr/lib/firmware. Venus returns a hard probe error in that case,
+# so the driver core does not retry it when the firmware appears. Reload the
+# otherwise-unused module once after extraction when a Venus device is still
+# unbound.
+venus_unbound=0
+for device in /sys/bus/platform/devices/*; do
+    [[ -f "$device/modalias" && ! -e "$device/driver" ]] || continue
+    case "$(<"$device/modalias")" in
+        *Cqcom,*venus*) venus_unbound=1 ;;
+    esac
+done
+
+if ((venus_unbound)); then
+    venus_refcount=$(awk '$1 == "venus_core" { print $3 }' /proc/modules)
+    if [[ -n "$venus_refcount" && "$venus_refcount" != 0 ]]; then
+        printf 'pocketfed-blob-wrangler-modprobe: Venus remains unbound but venus_core is in use; skipping reload\n' >&2
+    else
+        if [[ -n "$venus_refcount" ]]; then
+            modprobe -r venus_core
+        fi
+        modprobe venus_core
+    fi
+fi

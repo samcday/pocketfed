@@ -1,0 +1,76 @@
+#!/bin/sh
+set -eu
+
+# Crosshatch exposes a fixed peripheral DWC3 controller but no Type-C class
+# port. usb-signaller's automatic DRD policy therefore has no cable-state
+# event to reconcile. Ask its D-Bus API to select the immutable developer
+# policy explicitly once the daemon owns its bus name.
+
+attempts=${POCKETFED_USB_ACTIVATE_ATTEMPTS:-40}
+last_response='usb-signaller D-Bus name is not ready'
+
+report_failure() {
+    printf 'PocketFed Crosshatch USB developer-mode activation failed: %s\n' \
+        "$last_response" >&2
+
+    printf 'Available UDCs:' >&2
+    found_udc=false
+    for udc in /sys/class/udc/*; do
+        [ -e "$udc" ] || continue
+        printf ' %s' "${udc##*/}" >&2
+        found_udc=true
+    done
+    if [ "$found_udc" = false ]; then
+        printf ' none' >&2
+    fi
+    printf '\n' >&2
+
+    for gadget in /sys/kernel/config/usb_gadget/*; do
+        [ -d "$gadget" ] || continue
+        binding=$(cat "$gadget/UDC" 2>/dev/null || true)
+        printf 'ConfigFS gadget %s UDC=%s\n' \
+            "${gadget##*/}" "${binding:-unbound}" >&2
+    done
+
+    /usr/bin/journalctl --no-pager --unit=usb-signaller.service --lines=80 \
+        >&2 2>&1 || true
+}
+
+trap 'report_failure; exit 1' HUP INT TERM
+
+report_success() {
+    for gadget in /sys/kernel/config/usb_gadget/*; do
+        [ -d "$gadget" ] || continue
+        binding=$(cat "$gadget/UDC" 2>/dev/null || true)
+        [ -n "$binding" ] || continue
+        state=$(cat "/sys/class/udc/$binding/state" 2>/dev/null || true)
+        printf 'PocketFed USB gadget %s bound to %s (state=%s)\n' \
+            "${gadget##*/}" "$binding" "${state:-unknown}"
+        for ifname_path in "$gadget"/functions/ncm.*/ifname; do
+            [ -r "$ifname_path" ] || continue
+            printf 'PocketFed USB NCM interface: %s\n' "$(cat "$ifname_path")"
+        done
+    done
+}
+
+while [ "$attempts" -gt 0 ]; do
+    if response=$(
+        /usr/bin/busctl --system --timeout=20s call \
+            com.meego.usb_moded \
+            /com/meego/usb_moded \
+            com.meego.usb_moded \
+            set_mode s developer_mode 2>&1
+    ); then
+        if [ "$response" = 's "developer_mode"' ]; then
+            report_success
+            exit 0
+        fi
+    fi
+
+    last_response=${response:-$last_response}
+    attempts=$((attempts - 1))
+    sleep 0.25
+done
+
+report_failure
+exit 1

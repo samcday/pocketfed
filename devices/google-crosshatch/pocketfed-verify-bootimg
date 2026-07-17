@@ -1,0 +1,192 @@
+#!/bin/sh
+set -eu
+
+fail() {
+    printf 'pocketfed crosshatch boot image verification failed: %s\n' "$*" >&2
+    exit 1
+}
+
+le32() {
+    od -An -v -tu4 -j "$2" -N 4 "$1" | tr -d ' \n'
+}
+
+hex_at() {
+    od -An -v -tx1 -j "$2" -N "$3" "$1" | tr -d ' \n'
+}
+
+[ "$#" -eq 1 ] || [ "$#" -eq 2 ] ||
+    fail 'usage: pocketfed-verify-bootimg IMAGE [INITRAMFS]'
+image=$1
+expected_initramfs=${2:-}
+test -f "$image" || fail "image is missing: $image"
+if [ -n "$expected_initramfs" ]; then
+    test -f "$expected_initramfs" ||
+        fail "expected initramfs is missing: $expected_initramfs"
+fi
+
+image_size=$(wc -c <"$image" | tr -d ' ')
+[ "$image_size" -ge 4096 ] || fail 'image is smaller than one boot-header page'
+[ "$image_size" -le 67108864 ] ||
+    fail "image is $image_size bytes; crosshatch boot slots are 67108864 bytes"
+[ "$(hex_at "$image" 0 8)" = 414e44524f494421 ] || fail 'Android magic is missing'
+
+kernel_size=$(le32 "$image" 8)
+ramdisk_size=$(le32 "$image" 16)
+dtb_size=$(le32 "$image" 1648)
+[ "$kernel_size" -gt 0 ] || fail 'kernel payload is empty'
+[ "$ramdisk_size" -gt 8 ] || fail 'ramdisk payload is empty'
+[ "$dtb_size" -gt 0 ] || fail 'DTB payload is empty'
+
+kernel_addr=$(le32 "$image" 12)
+ramdisk_addr=$(le32 "$image" 20)
+dtb_addr=$(le32 "$image" 1652)
+[ "$kernel_addr" -eq 32768 ] || fail 'kernel address is not 0x00008000'
+[ "$ramdisk_addr" -eq 16777216 ] || fail 'ramdisk address is not 0x01000000'
+[ "$(le32 "$image" 24)" -eq 0 ] || fail 'unexpected second-stage payload'
+[ "$(le32 "$image" 28)" -eq 0 ] || fail 'unexpected second-stage load address'
+[ "$(le32 "$image" 32)" -eq 256 ] || fail 'tags address is not 0x00000100'
+[ "$(le32 "$image" 36)" -eq 4096 ] || fail 'page size is not 4096'
+[ "$(le32 "$image" 40)" -eq 2 ] || fail 'boot header is not version 2'
+[ "$(le32 "$image" 1632)" -eq 0 ] || fail 'unexpected recovery DTBO payload'
+[ "$(le32 "$image" 1644)" -eq 1660 ] || fail 'boot header size is not 1660'
+[ "$dtb_addr" -eq 83886080 ] || fail 'DTB address is not 0x05000000'
+[ "$(le32 "$image" 1656)" -eq 0 ] || fail 'DTB address exceeds 32 bits'
+
+# ABL interprets these header addresses relative to Crosshatch's DDR base at
+# 0x80000000.  Keep every payload below the first reserved-memory region at
+# physical 0x85700000.  In particular, the much larger PocketFed ramdisk must
+# not use Sargo's 0x04000000 offset: that range crosses protected firmware RAM
+# and Crosshatch ABL rejects the image with EFI_INVALID_PARAMETER.
+kernel_end=$((kernel_addr + kernel_size))
+ramdisk_end=$((ramdisk_addr + ramdisk_size))
+dtb_end=$((dtb_addr + dtb_size))
+[ "$kernel_end" -le "$ramdisk_addr" ] ||
+    fail "kernel end $kernel_end overlaps ramdisk address $ramdisk_addr"
+[ "$ramdisk_end" -le "$dtb_addr" ] ||
+    fail "ramdisk end $ramdisk_end overlaps DTB address $dtb_addr"
+[ "$dtb_end" -le 91226112 ] ||
+    fail "DTB end $dtb_end reaches Crosshatch reserved memory at 0x05700000"
+
+expected_cmdline='<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 module_blacklist=rpmsg_wwan_ctrl earlycon console=ttyMSM0,115200n8 <E>'
+cmdline=$(dd if="$image" bs=1 skip=64 count=512 status=none | tr '\000' '\n' | sed -n '1p')
+[ "$cmdline" = "$expected_cmdline" ] || fail "unexpected kernel command line: $cmdline"
+extra=$(od -An -v -tx1 -j 608 -N 1024 "$image" | tr -d ' 0\n')
+[ -z "$extra" ] || fail 'unexpected data in the extra command-line field'
+
+align_4096() {
+    value=$1
+    printf '%s\n' $(( (value + 4095) / 4096 * 4096 ))
+}
+
+byte_range() {
+    dd if="$image" bs=1M skip="${1}B" count="${2}B" status=none
+}
+
+kernel_offset=4096
+ramdisk_offset=$((kernel_offset + $(align_4096 "$kernel_size")))
+dtb_offset=$((ramdisk_offset + $(align_4096 "$ramdisk_size")))
+[ "$ramdisk_size" -ge 72 ] || fail 'ramdisk is smaller than the ABLX header'
+[ $((ramdisk_offset + ramdisk_size)) -le "$image_size" ] ||
+    fail 'ramdisk extends past end of image'
+
+if ! byte_range "$kernel_offset" "$kernel_size" | gzip -t; then
+    fail 'kernel payload is not a valid gzip stream'
+fi
+kernel_uncompressed_size=$(
+    byte_range "$kernel_offset" "$kernel_size" | gzip -dc | wc -c | tr -d ' '
+)
+[ "$kernel_uncompressed_size" -gt 0 ] || fail 'decompressed kernel payload is empty'
+[ $((kernel_addr + kernel_uncompressed_size)) -le "$ramdisk_addr" ] ||
+    fail "decompressed kernel end $((kernel_addr + kernel_uncompressed_size)) overlaps ramdisk address $ramdisk_addr"
+
+# Android boot image v2 authenticates payload integrity with a SHA-1 digest in
+# the header.  mkbootimg hashes each payload followed by its little-endian size,
+# including the empty second-stage and recovery-DTBO sizes.
+expected_id=$(hex_at "$image" 576 20)
+actual_id=$(
+    {
+        byte_range "$kernel_offset" "$kernel_size"
+        byte_range 8 4
+        byte_range "$ramdisk_offset" "$ramdisk_size"
+        byte_range 16 4
+        byte_range 24 4
+        byte_range 1632 4
+        byte_range "$dtb_offset" "$dtb_size"
+        byte_range 1648 4
+    } | sha1sum | sed 's/ .*//'
+)
+[ "$actual_id" = "$expected_id" ] ||
+    fail "Android image ID mismatch: header $expected_id, calculated $actual_id"
+
+[ "$(hex_at "$image" "$ramdisk_offset" 8)" = 41424c5852443100 ] ||
+    fail 'ramdisk does not begin with the ABLXRD1 marker'
+[ "$(le32 "$image" $((ramdisk_offset + 8)))" -eq 72 ] ||
+    fail 'ABLX ramdisk header size is not 72'
+[ "$(le32 "$image" $((ramdisk_offset + 12)))" -eq 2 ] ||
+    fail 'ABLX kernel compression is not LZ4'
+
+# ABLX stores these fields as little-endian u64 values.  Every payload range
+# in a Crosshatch boot slot necessarily fits in 32 bits, as do the kernel
+# image sizes on this platform.  Requiring zero high words keeps the POSIX
+# shell arithmetic below unambiguous signed-integer limits.
+[ "$(hex_at "$image" $((ramdisk_offset + 20)) 4)" = 00000000 ] ||
+    fail 'ABLX kernel offset exceeds 32 bits'
+[ "$(hex_at "$image" $((ramdisk_offset + 28)) 4)" = 00000000 ] ||
+    fail 'ABLX compressed kernel size exceeds 32 bits'
+[ "$(hex_at "$image" $((ramdisk_offset + 36)) 4)" = 00000000 ] ||
+    fail 'ABLX uncompressed kernel size exceeds 32 bits'
+[ "$(hex_at "$image" $((ramdisk_offset + 44)) 4)" = 00000000 ] ||
+    fail 'ABLX kernel image size exceeds 32 bits'
+[ "$(hex_at "$image" $((ramdisk_offset + 52)) 4)" = 00000000 ] ||
+    fail 'ABLX initrd offset exceeds 32 bits'
+[ "$(hex_at "$image" $((ramdisk_offset + 60)) 4)" = 00000000 ] ||
+    fail 'ABLX initrd size exceeds 32 bits'
+[ "$(hex_at "$image" $((ramdisk_offset + 64)) 8)" = 0000000000000000 ] ||
+    fail 'ABLX reserved header field is not zero'
+
+ablx_kernel_offset=$(le32 "$image" $((ramdisk_offset + 16)))
+ablx_compressed_size=$(le32 "$image" $((ramdisk_offset + 24)))
+ablx_uncompressed_size=$(le32 "$image" $((ramdisk_offset + 32)))
+ablx_image_size=$(le32 "$image" $((ramdisk_offset + 40)))
+ablx_initrd_offset=$(le32 "$image" $((ramdisk_offset + 48)))
+ablx_initrd_size=$(le32 "$image" $((ramdisk_offset + 56)))
+ablx_kernel_end=$((ablx_kernel_offset + ablx_compressed_size))
+ablx_initrd_end=$((ablx_initrd_offset + ablx_initrd_size))
+
+[ "$ablx_kernel_offset" -ge 72 ] || fail 'ABLX kernel overlaps its header'
+[ "$ablx_compressed_size" -gt 0 ] || fail 'ABLX compressed kernel is empty'
+[ "$ablx_uncompressed_size" -ge 64 ] || fail 'ABLX uncompressed kernel is too small'
+[ "$ablx_image_size" -gt 0 ] || fail 'ABLX kernel image size is zero'
+[ "$ablx_uncompressed_size" -le "$ablx_image_size" ] ||
+    fail 'ABLX uncompressed kernel exceeds its image size'
+[ "$ablx_kernel_end" -le "$ramdisk_size" ] ||
+    fail 'ABLX compressed kernel extends past end of ramdisk'
+[ "$ablx_initrd_offset" -ge 72 ] || fail 'ABLX initrd overlaps its header'
+[ "$ablx_initrd_size" -gt 0 ] || fail 'ABLX initrd is empty'
+[ "$ablx_initrd_end" -le "$ramdisk_size" ] ||
+    fail 'ABLX initrd extends past end of ramdisk'
+[ "$ablx_kernel_end" -le "$ablx_initrd_offset" ] ||
+    fail 'ABLX compressed kernel overlaps initrd'
+
+if [ -n "$expected_initramfs" ]; then
+    expected_initramfs_size=$(wc -c <"$expected_initramfs" | tr -d ' ')
+    [ "$ablx_initrd_size" -eq "$expected_initramfs_size" ] ||
+        fail "ABLX initramfs is $ablx_initrd_size bytes; expected $expected_initramfs_size"
+    embedded_initramfs_sha256=$(
+        byte_range $((ramdisk_offset + ablx_initrd_offset)) "$ablx_initrd_size" |
+            sha256sum | sed 's/ .*//'
+    )
+    expected_initramfs_sha256=$(sha256sum "$expected_initramfs" | sed 's/ .*//')
+    [ "$embedded_initramfs_sha256" = "$expected_initramfs_sha256" ] ||
+        fail 'ABLX-embedded initramfs does not match expected initramfs'
+fi
+
+[ "$(hex_at "$image" "$dtb_offset" 4)" = d00dfeed ] ||
+    fail 'DTB payload does not begin with the flattened-device-tree magic'
+[ "$(hex_at "$image" $((dtb_offset + 4)) 4)" = "$(printf '%08x' "$dtb_size")" ] ||
+    fail 'DTB header total size does not match Android header size'
+[ $((dtb_offset + dtb_size)) -le "$image_size" ] || fail 'DTB extends past end of image'
+[ "$(align_4096 $((dtb_offset + dtb_size)))" -eq "$image_size" ] ||
+    fail 'image has missing or trailing data after the page-aligned DTB'
+
+printf 'verified pocketfed crosshatch boot image %s (%s bytes)\n' "$image" "$image_size"

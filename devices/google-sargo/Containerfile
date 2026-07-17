@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=ghcr.io/samcday/pocketfed-base:rawhide
+ARG BASE_IMAGE=ghcr.io/samcday/pocketfed-phosh:rawhide
 ARG FEDORA_IMAGE=quay.io/fedora/fedora:rawhide
 ARG RUST_IMAGE=docker.io/library/rust:1.96-bookworm
 
@@ -15,6 +15,7 @@ COPY devices/google-sargo/pocketfed-swclock-offset-save.timer /usr/lib/systemd/s
 COPY --chmod=0755 devices/google-sargo/pocketfed-sargo-uim-select /usr/libexec/pocketfed-sargo-uim-select
 COPY devices/google-sargo/pocketfed-sargo-uim-select.service /usr/lib/systemd/system/
 COPY --chmod=0755 devices/google-sargo/pocketfed-verify-kernel /usr/libexec/
+COPY --chmod=0755 devices/google-sargo/pocketfed-verify-oci /usr/libexec/
 COPY --chmod=0755 devices/google-sargo/50-clatd /tmp/pocketfed-50-clatd
 COPY devices/google-sargo/usb-signaller-sargo.conf /usr/lib/pocketfed/
 COPY devices/google-sargo/usb-signaller.service.d/10-pocketfed-sargo.conf /usr/lib/systemd/system/usb-signaller.service.d/
@@ -84,6 +85,7 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
         pocketfed-sargo-uim-select.service \
         pocketfed-swclock-offset.service \
         pocketfed-swclock-offset-save.timer \
+        systemd-boot-check-no-failures.service \
         systemd-timesyncd.service \
         usb-signaller.service; \
     test "$(systemctl is-enabled usb-signaller.service)" = enabled; \

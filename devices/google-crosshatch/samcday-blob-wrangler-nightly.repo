@@ -1,0 +1,12 @@
+[copr:copr.fedorainfracloud.org:samcday:blob-wrangler-nightly]
+name=Copr repo for blob-wrangler-nightly owned by samcday
+baseurl=https://download.copr.fedorainfracloud.org/results/samcday/blob-wrangler-nightly/fedora-$releasever-$basearch/
+type=rpm-md
+skip_if_unavailable=False
+gpgcheck=1
+gpgkey=https://download.copr.fedorainfracloud.org/results/samcday/blob-wrangler-nightly/pubkey.gpg
+repo_gpgcheck=0
+enabled=0
+enabled_metadata=0
+priority=50
+includepkgs=blob-wrangler

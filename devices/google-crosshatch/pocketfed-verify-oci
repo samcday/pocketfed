@@ -1,0 +1,200 @@
+#!/bin/sh
+set -eu
+
+fail() {
+    printf 'pocketfed crosshatch OCI verification failed: %s\n' "$*" >&2
+    exit 1
+}
+
+rpm -q phosh upower upower-libs
+systemctl is-enabled upower.service
+
+rpm -q kernel kernel-core kernel-modules kernel-modules-core
+rpm -q clatd tayga libqmi-utils
+rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager |
+    grep -Eq '^1\.24\.2-4\.1\.pocketfed\.fc[0-9]+$'
+
+test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd || fail 'CLAT dispatcher is missing'
+grep -Fq 'device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd
+grep -Fq 'qmapmux*|rmnet*)' /usr/lib/NetworkManager/dispatcher.d/50-clatd
+grep -Fq 'priority mangle + 1; }' /usr/bin/clatd
+systemctl is-enabled clatd.service
+
+rpm -q blob-wrangler
+test -s /usr/share/blob-wrangler/configs/google,crosshatch.toml ||
+    fail 'slot-aware google,crosshatch blob-wrangler config is missing'
+grep -Fxq 'dynpart = "system"' /usr/share/blob-wrangler/configs/google,crosshatch.toml ||
+    fail 'crosshatch blob-wrangler config does not map retrofit dynamic partitions'
+grep -Fq 'destination = "qcom/sdm845/Google/blueline"' \
+    /usr/share/blob-wrangler/configs/google,crosshatch.toml ||
+    fail 'crosshatch blob-wrangler config does not install mainline firmware paths'
+systemctl is-enabled blob-wrangler.service
+grep -Fq 'venus_core' /usr/libexec/pocketfed-blob-wrangler-modprobe ||
+    fail 'post-extraction Venus reprobe is missing'
+
+grep -Fxq 'USB_SIGNALLER_AUTO_MODE=developer_mode' \
+    /usr/lib/pocketfed/usb-signaller-crosshatch.conf
+grep -Fxq 'EnvironmentFile=/usr/lib/pocketfed/usb-signaller-crosshatch.conf' \
+    /usr/lib/systemd/system/usb-signaller.service.d/10-pocketfed-crosshatch.conf
+systemctl is-enabled usb-signaller.service
+test -x /usr/libexec/pocketfed-usb-signaller-activate ||
+    fail 'crosshatch USB developer-mode activator is missing'
+grep -Fq 'set_mode s developer_mode' \
+    /usr/libexec/pocketfed-usb-signaller-activate ||
+    fail 'crosshatch USB activator does not request developer mode'
+grep -Fxq 'Requires=usb-signaller.service' \
+    /usr/lib/systemd/system/pocketfed-usb-developer-mode.service ||
+    fail 'crosshatch USB activation unit does not require usb-signaller'
+grep -Fxq 'After=usb-signaller.service' \
+    /usr/lib/systemd/system/pocketfed-usb-developer-mode.service ||
+    fail 'crosshatch USB activation unit is not ordered after usb-signaller'
+systemctl is-enabled pocketfed-usb-developer-mode.service
+
+systemctl is-enabled systemd-boot-check-no-failures.service
+systemctl is-enabled qbootctl.service
+
+# PID 1 reapplies presets when bootc initializes an unprovisioned deployment.
+# Verify the policy as well as the build-time symlinks so required phone
+# services survive that first-boot pass.
+for unit in \
+    blob-wrangler.service \
+    clatd.service \
+    pocketfed-usb-developer-mode.service \
+    qbootctl.service \
+    systemd-boot-check-no-failures.service \
+    systemd-timesyncd.service \
+    usb-signaller.service
+do
+    [ "$(systemctl is-enabled "$unit")" = enabled ] ||
+        fail "$unit is not enabled in the image"
+    preset=$(
+        systemctl list-unit-files "$unit" --no-legend --no-pager |
+            awk 'NR == 1 { print $3 }'
+    )
+    [ "$preset" = enabled ] ||
+        fail "$unit first-boot preset is not enabled: ${preset:-missing}"
+done
+
+/usr/libexec/pocketfed-verify-kernel
+
+set -- /usr/lib/modules/*
+[ "$#" -eq 1 ] || fail "expected one module directory, found $#"
+module_dir=$1
+kver=${module_dir##*/}
+case "$kver" in
+    7.2.0-0.rc1.15.fc45.aarch64) watchdog_setting=m ;;
+    7.2.0-0.rc1.16.fc45.aarch64) watchdog_setting=y ;;
+    *) fail "unexpected release while verifying initramfs: $kver" ;;
+esac
+test -f "$module_dir/vmlinuz" || fail 'vmlinuz is missing'
+test -f "$module_dir/dtb/qcom/sdm845-google-crosshatch.dtb" || fail 'crosshatch DTB is missing'
+test -f "$module_dir/initramfs.img" || fail 'initramfs is missing'
+test -f "$module_dir/aboot.img" || fail 'Android boot image is missing'
+/usr/libexec/pocketfed-verify-bootimg \
+    "$module_dir/aboot.img" "$module_dir/initramfs.img"
+
+# Crosshatch cannot reach its root filesystem unless the strict host-only
+# archive contains the complete UFS supplier chain, so verify the archive
+# itself rather than only the installed module tree.
+initramfs_listing=$(mktemp)
+host_modaliases=$(mktemp)
+initramfs_hostname=$(mktemp)
+initramfs_hosts=$(mktemp)
+initramfs_machine_id=$(mktemp)
+initramfs_builtins=$(mktemp)
+force_drivers=$(mktemp)
+trap 'rm -f "$initramfs_listing" "$host_modaliases" "$initramfs_hostname" "$initramfs_hosts" "$initramfs_machine_id" "$initramfs_builtins" "$force_drivers"' EXIT
+lsinitrd "$module_dir/initramfs.img" >"$initramfs_listing" ||
+    fail 'cannot inspect initramfs'
+lsinitrd -f "usr/lib/modules/$kver/modules.builtin" \
+    "$module_dir/initramfs.img" >"$initramfs_builtins" ||
+    fail 'cannot inspect initramfs built-in module metadata'
+lsinitrd -f usr/lib/dracut/hostonly-kernel-modules.txt \
+    "$module_dir/initramfs.img" >"$host_modaliases" ||
+    fail 'cannot inspect initramfs host modalias set'
+test ! -s "$host_modaliases" ||
+    fail 'build-host kernel modaliases leaked into initramfs'
+lsinitrd -f etc/hostname "$module_dir/initramfs.img" >"$initramfs_hostname" ||
+    fail 'cannot inspect initramfs hostname'
+[ "$(cat "$initramfs_hostname")" = pocketfed-initrd ] ||
+    fail 'initramfs hostname is not deterministic'
+lsinitrd -f etc/hosts "$module_dir/initramfs.img" >"$initramfs_hosts" ||
+    fail 'cannot inspect initramfs hosts file'
+[ "$(wc -l <"$initramfs_hosts" | tr -d ' ')" -eq 2 ] ||
+    fail 'initramfs hosts file has unexpected content'
+grep -Fxq \
+    '127.0.0.1 pocketfed-initrd localhost localhost.localdomain localhost4 localhost4.localdomain4' \
+    "$initramfs_hosts" || fail 'initramfs IPv4 host mapping is missing'
+grep -Fxq \
+    '::1 pocketfed-initrd localhost localhost.localdomain localhost6 localhost6.localdomain6' \
+    "$initramfs_hosts" || fail 'initramfs IPv6 host mapping is missing'
+lsinitrd -f etc/machine-id "$module_dir/initramfs.img" >"$initramfs_machine_id" ||
+    fail 'cannot inspect initramfs machine ID'
+[ "$(cat "$initramfs_machine_id")" = uninitialized ] ||
+    fail 'initramfs machine ID is not uninitialized'
+lsinitrd -f etc/cmdline.d/20-force_drivers.conf \
+    "$module_dir/initramfs.img" >"$force_drivers" ||
+    fail 'cannot inspect initramfs forced drivers'
+[ "$(wc -l <"$force_drivers" | tr -d ' ')" -eq 10 ] ||
+    fail 'initramfs forced-driver file has unexpected content'
+
+module_releases=$(
+    awk '$NF ~ /^usr\/lib\/modules\// { split($NF, path, "/"); print path[4] }' \
+        "$initramfs_listing" | sort -u
+)
+[ "$module_releases" = "$kver" ] ||
+    fail "initramfs module release set is not exactly $kver: $module_releases"
+
+verify_initramfs_module() {
+    module=$1
+    grep -F "usr/lib/modules/$kver/" "$initramfs_listing" |
+        grep -Eq "/${module}\\.ko(\\.(xz|zst|gz))?$" ||
+        fail "$module is missing from initramfs"
+}
+
+for module in \
+    gcc-sdm845 \
+    qnoc-sdm845 \
+    pinctrl-sdm845 \
+    qcom_ice \
+    phy-qcom-qmp-ufs \
+    ufshcd-core \
+    ufshcd-pltfrm \
+    ufs-qcom \
+    dwc3-qcom \
+    dwc3 \
+    phy-qcom-qusb2
+do
+    verify_initramfs_module "$module"
+done
+
+case "$watchdog_setting" in
+    m)
+        verify_initramfs_module qcom-wdt
+        ;;
+    y)
+        grep -Fxq 'kernel/drivers/watchdog/qcom-wdt.ko' "$initramfs_builtins" ||
+            fail 'qcom-wdt is missing from initramfs built-in metadata'
+        if grep -F "usr/lib/modules/$kver/" "$initramfs_listing" |
+            grep -Eq '/qcom-wdt\.ko(\.(xz|zst|gz))?$'
+        then
+            fail 'built-in qcom-wdt unexpectedly has an initramfs module'
+        fi
+        ;;
+esac
+
+for driver in \
+    ext4 \
+    gcc_sdm845 \
+    qnoc_sdm845 \
+    pinctrl_sdm845 \
+    qcom_ice \
+    qcom_wdt \
+    phy_qcom_qmp_ufs \
+    ufshcd_core \
+    ufshcd_pltfrm \
+    ufs_qcom
+do
+    grep -Fxq "rd.driver.pre=$driver" "$force_drivers" ||
+        fail "$driver is not forced in initramfs"
+done

@@ -141,6 +141,7 @@ device: (submodule "vendor/abl-exorcist")
     fi
 
     $SUDO podman build \
+        --jobs=1 \
         --arch arm64 \
         --build-arg "BASE_IMAGE=$base" \
         -f "$containerfile" \
@@ -149,6 +150,7 @@ device: (submodule "vendor/abl-exorcist")
 
 builder:
     {{sudo}} podman build \
+        --arch arm64 \
         --pull=missing \
         -f builder/Containerfile \
         -t "{{builder_image}}" \

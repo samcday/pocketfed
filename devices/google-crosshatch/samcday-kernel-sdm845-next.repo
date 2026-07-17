@@ -1,0 +1,12 @@
+[copr:copr.fedorainfracloud.org:samcday:kernel-sdm845-next]
+name=Copr repo for kernel-sdm845-next owned by samcday
+baseurl=https://download.copr.fedorainfracloud.org/results/samcday/kernel-sdm845-next/fedora-rawhide-$basearch/
+type=rpm-md
+skip_if_unavailable=False
+gpgcheck=1
+gpgkey=https://download.copr.fedorainfracloud.org/results/samcday/kernel-sdm845-next/pubkey.gpg
+repo_gpgcheck=0
+enabled=1
+enabled_metadata=1
+priority=50
+includepkgs=kernel,kernel-core,kernel-modules,kernel-modules-core,kernel-modules-extra,kernel-modules-internal

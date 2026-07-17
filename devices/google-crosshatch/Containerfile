@@ -1,0 +1,207 @@
+ARG BASE_IMAGE=ghcr.io/samcday/pocketfed-phosh:rawhide
+ARG FEDORA_IMAGE=quay.io/fedora/fedora:rawhide
+ARG RUST_IMAGE=docker.io/library/rust:1.96-bookworm
+ARG KERNEL_NEVRA=kernel-7.2.0-0.rc1.16.fc45.aarch64
+ARG BLOB_WRANGLER_NEVRA=blob-wrangler-v0.0.1-1.20260715081551739465.pr13.4.g3166dbe.fc45.aarch64
+
+FROM ${BASE_IMAGE} AS device-root-base
+ARG KERNEL_NEVRA
+ARG BLOB_WRANGLER_NEVRA
+COPY devices/google-crosshatch/samcday-kernel-sdm845-next.repo /etc/yum.repos.d/
+COPY devices/google-crosshatch/samcday-pocketfed.repo /etc/yum.repos.d/
+COPY devices/google-crosshatch/samcday-usb-signaller.repo /etc/yum.repos.d/
+COPY devices/google-crosshatch/samcday-blob-wrangler-nightly.repo /etc/yum.repos.d/samcday-blob-wrangler-nightly-fedora-rawhide.repo
+COPY devices/google-crosshatch/dracut.conf /etc/dracut.conf.d/60-google-crosshatch.conf
+COPY --chmod=0755 devices/google-crosshatch/pocketfed-verify-kernel /usr/libexec/
+COPY --chmod=0755 devices/google-crosshatch/50-clatd /tmp/pocketfed-50-clatd
+COPY devices/google-crosshatch/usb-signaller-crosshatch.conf /usr/lib/pocketfed/
+COPY devices/google-crosshatch/usb-signaller.service.d/10-pocketfed-crosshatch.conf /usr/lib/systemd/system/usb-signaller.service.d/
+# ModemManager 1.24.2 has a netlink transaction use-after-free. The PocketFed
+# build below carries upstream fix c0900eefe196 until Fedora does.
+# usb-signaller is pinned to COPR build 10712403 from source commit bf2f2d6;
+# the aarch64 RPM SHA-256 is 1d575c3f1e6f06beac4e9e0410f8c327f232445d68e94d7a1f97b894fe02e84a.
+# blob-wrangler is pinned to COPR build 10720529 from source commit 3166dbe;
+# the aarch64 RPM SHA-256 is bc5cfd621ab6dc8e1d0b5002b7bea6f1be340714db7719f8667891a583740224.
+RUN --mount=type=cache,id=pocketfed-google-crosshatch-arm64-device-dnf,target=/var/cache,sharing=locked \
+    set -eux; \
+    kernel_nevra="$KERNEL_NEVRA"; \
+    blob_wrangler_nevra="$BLOB_WRANGLER_NEVRA"; \
+    usb_signaller_nevra='usb-signaller-0.3.0-1.20260713172459428921.stabilizesargo.usb.lab.impl.17.gbf2f2d6.fc45.aarch64'; \
+    set -- $(rpm -qa \
+        kernel \
+        kernel-core \
+        kernel-modules \
+        kernel-modules-core \
+        kernel-modules-extra \
+        kernel-modules-internal); \
+    if [ "$#" -gt 0 ]; then \
+        dnf remove -y "$@"; \
+    fi; \
+    rm -rf /usr/lib/modules/* /lib/modules/*; \
+    dnf install -y \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        clatd \
+        dnsmasq \
+        libqmi-utils; \
+    dnf install -y \
+        --refresh \
+        --enable-repo='copr:copr.fedorainfracloud.org:samcday:usb-signaller' \
+        --from-repo='copr:copr.fedorainfracloud.org:samcday:usb-signaller' \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        "$usb_signaller_nevra"; \
+    test "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' usb-signaller)" = "$usb_signaller_nevra"; \
+    grep -Fxq 'USB_SIGNALLER_AUTO_MODE=developer_mode' /usr/lib/pocketfed/usb-signaller-crosshatch.conf; \
+    grep -Fxq 'EnvironmentFile=/usr/lib/pocketfed/usb-signaller-crosshatch.conf' /usr/lib/systemd/system/usb-signaller.service.d/10-pocketfed-crosshatch.conf; \
+    # Tailscale's IPv6 mangle hook uses the same nftables priority as clatd
+    # and masks packet marks. Run clatd one step later so its full return-path
+    # mark is the last value written before policy routing.
+    sed -i 's/priority mangle; }/priority mangle + 1; }/' /usr/bin/clatd; \
+    grep -Fq 'priority mangle + 1; }' /usr/bin/clatd; \
+    install -m0755 /tmp/pocketfed-50-clatd /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
+    rm -f /tmp/pocketfed-50-clatd; \
+    dnf upgrade -y \
+        --refresh \
+        --from-repo='copr:copr.fedorainfracloud.org:samcday:pocketfed' \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        ModemManager \
+        ModemManager-glib; \
+    rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager | grep -Eq '^1\.24\.2-4\.1\.pocketfed\.fc[0-9]+$'; \
+    dnf install -y \
+        --refresh \
+        --enable-repo='copr:copr.fedorainfracloud.org:samcday:blob-wrangler-nightly' \
+        --from-repo='copr:copr.fedorainfracloud.org:samcday:blob-wrangler-nightly' \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        "$blob_wrangler_nevra"; \
+    test "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' blob-wrangler)" = "$blob_wrangler_nevra"; \
+    test -s /usr/share/blob-wrangler/configs/google,crosshatch.toml; \
+    grep -Fxq 'dynpart = "system"' /usr/share/blob-wrangler/configs/google,crosshatch.toml; \
+    grep -Fq 'destination = "qcom/sdm845/Google/blueline"' /usr/share/blob-wrangler/configs/google,crosshatch.toml; \
+    dnf install -y \
+        --refresh \
+        --from-repo='copr:copr.fedorainfracloud.org:samcday:kernel-sdm845-next' \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        "$kernel_nevra"; \
+    test "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel)" = "$kernel_nevra"; \
+    /usr/libexec/pocketfed-verify-kernel; \
+    find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
+    systemctl enable \
+        blob-wrangler.service \
+        clatd.service \
+        qbootctl.service \
+        systemd-boot-check-no-failures.service \
+        systemd-timesyncd.service \
+        usb-signaller.service; \
+    test "$(systemctl is-enabled qbootctl.service)" = enabled; \
+    test "$(systemctl is-enabled systemd-boot-check-no-failures.service)" = enabled; \
+    test "$(systemctl is-enabled usb-signaller.service)" = enabled; \
+    test "$(systemctl is-enabled usb-moded-developer-mode.service)" = static
+
+FROM device-root-base AS initrd
+RUN set -eu; \
+    set -- /usr/lib/modules/*; \
+    [ "$#" -eq 1 ]; \
+    [ -d "$1" ]; \
+    kver="${1##*/}"; \
+    # Host-only dracut copies the build container's hostname and hosts file.
+    # Normalize both so Podman's random container identity cannot perturb the
+    # initramfs or the Android boot image.
+    printf '%s\n' pocketfed-initrd >/etc/hostname && \
+    printf '%s\n' \
+        '127.0.0.1 pocketfed-initrd localhost localhost.localdomain localhost4 localhost4.localdomain4' \
+        '::1 pocketfed-initrd localhost localhost.localdomain localhost6 localhost6.localdomain6' \
+        >/etc/hosts && \
+    # Strict host-only dracut otherwise records the build machine's live
+    # modalias set (including x86 desktop modules) in this arm64 initramfs.
+    # Root discovery is fully described by the forced drivers in dracut.conf,
+    # so keep the required metadata file present but deterministically empty.
+    : >/tmp/pocketfed-initrd-modaliases && \
+    install -d /out && \
+    DRACUT_KERNEL_MODALIASES=/tmp/pocketfed-initrd-modaliases dracut \
+        --force \
+        --reproducible \
+        --hostonly \
+        --hostonly-mode=strict \
+        --no-hostonly-cmdline \
+        --no-hostonly-default-device \
+        /out/initramfs.img "$kver" && \
+    install -m0644 "/usr/lib/modules/$kver/vmlinuz" /out/vmlinuz && \
+    install -m0644 "/usr/lib/modules/$kver/dtb/qcom/sdm845-google-crosshatch.dtb" /out/sdm845-google-crosshatch.dtb && \
+    printf '%s\n' "$kver" >/out/kver
+
+# Keep artifact-only verifiers after the expensive device composition layer.
+# The initrd branches directly from device-root-base above, so tightening these
+# checks cannot perturb or rebuild an otherwise identical boot image.
+FROM device-root-base AS device-root
+COPY devices/google-crosshatch/80-pocketfed-google-crosshatch.preset /usr/lib/systemd/system-preset/
+COPY --chmod=0755 base/mkosi.extra/usr/libexec/pocketfed-blob-wrangler-modprobe /usr/libexec/
+COPY --chmod=0755 devices/google-crosshatch/pocketfed-usb-signaller-activate /usr/libexec/
+COPY devices/google-crosshatch/pocketfed-usb-developer-mode.service /usr/lib/systemd/system/
+COPY --chmod=0755 devices/google-crosshatch/pocketfed-verify-bootimg /usr/libexec/
+COPY --chmod=0755 devices/google-crosshatch/pocketfed-verify-oci /usr/libexec/
+RUN systemctl enable pocketfed-usb-developer-mode.service
+
+FROM ${RUST_IMAGE} AS abl-exorcist-build
+RUN --mount=type=cache,id=pocketfed-google-crosshatch-arm64-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=pocketfed-google-crosshatch-arm64-apt-lists,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    mkdir -p /var/cache/apt/archives/partial /var/lib/apt/lists/partial && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends llvm
+COPY vendor/abl-exorcist /src/abl-exorcist
+RUN --mount=type=cache,id=pocketfed-google-crosshatch-arm64-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=pocketfed-google-crosshatch-arm64-cargo-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=pocketfed-google-crosshatch-arm64-cargo-target,target=/src/abl-exorcist/target,sharing=locked \
+    --mount=type=cache,id=pocketfed-google-crosshatch-arm64-rustup-downloads,target=/usr/local/rustup/downloads,sharing=locked \
+    rustup target add aarch64-unknown-none && \
+    install -d /out && \
+    cd /src/abl-exorcist && \
+    cargo build --locked --release --target aarch64-unknown-none -p abl-exorcist && \
+    llvm-objcopy -O binary target/aarch64-unknown-none/release/abl-exorcist /out/abl-exorcist.bin && \
+    cargo build --locked --release -p abl-exorcist-assembler && \
+    install -m0755 target/release/abl-exorcist-assembler /out/abl-exorcist-assembler
+
+FROM ${FEDORA_IMAGE} AS bootimg
+RUN --mount=type=cache,id=pocketfed-google-crosshatch-arm64-dnf,target=/var/cache,sharing=locked \
+    dnf install -y --setopt=keepcache=True android-tools gzip
+COPY --from=initrd /out /in
+COPY --from=abl-exorcist-build /out/abl-exorcist.bin /tmp/abl-exorcist.bin
+COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/local/bin/abl-exorcist-assembler
+COPY --chmod=0755 devices/google-crosshatch/pocketfed-verify-bootimg /usr/local/bin/
+# Crosshatch exposes ttyMSM0 on the USB-C SBU pins; it does not use EUD for
+# the bring-up console.
+RUN install -d /out && \
+    gzip -n -9 -c /tmp/abl-exorcist.bin >/tmp/abl-exorcist.bin.gz && \
+    abl-exorcist-assembler --ramdisk /in/vmlinuz /in/initramfs.img >/tmp/ablx-ramdisk.img && \
+    mkbootimg \
+        --header_version 2 \
+        --pagesize 4096 \
+        --base 0x0 \
+        --kernel_offset 0x00008000 \
+        --ramdisk_offset 0x01000000 \
+        --second_offset 0x00f00000 \
+        --tags_offset 0x00000100 \
+        --dtb_offset 0x05000000 \
+        --dtb /in/sdm845-google-crosshatch.dtb \
+        --kernel /tmp/abl-exorcist.bin.gz \
+        --ramdisk /tmp/ablx-ramdisk.img \
+        --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 module_blacklist=rpmsg_wwan_ctrl earlycon console=ttyMSM0,115200n8 <E>' \
+        -o /out/aboot.img && \
+    pocketfed-verify-bootimg /out/aboot.img /in/initramfs.img && \
+    install -m0644 /in/initramfs.img /out/initramfs.img && \
+    install -m0644 /in/kver /out/kver
+
+FROM device-root
+COPY --from=bootimg /out /tmp/pocketfed-device
+RUN set -eu; \
+    kver="$(cat /tmp/pocketfed-device/kver)"; \
+    module_dir="/usr/lib/modules/$kver" && \
+    [ -d "$module_dir" ] && \
+    install -m0644 /tmp/pocketfed-device/initramfs.img "$module_dir/initramfs.img" && \
+    install -m0644 /tmp/pocketfed-device/aboot.img "$module_dir/aboot.img" && \
+    rm -rf /tmp/pocketfed-device && \
+    /usr/libexec/pocketfed-verify-oci
