@@ -31,6 +31,9 @@ grep -Fq 'destination = "qcom/sdm845/Google/blueline"' \
 systemctl is-enabled blob-wrangler.service
 grep -Fq 'venus_core' /usr/libexec/pocketfed-blob-wrangler-modprobe ||
     fail 'post-extraction Venus reprobe is missing'
+grep -Fq 'dependency %s is command-line blacklisted' \
+    /usr/libexec/pocketfed-blob-wrangler-modprobe ||
+    fail 'post-extraction module loading does not honor the kernel blacklist'
 
 grep -Fxq 'USB_SIGNALLER_AUTO_MODE=developer_mode' \
     /usr/lib/pocketfed/usb-signaller-crosshatch.conf

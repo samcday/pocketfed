@@ -67,7 +67,7 @@ dtb_end=$((dtb_addr + dtb_size))
 [ "$dtb_end" -le 91226112 ] ||
     fail "DTB end $dtb_end reaches Crosshatch reserved memory at 0x05700000"
 
-expected_cmdline='<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 module_blacklist=rpmsg_wwan_ctrl earlycon console=ttyMSM0,115200n8 <E>'
+expected_cmdline='<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 module_blacklist=rpmsg_wwan_ctrl,qcom_glink,qcom_glink_smem earlycon console=ttyMSM0,115200n8 <E>'
 cmdline=$(dd if="$image" bs=1 skip=64 count=512 status=none | tr '\000' '\n' | sed -n '1p')
 [ "$cmdline" = "$expected_cmdline" ] || fail "unexpected kernel command line: $cmdline"
 extra=$(od -An -v -tx1 -j 608 -N 1024 "$image" | tr -d ' 0\n')

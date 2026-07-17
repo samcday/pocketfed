@@ -1,6 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+declare -A command_line_blacklist=()
+for argument in $(</proc/cmdline); do
+    case "$argument" in
+        module_blacklist=*|modprobe.blacklist=*)
+            IFS=, read -r -a modules <<<"${argument#*=}"
+            for module in "${modules[@]}"; do
+                module=${module//-/_}
+                if [[ -n "$module" ]]; then
+                    command_line_blacklist["$module"]=1
+                fi
+            done
+            ;;
+    esac
+done
+
+blacklisted_dependency() {
+    local dependencies=$1 action path module
+
+    while read -r action path _; do
+        [[ "$action" == insmod ]] || continue
+        module=${path##*/}
+        module=${module%%.ko*}
+        module=${module//-/_}
+        if [[ -n "${command_line_blacklist[$module]:-}" ]]; then
+            printf '%s\n' "$module"
+            return 0
+        fi
+    done <<<"$dependencies"
+
+    return 1
+}
+
 drivers=(
     qcom_q6v5
     qcom_q6v5_pas
@@ -22,8 +54,13 @@ drivers=(
 
 available=()
 for driver in "${drivers[@]}"; do
-    if modprobe --show-depends "$driver" >/dev/null 2>&1; then
-        available+=("$driver")
+    if dependencies=$(modprobe --show-depends "$driver" 2>/dev/null); then
+        if dependency=$(blacklisted_dependency "$dependencies"); then
+            printf 'pocketfed-blob-wrangler-modprobe: skipping %s: dependency %s is command-line blacklisted\n' \
+                "$driver" "$dependency" >&2
+        else
+            available+=("$driver")
+        fi
     else
         printf 'pocketfed-blob-wrangler-modprobe: skipping unavailable module: %s\n' "$driver" >&2
     fi
@@ -47,13 +84,20 @@ for device in /sys/bus/platform/devices/*; do
 done
 
 if ((venus_unbound)); then
-    venus_refcount=$(awk '$1 == "venus_core" { print $3 }' /proc/modules)
-    if [[ -n "$venus_refcount" && "$venus_refcount" != 0 ]]; then
-        printf 'pocketfed-blob-wrangler-modprobe: Venus remains unbound but venus_core is in use; skipping reload\n' >&2
+    if dependencies=$(modprobe --show-depends venus_core 2>/dev/null) &&
+        dependency=$(blacklisted_dependency "$dependencies")
+    then
+        printf 'pocketfed-blob-wrangler-modprobe: skipping Venus reload: dependency %s is command-line blacklisted\n' \
+            "$dependency" >&2
     else
-        if [[ -n "$venus_refcount" ]]; then
-            modprobe -r venus_core
+        venus_refcount=$(awk '$1 == "venus_core" { print $3 }' /proc/modules)
+        if [[ -n "$venus_refcount" && "$venus_refcount" != 0 ]]; then
+            printf 'pocketfed-blob-wrangler-modprobe: Venus remains unbound but venus_core is in use; skipping reload\n' >&2
+        else
+            if [[ -n "$venus_refcount" ]]; then
+                modprobe -r venus_core
+            fi
+            modprobe venus_core
         fi
-        modprobe venus_core
     fi
 fi

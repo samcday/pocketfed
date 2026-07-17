@@ -174,6 +174,10 @@ COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/local/bin/abl-ex
 COPY --chmod=0755 devices/google-crosshatch/pocketfed-verify-bootimg /usr/local/bin/
 # Crosshatch exposes ttyMSM0 on the USB-C SBU pins; it does not use EUD for
 # the bring-up console.
+# Quarantine the GLINK-SMEM/qcom_common consumer fanout for initial Crosshatch
+# support.  With that stack enabled this hardware repeatedly stalls in early
+# userspace and is later watchdog-reset; the responsible remoteproc or client
+# remains unisolated.
 RUN install -d /out && \
     gzip -n -9 -c /tmp/abl-exorcist.bin >/tmp/abl-exorcist.bin.gz && \
     abl-exorcist-assembler --ramdisk /in/vmlinuz /in/initramfs.img >/tmp/ablx-ramdisk.img && \
@@ -189,7 +193,7 @@ RUN install -d /out && \
         --dtb /in/sdm845-google-crosshatch.dtb \
         --kernel /tmp/abl-exorcist.bin.gz \
         --ramdisk /tmp/ablx-ramdisk.img \
-        --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 module_blacklist=rpmsg_wwan_ctrl earlycon console=ttyMSM0,115200n8 <E>' \
+        --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 module_blacklist=rpmsg_wwan_ctrl,qcom_glink,qcom_glink_smem earlycon console=ttyMSM0,115200n8 <E>' \
         -o /out/aboot.img && \
     pocketfed-verify-bootimg /out/aboot.img /in/initramfs.img && \
     install -m0644 /in/initramfs.img /out/initramfs.img && \
