@@ -23,12 +23,31 @@ systemctl is-enabled clatd.service
 rpm -q blob-wrangler
 test -s /usr/share/blob-wrangler/configs/google,crosshatch.toml ||
     fail 'slot-aware google,crosshatch blob-wrangler config is missing'
-grep -Fxq 'dynpart = "system"' /usr/share/blob-wrangler/configs/google,crosshatch.toml ||
+blob_config=/usr/share/blob-wrangler/configs/google,crosshatch.toml
+[ "$(grep -Fxc 'dynpart = "system"' "$blob_config")" -eq 1 ] ||
     fail 'crosshatch blob-wrangler config does not map retrofit dynamic partitions'
+grep -Fq 'partition = "vendor"' "$blob_config" ||
+    fail 'crosshatch blob-wrangler config has no vendor firmware source'
+grep -Fq 'partition = "modem"' "$blob_config" ||
+    fail 'crosshatch blob-wrangler config has no modem firmware source'
 grep -Fq 'destination = "qcom/sdm845/Google/blueline"' \
-    /usr/share/blob-wrangler/configs/google,crosshatch.toml ||
+    "$blob_config" ||
     fail 'crosshatch blob-wrangler config does not install mainline firmware paths'
 systemctl is-enabled blob-wrangler.service
+test -x /usr/libexec/pocketfed-crosshatch-blob-wrangler ||
+    fail 'Crosshatch blob-wrangler slot-fallback wrapper is missing'
+grep -Fq 'retrying coherent extraction from %s' \
+    /usr/libexec/pocketfed-crosshatch-blob-wrangler ||
+    fail 'Crosshatch blob-wrangler wrapper lacks opposite-slot fallback'
+grep -Fq 'Required firmware extraction failed for:' \
+    /usr/libexec/pocketfed-crosshatch-blob-wrangler ||
+    fail 'Crosshatch blob-wrangler fallback is not gated on required firmware'
+grep -Fxq 'ExecStart=' \
+    /usr/lib/systemd/system/blob-wrangler.service.d/10-pocketfed-crosshatch-slot-fallback.conf ||
+    fail 'Crosshatch blob-wrangler service does not clear the packaged command'
+grep -Fxq 'ExecStart=/usr/libexec/pocketfed-crosshatch-blob-wrangler' \
+    /usr/lib/systemd/system/blob-wrangler.service.d/10-pocketfed-crosshatch-slot-fallback.conf ||
+    fail 'Crosshatch blob-wrangler service does not use the slot-fallback wrapper'
 grep -Fq 'venus_core' /usr/libexec/pocketfed-blob-wrangler-modprobe ||
     fail 'post-extraction Venus reprobe is missing'
 grep -Fq 'dependency %s is command-line blacklisted' \

@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+blob_wrangler=${POCKETFED_BLOB_WRANGLER_BIN:-/usr/bin/blob-wrangler}
+source_config=${POCKETFED_BLOB_WRANGLER_CONFIG:-/usr/share/blob-wrangler/configs/google,crosshatch.toml}
+status_file=${POCKETFED_BLOB_WRANGLER_STATUS:-/var/lib/blob-wrangler/status.json}
+runtime_dir=${POCKETFED_BLOB_WRANGLER_RUNTIME_DIR:-/run}
+
+tmp=$(mktemp -d "${runtime_dir%/}/pocketfed-crosshatch-blob-wrangler.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+
+previous_status=$tmp/status.before-primary
+status_preexisted=false
+if [[ -e "$status_file" ]]; then
+    cp -- "$status_file" "$previous_status"
+    status_preexisted=true
+fi
+
+# Keep the package's normal active-slot behavior as the first choice.  Besides
+# being the least surprising policy when both Android slots are intact, this
+# also lets blob-wrangler perform all of its own slot-consistency checks.
+set +e
+"$blob_wrangler" 2>&1 | tee "$tmp/primary.log"
+primary_status=${PIPESTATUS[0]}
+set -e
+
+if ((primary_status == 0)); then
+    exit 0
+fi
+
+# Retry only the structured required-firmware failure emitted after
+# blob-wrangler has written a status report.  Configuration, device-detection,
+# slot-consistency, and process failures must retain their original result.
+if ! grep -Fq 'Required firmware extraction failed for:' "$tmp/primary.log" ||
+    [[ ! -s "$status_file" ]] ||
+    ! grep -Eq '"required"[[:space:]]*:[[:space:]]*true' "$status_file"
+then
+    exit "$primary_status"
+fi
+
+mapfile -t active_slots < <(
+    sed -nE 's/^[[:space:]]*"active_slot"[[:space:]]*:[[:space:]]*"(_[ab])",?[[:space:]]*$/\1/p' \
+        "$status_file"
+)
+if ((${#active_slots[@]} != 1)); then
+    printf 'pocketfed-crosshatch-blob-wrangler: cannot select fallback: status has no unambiguous active slot\n' >&2
+    exit "$primary_status"
+fi
+
+case "${active_slots[0]}" in
+    _a) fallback_slot=_b ;;
+    _b) fallback_slot=_a ;;
+    *)
+        printf 'pocketfed-crosshatch-blob-wrangler: cannot select fallback: unsupported active slot %s\n' \
+            "${active_slots[0]}" >&2
+        exit "$primary_status"
+        ;;
+esac
+
+if [[ $(grep -Fxc 'dynpart = "system"' "$source_config") -ne 1 ]] ||
+    ! grep -Fq 'partition = "vendor"' "$source_config" ||
+    ! grep -Fq 'partition = "modem"' "$source_config"
+then
+    printf 'pocketfed-crosshatch-blob-wrangler: cannot select fallback: installed Crosshatch config has an unexpected shape\n' >&2
+    exit "$primary_status"
+fi
+
+config_dir=$tmp/configs
+mkdir "$config_dir"
+fallback_config=$config_dir/google,crosshatch.toml
+# The pinned resolver first probes <configured-name><active-suffix>, then the
+# configured name verbatim.  Explicitly suffixed names therefore select one
+# coherent firmware slot without lying about the slot PocketFed booted from.
+sed \
+    -e "s/^dynpart = \"system\"$/dynpart = \"system${fallback_slot}\"/" \
+    -e "s/partition = \"vendor\"/partition = \"vendor${fallback_slot}\"/g" \
+    -e "s/partition = \"modem\"/partition = \"modem${fallback_slot}\"/g" \
+    "$source_config" >"$fallback_config"
+
+if ! grep -Fxq "dynpart = \"system${fallback_slot}\"" "$fallback_config" ||
+    ! grep -Fq "partition = \"vendor${fallback_slot}\"" "$fallback_config" ||
+    ! grep -Fq "partition = \"modem${fallback_slot}\"" "$fallback_config" ||
+    grep -Fq 'partition = "vendor"' "$fallback_config" ||
+    grep -Fq 'partition = "modem"' "$fallback_config"
+then
+    printf 'pocketfed-crosshatch-blob-wrangler: cannot select fallback: failed to specialize Crosshatch config\n' >&2
+    exit "$primary_status"
+fi
+
+# The failed primary run replaces status.json with its partial report.  Give
+# the fallback the prior successful report instead so blob-wrangler can still
+# remove files which are stale relative to this coherent opposite-slot run.
+if [[ $status_preexisted == true ]]; then
+    cp -- "$previous_status" "$status_file"
+else
+    rm -f -- "$status_file"
+fi
+
+printf 'pocketfed-crosshatch-blob-wrangler: active Android slot %s lacks required firmware; retrying coherent extraction from %s\n' \
+    "${active_slots[0]}" "$fallback_slot" >&2
+"$blob_wrangler" \
+    --device google,crosshatch \
+    --configs-dir "$config_dir"

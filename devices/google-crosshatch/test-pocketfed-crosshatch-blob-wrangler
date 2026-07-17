@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)
+helper=${1:-$repo_root/devices/google-crosshatch/pocketfed-crosshatch-blob-wrangler}
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+
+fake=$tmp/blob-wrangler
+config=$tmp/google,crosshatch.toml
+status=$tmp/status.json
+calls=$tmp/calls
+capture=$tmp/fallback-config
+status_at_fallback=$tmp/status-at-fallback
+output=$tmp/output
+
+fail() {
+    printf 'crosshatch blob-wrangler wrapper test failed: %s\n' "$*" >&2
+    exit 1
+}
+
+cat >"$fake" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$*" >>"$FAKE_CALLS"
+call=$(wc -l <"$FAKE_CALLS")
+
+if ((call > 1)); then
+    if [[ -e "$FAKE_STATUS" ]]; then
+        cp "$FAKE_STATUS" "$FAKE_STATUS_AT_FALLBACK"
+    else
+        printf 'absent\n' >"$FAKE_STATUS_AT_FALLBACK"
+    fi
+    config_dir=
+    while (($# > 0)); do
+        case "$1" in
+            --configs-dir)
+                config_dir=$2
+                shift 2
+                ;;
+            *) shift ;;
+        esac
+    done
+    [[ -n "$config_dir" ]]
+    cp "$config_dir/google,crosshatch.toml" "$FAKE_CAPTURE"
+    if [[ ${FAKE_FALLBACK_RESULT:-success} == success ]]; then
+        exit 0
+    fi
+    exit 42
+fi
+
+case "$FAKE_SCENARIO" in
+    success) exit 0 ;;
+    unrelated)
+        printf 'synthetic unrelated failure\n' >&2
+        exit 23
+        ;;
+    required-a|required-b|required-no-status-slot|required-no-status-failure)
+        case "$FAKE_SCENARIO" in
+            required-a) slot=_a ;;
+            required-b) slot=_b ;;
+            required-no-status-slot) slot= ;;
+            required-no-status-failure) slot=_b ;;
+        esac
+        {
+            printf '{\n'
+            if [[ -n "$slot" ]]; then
+                printf '  "active_slot": "%s",\n' "$slot"
+            fi
+            if [[ "$FAKE_SCENARIO" == required-no-status-failure ]]; then
+                printf '  "failures": []\n'
+            else
+                printf '  "failures": [{"required": true}]\n'
+            fi
+            printf '}\n'
+        } >"$FAKE_STATUS"
+        printf 'Required firmware extraction failed for: vendor/firmware/adsp.mdt\n' >&2
+        exit 1
+        ;;
+    *) exit 99 ;;
+esac
+EOF
+chmod 0755 "$fake"
+
+write_config() {
+    cat >"$config" <<'EOF'
+[wrangler]
+dynpart = "system"
+firmware = [
+    { partition = "vendor", origin = "firmware", destination = "qcom/device", files = [
+        { name = "adsp.mdt", required = true },
+    ] },
+    { partition = "modem", origin = "image", destination = "qcom/device", files = [
+        { name = "modem.mdt", required = true },
+    ] },
+]
+EOF
+}
+
+run_case() {
+    scenario=$1
+    expected_status=$2
+    fallback_result=${3:-success}
+    : >"$calls"
+    rm -f "$status" "$capture" "$status_at_fallback"
+    if [[ -n ${4:-} ]]; then
+        printf '%s\n' "$4" >"$status"
+    fi
+    set +e
+    env \
+        FAKE_CALLS="$calls" \
+        FAKE_CAPTURE="$capture" \
+        FAKE_FALLBACK_RESULT="$fallback_result" \
+        FAKE_SCENARIO="$scenario" \
+        FAKE_STATUS="$status" \
+        FAKE_STATUS_AT_FALLBACK="$status_at_fallback" \
+        POCKETFED_BLOB_WRANGLER_BIN="$fake" \
+        POCKETFED_BLOB_WRANGLER_CONFIG="$config" \
+        POCKETFED_BLOB_WRANGLER_RUNTIME_DIR="$tmp" \
+        POCKETFED_BLOB_WRANGLER_STATUS="$status" \
+        "$helper" >"$output" 2>&1
+    actual_status=$?
+    set -e
+    [[ $actual_status -eq $expected_status ]] ||
+        fail "$scenario returned $actual_status, expected $expected_status"
+}
+
+assert_one_call() {
+    [[ $(wc -l <"$calls") -eq 1 ]] || fail "$1 unexpectedly retried"
+}
+
+write_config
+run_case success 0
+assert_one_call success
+
+run_case unrelated 23
+assert_one_call unrelated
+
+run_case required-no-status-slot 1
+assert_one_call required-no-status-slot
+grep -Fq 'no unambiguous active slot' "$output" ||
+    fail 'missing active slot was not diagnosed'
+
+run_case required-no-status-failure 1
+assert_one_call required-no-status-failure
+
+previous_status='{"files":["/lib/firmware/updates/stale-from-prior-run.bin"]}'
+run_case required-b 0 success "$previous_status"
+[[ $(wc -l <"$calls") -eq 2 ]] || fail 'slot B did not retry'
+grep -Fq 'stale-from-prior-run.bin' "$status_at_fallback" ||
+    fail 'slot B fallback did not receive the pre-primary status'
+grep -Fxq 'dynpart = "system_a"' "$capture" || fail 'slot B did not select system_a'
+grep -Fq 'partition = "vendor_a"' "$capture" || fail 'slot B did not select vendor_a'
+grep -Fq 'partition = "modem_a"' "$capture" || fail 'slot B did not select modem_a'
+if grep -Fq 'partition = "vendor"' "$capture" ||
+    grep -Fq 'partition = "modem"' "$capture"
+then
+    fail 'slot B fallback retained an implicit partition name'
+fi
+grep -Fq 'retrying coherent extraction from _a' "$output" ||
+    fail 'slot B fallback was not diagnosed'
+
+run_case required-a 0
+[[ $(wc -l <"$calls") -eq 2 ]] || fail 'slot A did not retry'
+grep -Fxq absent "$status_at_fallback" ||
+    fail 'slot A fallback retained the failed primary status'
+grep -Fxq 'dynpart = "system_b"' "$capture" || fail 'slot A did not select system_b'
+grep -Fq 'partition = "vendor_b"' "$capture" || fail 'slot A did not select vendor_b'
+grep -Fq 'partition = "modem_b"' "$capture" || fail 'slot A did not select modem_b'
+tail -n 1 "$calls" | grep -Eq '^--device google,crosshatch --configs-dir .+' ||
+    fail 'fallback did not select the Crosshatch generated-config directory'
+
+run_case required-b 42 failure
+[[ $(wc -l <"$calls") -eq 2 ]] || fail 'fallback failure was not attempted'
+
+sed -i 's/dynpart = "system"/dynpart = "super"/' "$config"
+run_case required-b 1
+assert_one_call config-drift
+grep -Fq 'unexpected shape' "$output" || fail 'config drift was not diagnosed'
+
+printf 'crosshatch blob-wrangler wrapper tests passed\n'

@@ -139,11 +139,16 @@ RUN set -eu; \
 FROM device-root-base AS device-root
 COPY devices/google-crosshatch/80-pocketfed-google-crosshatch.preset /usr/lib/systemd/system-preset/
 COPY --chmod=0755 base/mkosi.extra/usr/libexec/pocketfed-blob-wrangler-modprobe /usr/libexec/
+COPY --chmod=0755 devices/google-crosshatch/pocketfed-crosshatch-blob-wrangler /usr/libexec/
+COPY devices/google-crosshatch/blob-wrangler.service.d/10-pocketfed-crosshatch-slot-fallback.conf /usr/lib/systemd/system/blob-wrangler.service.d/
+COPY --chmod=0755 devices/google-crosshatch/test-pocketfed-crosshatch-blob-wrangler /tmp/
 COPY --chmod=0755 devices/google-crosshatch/pocketfed-usb-signaller-activate /usr/libexec/
 COPY devices/google-crosshatch/pocketfed-usb-developer-mode.service /usr/lib/systemd/system/
 COPY --chmod=0755 devices/google-crosshatch/pocketfed-verify-bootimg /usr/libexec/
 COPY --chmod=0755 devices/google-crosshatch/pocketfed-verify-oci /usr/libexec/
-RUN systemctl enable pocketfed-usb-developer-mode.service
+RUN /tmp/test-pocketfed-crosshatch-blob-wrangler /usr/libexec/pocketfed-crosshatch-blob-wrangler && \
+    rm -f /tmp/test-pocketfed-crosshatch-blob-wrangler && \
+    systemctl enable pocketfed-usb-developer-mode.service
 
 FROM ${RUST_IMAGE} AS abl-exorcist-build
 RUN --mount=type=cache,id=pocketfed-google-crosshatch-arm64-apt-cache,target=/var/cache/apt,sharing=locked \
