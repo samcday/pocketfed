@@ -75,6 +75,19 @@ systemctl is-enabled pocketfed-usb-developer-mode.service
 systemctl is-enabled systemd-boot-check-no-failures.service
 systemctl is-enabled qbootctl.service
 
+for unit in rmtfs.service tqftpserv.service
+do
+    state=$(systemctl is-enabled "$unit" || true)
+    [ "$state" = disabled ] ||
+        fail "$unit must be disabled while the Crosshatch GLINK stack is quarantined: $state"
+    preset=$(
+        systemctl list-unit-files "$unit" --no-legend --no-pager |
+            awk 'NR == 1 { print $3 }'
+    )
+    [ "$preset" = disabled ] ||
+        fail "$unit first-boot preset is not disabled: ${preset:-missing}"
+done
+
 # PID 1 reapplies presets when bootc initializes an unprovisioned deployment.
 # Verify the policy as well as the build-time symlinks so required phone
 # services survive that first-boot pass.

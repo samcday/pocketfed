@@ -148,6 +148,7 @@ COPY --chmod=0755 devices/google-crosshatch/pocketfed-verify-bootimg /usr/libexe
 COPY --chmod=0755 devices/google-crosshatch/pocketfed-verify-oci /usr/libexec/
 RUN /tmp/test-pocketfed-crosshatch-blob-wrangler /usr/libexec/pocketfed-crosshatch-blob-wrangler && \
     rm -f /tmp/test-pocketfed-crosshatch-blob-wrangler && \
+    systemctl disable rmtfs.service tqftpserv.service && \
     systemctl enable pocketfed-usb-developer-mode.service
 
 FROM ${RUST_IMAGE} AS abl-exorcist-build
