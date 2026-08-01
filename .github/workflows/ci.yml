@@ -357,6 +357,7 @@ jobs:
         device:
           - google-sargo
           - google-crosshatch
+          - oneplus-fajita
 
     steps:
       - name: Checkout pocketfed
