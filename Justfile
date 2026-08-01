@@ -156,6 +156,92 @@ builder:
         -t "{{builder_image}}" \
         .
 
+_fastboot-preflight:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ -z "{{device}}" ]]; then
+        echo "PF_DEVICE is required" >&2
+        exit 1
+    fi
+
+    if [[ -n "${PF_ROOT_SSH_AUTHORIZED_KEYS:-}" ]]; then
+        if [[ ! -f "$PF_ROOT_SSH_AUTHORIZED_KEYS" ]]; then
+            echo "PF_ROOT_SSH_AUTHORIZED_KEYS must name a regular file" >&2
+            exit 1
+        fi
+        if [[ ! -s "$PF_ROOT_SSH_AUTHORIZED_KEYS" ]]; then
+            echo "PF_ROOT_SSH_AUTHORIZED_KEYS must name a non-empty file" >&2
+            exit 1
+        fi
+    fi
+
+fastboot: _fastboot-preflight device builder
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    device="{{device}}"
+    device_image="{{image}}"
+    builder_image="{{builder_image}}"
+    SUDO="{{sudo}}"
+
+    if [[ -z "$device" ]]; then
+        echo "PF_DEVICE is required" >&2
+        exit 1
+    fi
+    if [[ -z "$device_image" ]]; then
+        device_image="ghcr.io/{{owner}}/pocketfed-phosh-$device:{{tag}}"
+    fi
+
+    target_image="${PF_TARGET_IMAGE_REF:-ghcr.io/{{owner}}/pocketfed-phosh-$device:{{tag}}}"
+    output="${PF_OUTPUT_DIR:-out/$device}"
+    mkdir -p "$output"
+    output=$(realpath "$output")
+
+    tmp=$(mktemp -d "$output/.pocketfed-fastboot.XXXXXX")
+    cleanup() {
+        set +e
+        $SUDO rm -rf -- "$tmp"
+    }
+    trap cleanup EXIT
+
+    source_oci="$tmp/device.oci"
+    source_ref=source
+    $SUDO skopeo copy \
+        --override-os linux \
+        --override-arch arm64 \
+        "containers-storage:$device_image" \
+        "oci:$source_oci:$source_ref"
+
+    podman_args=(
+        run
+        --rm
+        --pull=never
+        --privileged
+        --arch arm64
+        --volume "$source_oci:/input/device.oci:ro,Z"
+        --volume "$output:/out:Z"
+        --env "PF_SOURCE_IMAGE_REF=oci:/input/device.oci:$source_ref"
+        --env "PF_TARGET_IMAGE_REF=$target_image"
+    )
+
+    for name in PF_IMAGE_SIZE PF_ROOT_LABEL PF_STATEROOT; do
+        if [[ -v "$name" ]]; then
+            podman_args+=(--env "$name=${!name}")
+        fi
+    done
+
+    if [[ -n "${PF_ROOT_SSH_AUTHORIZED_KEYS:-}" ]]; then
+        keys=$(realpath -- "$PF_ROOT_SSH_AUTHORIZED_KEYS")
+        podman_args+=(
+            --volume "$keys:/run/pocketfed/authorized_keys:ro"
+            --env PF_ROOT_SSH_AUTHORIZED_KEYS=/run/pocketfed/authorized_keys
+        )
+    fi
+
+    $SUDO podman "${podman_args[@]}" \
+        "$builder_image" "$device" phosh "{{tag}}"
+
 base-inspect:
     {{sudo}} skopeo inspect "{{oci_output}}"
 

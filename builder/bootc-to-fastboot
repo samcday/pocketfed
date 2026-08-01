@@ -17,7 +17,7 @@ Usage: bootc-to-fastboot <device> <desktop> [release]
 
 Create fastbootable Android userdata + boot artifacts from a PocketFed
 device-bound bootc/OSTree image. The release defaults to rawhide and outputs
-are written to /out/boot.img and /out/userdata.img.
+are written to /out/boot.img, /out/userdata.img, and /out/SHA256SUMS.
 
 The source and future update image ref defaults to:
   ghcr.io/samcday/pocketfed-<desktop>-<device>:<release>
@@ -127,8 +127,10 @@ fi
 require_cmd bootc
 require_cmd skopeo
 require_cmd ostree
+require_cmd sha256sum
 require_cmd truncate
 require_cmd mkfs.ext4
+require_cmd losetup
 require_cmd mount
 require_cmd mountpoint
 require_cmd umount
@@ -141,6 +143,7 @@ mkdir -p "$output_dir"
 
 boot_img="$output_dir/boot.img"
 sparse_img="$output_dir/userdata.img"
+checksums="$output_dir/SHA256SUMS"
 
 tmp=$(mktemp -d "$output_dir/.bootc-to-fastboot.XXXXXX")
 mnt="$tmp/mnt"
@@ -148,12 +151,17 @@ source_oci="$tmp/source.oci"
 raw_img="$tmp/userdata.raw.img"
 tmp_boot_img="$tmp/boot.img"
 tmp_sparse_img="$tmp/userdata.img"
+tmp_checksums="$tmp/SHA256SUMS"
 mounted=0
+loop_device=
 
 cleanup() {
     set +e
     if (( mounted )) && mountpoint -q "$mnt"; then
         umount "$mnt"
+    fi
+    if [[ -n "$loop_device" ]]; then
+        losetup --detach "$loop_device"
     fi
     rm -rf "$tmp"
 }
@@ -161,24 +169,34 @@ trap cleanup EXIT
 
 install -d "$mnt"
 
-log "copying $source_imgref to temporary OCI layout"
-skopeo copy \
-    --override-os linux \
-    --override-arch "$arch" \
-    "$source_imgref" \
-    "oci:$source_oci:$source_ref"
+case "$source_imgref" in
+    oci:*)
+        install_source_imgref=$source_imgref
+        log "using local OCI layout $source_imgref"
+        ;;
+    *)
+        log "copying $source_imgref to temporary OCI layout"
+        skopeo copy \
+            --override-os linux \
+            --override-arch "$arch" \
+            "$source_imgref" \
+            "oci:$source_oci:$source_ref"
+        install_source_imgref="oci:$source_oci:$source_ref"
+        ;;
+esac
 
 log "creating ext4 userdata image"
 truncate -s "$size" "$raw_img"
 mkfs.ext4 -F -L "$root_label" "$raw_img" >/dev/null
 
 log "mounting userdata image"
-mount -o loop "$raw_img" "$mnt"
+loop_device=$(losetup --find --show "$raw_img")
+mount "$loop_device" "$mnt"
 mounted=1
 
 bootc_args=(
     bootc install to-filesystem
-    --source-imgref "oci:$source_oci:$source_ref"
+    --source-imgref "$install_source_imgref"
     --target-imgref "$target_imgref"
     --root-mount-spec "LABEL=$root_label"
     --stateroot "$stateroot"
@@ -228,6 +246,8 @@ log "unmounting userdata image"
 sync
 umount "$mnt"
 mounted=0
+losetup --detach "$loop_device"
+loop_device=
 
 log "checking ext4 image"
 set +e
@@ -239,8 +259,17 @@ set -e
 log "creating sparse userdata image"
 img2simg "$raw_img" "$tmp_sparse_img"
 
+log "writing artifact checksums"
+(
+    cd "$tmp"
+    sha256sum boot.img userdata.img >SHA256SUMS
+)
+
+output_owner="$(stat -c %u "$output_dir"):$(stat -c %g "$output_dir")"
+chown "$output_owner" "$tmp_boot_img" "$tmp_sparse_img" "$tmp_checksums"
+rm -f "$checksums"
 mv -f "$tmp_boot_img" "$boot_img"
 mv -f "$tmp_sparse_img" "$sparse_img"
-chown "$(stat -c %u "$output_dir"):$(stat -c %g "$output_dir")" "$boot_img" "$sparse_img"
+mv -f "$tmp_checksums" "$checksums"
 
-log "wrote $boot_img and $sparse_img"
+log "wrote $boot_img, $sparse_img, and $checksums"
