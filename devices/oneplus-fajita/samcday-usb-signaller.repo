@@ -1,0 +1,12 @@
+[copr:copr.fedorainfracloud.org:samcday:usb-signaller]
+name=Copr repo for usb-signaller
+baseurl=https://download.copr.fedorainfracloud.org/results/samcday/usb-signaller/fedora-rawhide-$basearch/
+type=rpm-md
+skip_if_unavailable=False
+gpgcheck=1
+gpgkey=https://download.copr.fedorainfracloud.org/results/samcday/usb-signaller/pubkey.gpg
+repo_gpgcheck=0
+enabled=0
+enabled_metadata=0
+priority=50
+includepkgs=usb-signaller
