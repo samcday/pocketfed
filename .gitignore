@@ -8,5 +8,6 @@
 /base/mkosi.tools.manifest
 /.linux-build/
 /.linux-src/
+/out/
 /linux/
 /.env
