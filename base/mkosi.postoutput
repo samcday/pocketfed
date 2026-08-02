@@ -15,6 +15,14 @@ reference="${IMAGE_VERSION:-${RELEASE:-rawhide}}"
 oci_dir="$OUTPUTDIR/$IMAGE_ID.oci"
 oci_arch="${PF_OCI_ARCH:-arm64}"
 
+# libpwquality only recommends the dictionary package, but PocketFed disables
+# weak dependencies. Keep the complete password-changing stack explicit and
+# fail before composing an image that cannot pass PAM's dictionary check.
+rpm --root "$rootfs" -q cracklib-dicts
+for suffix in hwm pwd pwi; do
+    test -s "$rootfs/usr/share/cracklib/pw_dict.$suffix"
+done
+
 # Fail the mkosi build if bootc detects rootfs problems before compose.
 bootc container lint --rootfs "$rootfs" --no-truncate
 
