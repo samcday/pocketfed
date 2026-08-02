@@ -142,7 +142,7 @@ lsinitrd -f etc/machine-id "$module_dir/initramfs.img" >"$initramfs_machine_id" 
 lsinitrd -f etc/cmdline.d/20-force_drivers.conf \
     "$module_dir/initramfs.img" >"$force_drivers" ||
     fail 'cannot inspect initramfs forced drivers'
-[ "$(wc -l <"$force_drivers" | tr -d ' ')" -eq 10 ] ||
+[ "$(wc -l <"$force_drivers" | tr -d ' ')" -eq 11 ] ||
     fail 'initramfs forced-driver file has unexpected content'
 
 module_releases=$(
@@ -164,6 +164,7 @@ for module in \
     qnoc-sdm845 \
     pinctrl-sdm845 \
     qcom_ice \
+    rtc-pm8xxx \
     phy-qcom-qmp-ufs \
     ufshcd-core \
     ufshcd-pltfrm \
@@ -197,6 +198,7 @@ for driver in \
     pinctrl_sdm845 \
     qcom_ice \
     qcom_wdt \
+    rtc_pm8xxx \
     phy_qcom_qmp_ufs \
     ufshcd_core \
     ufshcd_pltfrm \
