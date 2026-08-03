@@ -1,0 +1,45 @@
+# Qualcomm firmware and resource plumbing needed before root is mounted.
+qcom_scm
+qcom-apcs-ipc-mailbox
+qcom_hwspinlock
+smem
+socinfo
+cmd-db
+qcom_smd
+smd-rpm
+rpmpd
+clk-smd-rpm
+apcs-msm8916
+a53-pll
+cpr
+qcom-cpufreq-nvmem
+
+# Clocks, pinctrl, PMIC, regulators, and interconnects.
+gcc-msm8916
+pinctrl-msm8916
+qcom-spmi-pmic
+pinctrl-spmi-gpio
+pinctrl-spmi-mpp
+qcom_smd-regulator
+qcom_spmi-regulator
+nvmem_qfprom
+icc-smd-rpm
+qnoc-msm8916
+
+# Buses and the mandatory eMMC root-storage chain.
+bam_dma
+i2c-qup
+spi-qup
+mmc_core
+mmc_block
+sdhci
+sdhci-pltfm
+sdhci-msm
+
+# USB recovery and debug suppliers. These remain optional at composition time.
+ulpi
+phy-qcom-usb-hs
+phy-qcom-usb-hs-28nm
+ci_hdrc
+ci_hdrc_msm
+extcon-usb-gpio

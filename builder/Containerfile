@@ -10,9 +10,14 @@ RUN --mount=type=cache,id=pocketfed-builder-dnf,target=/var/cache,sharing=locked
     dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True \
         android-tools \
         bootc \
+        bootupd \
         coreutils \
+        diffutils \
+        dosfstools \
         e2fsprogs \
         jq \
+        file \
+        grub2-tools \
         ostree \
         skopeo \
         util-linux

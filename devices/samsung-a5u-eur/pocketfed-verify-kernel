@@ -1,0 +1,86 @@
+#!/bin/sh
+set -eu
+
+fail() {
+    printf 'pocketfed samsung-a5u-eur kernel verification failed: %s\n' "$*" >&2
+    exit 1
+}
+
+verify_module() {
+    description=$1
+    pattern=$2
+
+    module=$(find "$module_dir/kernel" -type f -name "$pattern" -print -quit 2>/dev/null)
+    [ -n "$module" ] || fail "$description module is missing"
+
+    vermagic=$(modinfo -F vermagic "$module") ||
+        fail "cannot read vermagic from $module"
+    uts_release=${vermagic%% *}
+    [ "$uts_release" = "$kver" ] ||
+        fail "$description vermagic $uts_release does not match $kver"
+}
+
+expected_kver=7.2.0-0.rc1.15.msm8916.fc45.aarch64
+expected_signing_key=77c4ba824252345c
+
+set -- /usr/lib/modules/*
+[ "$#" -eq 1 ] || fail "expected one module directory, found $#"
+[ -d "$1" ] || fail "module directory is missing: $1"
+module_dir=$1
+kver=${module_dir##*/}
+[ "$kver" = "$expected_kver" ] || fail "unexpected release: $kver"
+
+for package in kernel kernel-core kernel-modules-core kernel-modules kernel-modules-extra; do
+    installed=$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' "$package") ||
+        fail "$package is not installed"
+    [ "$installed" = "$package-$expected_kver" ] ||
+        fail "$package NEVRA is $installed, expected $package-$expected_kver"
+
+    signature=$(rpm -q --qf '%{RSAHEADER:pgpsig}\n' "$package") ||
+        fail "cannot inspect $package signature"
+    printf '%s\n' "$signature" | grep -Eqi "Key ID $expected_signing_key$" ||
+        fail "$package was not signed by the linux-msm8916-mainline COPR key"
+done
+
+dtb="$module_dir/dtb/qcom/msm8916-samsung-a5u-eur.dtb"
+selected_dtb="$module_dir/devicetree"
+test -s "$module_dir/vmlinuz" || fail 'vmlinuz is missing'
+test -s "$module_dir/config" || fail 'kernel config is missing'
+test -s "$module_dir/modules.dep" || fail 'module dependency metadata is missing'
+test -s "$dtb" || fail 'msm8916-samsung-a5u-eur.dtb is missing'
+[ -f "$selected_dtb" ] && [ ! -L "$selected_dtb" ] ||
+    fail 'module-root devicetree is not a regular file'
+cmp -s "$selected_dtb" "$dtb" ||
+    fail 'module-root devicetree does not match the selected A5U DTB'
+
+grep -aFq 'Samsung Galaxy A5U (EUR)' "$dtb" || fail 'A5U DTB has the wrong model'
+grep -aFq 'samsung,a5u-eur' "$dtb" || fail 'A5U DTB has the wrong compatible string'
+grep -aFq 'qcom,msm8916' "$dtb" || fail 'A5U DTB is not an MSM8916 device'
+grep -aFq 'qcom,msm8916-sdhci' "$dtb" || fail 'A5U DTB does not describe MSM8916 eMMC'
+
+[ "$(cat /usr/lib/kernel/devicetree)" = qcom/msm8916-samsung-a5u-eur.dtb ] ||
+    fail 'kernel-install devicetree selection is wrong'
+
+for setting in \
+    CONFIG_MMC=m \
+    CONFIG_MMC_BLOCK=m \
+    CONFIG_MMC_SDHCI=m \
+    CONFIG_MMC_SDHCI_PLTFM=m \
+    CONFIG_MMC_SDHCI_MSM=m
+do
+    grep -Fxq "$setting" "$module_dir/config" || fail "$setting is not enabled"
+done
+grep -Eq '^CONFIG_EXT4_FS=(y|m)$' "$module_dir/config" || fail 'ext4 support is disabled'
+
+verify_module 'MMC core' 'mmc_core.ko*'
+verify_module 'MMC block' 'mmc_block.ko*'
+verify_module 'SDHCI core' 'sdhci.ko*'
+verify_module 'SDHCI platform' 'sdhci-pltfm.ko*'
+verify_module 'Qualcomm MSM SDHCI' 'sdhci-msm.ko*'
+
+for driver in mmc_core mmc_block sdhci sdhci_pltfm sdhci_msm; do
+    modprobe --set-version "$kver" --show-depends "$driver" >/dev/null 2>&1 ||
+        fail "cannot resolve mandatory eMMC driver $driver"
+done
+
+printf 'verified pocketfed samsung-a5u-eur kernel release %s\n' "$kver"

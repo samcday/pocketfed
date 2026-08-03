@@ -2,28 +2,80 @@
 
 Some fed in your pocket.
 
-## OnePlus 6T (fajita) flash artifacts
+## Installation artifacts
 
-PocketFed uses two layers for device installation:
+PocketFed uses a device OCI as the immutable system and update boundary. The
+image builder installs that OCI into an OSTree root filesystem and emits the
+partition artifacts for the selected device. The layout depends on its boot
+firmware:
 
-1. A device OCI contains the immutable system, kernel, DTB, initramfs, and
-   Android boot image.
-2. The image builder installs that OCI into an OSTree userdata filesystem and
-   emits a flashable artifact set:
+- ABL-based targets such as Google Sargo and OnePlus Fajita use `boot.img`,
+  `userdata.img`, a guarded `flash.sh`, and a provenance `manifest.json`.
+- Samsung A5U uses a pre-provisioned U-Boot or PocketBoot installation in the
+  Android `boot` partition. Its Fedora installation is split into `esp.img`,
+  `bootfs.img`, and `userdata.img`.
 
-   - `boot.img`
-   - `userdata.img` (Android sparse ext4, 8 GiB before first-boot growth)
-   - `flash.sh` (a guarded flashing helper that preserves the current slot)
-   - `manifest.json` (source OCI provenance and installation policy)
-   - `SHA256SUMS`
+Every artifact set includes `SHA256SUMS`. Hosting the artifacts separately from
+the OCI is optional and does not change their format.
 
-The OCI is the natural update and source-build boundary. Hosting the five
-flash artifacts separately is optional and does not change their format.
+Install `git`, `just`, `podman`, and `skopeo` to build from this checkout. On an
+x86-64 host, Podman also needs working arm64 binfmt/QEMU support. The builder is
+arm64-only and needs `--privileged` for its temporary loop-mounted filesystems.
 
-### Build everything from this checkout
+## Samsung Galaxy A5U (EUR)
 
-Install `git`, `just`, `podman`, and `skopeo`. On an x86-64 host, Podman also
-needs working arm64 binfmt/QEMU support. Then run:
+The `samsung-a5u-eur` target assumes U-Boot or PocketBoot has already been
+installed in the Android `boot` partition. Building or installing that firmware
+is outside PocketFed's scope, and the generated artifacts must not be written to
+Android `boot`.
+
+The stock partition table must also be prepared out of band so partition 25
+(`cache`) has the standard EFI System Partition GPT type. Writing a FAT image to
+`cache` does not change its GPT type. PocketFed does not inspect or modify the
+device's partition table.
+
+Build the OCI and partition images with:
+
+```sh
+PF_DEVICE=samsung-a5u-eur \
+PF_ROOT_SSH_AUTHORIZED_KEYS="$HOME/.ssh/id_ed25519.pub" \
+just fastboot
+```
+
+The output in `out/samsung-a5u-eur/` is:
+
+- `esp.img`: raw 200 MiB FAT32 EFI System Partition; write to Android `cache`.
+- `bootfs.img`: Android-sparse 1 GiB ext4 Fedora `/boot`; write to Android
+  `system`.
+- `userdata.img`: Android-sparse ext4 Atomic root, 8 GiB by default; write to
+  Android `userdata`.
+- `SHA256SUMS`.
+
+`PF_IMAGE_SIZE` changes the logical userdata size, while `PF_OUTPUT_DIR` changes
+the output directory. The generated image must fit the device's userdata
+partition. Verify the completed set before installing it:
+
+```sh
+(cd out/samsung-a5u-eur && sha256sum --check SHA256SUMS)
+```
+
+Installing these images destroys the existing contents of `cache`, `system`,
+and `userdata`. Back up the phone and its partition table first. The command or
+USB mode used to write those partitions depends on the installed boot firmware;
+confirm the destination by partition name and size before writing anything.
+`bootfs.img` and `userdata.img` require an Android-sparse-aware writer, such as
+fastboot, or must first be expanded with `simg2img` before using a raw
+block-device writer. Writing either sparse container directly with `dd`, `cp`,
+or an equivalent raw writer will not produce a valid filesystem. `esp.img` is
+already raw and can be written directly. Leave the Android `boot` partition
+untouched.
+
+## OnePlus 6T (Fajita)
+
+> **Warning:** The Fajita image has booted through the graphical session on
+> hardware, but installation remains experimental.
+
+Build everything from this checkout with:
 
 ```sh
 PF_DEVICE=oneplus-fajita \
@@ -42,7 +94,7 @@ The future update source embedded in userdata defaults to
 `ghcr.io/samcday/pocketfed-phosh-oneplus-fajita:rawhide`, even when the source
 OCI was built locally. Override it explicitly with `PF_TARGET_IMAGE_REF`.
 
-### Build artifacts from the published device OCI
+### Build Fajita artifacts from the published device OCI
 
 Once the Fajita device OCI has been published, no checkout is required:
 
@@ -57,16 +109,13 @@ sudo podman run --rm --pull=always --privileged --arch arm64 \
   oneplus-fajita phosh rawhide
 ```
 
-The builder needs `--privileged` for its temporary loop-mounted ext4 image.
-It is arm64-only; `--arch arm64` uses binfmt/QEMU on a configured x86-64 host.
-
 Verify the completed artifact set before flashing:
 
 ```sh
 (cd out/oneplus-fajita && sha256sum --check SHA256SUMS)
 ```
 
-### Experimental flashing
+### Experimental Fajita flashing
 
 The Fajita image has booted through the graphical session on hardware, but the
 installation remains experimental. Flashing `userdata` destroys the phone's

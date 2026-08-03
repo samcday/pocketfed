@@ -1,0 +1,60 @@
+#!/bin/sh
+set -eu
+
+fail() {
+    printf 'pocketfed MSM8916 dracut policy failed: %s\n' "$*" >&2
+    exit 1
+}
+
+[ "$#" -eq 1 ] || fail 'usage: pocketfed-msm8916-dracut-policy KERNEL-RELEASE'
+kver=$1
+module_dir="/usr/lib/modules/$kver"
+candidate_file=/usr/lib/pocketfed/msm8916-dracut-force-drivers.list
+selected_file=/usr/lib/pocketfed/msm8916-dracut-force-drivers.selected
+missing_file=/usr/lib/pocketfed/msm8916-dracut-force-drivers.missing
+dracut_conf=/etc/dracut.conf.d/61-samsung-a5u-eur-drivers.conf
+
+[ -d "$module_dir" ] || fail "module directory is missing: $module_dir"
+[ -s "$candidate_file" ] || fail "candidate inventory is missing: $candidate_file"
+
+: >"$selected_file"
+: >"$missing_file"
+awk '
+    {
+        sub(/#.*/, "")
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+        if (length != 0)
+            print
+    }
+' "$candidate_file" |
+while IFS= read -r candidate; do
+    driver=$(printf '%s' "$candidate" | tr '-' '_')
+    if modprobe --set-version "$kver" --show-depends "$driver" >/dev/null 2>&1; then
+        printf '%s\n' "$driver" >>"$selected_file"
+    else
+        printf '%s\n' "$driver" >>"$missing_file"
+    fi
+done
+
+[ -s "$selected_file" ] || fail "no candidate drivers resolve for $kver"
+for required in mmc_core mmc_block sdhci sdhci_pltfm sdhci_msm; do
+    grep -Fxq "$required" "$selected_file" ||
+        fail "mandatory eMMC driver does not resolve: $required"
+done
+
+duplicate=$(
+    sort "$selected_file" | uniq -d | sed -n '1p'
+)
+[ -z "$duplicate" ] || fail "duplicate selected driver: $duplicate"
+
+{
+    printf '%s\n' '# Generated from the checked-in MSM8916 candidate inventory.'
+    printf 'force_drivers+="'
+    while IFS= read -r driver; do
+        printf ' %s' "$driver"
+    done <"$selected_file"
+    printf ' "\n'
+} >"$dracut_conf"
+
+printf 'selected %s MSM8916 initramfs drivers for %s\n' \
+    "$(wc -l <"$selected_file" | tr -d ' ')" "$kver"

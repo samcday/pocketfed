@@ -389,6 +389,7 @@ jobs:
           - google-sargo
           - google-crosshatch
           - oneplus-fajita
+          - samsung-a5u-eur
 
     steps:
       - name: Checkout pocketfed

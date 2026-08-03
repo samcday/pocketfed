@@ -1,0 +1,2 @@
+disable qbootctl.service
+enable bootloader-update.service

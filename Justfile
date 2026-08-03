@@ -117,7 +117,7 @@ desktop:
                 --output "containers-storage:$image"
     fi
 
-device: (submodule "vendor/abl-exorcist")
+device:
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -129,6 +129,9 @@ device: (submodule "vendor/abl-exorcist")
     if [[ -z "$device" ]]; then
         echo "device= is required" >&2
         exit 1
+    fi
+    if [[ "$device" != "samsung-a5u-eur" ]]; then
+        git submodule update --init --recursive --depth 1 -- vendor/abl-exorcist
     fi
     if [[ -z "$image" ]]; then
         image="ghcr.io/{{owner}}/pocketfed-phosh-$device:{{tag}}"

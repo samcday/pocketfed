@@ -1,0 +1,166 @@
+#!/bin/sh
+set -eu
+
+fail() {
+    printf 'pocketfed samsung-a5u-eur OCI verification failed: %s\n' "$*" >&2
+    exit 1
+}
+
+rpm -q bootupd efibootmgr grub2-efi-aa64 shim-aa64 >/dev/null ||
+    fail 'Fedora AA64 bootupd/EFI package set is incomplete'
+
+efi_metadata=/usr/lib/bootupd/updates/EFI.json
+test -s "$efi_metadata" || fail 'bootupd EFI update metadata is missing'
+grep -Eq '"name"[[:space:]]*:[[:space:]]*"grub2"' "$efi_metadata" ||
+    fail 'bootupd metadata does not contain GRUB'
+grep -Eq '"name"[[:space:]]*:[[:space:]]*"shim"' "$efi_metadata" ||
+    fail 'bootupd metadata does not contain shim'
+rpm -ql grub2-efi-aa64 | grep -Eq '/grubaa64\.efi$' ||
+    fail 'grub2-efi-aa64 does not provide grubaa64.efi'
+rpm -ql shim-aa64 | grep -Eq '/shimaa64[^/]*\.efi$' ||
+    fail 'shim does not provide an AA64 EFI executable'
+[ ! -e /usr/lib/ostree-boot/loader ] ||
+    fail 'legacy OSTree bootloader helper was not removed after metadata generation'
+
+qbootctl_state=$(systemctl is-enabled qbootctl.service || :)
+[ "$qbootctl_state" = disabled ] || fail "qbootctl is not disabled: $qbootctl_state"
+[ "$(systemctl is-enabled bootloader-update.service)" = enabled ] ||
+    fail 'bootloader-update.service is not enabled'
+
+qbootctl_preset=$(
+    systemctl list-unit-files qbootctl.service --no-legend --no-pager |
+        awk 'NR == 1 { print $3 }'
+)
+[ "$qbootctl_preset" = disabled ] ||
+    fail "qbootctl first-boot preset is not disabled: ${qbootctl_preset:-missing}"
+bootupd_preset=$(
+    systemctl list-unit-files bootloader-update.service --no-legend --no-pager |
+        awk 'NR == 1 { print $3 }'
+)
+[ "$bootupd_preset" = enabled ] ||
+    fail "bootloader updater first-boot preset is not enabled: ${bootupd_preset:-missing}"
+
+/usr/libexec/pocketfed-verify-kernel
+
+set -- /usr/lib/modules/*
+[ "$#" -eq 1 ] || fail "expected one module directory, found $#"
+module_dir=$1
+kver=${module_dir##*/}
+dtb="$module_dir/dtb/qcom/msm8916-samsung-a5u-eur.dtb"
+selected_dtb="$module_dir/devicetree"
+test -s "$module_dir/initramfs.img" || fail 'initramfs is missing'
+[ -f "$selected_dtb" ] && [ ! -L "$selected_dtb" ] ||
+    fail 'module-root devicetree is not a regular file'
+cmp -s "$selected_dtb" "$dtb" ||
+    fail 'module-root devicetree does not match the selected A5U DTB'
+[ -z "$(find /usr/lib/modules -type f -name aboot.img -print -quit)" ] ||
+    fail 'an ABL/Android aboot.img artifact is present'
+[ -z "$(find /boot -mindepth 1 -print -quit)" ] || fail 'OCI /boot is not empty'
+
+candidate_file=/usr/lib/pocketfed/msm8916-dracut-force-drivers.list
+selected_file=/usr/lib/pocketfed/msm8916-dracut-force-drivers.selected
+missing_file=/usr/lib/pocketfed/msm8916-dracut-force-drivers.missing
+generated_conf=/etc/dracut.conf.d/61-samsung-a5u-eur-drivers.conf
+test -s "$candidate_file" || fail 'MSM8916 candidate inventory is missing'
+test -s "$selected_file" || fail 'MSM8916 selected-driver inventory is missing'
+test -f "$missing_file" || fail 'MSM8916 missing-driver inventory is missing'
+test -s "$generated_conf" || fail 'MSM8916 generated dracut policy is missing'
+
+initramfs_listing=$(mktemp)
+initramfs_modules=$(mktemp)
+host_modaliases=$(mktemp)
+initramfs_hostname=$(mktemp)
+initramfs_hosts=$(mktemp)
+initramfs_machine_id=$(mktemp)
+force_drivers=$(mktemp)
+expected_selected=$(mktemp)
+expected_missing=$(mktemp)
+trap 'rm -f "$initramfs_listing" "$initramfs_modules" "$host_modaliases" "$initramfs_hostname" "$initramfs_hosts" "$initramfs_machine_id" "$force_drivers" "$expected_selected" "$expected_missing"' EXIT
+
+lsinitrd "$module_dir/initramfs.img" >"$initramfs_listing" || fail 'cannot inspect initramfs'
+lsinitrd -m "$module_dir/initramfs.img" >"$initramfs_modules" ||
+    fail 'cannot inspect initramfs module set'
+grep -Fxq ostree "$initramfs_modules" || fail 'OSTree dracut module is missing'
+grep -Fq 'usr/lib/ostree/ostree-prepare-root' "$initramfs_listing" ||
+    fail 'ostree-prepare-root is missing from initramfs'
+grep -Fq 'usr/lib/systemd/system/ostree-prepare-root.service' "$initramfs_listing" ||
+    fail 'ostree-prepare-root.service is missing from initramfs'
+
+lsinitrd -f usr/lib/dracut/hostonly-kernel-modules.txt \
+    "$module_dir/initramfs.img" >"$host_modaliases" ||
+    fail 'cannot inspect initramfs host modalias set'
+test ! -s "$host_modaliases" || fail 'build-host kernel modaliases leaked into initramfs'
+lsinitrd -f etc/hostname "$module_dir/initramfs.img" >"$initramfs_hostname" ||
+    fail 'cannot inspect initramfs hostname'
+[ "$(cat "$initramfs_hostname")" = pocketfed-initrd ] ||
+    fail 'initramfs hostname is not deterministic'
+lsinitrd -f etc/hosts "$module_dir/initramfs.img" >"$initramfs_hosts" ||
+    fail 'cannot inspect initramfs hosts file'
+[ "$(wc -l <"$initramfs_hosts" | tr -d ' ')" -eq 2 ] ||
+    fail 'initramfs hosts file has unexpected content'
+grep -Fxq \
+    '127.0.0.1 pocketfed-initrd localhost localhost.localdomain localhost4 localhost4.localdomain4' \
+    "$initramfs_hosts" || fail 'initramfs IPv4 host mapping is missing'
+grep -Fxq \
+    '::1 pocketfed-initrd localhost localhost.localdomain localhost6 localhost6.localdomain6' \
+    "$initramfs_hosts" || fail 'initramfs IPv6 host mapping is missing'
+lsinitrd -f etc/machine-id "$module_dir/initramfs.img" >"$initramfs_machine_id" ||
+    fail 'cannot inspect initramfs machine ID'
+[ "$(cat "$initramfs_machine_id")" = uninitialized ] ||
+    fail 'initramfs machine ID is not uninitialized'
+lsinitrd -f etc/cmdline.d/20-force_drivers.conf \
+    "$module_dir/initramfs.img" >"$force_drivers" ||
+    fail 'cannot inspect initramfs forced drivers'
+grep -Fxq 'rd.driver.pre=ext4' "$force_drivers" || fail 'ext4 is not forced in initramfs'
+
+module_releases=$(
+    awk '$NF ~ /^usr\/lib\/modules\// { split($NF, path, "/"); print path[4] }' \
+        "$initramfs_listing" | sort -u
+)
+[ "$module_releases" = "$kver" ] ||
+    fail "initramfs module release set is not exactly $kver: $module_releases"
+
+verify_initramfs_module() {
+    module=$1
+    grep -F "usr/lib/modules/$kver/" "$initramfs_listing" |
+        grep -Eq "/${module}\\.ko(\\.(xz|zst|gz))?$" ||
+        fail "$module is missing from initramfs"
+}
+
+for module in mmc_core mmc_block sdhci sdhci-pltfm sdhci-msm; do
+    verify_initramfs_module "$module"
+done
+
+: >"$expected_selected"
+: >"$expected_missing"
+awk '
+    {
+        sub(/#.*/, "")
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+        if (length != 0)
+            print
+    }
+' "$candidate_file" |
+while IFS= read -r candidate; do
+    driver=$(printf '%s' "$candidate" | tr '-' '_')
+    if modprobe --set-version "$kver" --show-depends "$driver" >/dev/null 2>&1; then
+        printf '%s\n' "$driver" >>"$expected_selected"
+    else
+        printf '%s\n' "$driver" >>"$expected_missing"
+    fi
+done
+cmp -s "$expected_selected" "$selected_file" ||
+    fail 'selected drivers do not match the checked-in candidate inventory'
+cmp -s "$expected_missing" "$missing_file" ||
+    fail 'missing drivers do not match the checked-in candidate inventory'
+
+for required in mmc_core mmc_block sdhci sdhci_pltfm sdhci_msm; do
+    grep -Fxq "$required" "$selected_file" ||
+        fail "mandatory eMMC driver was not selected: $required"
+done
+while IFS= read -r driver; do
+    grep -Fxq "rd.driver.pre=$driver" "$force_drivers" ||
+        fail "$driver is not forced in initramfs"
+done <"$selected_file"
+
+printf 'verified pocketfed samsung-a5u-eur OCI release %s\n' "$kver"

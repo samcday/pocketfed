@@ -1,0 +1,100 @@
+ARG BASE_IMAGE=ghcr.io/samcday/pocketfed-phosh:rawhide
+ARG KERNEL_NEVRA=kernel-7.2.0-0.rc1.15.msm8916.fc45.aarch64
+
+FROM ${BASE_IMAGE} AS device-root-base
+ARG KERNEL_NEVRA
+COPY devices/samsung-a5u-eur/samcday-linux-msm8916-mainline.repo /etc/yum.repos.d/
+COPY devices/samsung-a5u-eur/dracut.conf /etc/dracut.conf.d/60-samsung-a5u-eur.conf
+COPY devices/samsung-a5u-eur/msm8916-dracut-force-drivers.list /usr/lib/pocketfed/
+COPY devices/samsung-a5u-eur/devicetree /usr/lib/kernel/devicetree
+COPY devices/samsung-a5u-eur/80-pocketfed-samsung-a5u-eur.preset /usr/lib/systemd/system-preset/
+COPY --chmod=0755 devices/samsung-a5u-eur/pocketfed-msm8916-dracut-policy /usr/libexec/
+COPY --chmod=0755 devices/samsung-a5u-eur/pocketfed-verify-kernel /usr/libexec/
+COPY --chmod=0755 devices/samsung-a5u-eur/pocketfed-verify-oci /usr/libexec/
+RUN --mount=type=cache,id=pocketfed-samsung-a5u-eur-arm64-device-dnf,target=/var/cache,sharing=locked \
+    set -eux; \
+    kernel_nevra="$KERNEL_NEVRA"; \
+    kver="${kernel_nevra#kernel-}"; \
+    kernel_repo='copr:copr.fedorainfracloud.org:samcday:linux-msm8916-mainline'; \
+    set -- $(rpm -qa \
+        kernel \
+        kernel-core \
+        kernel-modules \
+        kernel-modules-core \
+        kernel-modules-extra \
+        kernel-modules-internal); \
+    if [ "$#" -gt 0 ]; then \
+        dnf remove -y "$@"; \
+    fi; \
+    rm -rf /usr/lib/modules/* /lib/modules/*; \
+    dnf install -y \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        bootupd \
+        efibootmgr \
+        grub2-efi-aa64 \
+        shim; \
+    dnf install -y \
+        --refresh \
+        --from-repo="$kernel_repo" \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        "kernel-$kver" \
+        "kernel-core-$kver" \
+        "kernel-modules-core-$kver" \
+        "kernel-modules-$kver" \
+        "kernel-modules-extra-$kver"; \
+    for package in kernel kernel-core kernel-modules-core kernel-modules kernel-modules-extra; do \
+        installed=$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' "$package"); \
+        test "$installed" = "$package-$kver"; \
+    done; \
+    depmod -a "$kver"; \
+    install -m0644 \
+        "/usr/lib/modules/$kver/dtb/qcom/msm8916-samsung-a5u-eur.dtb" \
+        "/usr/lib/modules/$kver/devicetree"; \
+    /usr/libexec/pocketfed-msm8916-dracut-policy "$kver"; \
+    /usr/libexec/pocketfed-verify-kernel; \
+    /usr/bin/bootupctl backend generate-update-metadata; \
+    test -s /usr/lib/bootupd/updates/EFI.json; \
+    rm -rf /usr/lib/ostree-boot/loader; \
+    find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
+    systemctl disable qbootctl.service; \
+    systemctl enable bootloader-update.service; \
+    qbootctl_state=$(systemctl is-enabled qbootctl.service || :); \
+    test "$qbootctl_state" = disabled; \
+    test "$(systemctl is-enabled bootloader-update.service)" = enabled
+
+FROM device-root-base AS initrd
+RUN set -eu; \
+    set -- /usr/lib/modules/*; \
+    [ "$#" -eq 1 ]; \
+    [ -d "$1" ]; \
+    kver="${1##*/}"; \
+    printf '%s\n' pocketfed-initrd >/etc/hostname; \
+    printf '%s\n' \
+        '127.0.0.1 pocketfed-initrd localhost localhost.localdomain localhost4 localhost4.localdomain4' \
+        '::1 pocketfed-initrd localhost localhost.localdomain localhost6 localhost6.localdomain6' \
+        >/etc/hosts; \
+    printf '%s\n' uninitialized >/etc/machine-id; \
+    install -d /var/roothome; \
+    : >/tmp/pocketfed-initrd-modaliases; \
+    install -d /out; \
+    DRACUT_KERNEL_MODALIASES=/tmp/pocketfed-initrd-modaliases dracut \
+        --force \
+        --reproducible \
+        --hostonly \
+        --hostonly-mode=strict \
+        --no-hostonly-cmdline \
+        --no-hostonly-default-device \
+        /out/initramfs.img "$kver"; \
+    printf '%s\n' "$kver" >/out/kver
+
+FROM device-root-base
+COPY --from=initrd /out /tmp/pocketfed-device
+RUN set -eu; \
+    kver=$(cat /tmp/pocketfed-device/kver); \
+    module_dir="/usr/lib/modules/$kver"; \
+    [ -d "$module_dir" ]; \
+    install -m0644 /tmp/pocketfed-device/initramfs.img "$module_dir/initramfs.img"; \
+    rm -rf /tmp/pocketfed-device; \
+    /usr/libexec/pocketfed-verify-oci

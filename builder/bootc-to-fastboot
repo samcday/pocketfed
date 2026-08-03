@@ -15,10 +15,18 @@ usage() {
     cat >&2 <<'EOF'
 Usage: bootc-to-fastboot <device> <desktop> [release]
 
-Create fastbootable Android userdata + boot artifacts from a PocketFed
-device-bound bootc/OSTree image. The release defaults to rawhide and outputs
-are written to /out/boot.img, /out/userdata.img, /out/flash.sh,
-/out/manifest.json, and /out/SHA256SUMS.
+Create Android partition artifacts from a PocketFed device-bound bootc/OSTree
+image. The release defaults to rawhide.
+
+For samsung-a5u-eur the outputs are:
+  /out/esp.img       raw 200 MiB FAT32 image for Android cache
+  /out/bootfs.img    sparse 1 GiB ext4 image for Android system
+  /out/userdata.img  sparse ext4 image for Android userdata
+  /out/SHA256SUMS
+
+All other devices retain the ABL artifact layout:
+  /out/boot.img, /out/userdata.img, /out/flash.sh, /out/manifest.json,
+  and /out/SHA256SUMS
 
 The source and future update image ref defaults to:
   ghcr.io/samcday/pocketfed-<desktop>-<device>:<release>
@@ -30,7 +38,8 @@ Environment overrides:
   PF_TARGET_IMAGE_REF
                      Future update image ref (overrides PF_IMAGE_REF)
   PF_OUTPUT_DIR      Output directory (default: /out)
-  PF_IMAGE_SIZE      Raw userdata image size (default: 8G)
+  PF_IMAGE_SIZE      Raw userdata image size (default: 8G; A5U maximum is
+                     12847136768 bytes)
   PF_ROOT_SSH_AUTHORIZED_KEYS
                      Path to an authorized_keys file to inject for root
   PF_REGISTRY        Registry for computed image ref (default: ghcr.io)
@@ -91,6 +100,543 @@ set_root_link() {
     mv -Tf "$tmp_link" "$link"
 }
 
+ensure_free_loop_node() {
+    local found minor node sys_dev node_dev expected_node_dev
+    local lost_pattern='^/dev/loop(0|[1-9][0-9]*) \(lost\)$'
+
+    found=$(losetup --find) || die 'failed to query the next free loop device'
+    if [[ "$found" =~ ^/dev/loop(0|[1-9][0-9]*)$ ]]; then
+        [[ -b "$found" ]] || die "losetup returned a non-block loop path: $found"
+        return
+    fi
+    [[ "$found" =~ $lost_pattern ]] ||
+        die "losetup returned an unexpected free loop path: $found"
+
+    minor=${BASH_REMATCH[1]}
+    node="/dev/loop$minor"
+    sys_dev="/sys/class/block/loop$minor/dev"
+    [[ -r "$sys_dev" ]] ||
+        die "lost loop device is absent from sysfs: loop$minor"
+    [[ $(<"$sys_dev") == "7:$minor" ]] ||
+        die "lost loop device has unexpected sysfs identity: $(<"$sys_dev")"
+    [[ ! -e "$node" && ! -L "$node" ]] ||
+        die "refusing to replace conflicting lost loop path: $node"
+
+    log "creating missing container-local loop node $node"
+    mknod -m 0600 "$node" b 7 "$minor"
+    [[ -b "$node" ]] || die "failed to create loop block node: $node"
+    printf -v expected_node_dev '7:%x' "$minor"
+    node_dev=$(stat -c '%t:%T' "$node")
+    [[ "$node_dev" == "$expected_node_dev" ]] ||
+        die "created loop node has unexpected device identity: $node_dev"
+}
+
+attach_image() {
+    local image=$1 mount_path=$2 loop
+
+    ensure_free_loop_node
+    loop=$(losetup --find --show "$image")
+    loop_devices+=("$loop")
+    mount "$loop" "$mount_path"
+    mounted_paths+=("$mount_path")
+}
+
+release_images() {
+    local i
+
+    for ((i = ${#mounted_paths[@]} - 1; i >= 0; i--)); do
+        umount "${mounted_paths[i]}" || die "failed to unmount ${mounted_paths[i]}"
+    done
+    mounted_paths=()
+
+    for ((i = ${#loop_devices[@]} - 1; i >= 0; i--)); do
+        losetup --detach "${loop_devices[i]}" ||
+            die "failed to detach ${loop_devices[i]}"
+    done
+    loop_devices=()
+}
+
+check_ext4_image() {
+    local image=$1 description=$2 rc
+
+    set +e
+    e2fsck -fy "$image"
+    rc=$?
+    set -e
+    (( rc == 0 || rc == 1 )) ||
+        die "$description e2fsck failed with exit code $rc"
+}
+
+install_split_bootloader() {
+    local deployment=$1 physical_root=$2
+
+    [[ -x "$deployment/usr/bin/bootupctl" ]] ||
+        die 'initial deployment does not contain an executable bootupctl'
+    for path in boot dev proc run sys sysroot tmp; do
+        [[ -d "$deployment/$path" && ! -L "$deployment/$path" ]] ||
+            die "deployment chroot mount target is missing or unsafe: /$path"
+    done
+    mountpoint -q "$physical_root" || die 'physical root is not mounted for bootupd'
+    mountpoint -q "$physical_root/boot" || die 'physical /boot is not mounted for bootupd'
+    mountpoint -q "$physical_root/boot/efi" || die 'physical ESP is not mounted for bootupd'
+
+    log 'installing EFI and static GRUB state from the target deployment'
+    /usr/bin/unshare \
+        --mount \
+        --propagation private \
+        --fork \
+        --kill-child \
+        /usr/bin/env -i \
+            HOME=/root \
+            LANG=C \
+            LC_ALL=C \
+            PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+            /usr/bin/bash --noprofile --norc -s -- \
+                "$deployment" "$physical_root" <<'BOOTUPD_NAMESPACE'
+set -euo pipefail
+
+deployment=$1
+physical_root=$2
+declare -a namespace_mounts=()
+
+cleanup_namespace() {
+    local status=$? cleanup_failed=0 i target
+
+    trap - EXIT INT TERM
+    set +e
+    for ((i = ${#namespace_mounts[@]} - 1; i >= 0; i--)); do
+        target=${namespace_mounts[i]}
+        if mountpoint -q "$target" && ! umount --recursive "$target"; then
+            printf 'bootc-to-fastboot: namespace cleanup could not unmount %s\n' "$target" >&2
+            cleanup_failed=1
+        fi
+    done
+    if (( status == 0 && cleanup_failed )); then
+        status=1
+    fi
+    exit "$status"
+}
+trap cleanup_namespace EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+bind_readonly() {
+    local source=$1 target=$2
+
+    mount --bind "$source" "$target"
+    namespace_mounts+=("$target")
+    mount -o remount,bind,ro "$target"
+}
+
+bind_readonly /dev "$deployment/dev"
+mount -t proc -o ro,nosuid,nodev,noexec proc "$deployment/proc"
+namespace_mounts+=("$deployment/proc")
+bind_readonly /sys "$deployment/sys"
+bind_readonly /run "$deployment/run"
+mount -t tmpfs -o mode=1777,nosuid,nodev,noexec tmpfs "$deployment/tmp"
+namespace_mounts+=("$deployment/tmp")
+
+# A non-recursive root bind avoids binding the deployment back into itself.
+# Rebind /boot recursively at both views so the nested FAT ESP remains a
+# distinct, writable mount for bootupd's mounted-ESP fallback.
+mount --bind "$physical_root" "$deployment/sysroot"
+namespace_mounts+=("$deployment/sysroot")
+[[ -d "$deployment/sysroot/boot" && ! -L "$deployment/sysroot/boot" ]]
+mount --rbind "$physical_root/boot" "$deployment/sysroot/boot"
+namespace_mounts+=("$deployment/sysroot/boot")
+mount --make-rprivate "$deployment/sysroot/boot"
+mount --rbind "$physical_root/boot" "$deployment/boot"
+namespace_mounts+=("$deployment/boot")
+mount --make-rprivate "$deployment/boot"
+
+mountpoint -q "$deployment/boot/efi"
+mountpoint -q "$deployment/sysroot/boot/efi"
+[[ $(stat -f -c %T "$deployment/boot/efi") == msdos ]]
+[[ $(stat -f -c %T "$deployment/sysroot/boot/efi") == msdos ]]
+
+# --write-uuid implies static GRUB configs.  Omitting --device,
+# --filesystem, and --update-firmware forces the already-mounted ESP path and
+# prevents both backing-device partition discovery and NVRAM changes.
+/usr/bin/chroot "$deployment" /usr/bin/bootupctl backend install \
+    --src-root / \
+    --component EFI \
+    --write-uuid \
+    /sysroot
+BOOTUPD_NAMESPACE
+}
+
+fstab_has_option() {
+    local options=$1 expected=$2
+    [[ ",$options," == *",$expected,"* ]]
+}
+
+bls_has_option() {
+    local options=$1 expected=$2
+    [[ " $options " == *" $expected "* ]]
+}
+
+find_single_deployment() {
+    local deploy_base=$1
+
+    shopt -s nullglob
+    deployments=("$deploy_base"/*.0)
+    shopt -u nullglob
+    (( ${#deployments[@]} == 1 )) ||
+        die "expected one deployment under $deploy_base, found ${#deployments[@]}"
+    deployment=${deployments[0]}
+}
+
+configure_split_fstab() {
+    local fstab=$1 boot_uuid=$2 esp_uuid=$3
+    local source target fstype options dump pass extra
+    local boot_rows=0 esp_rows=0
+
+    while read -r source target fstype options dump pass extra; do
+        [[ -n "$source" && ${source:0:1} != '#' ]] || continue
+        case "$target" in
+            /boot)
+                ((boot_rows += 1))
+                [[ "$source" == "UUID=$boot_uuid" ]] ||
+                    die "unexpected /boot source in deployment fstab: $source"
+                [[ "$fstype" == auto ]] ||
+                    die "unexpected /boot filesystem type in deployment fstab: $fstype"
+                fstab_has_option "$options" ro ||
+                    die 'deployment /boot mount must be read-only'
+                [[ "$dump" == 0 && "$pass" == 0 && -z "$extra" ]] ||
+                    die 'unexpected trailing fields in deployment /boot fstab row'
+                ;;
+            /boot/efi)
+                ((esp_rows += 1))
+                ;;
+        esac
+    done <"$fstab"
+
+    (( boot_rows == 1 )) ||
+        die "expected one /boot row in deployment fstab, found $boot_rows"
+    (( esp_rows == 0 )) ||
+        die 'bootc unexpectedly wrote a /boot/efi row in deployment fstab'
+
+    printf 'UUID=%s /boot/efi vfat umask=0077,shortname=winnt 0 2\n' \
+        "$esp_uuid" >>"$fstab"
+
+    grep -Fqx "UUID=$esp_uuid /boot/efi vfat umask=0077,shortname=winnt 0 2" \
+        "$fstab" || die 'failed to persist the ESP mount in deployment fstab'
+}
+
+validate_split_boot_tree() {
+    local boot_mount=$1 esp_mount=$2 deployment=$3 boot_uuid=$4 root_uuid=$5 esp_uuid=$6
+    local entry linux initrd devicetree options path field boot_link loader_link
+    local token ostree_token='' ostree_path ostree_boot_generation ostree_stateroot
+    local boot_checksum ostree_serial boot_asset_prefix deployment_name deployment_checksum
+    local deployment_serial resolved_bootlink resolved_deployment
+    local selected_dtb expected_devicetree
+    local ostree_tokens=0
+    local -a entries option_tokens module_dirs
+
+    [[ "$boot_uuid" != "$root_uuid" && "$boot_uuid" != "$esp_uuid" && "$root_uuid" != "$esp_uuid" ]] ||
+        die 'root, boot, and ESP filesystem UUIDs must be distinct'
+
+    [[ -L "$boot_mount/boot" ]] || die 'split /boot is missing its boot compatibility symlink'
+    boot_link=$(readlink "$boot_mount/boot")
+    [[ "$boot_link" == . ]] ||
+        die "split /boot compatibility symlink has unexpected target: $boot_link"
+
+    [[ -L "$boot_mount/loader" ]] || die 'split /boot is missing its active loader symlink'
+    loader_link=$(readlink "$boot_mount/loader")
+    [[ "$loader_link" =~ ^loader\.[01]$ ]] ||
+        die "split /boot active loader symlink has unexpected target: $loader_link"
+    [[ -d "$boot_mount/$loader_link/entries" ]] ||
+        die "active loader generation is missing its entries directory: $loader_link"
+
+    shopt -s nullglob
+    entries=("$boot_mount/$loader_link"/entries/*.conf)
+    shopt -u nullglob
+    (( ${#entries[@]} == 1 )) ||
+        die "expected one BLS entry, found ${#entries[@]}"
+    entry=${entries[0]}
+
+    linux=$(awk '$1 == "linux" { sub(/^[^[:space:]]+[[:space:]]+/, ""); print; exit }' "$entry")
+    initrd=$(awk '$1 == "initrd" { sub(/^[^[:space:]]+[[:space:]]+/, ""); print; exit }' "$entry")
+    devicetree=$(awk '$1 == "devicetree" { sub(/^[^[:space:]]+[[:space:]]+/, ""); print; exit }' "$entry")
+    options=$(awk '$1 == "options" { sub(/^[^[:space:]]+[[:space:]]+/, ""); print; exit }' "$entry")
+
+    for field in linux initrd devicetree; do
+        path=${!field}
+        [[ "$path" == /* && "$path" != *..* ]] ||
+            die "unsafe or missing BLS $field path: $path"
+        [[ -s "$boot_mount/${path#/}" ]] ||
+            die "BLS $field path does not resolve on /boot: $path"
+    done
+    [[ -n "$options" && "$options" != *'$'* ]] ||
+        die 'BLS options are empty or contain an unresolved variable'
+
+    for path in \
+        "root=LABEL=$root_label" \
+        rootfstype=ext4 \
+        rootwait \
+        rw \
+        plymouth.ignore-serial-consoles \
+        'console=ttyMSM0,115200n8' \
+        earlycon \
+        splash \
+        init_on_alloc=0 \
+        "boot=UUID=$boot_uuid"; do
+        bls_has_option "$options" "$path" || die "BLS entry is missing kernel option: $path"
+    done
+
+    read -r -a option_tokens <<<"$options"
+    for token in "${option_tokens[@]}"; do
+        case "$token" in
+            ostree=*)
+                ((ostree_tokens += 1))
+                ostree_token=$token
+                ;;
+        esac
+    done
+    (( ostree_tokens == 1 )) ||
+        die "expected one BLS ostree deployment option, found $ostree_tokens"
+    [[ "$ostree_token" =~ ^ostree=(/ostree/boot\.([01])/([^/]+)/([0-9a-f]{64})/([0-9]+))$ ]] ||
+        die "malformed BLS ostree deployment option: $ostree_token"
+    ostree_path=${BASH_REMATCH[1]}
+    ostree_boot_generation=${BASH_REMATCH[2]}
+    ostree_stateroot=${BASH_REMATCH[3]}
+    boot_checksum=${BASH_REMATCH[4]}
+    ostree_serial=${BASH_REMATCH[5]}
+    [[ "$ostree_stateroot" == "$stateroot" ]] ||
+        die "BLS ostree option selects unexpected stateroot: $ostree_stateroot"
+
+    deployment_name=${deployment##*/}
+    [[ "$deployment_name" =~ ^([0-9a-f]{64})\.([0-9]+)$ ]] ||
+        die "initial deployment has an unexpected name: $deployment_name"
+    deployment_checksum=${BASH_REMATCH[1]}
+    deployment_serial=${BASH_REMATCH[2]}
+    [[ "$ostree_serial" == "$deployment_serial" ]] ||
+        die 'BLS ostree serial does not match the initial deployment serial'
+
+    [[ -L "$mnt$ostree_path" ]] ||
+        die "BLS ostree bootlink is missing or is not a symlink: $ostree_path"
+    resolved_bootlink=$(realpath -e "$mnt$ostree_path") ||
+        die "BLS ostree bootlink does not resolve: $ostree_path"
+    resolved_deployment=$(realpath -e "$deployment") ||
+        die "initial deployment does not resolve: $deployment"
+    [[ "$resolved_bootlink" == "$resolved_deployment" ]] ||
+        die "BLS ostree bootlink does not select deployment $deployment_checksum.$deployment_serial"
+    [[ -L "$mnt/ostree/boot.$ostree_boot_generation" ]] ||
+        die "active OSTree boot generation link is missing: boot.$ostree_boot_generation"
+
+    boot_asset_prefix="/boot/ostree/$stateroot-$boot_checksum/"
+    for path in "$linux" "$initrd" "$devicetree"; do
+        [[ "$path" == "$boot_asset_prefix"* ]] ||
+            die "BLS boot asset does not match ostree boot checksum $boot_checksum: $path"
+    done
+
+    shopt -s nullglob
+    module_dirs=("$deployment/usr/lib/modules"/*)
+    shopt -u nullglob
+    (( ${#module_dirs[@]} == 1 )) ||
+        die "expected one module directory in the initial deployment, found ${#module_dirs[@]}"
+    selected_dtb="${module_dirs[0]}/devicetree"
+    [[ -f "$selected_dtb" && ! -L "$selected_dtb" ]] ||
+        die 'initial deployment is missing its selected module-root devicetree'
+    expected_devicetree="${boot_asset_prefix}devicetree-${module_dirs[0]##*/}"
+    [[ "$devicetree" == "$expected_devicetree" ]] ||
+        die "BLS entry selects an unexpected devicetree: $devicetree"
+    cmp -s "$boot_mount/${devicetree#/}" "$selected_dtb" ||
+        die 'BLS devicetree does not match the selected A5U deployment DTB'
+
+    [[ -s "$boot_mount/grub2/grub.cfg" ]] || die 'missing bootupd GRUB configuration'
+    [[ -s "$boot_mount/grub2/grubenv" ]] || die 'missing GRUB environment block'
+    [[ -s "$boot_mount/grub2/bootuuid.cfg" ]] || die 'missing GRUB boot UUID configuration'
+    [[ -s "$boot_mount/bootupd-state.json" ]] || die 'missing bootupd state'
+    grep -Eq '(^|[[:space:]])blscfg([[:space:]]|$)' "$boot_mount/grub2/grub.cfg" ||
+        die 'bootupd GRUB configuration does not load BLS entries'
+    grep -Fq "BOOT_UUID=\"$boot_uuid\"" "$boot_mount/grub2/bootuuid.cfg" ||
+        die 'GRUB boot UUID does not select the generated /boot filesystem'
+    grep -Fq '"EFI"' "$boot_mount/bootupd-state.json" ||
+        die 'bootupd state does not contain an installed EFI component'
+    grub2-script-check "$boot_mount/grub2/grub.cfg" >/dev/null
+
+    for path in \
+        EFI/BOOT/BOOTAA64.EFI \
+        EFI/fedora/grubaa64.efi \
+        EFI/fedora/shimaa64.efi \
+        EFI/fedora/grub.cfg \
+        EFI/fedora/bootuuid.cfg; do
+        [[ -s "$esp_mount/$path" ]] || die "missing ESP payload: $path"
+    done
+    grep -Fq "BOOT_UUID=\"$boot_uuid\"" "$esp_mount/EFI/fedora/bootuuid.cfg" ||
+        die 'ESP GRUB stub does not select the generated /boot filesystem'
+    grub2-script-check "$esp_mount/EFI/fedora/grub.cfg" >/dev/null
+
+    [[ ! -e "$mnt/ostree/root.a" && ! -e "$mnt/ostree/root.b" ]] ||
+        die 'split-UEFI artifacts must not contain Android A/B root links'
+    [[ -z $(find "$mnt/ostree/deploy" -type f -name aboot.img -print -quit) ]] ||
+        die 'split-UEFI deployment unexpectedly contains aboot.img'
+    [[ -d "$deployment" ]] || die 'initial deployment disappeared during validation'
+}
+
+build_samsung_a5u_eur() {
+    local esp_bytes=$((200 * 1024 * 1024))
+    local boot_bytes=$((1024 * 1024 * 1024))
+    local max_boot_bytes=2499805184
+    local max_root_bytes=12847136768
+    local esp_label=EFI-SYSTEM
+    local boot_label=boot
+    local root_raw="$tmp/userdata.raw.img"
+    local boot_raw="$tmp/bootfs.raw.img"
+    local esp_image="$tmp/esp.img"
+    local boot_sparse="$tmp/bootfs.img"
+    local root_sparse="$tmp/userdata.img"
+    local tmp_checksums="$tmp/SHA256SUMS"
+    local output_esp="$output_dir/esp.img"
+    local output_boot="$output_dir/bootfs.img"
+    local output_root="$output_dir/userdata.img"
+    local output_checksums="$output_dir/SHA256SUMS"
+    local root_bytes root_uuid boot_uuid esp_uuid fstab output_owner key value
+    local -a bootc_args
+
+    require_cmd mkfs.fat
+    require_cmd fsck.fat
+    require_cmd blkid
+    require_cmd grub2-script-check
+    require_cmd file
+    require_cmd awk
+    require_cmd cmp
+    require_cmd grep
+    require_cmd find
+    require_cmd bootupctl
+
+    [[ ! -d "$output_esp" && ! -d "$output_boot" && ! -d "$output_root" && ! -d "$output_checksums" ]] ||
+        die 'an A5U output path is an existing directory'
+
+    log 'creating A5U root, boot, and ESP filesystems'
+    truncate -s "$size" "$root_raw"
+    root_bytes=$(stat -c %s "$root_raw")
+    (( root_bytes > 0 && root_bytes <= max_root_bytes )) ||
+        die "userdata image size $root_bytes exceeds the A5U limit of $max_root_bytes bytes"
+    truncate -s "$boot_bytes" "$boot_raw"
+    truncate -s "$esp_bytes" "$esp_image"
+    (( boot_bytes <= max_boot_bytes )) || die 'configured /boot image exceeds the A5U system partition'
+
+    mkfs.ext4 -F -L "$root_label" "$root_raw" >/dev/null
+    mkfs.ext4 -F -L "$boot_label" "$boot_raw" >/dev/null
+    mkfs.fat -F 32 -n "$esp_label" "$esp_image" >/dev/null
+
+    root_uuid=$(blkid -s UUID -o value "$root_raw")
+    boot_uuid=$(blkid -s UUID -o value "$boot_raw")
+    esp_uuid=$(blkid -s UUID -o value "$esp_image")
+    [[ -n "$root_uuid" && -n "$boot_uuid" && -n "$esp_uuid" ]] ||
+        die 'failed to discover generated filesystem UUIDs'
+
+    log 'mounting A5U userdata, /boot, and ESP images'
+    attach_image "$root_raw" "$mnt"
+    install -d "$mnt/boot"
+    attach_image "$boot_raw" "$mnt/boot"
+    install -d "$mnt/boot/efi"
+    attach_image "$esp_image" "$mnt/boot/efi"
+
+    bootc_args=(
+        bootc install to-filesystem
+        --source-imgref "$install_source_imgref"
+        --target-imgref "$target_imgref"
+        --root-mount-spec "LABEL=$root_label"
+        --boot-mount-spec "UUID=$boot_uuid"
+        --stateroot "$stateroot"
+        --bootloader none
+        --generic-image
+        --skip-finalize
+        --skip-fetch-check
+        --karg "root=LABEL=$root_label"
+        --karg rw
+        --karg rootwait
+        --karg rootfstype=ext4
+        --karg plymouth.ignore-serial-consoles
+        --karg 'console=ttyMSM0,115200n8'
+        --karg earlycon
+        --karg splash
+        --karg init_on_alloc=0
+    )
+    if [[ -n "$root_ssh_authorized_keys" ]]; then
+        bootc_args+=(--root-ssh-authorized-keys "$root_ssh_authorized_keys")
+    fi
+    bootc_args+=("$mnt")
+
+    log "installing $target_imgref into the A5U split filesystems"
+    "${bootc_args[@]}"
+
+    find_single_deployment "$mnt/ostree/deploy/$stateroot/deploy"
+    install_split_bootloader "$deployment" "$mnt"
+    fstab="$deployment/etc/fstab"
+    [[ -f "$fstab" ]] || die 'bootc did not create the initial deployment fstab'
+    configure_split_fstab "$fstab" "$boot_uuid" "$esp_uuid"
+
+    log 'normalizing canonical OSTree split-boot configuration'
+    ostree config --repo "$mnt/ostree/repo" set sysroot.bootloader none
+    ostree config --repo "$mnt/ostree/repo" set sysroot.bootprefix true
+    ostree config --repo "$mnt/ostree/repo" set sysroot.readonly true
+    for key in bootloader bootprefix readonly; do
+        case "$key" in
+            bootloader) value=none ;;
+            *) value=true ;;
+        esac
+        [[ $(ostree config --repo "$mnt/ostree/repo" get "sysroot.$key") == "$value" ]] ||
+            die "unexpected sysroot.$key OSTree configuration"
+    done
+
+    validate_split_boot_tree \
+        "$mnt/boot" "$mnt/boot/efi" "$deployment" \
+        "$boot_uuid" "$root_uuid" "$esp_uuid"
+
+    log 'unmounting A5U filesystems'
+    sync
+    release_images
+
+    log 'checking A5U filesystem images'
+    check_ext4_image "$boot_raw" 'bootfs image'
+    check_ext4_image "$root_raw" 'userdata image'
+    fsck.fat -n "$esp_image" >/dev/null || die 'ESP FAT filesystem check failed'
+
+    [[ $(stat -c %s "$esp_image") == "$esp_bytes" ]] || die 'ESP image changed size'
+    [[ $(stat -c %s "$boot_raw") == "$boot_bytes" ]] || die 'bootfs image changed size'
+    [[ $(stat -c %s "$root_raw") == "$root_bytes" ]] || die 'userdata image changed size'
+    [[ $(blkid -s TYPE -o value "$esp_image") == vfat ]] || die 'ESP image is not FAT'
+    [[ $(blkid -s LABEL -o value "$esp_image") == "$esp_label" ]] || die 'unexpected ESP label'
+    [[ $(blkid -s TYPE -o value "$boot_raw") == ext4 ]] || die 'bootfs image is not ext4'
+    [[ $(blkid -s LABEL -o value "$boot_raw") == "$boot_label" ]] || die 'unexpected bootfs label'
+    [[ $(blkid -s TYPE -o value "$root_raw") == ext4 ]] || die 'userdata image is not ext4'
+    [[ $(blkid -s LABEL -o value "$root_raw") == "$root_label" ]] || die 'unexpected userdata label'
+
+    log 'creating Android sparse A5U bootfs and userdata images'
+    img2simg "$boot_raw" "$boot_sparse"
+    img2simg "$root_raw" "$root_sparse"
+    file "$boot_sparse" | grep -Fq 'Android sparse image' || die 'bootfs sparse conversion failed'
+    file "$root_sparse" | grep -Fq 'Android sparse image' || die 'userdata sparse conversion failed'
+
+    log 'writing A5U artifact checksums'
+    (
+        cd "$tmp"
+        sha256sum esp.img bootfs.img userdata.img >SHA256SUMS
+        sha256sum --check --strict SHA256SUMS >/dev/null
+    )
+
+    output_owner="$(stat -c %u "$output_dir"):$(stat -c %g "$output_dir")"
+    chown "$output_owner" "$esp_image" "$boot_sparse" "$root_sparse" "$tmp_checksums"
+
+    # Each rename is atomic because the staging directory lives under output_dir;
+    # publish the checksum manifest last so it is the completion marker.
+    rm -f "$output_checksums"
+    mv -f "$esp_image" "$output_esp"
+    mv -f "$boot_sparse" "$output_boot"
+    mv -f "$root_sparse" "$output_root"
+    rm -f \
+        "$output_dir/boot.img" \
+        "$output_dir/flash.sh" \
+        "$output_dir/manifest.json"
+    mv -f "$tmp_checksums" "$output_checksums"
+
+    log "wrote $output_esp, $output_boot, $output_root, and $output_checksums"
+}
+
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then
     usage
     exit 0
@@ -141,6 +687,11 @@ require_cmd jq
 require_cmd realpath
 [[ -x /usr/local/libexec/pocketfed/flash-fastboot ]] ||
     die 'safe fastboot flashing helper is missing from the builder image'
+require_cmd mknod
+require_cmd unshare
+require_cmd chroot
+require_cmd env
+require_cmd bash
 
 output_dir=$(realpath -m "$output_dir")
 mkdir -p "$output_dir"
@@ -160,18 +711,70 @@ tmp_manifest="$tmp/manifest.json"
 tmp_checksums="$tmp/SHA256SUMS"
 mounted=0
 loop_device=
+declare -a mounted_paths=()
+declare -a loop_devices=()
 
 cleanup() {
+    local status=$? cleanup_failed=0 i path loop any_mounted=0
+
+    trap - EXIT
     set +e
+    for ((i = ${#mounted_paths[@]} - 1; i >= 0; i--)); do
+        path=${mounted_paths[i]}
+        if mountpoint -q "$path" && ! umount "$path"; then
+            log "cleanup could not unmount $path"
+            cleanup_failed=1
+            any_mounted=1
+        fi
+    done
     if (( mounted )) && mountpoint -q "$mnt"; then
-        umount "$mnt"
+        if ! umount "$mnt"; then
+            log "cleanup could not unmount $mnt"
+            cleanup_failed=1
+            any_mounted=1
+        fi
     fi
-    if [[ -n "$loop_device" ]]; then
-        losetup --detach "$loop_device"
+    if (( ! any_mounted )); then
+        for ((i = ${#loop_devices[@]} - 1; i >= 0; i--)); do
+            loop=${loop_devices[i]}
+            if losetup "$loop" >/dev/null 2>&1 && ! losetup --detach "$loop"; then
+                log "cleanup could not detach $loop"
+                cleanup_failed=1
+                any_mounted=1
+            fi
+        done
+        if [[ -n "$loop_device" ]] && losetup "$loop_device" >/dev/null 2>&1; then
+            if ! losetup --detach "$loop_device"; then
+                log "cleanup could not detach $loop_device"
+                cleanup_failed=1
+                any_mounted=1
+            fi
+        fi
     fi
-    rm -rf "$tmp"
+
+    for path in "${mounted_paths[@]}"; do
+        if mountpoint -q "$path"; then
+            any_mounted=1
+        fi
+    done
+    if mountpoint -q "$mnt"; then
+        any_mounted=1
+    fi
+    if (( any_mounted )); then
+        log "cleanup retained temporary state at $tmp because a mount or loop device is still active"
+    elif ! rm -rf -- "$tmp"; then
+        log "cleanup could not remove $tmp"
+        cleanup_failed=1
+    fi
+
+    if (( status == 0 && cleanup_failed )); then
+        status=1
+    fi
+    exit "$status"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 install -d "$mnt"
 
@@ -191,6 +794,11 @@ case "$source_imgref" in
         ;;
 esac
 
+if [[ "$device" == samsung-a5u-eur ]]; then
+    build_samsung_a5u_eur
+    exit 0
+fi
+
 source_digest=$(skopeo inspect --format '{{.Digest}}' "$install_source_imgref")
 [[ "$source_digest" =~ ^sha256:[[:xdigit:]]{64}$ ]] ||
     die "source image has an invalid manifest digest: $source_digest"
@@ -200,6 +808,7 @@ truncate -s "$size" "$raw_img"
 mkfs.ext4 -F -L "$root_label" "$raw_img" >/dev/null
 
 log "mounting userdata image"
+ensure_free_loop_node
 loop_device=$(losetup --find --show "$raw_img")
 mount "$loop_device" "$mnt"
 mounted=1
@@ -347,6 +956,7 @@ chown "$output_owner" \
 rm -f "$checksums"
 mv -f "$tmp_boot_img" "$boot_img"
 mv -f "$tmp_sparse_img" "$sparse_img"
+rm -f "$output_dir/esp.img" "$output_dir/bootfs.img"
 mv -f "$tmp_flash_helper" "$output_dir/flash.sh"
 mv -f "$tmp_manifest" "$output_dir/manifest.json"
 mv -f "$tmp_checksums" "$checksums"
