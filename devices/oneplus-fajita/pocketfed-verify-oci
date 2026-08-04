@@ -98,7 +98,7 @@ test -f "$module_dir/dtb/qcom/sdm845-oneplus-fajita.dtb" || fail 'fajita DTB is 
 test -f "$module_dir/initramfs.img" || fail 'initramfs is missing'
 test -f "$module_dir/aboot.img" || fail 'Android boot image is missing'
 /usr/libexec/pocketfed-verify-bootimg \
-    "$module_dir/aboot.img" "$module_dir/initramfs.img"
+    "$module_dir/aboot.img" "$module_dir/initramfs.img" "$module_dir/vmlinuz"
 
 # Fajita cannot reach its root filesystem unless the strict host-only
 # archive contains the complete UFS supplier chain, so verify the archive
