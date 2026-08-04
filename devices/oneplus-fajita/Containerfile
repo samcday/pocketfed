@@ -43,7 +43,10 @@ RUN --mount=type=cache,id=pocketfed-oneplus-fajita-arm64-device-dnf,target=/var/
         --setopt=keepcache=True \
         clatd \
         dnsmasq \
-        libqmi-utils; \
+        libqmi-utils \
+        lz4-libs \
+        python3 \
+        zstd; \
     dnf install -y \
         --refresh \
         --enable-repo='copr:copr.fedorainfracloud.org:samcday:usb-signaller' \
@@ -165,21 +168,25 @@ RUN --mount=type=cache,id=pocketfed-oneplus-fajita-arm64-cargo-registry,target=/
     rustup target add aarch64-unknown-none && \
     install -d /out && \
     cd /src/abl-exorcist && \
-    cargo build --locked --release --target aarch64-unknown-none -p abl-exorcist && \
+    cargo build --locked --release --target aarch64-unknown-none -p abl-exorcist \
+        --no-default-features --features serial-sdm845-uart9 && \
     llvm-objcopy -O binary target/aarch64-unknown-none/release/abl-exorcist /out/abl-exorcist.bin && \
+    grep -aFq 'ablx: serial sdm845 uart9 ok' /out/abl-exorcist.bin && \
+    ! grep -aFq 'ablx: enable dcache' /out/abl-exorcist.bin && \
     cargo build --locked --release -p abl-exorcist-assembler && \
     install -m0755 target/release/abl-exorcist-assembler /out/abl-exorcist-assembler
 
 FROM ${FEDORA_IMAGE} AS bootimg
 RUN --mount=type=cache,id=pocketfed-oneplus-fajita-arm64-dnf,target=/var/cache,sharing=locked \
-    dnf install -y --setopt=keepcache=True android-tools gzip
+    dnf install -y --setopt=keepcache=True android-tools gzip lz4-libs python3 zstd
 COPY --from=initrd /out /in
 COPY --from=abl-exorcist-build /out/abl-exorcist.bin /tmp/abl-exorcist.bin
 COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/local/bin/abl-exorcist-assembler
 COPY --chmod=0755 devices/oneplus-fajita/pocketfed-verify-bootimg /usr/local/bin/
-# Start with the proven soldered ttyMSM0 debug UART. Fajita has working EUD,
-# but keep it out of the first ABL-exorcist baseline until hardware validates
-# this image independently of that second console path.
+# Trace the cache-off ABLX candidate on the proven soldered ttyMSM0 debug UART.
+# This image includes the optimized LZ4 match copier, but keeps the EUD console
+# and experimental ABLX D-cache path out so its measurements isolate cache-off
+# shim time before the cache-on comparison.
 RUN install -d /out && \
     gzip -n -9 -c /tmp/abl-exorcist.bin >/tmp/abl-exorcist.bin.gz && \
     abl-exorcist-assembler --ramdisk /in/vmlinuz /in/initramfs.img >/tmp/ablx-ramdisk.img && \
@@ -197,7 +204,7 @@ RUN install -d /out && \
         --ramdisk /tmp/ablx-ramdisk.img \
         --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 module_blacklist=rpmsg_wwan_ctrl earlycon console=ttyMSM0,115200n8 <E>' \
         -o /out/aboot.img && \
-    pocketfed-verify-bootimg /out/aboot.img /in/initramfs.img && \
+    pocketfed-verify-bootimg /out/aboot.img /in/initramfs.img /in/vmlinuz && \
     install -m0644 /in/initramfs.img /out/initramfs.img && \
     install -m0644 /in/kver /out/kver
 

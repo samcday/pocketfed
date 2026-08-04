@@ -14,14 +14,19 @@ hex_at() {
     od -An -v -tx1 -j "$2" -N "$3" "$1" | tr -d ' \n'
 }
 
-[ "$#" -eq 1 ] || [ "$#" -eq 2 ] ||
-    fail 'usage: pocketfed-verify-bootimg IMAGE [INITRAMFS]'
+[ "$#" -ge 1 ] && [ "$#" -le 3 ] ||
+    fail 'usage: pocketfed-verify-bootimg IMAGE [INITRAMFS [KERNEL]]'
 image=$1
 expected_initramfs=${2:-}
+expected_kernel=${3:-}
 test -f "$image" || fail "image is missing: $image"
 if [ -n "$expected_initramfs" ]; then
     test -f "$expected_initramfs" ||
         fail "expected initramfs is missing: $expected_initramfs"
+fi
+if [ -n "$expected_kernel" ]; then
+    test -f "$expected_kernel" ||
+        fail "expected kernel is missing: $expected_kernel"
 fi
 
 image_size=$(wc -c <"$image" | tr -d ' ')
@@ -159,6 +164,14 @@ ablx_initrd_end=$((ablx_initrd_offset + ablx_initrd_size))
 [ "$ablx_image_size" -gt 0 ] || fail 'ABLX kernel image size is zero'
 [ "$ablx_uncompressed_size" -le "$ablx_image_size" ] ||
     fail 'ABLX uncompressed kernel exceeds its image size'
+# ABLX places the expanded image in RAM above its boot payload.  A 256 MiB
+# ceiling is more than three times the current Fajita Image while preventing a
+# corrupt package header from driving an unbounded verifier allocation.
+max_ablx_kernel_size=268435456
+[ "$ablx_uncompressed_size" -le "$max_ablx_kernel_size" ] ||
+    fail 'ABLX uncompressed kernel exceeds the 256 MiB verification limit'
+[ "$ablx_image_size" -le "$max_ablx_kernel_size" ] ||
+    fail 'ABLX kernel image size exceeds the 256 MiB verification limit'
 [ "$ablx_kernel_end" -le "$ramdisk_size" ] ||
     fail 'ABLX compressed kernel extends past end of ramdisk'
 [ "$ablx_initrd_offset" -ge 72 ] || fail 'ABLX initrd overlaps its header'
@@ -167,6 +180,165 @@ ablx_initrd_end=$((ablx_initrd_offset + ablx_initrd_size))
     fail 'ABLX initrd extends past end of ramdisk'
 [ "$ablx_kernel_end" -le "$ablx_initrd_offset" ] ||
     fail 'ABLX compressed kernel overlaps initrd'
+
+# The ABLX payload is an unframed LZ4 block, which the lz4 command-line tool
+# cannot decode directly.  Use the system liblz4 through Python's standard
+# ctypes module so this artifact check exercises the same wire format as the
+# freestanding shim.  When the packaged Fedora kernel is available, normalize
+# its raw/gzip/zstd/EFI-zboot form just as the assembler does and require an
+# exact match with the decoded payload.
+command -v python3 >/dev/null 2>&1 ||
+    fail 'python3 is required to verify the ABLX kernel payload'
+if ! python3 - \
+    "$image" \
+    $((ramdisk_offset + ablx_kernel_offset)) \
+    "$ablx_compressed_size" \
+    "$ablx_uncompressed_size" \
+    "$ablx_image_size" \
+    "$expected_kernel" <<'PY'
+import ctypes
+import gzip
+import hashlib
+import struct
+import subprocess
+import sys
+
+
+def fail(message):
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
+
+
+def arm64_image_size(kernel, description):
+    if len(kernel) < 64:
+        fail(f"{description} is smaller than an ARM64 Image header")
+    if kernel[56:60] != b"ARM\x64":
+        fail(f"{description} does not contain the ARM64 Image magic")
+    image_size = struct.unpack_from("<Q", kernel, 16)[0]
+    if image_size == 0:
+        fail(f"{description} has a zero ARM64 image_size")
+    return image_size
+
+
+def decompress_zstd(payload, description):
+    try:
+        result = subprocess.run(
+            ["zstd", "-q", "-d", "-c"],
+            input=payload,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except FileNotFoundError:
+        fail("zstd is required to normalize the expected kernel")
+    if result.returncode != 0:
+        detail = result.stderr.decode(errors="replace").strip()
+        fail(f"cannot decompress {description} as zstd: {detail}")
+    return result.stdout
+
+
+def canonicalize_kernel(kernel):
+    if len(kernel) >= 60 and kernel[56:60] == b"ARM\x64":
+        return kernel
+    if kernel.startswith(b"\x1f\x8b"):
+        try:
+            return gzip.decompress(kernel)
+        except (EOFError, OSError) as error:
+            fail(f"cannot decompress expected gzip kernel: {error}")
+    if kernel.startswith(b"\x28\xb5\x2f\xfd"):
+        return decompress_zstd(kernel, "expected kernel")
+    if len(kernel) >= 28 and kernel.startswith(b"MZ") and kernel[4:8] == b"zimg":
+        payload_offset, payload_size = struct.unpack_from("<II", kernel, 8)
+        payload_end = payload_offset + payload_size
+        if payload_end > len(kernel):
+            fail(
+                "expected Linux EFI zboot payload extends past the kernel file: "
+                f"{payload_offset} + {payload_size} > {len(kernel)}"
+            )
+        compression = kernel[24:56].split(b"\0", 1)[0]
+        payload = kernel[payload_offset:payload_end]
+        if compression.startswith(b"gzip"):
+            try:
+                return gzip.decompress(payload)
+            except (EOFError, OSError) as error:
+                fail(f"cannot decompress expected EFI zboot gzip payload: {error}")
+        if compression.startswith(b"zstd"):
+            return decompress_zstd(payload, "expected EFI zboot payload")
+        fail(
+            "unsupported expected Linux EFI zboot compression: "
+            + compression.decode(errors="replace")
+        )
+    fail("expected kernel is not a supported ARM64 Image")
+
+
+image_path = sys.argv[1]
+payload_offset = int(sys.argv[2])
+compressed_size = int(sys.argv[3])
+uncompressed_size = int(sys.argv[4])
+recorded_image_size = int(sys.argv[5])
+expected_kernel_path = sys.argv[6]
+
+# LZ4_decompress_safe uses signed int sizes.  Fail before allocation or FFI if
+# a corrupt header cannot be represented by that API.
+if compressed_size > 0x7FFFFFFF or uncompressed_size > 0x7FFFFFFF:
+    fail("ABLX kernel sizes exceed the liblz4 block API limit")
+
+with open(image_path, "rb") as boot_image:
+    boot_image.seek(payload_offset)
+    compressed = boot_image.read(compressed_size)
+if len(compressed) != compressed_size:
+    fail("cannot read the complete ABLX compressed kernel")
+
+try:
+    liblz4 = ctypes.CDLL("liblz4.so.1")
+except OSError as error:
+    fail(f"cannot load liblz4.so.1: {error}")
+liblz4.LZ4_decompress_safe.argtypes = (
+    ctypes.c_void_p,
+    ctypes.c_void_p,
+    ctypes.c_int,
+    ctypes.c_int,
+)
+liblz4.LZ4_decompress_safe.restype = ctypes.c_int
+source = ctypes.c_char_p(compressed)
+destination = ctypes.create_string_buffer(uncompressed_size)
+decoded_size = liblz4.LZ4_decompress_safe(
+    source, destination, compressed_size, uncompressed_size
+)
+if decoded_size < 0:
+    fail("liblz4 rejected the ABLX compressed kernel")
+if decoded_size != uncompressed_size:
+    fail(
+        "ABLX kernel decoded to an unexpected size: "
+        f"{decoded_size} != {uncompressed_size}"
+    )
+decoded = memoryview(destination).cast("B")[:decoded_size]
+decoded_image_size = arm64_image_size(decoded, "decoded ABLX kernel")
+if decoded_image_size != recorded_image_size:
+    fail(
+        "decoded ARM64 image_size does not match the ABLX header: "
+        f"{decoded_image_size} != {recorded_image_size}"
+    )
+
+if expected_kernel_path:
+    with open(expected_kernel_path, "rb") as expected_file:
+        expected = canonicalize_kernel(expected_file.read())
+    expected_image_size = arm64_image_size(expected, "expected kernel")
+    if expected_image_size != recorded_image_size:
+        fail(
+            "expected ARM64 image_size does not match the ABLX header: "
+            f"{expected_image_size} != {recorded_image_size}"
+        )
+    if decoded != expected:
+        fail(
+            "decoded ABLX kernel does not match the expected kernel: "
+            f"{hashlib.sha256(decoded).hexdigest()} != "
+            f"{hashlib.sha256(expected).hexdigest()}"
+        )
+PY
+then
+    fail 'embedded raw-LZ4 kernel validation failed'
+fi
 
 if [ -n "$expected_initramfs" ]; then
     expected_initramfs_size=$(wc -c <"$expected_initramfs" | tr -d ' ')
