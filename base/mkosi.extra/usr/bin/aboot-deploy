@@ -6,6 +6,7 @@ options=
 config_path=
 verbose=0
 ostree_root=
+slot_switch_policy=qbootctl
 
 usage() {
     cat >&2 <<'EOF'
@@ -14,7 +15,7 @@ Usage: aboot-deploy [OPTIONS] aboot_img
 Deploy a prebuilt Android boot image for an OSTree Android A/B sysroot.
 
 Options:
-  -c, --config PATH      Accepted for OSTree aboot hook compatibility
+  -c, --config PATH      Device policy config supplied by OSTree
   -o, --options CMDLINE  Kernel options for the deployment being staged
   -r, --root PATH        OSTree sysroot root (default: /)
   -v, --verbose          Show progress
@@ -56,6 +57,40 @@ root_path() {
     else
         printf '%s/%s' "$rootdir" "${path#/}"
     fi
+}
+
+load_config() {
+    local path line
+    local policy_re='^[[:space:]]*POCKETFED_SLOT_SWITCH[[:space:]]*=[[:space:]]*(qbootctl|disabled)[[:space:]]*$'
+    local key_re='^[[:space:]]*POCKETFED_SLOT_SWITCH([[:space:]]|=|$)'
+    local policy_seen=0
+
+    [[ -n "$config_path" ]] || return 0
+
+    path=$(root_path "$config_path")
+    if [[ ! -e "$path" && ! -L "$path" ]]; then
+        log "device policy config is absent; using legacy qbootctl slot switching"
+        return 0
+    fi
+    [[ -f "$path" ]] || die "device policy config is not a regular file: $config_path"
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line=${line%$'\r'}
+        line=${line%%#*}
+        if [[ "$line" =~ $key_re ]]; then
+            [[ "$line" =~ $policy_re ]] \
+                || die "invalid POCKETFED_SLOT_SWITCH policy in $config_path"
+            (( policy_seen == 0 )) \
+                || die "duplicate POCKETFED_SLOT_SWITCH policy in $config_path"
+            slot_switch_policy=${BASH_REMATCH[1]}
+            policy_seen=1
+        fi
+    done <"$path"
+
+    (( policy_seen == 1 )) \
+        || die "missing POCKETFED_SLOT_SWITCH policy in $config_path"
+
+    log "slot switch policy: $slot_switch_policy"
 }
 
 resolve_boot_image() {
@@ -195,6 +230,7 @@ ostree_root=$(realpath "$(root_path /ostree)") \
     || die "cannot resolve OSTree root: $(root_path /ostree)"
 deployment_rel=
 
+load_config
 resolve_ostree_deployment
 
 if ! has_root_links; then
@@ -203,6 +239,9 @@ if ! has_root_links; then
     log 'initialized /ostree/root.a and /ostree/root.b; not flashing during first install'
     exit 0
 fi
+
+[[ "$slot_switch_policy" == qbootctl ]] \
+    || die 'slot switching is disabled for this device; refusing to flash or activate the staged deployment'
 
 require_cmd qbootctl
 require_cmd blockdev

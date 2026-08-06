@@ -11,6 +11,7 @@ COPY devices/oneplus-fajita/samcday-kernel-sdm845-next.repo /etc/yum.repos.d/
 COPY devices/oneplus-fajita/samcday-pocketfed.repo /etc/yum.repos.d/
 COPY devices/oneplus-fajita/samcday-usb-signaller.repo /etc/yum.repos.d/
 COPY devices/oneplus-fajita/samcday-blob-wrangler-nightly.repo /etc/yum.repos.d/samcday-blob-wrangler-nightly-fedora-rawhide.repo
+COPY devices/oneplus-fajita/aboot.cfg /usr/lib/ostree-boot/aboot.cfg
 COPY devices/oneplus-fajita/dracut.conf /etc/dracut.conf.d/60-oneplus-fajita.conf
 COPY --chmod=0755 devices/oneplus-fajita/pocketfed-verify-kernel /usr/libexec/
 COPY --chmod=0755 devices/oneplus-fajita/50-clatd /tmp/pocketfed-50-clatd

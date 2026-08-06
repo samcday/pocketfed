@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${0##*/} == qbootctl ]]; then
+    printf '%s\n' "$*" >>"${POCKETFED_TEST_QBOOTCTL_LOG:?}"
+    case "${1:-}" in
+        -x) printf '_a\n' ;;
+        -s) ;;
+        *) exit 2 ;;
+    esac
+    exit 0
+fi
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+deploy=${1:-$repo_root/base/mkosi.extra/usr/bin/aboot-deploy}
+fajita_policy=${2:-$repo_root/devices/oneplus-fajita/aboot.cfg}
+
+fail() {
+    printf 'test-aboot-deploy: %s\n' "$*" >&2
+    exit 1
+}
+
+tmp=$(mktemp -d)
+trap 'rm -rf -- "$tmp"' EXIT
+helper=$(realpath "${BASH_SOURCE[0]}")
+mkdir -p "$tmp/bin"
+ln -s "$helper" "$tmp/bin/qbootctl"
+qbootctl_log=$tmp/qbootctl.log
+export POCKETFED_TEST_QBOOTCTL_LOG=$qbootctl_log
+
+setup_fixture() {
+    local name=$1 links=$2 config=$3
+
+    fixture=$tmp/$name
+    config_arg=/ostree/deploy/pocketfed/deploy/new.0/usr/lib/ostree-boot/aboot.cfg
+    mkdir -p \
+        "$fixture/boot" \
+        "$fixture/ostree/boot.1/pocketfed/testboot" \
+        "$fixture/ostree/deploy/pocketfed/deploy/old.0" \
+        "$fixture/ostree/deploy/pocketfed/deploy/new.0/usr/lib/ostree-boot"
+    ln -s ../../../deploy/pocketfed/deploy/new.0 \
+        "$fixture/ostree/boot.1/pocketfed/testboot/0"
+    install -m0644 /dev/null "$fixture/boot/aboot.img"
+
+    case "$config" in
+        fajita)
+            install -m0644 "$fajita_policy" "$fixture$config_arg"
+            ;;
+        empty)
+            install -m0644 /dev/null "$fixture$config_arg"
+            ;;
+        absent) ;;
+        *) fail "unsupported fixture config: $config" ;;
+    esac
+
+    if [[ "$links" == yes ]]; then
+        ln -s deploy/pocketfed/deploy/old.0 "$fixture/ostree/root.a"
+        ln -s deploy/pocketfed/deploy/old.0 "$fixture/ostree/root.b"
+    fi
+}
+
+run_deploy() {
+    PATH="$tmp/bin:/usr/bin:/bin" "$deploy" \
+        -v \
+        -r "$fixture" \
+        -c "$config_arg" \
+        -o 'root=LABEL=pfroot ostree=/ostree/boot.1/pocketfed/testboot/0' \
+        aboot.img
+}
+
+setup_fixture disabled yes fajita
+install -m0644 /dev/null "$qbootctl_log"
+if output=$(run_deploy 2>&1); then
+    fail 'disabled Fajita deployment unexpectedly succeeded'
+fi
+grep -Fq 'slot switch policy: disabled' <<<"$output" ||
+    fail 'disabled policy was not loaded'
+grep -Fq 'refusing to flash or activate the staged deployment' <<<"$output" ||
+    fail 'disabled deployment did not report its fail-closed result'
+[[ ! -s "$qbootctl_log" ]] || fail 'disabled deployment invoked qbootctl'
+[[ $(readlink "$fixture/ostree/root.a") == deploy/pocketfed/deploy/old.0 ]] ||
+    fail 'disabled deployment changed root.a'
+[[ $(readlink "$fixture/ostree/root.b") == deploy/pocketfed/deploy/old.0 ]] ||
+    fail 'disabled deployment changed root.b'
+
+setup_fixture missing-policy yes empty
+install -m0644 /dev/null "$qbootctl_log"
+if output=$(run_deploy 2>&1); then
+    fail 'config without a policy unexpectedly succeeded'
+fi
+grep -Fq 'missing POCKETFED_SLOT_SWITCH policy' <<<"$output" ||
+    fail 'config without a policy was not rejected'
+[[ ! -s "$qbootctl_log" ]] || fail 'missing policy fell back to qbootctl'
+
+setup_fixture legacy yes absent
+install -m0644 /dev/null "$qbootctl_log"
+if output=$(run_deploy 2>&1); then
+    fail 'legacy fixture unexpectedly reached a usable boot partition'
+fi
+grep -Fq 'device policy config is absent; using legacy qbootctl slot switching' <<<"$output" ||
+    fail 'absent config did not retain the legacy policy'
+[[ $(<"$qbootctl_log") == -x ]] || fail 'legacy policy did not query qbootctl'
+grep -Fq 'target boot partition is not a block device' <<<"$output" ||
+    fail 'legacy policy did not proceed through slot selection'
+
+setup_fixture initial no fajita
+install -m0644 /dev/null "$qbootctl_log"
+output=$(run_deploy 2>&1) || fail 'initial link setup failed under disabled policy'
+grep -Fq 'initialized /ostree/root.a and /ostree/root.b; not flashing during first install' <<<"$output" ||
+    fail 'initial link setup was not diagnosed'
+[[ $(readlink "$fixture/ostree/root.a") == deploy/pocketfed/deploy/new.0 ]] ||
+    fail 'initial root.a link is wrong'
+[[ $(readlink "$fixture/ostree/root.b") == deploy/pocketfed/deploy/new.0 ]] ||
+    fail 'initial root.b link is wrong'
+[[ ! -s "$qbootctl_log" ]] || fail 'initial link setup invoked qbootctl'
+
+printf 'test-aboot-deploy: all tests passed\n'
