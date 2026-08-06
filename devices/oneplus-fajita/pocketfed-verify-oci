@@ -6,6 +6,12 @@ fail() {
     exit 1
 }
 
+test -f /usr/lib/ostree-boot/aboot.cfg || fail 'aboot device policy is missing'
+grep -Fxq 'POCKETFED_SLOT_SWITCH=disabled' /usr/lib/ostree-boot/aboot.cfg ||
+    fail 'unsafe aboot slot switching is not disabled'
+grep -Fq 'refusing to flash or activate the staged deployment' /usr/bin/aboot-deploy ||
+    fail 'aboot-deploy does not enforce the device policy'
+
 rpm -q phosh upower upower-libs
 systemctl is-enabled upower.service
 
