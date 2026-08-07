@@ -53,8 +53,10 @@ jobs:
             just \
             podman \
             skopeo
-          # Hosted arm64 images can retain a lock table created with a
-          # different num_locks setting than Ubuntu's Podman package.
+          # Hosted arm64 images can retain a shared-memory lock table from a
+          # different Podman build. Podman must open that table before it can
+          # renumber it, so discard the stale table on this disposable runner.
+          sudo rm -f /dev/shm/libpod_lock
           sudo podman system renumber
 
       - name: Restore Buildah cache
@@ -212,8 +214,9 @@ jobs:
             podman \
             skopeo \
             zstd
-          # Reconcile the hosted runner's pre-existing Podman lock table with
-          # the num_locks value from Ubuntu's installed package.
+          # Recreate the disposable runner's lock table with this Podman build
+          # before asking Podman to reconcile stored lock numbers.
+          sudo rm -f /dev/shm/libpod_lock
           sudo podman system renumber
 
       - name: Restore Buildah cache
@@ -386,8 +389,9 @@ jobs:
             podman \
             skopeo \
             zstd
-          # Reconcile the hosted runner's pre-existing Podman lock table with
-          # the num_locks value from Ubuntu's installed package.
+          # Recreate the disposable runner's lock table with this Podman build
+          # before asking Podman to reconcile stored lock numbers.
+          sudo rm -f /dev/shm/libpod_lock
           sudo podman system renumber
 
       - name: Restore Buildah cache
