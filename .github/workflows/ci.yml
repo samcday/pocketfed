@@ -53,6 +53,9 @@ jobs:
             just \
             podman \
             skopeo
+          # Hosted arm64 images can retain a lock table created with a
+          # different num_locks setting than Ubuntu's Podman package.
+          sudo podman system renumber
 
       - name: Restore Buildah cache
         uses: actions/cache/restore@v5
