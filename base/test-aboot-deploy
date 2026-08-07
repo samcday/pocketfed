@@ -1,19 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ ${0##*/} == qbootctl ]]; then
-    printf '%s\n' "$*" >>"${POCKETFED_TEST_QBOOTCTL_LOG:?}"
-    case "${1:-}" in
-        -x) printf '_a\n' ;;
-        -s) ;;
-        *) exit 2 ;;
-    esac
-    exit 0
-fi
-
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 deploy=${1:-$repo_root/base/mkosi.extra/usr/bin/aboot-deploy}
 fajita_policy=${2:-$repo_root/devices/oneplus-fajita/aboot.cfg}
+test_bin=$repo_root/base/tests/bin
 
 fail() {
     printf 'test-aboot-deploy: %s\n' "$*" >&2
@@ -22,9 +13,7 @@ fail() {
 
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
-helper=$(realpath "${BASH_SOURCE[0]}")
-mkdir -p "$tmp/bin"
-ln -s "$helper" "$tmp/bin/qbootctl"
+[[ -x "$test_bin/qbootctl" ]] || fail 'qbootctl test stub is missing or not executable'
 qbootctl_log=$tmp/qbootctl.log
 export POCKETFED_TEST_QBOOTCTL_LOG=$qbootctl_log
 
@@ -60,7 +49,7 @@ setup_fixture() {
 }
 
 run_deploy() {
-    PATH="$tmp/bin:/usr/bin:/bin" "$deploy" \
+    PATH="$test_bin:/usr/bin:/bin" "$deploy" \
         -v \
         -r "$fixture" \
         -c "$config_arg" \
@@ -99,7 +88,10 @@ if output=$(run_deploy 2>&1); then
 fi
 grep -Fq 'device policy config is absent; using legacy qbootctl slot switching' <<<"$output" ||
     fail 'absent config did not retain the legacy policy'
-[[ $(<"$qbootctl_log") == -x ]] || fail 'legacy policy did not query qbootctl'
+[[ $(<"$qbootctl_log") == -x ]] || {
+    printf '%s\n' "$output" >&2
+    fail 'legacy policy did not query qbootctl'
+}
 grep -Fq 'target boot partition is not a block device' <<<"$output" ||
     fail 'legacy policy did not proceed through slot selection'
 

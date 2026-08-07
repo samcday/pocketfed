@@ -1,0 +1,4 @@
+#!/bin/sh
+# aboot-deploy checks for blockdev before validating that its target is a block
+# device. The policy fixture must never execute it.
+exit 99
