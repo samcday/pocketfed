@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+helper=$repo_root/builder/flash-fastboot
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+fail() {
+    printf 'test-flash-fastboot: %s\n' "$*" >&2
+    exit 1
+}
+
+make_artifacts() {
+    local dir=$1
+    install -d "$dir"
+    install -m0755 "$helper" "$dir/flash.sh"
+    printf 'boot payload\n' >"$dir/boot.img"
+    printf 'userdata payload\n' >"$dir/userdata.img"
+    printf '%s\n' \
+        '{' \
+        '  "device": "oneplus-fajita",' \
+        '  "installation_policy": {' \
+        '    "boot_flash": "current-active-slot",' \
+        '    "change_active_slot": false,' \
+        '    "firmware_slot_switch": "forbidden"' \
+        '  }' \
+        '}' >"$dir/manifest.json"
+    (
+        cd "$dir"
+        sha256sum boot.img flash.sh manifest.json userdata.img >SHA256SUMS
+    )
+}
+
+make_fastboot() {
+    local dir=$1 slot=$2 userspace=${3:-no} devices=${4:-'PF123 fastboot'}
+    install -d "$dir/bin"
+    cat >"$dir/bin/fastboot" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ ${1:-} == devices ]]; then
+    printf '%s\n' "$PF_TEST_DEVICES"
+    exit 0
+fi
+
+[[ ${1:-} == -s && ${2:-} == PF123 ]] || exit 90
+shift 2
+
+case "${1:-} ${2:-}" in
+    'getvar is-userspace')
+        printf 'is-userspace: %s\n' "$PF_TEST_USERSPACE" >&2
+        ;;
+    'getvar current-slot')
+        printf '(bootloader) current-slot: %s\n' "$PF_TEST_SLOT" >&2
+        ;;
+    'flash userdata' | 'flash boot_a' | 'flash boot_b')
+        printf '%s\n' "$*" >>"$PF_TEST_LOG"
+        ;;
+    'reboot ')
+        printf 'reboot\n' >>"$PF_TEST_LOG"
+        ;;
+    *)
+        exit 91
+        ;;
+esac
+EOF
+    chmod +x "$dir/bin/fastboot"
+    export PF_TEST_SLOT=$slot
+    export PF_TEST_USERSPACE=$userspace
+    export PF_TEST_DEVICES=$devices
+}
+
+artifacts=$tmp/artifacts
+fake=$tmp/fake
+log=$tmp/fastboot.log
+export PF_TEST_LOG=$log
+make_artifacts "$artifacts"
+make_fastboot "$fake" a
+
+PATH="$fake/bin:$PATH" "$artifacts/flash.sh" --yes --no-reboot >"$tmp/output" 2>&1
+grep -Fq "flash userdata $artifacts/userdata.img" "$log" ||
+    fail 'userdata was not flashed'
+grep -Fq "flash boot_a $artifacts/boot.img" "$log" ||
+    fail 'current boot_a was not flashed'
+! grep -Fq 'boot_b' "$log" || fail 'inactive boot_b was flashed'
+! grep -Fq 'set_active' "$log" || fail 'slot activation was attempted'
+
+: >"$log"
+make_fastboot "$fake" b
+PATH="$fake/bin:$PATH" "$artifacts/flash.sh" --yes >"$tmp/output" 2>&1
+grep -Fq "flash boot_b $artifacts/boot.img" "$log" ||
+    fail 'current boot_b was not flashed'
+grep -Fxq 'reboot' "$log" || fail 'normal flash did not reboot'
+
+: >"$log"
+make_fastboot "$fake" c
+if PATH="$fake/bin:$PATH" "$artifacts/flash.sh" --yes >"$tmp/output" 2>&1; then
+    fail 'invalid slot was accepted'
+fi
+[[ ! -s "$log" ]] || fail 'invalid slot wrote an artifact'
+grep -Fq 'refusing to guess' "$tmp/output" || fail 'invalid slot lacked a diagnostic'
+
+: >"$log"
+make_fastboot "$fake" a yes
+if PATH="$fake/bin:$PATH" "$artifacts/flash.sh" --yes >"$tmp/output" 2>&1; then
+    fail 'fastbootd was accepted'
+fi
+[[ ! -s "$log" ]] || fail 'fastbootd wrote an artifact'
+grep -Fq 'device is in fastbootd' "$tmp/output" || fail 'fastbootd lacked a diagnostic'
+
+: >"$log"
+make_fastboot "$fake" a no $'PF123 fastboot\nPF456 fastboot'
+if PATH="$fake/bin:$PATH" "$artifacts/flash.sh" --yes >"$tmp/output" 2>&1; then
+    fail 'multiple devices were accepted without a serial'
+fi
+[[ ! -s "$log" ]] || fail 'multiple-device refusal wrote an artifact'
+
+printf 'corruption\n' >>"$artifacts/boot.img"
+: >"$log"
+make_fastboot "$fake" a
+if PATH="$fake/bin:$PATH" "$artifacts/flash.sh" --yes >"$tmp/output" 2>&1; then
+    fail 'checksum corruption was accepted'
+fi
+[[ ! -s "$log" ]] || fail 'checksum failure reached fastboot'
+
+make_artifacts "$artifacts"
+sed -i 's/"firmware_slot_switch": "forbidden"/"firmware_slot_switch": "legacy-qbootctl"/' \
+    "$artifacts/manifest.json"
+(
+    cd "$artifacts"
+    sha256sum boot.img flash.sh manifest.json userdata.img >SHA256SUMS
+)
+: >"$log"
+make_fastboot "$fake" a
+if PATH="$fake/bin:$PATH" "$artifacts/flash.sh" --yes >"$tmp/output" 2>&1; then
+    fail 'unsafe Fajita manifest was accepted'
+fi
+[[ ! -s "$log" ]] || fail 'unsafe Fajita manifest reached fastboot'
+
+printf 'test-flash-fastboot: all tests passed\n'

@@ -17,7 +17,8 @@ Usage: bootc-to-fastboot <device> <desktop> [release]
 
 Create fastbootable Android userdata + boot artifacts from a PocketFed
 device-bound bootc/OSTree image. The release defaults to rawhide and outputs
-are written to /out/boot.img, /out/userdata.img, and /out/SHA256SUMS.
+are written to /out/boot.img, /out/userdata.img, /out/flash.sh,
+/out/manifest.json, and /out/SHA256SUMS.
 
 The source and future update image ref defaults to:
   ghcr.io/samcday/pocketfed-<desktop>-<device>:<release>
@@ -136,7 +137,10 @@ require_cmd mountpoint
 require_cmd umount
 require_cmd e2fsck
 require_cmd img2simg
+require_cmd jq
 require_cmd realpath
+[[ -x /usr/local/libexec/pocketfed/flash-fastboot ]] ||
+    die 'safe fastboot flashing helper is missing from the builder image'
 
 output_dir=$(realpath -m "$output_dir")
 mkdir -p "$output_dir"
@@ -151,6 +155,8 @@ source_oci="$tmp/source.oci"
 raw_img="$tmp/userdata.raw.img"
 tmp_boot_img="$tmp/boot.img"
 tmp_sparse_img="$tmp/userdata.img"
+tmp_flash_helper="$tmp/flash.sh"
+tmp_manifest="$tmp/manifest.json"
 tmp_checksums="$tmp/SHA256SUMS"
 mounted=0
 loop_device=
@@ -184,6 +190,10 @@ case "$source_imgref" in
         install_source_imgref="oci:$source_oci:$source_ref"
         ;;
 esac
+
+source_digest=$(skopeo inspect --format '{{.Digest}}' "$install_source_imgref")
+[[ "$source_digest" =~ ^sha256:[[:xdigit:]]{64}$ ]] ||
+    die "source image has an invalid manifest digest: $source_digest"
 
 log "creating ext4 userdata image"
 truncate -s "$size" "$raw_img"
@@ -224,6 +234,25 @@ shopt -u nullglob
 deployment=${deployments[0]}
 deployment_rel=${deployment#"$mnt/ostree/"}
 [[ "$deployment_rel" != "$deployment" ]] || die "deployment path is outside /ostree: $deployment"
+deployment_name=${deployment##*/}
+if [[ "$deployment_name" =~ ^([[:xdigit:]]{64})\.[[:digit:]]+$ ]]; then
+    ostree_commit=${BASH_REMATCH[1]}
+else
+    die "cannot determine OSTree commit from deployment: $deployment_name"
+fi
+
+slot_switch_policy=qbootctl
+if [[ "$device" == oneplus-fajita ]]; then
+    policy=$deployment/usr/lib/ostree-boot/aboot.cfg
+    deploy_helper=$deployment/usr/bin/aboot-deploy
+    [[ -f "$policy" ]] || die 'Fajita source image lacks the slot-switch guard policy'
+    grep -Fxq 'POCKETFED_SLOT_SWITCH=disabled' "$policy" ||
+        die 'Fajita source image does not disable whole-firmware slot switching'
+    [[ -x "$deploy_helper" ]] || die 'Fajita source image lacks aboot-deploy'
+    grep -Fq 'refusing to flash or activate the staged deployment' "$deploy_helper" ||
+        die 'Fajita source image aboot-deploy does not enforce the slot-switch guard'
+    slot_switch_policy=disabled
+fi
 
 log "creating initial Android slot root links"
 set_root_link a
@@ -236,6 +265,7 @@ shopt -u nullglob
 
 log "copying boot image"
 install -m0644 "${aboots[0]}" "$tmp_boot_img"
+install -m0755 /usr/local/libexec/pocketfed/flash-fastboot "$tmp_flash_helper"
 
 log "enabling aboot bootloader for future deployments"
 ostree config --repo "$mnt/ostree/repo" set sysroot.bootprefix true
@@ -259,17 +289,66 @@ set -e
 log "creating sparse userdata image"
 img2simg "$raw_img" "$tmp_sparse_img"
 
+log "writing artifact manifest"
+boot_sha256=$(sha256sum "$tmp_boot_img" | sed 's/[[:space:]].*//')
+userdata_sha256=$(sha256sum "$tmp_sparse_img" | sed 's/[[:space:]].*//')
+flash_sha256=$(sha256sum "$tmp_flash_helper" | sed 's/[[:space:]].*//')
+jq -n \
+    --arg device "$device" \
+    --arg desktop "$desktop" \
+    --arg release "$release" \
+    --arg source_ref "$source_image_ref" \
+    --arg source_digest "$source_digest" \
+    --arg target_ref "$target_image_ref" \
+    --arg ostree_commit "$ostree_commit" \
+    --arg root_label "$root_label" \
+    --arg stateroot "$stateroot" \
+    --arg slot_switch_policy "$slot_switch_policy" \
+    --arg boot_sha256 "$boot_sha256" \
+    --arg userdata_sha256 "$userdata_sha256" \
+    --arg flash_sha256 "$flash_sha256" \
+    --argjson boot_size "$(stat -c %s "$tmp_boot_img")" \
+    --argjson userdata_size "$(stat -c %s "$tmp_sparse_img")" \
+    --argjson flash_size "$(stat -c %s "$tmp_flash_helper")" \
+    '{
+        schema_version: 1,
+        device: $device,
+        desktop: $desktop,
+        release: $release,
+        source: {
+            requested_ref: $source_ref,
+            manifest_digest: $source_digest,
+            ostree_commit: $ostree_commit
+        },
+        update: {target_ref: $target_ref},
+        filesystem: {root_label: $root_label, stateroot: $stateroot},
+        installation_policy: {
+            boot_flash: "current-active-slot",
+            change_active_slot: false,
+            firmware_slot_switch: (if $slot_switch_policy == "disabled" then "forbidden" else "legacy-qbootctl" end),
+            future_activation: $slot_switch_policy
+        },
+        artifacts: {
+            "boot.img": {sha256: $boot_sha256, size: $boot_size},
+            "userdata.img": {sha256: $userdata_sha256, size: $userdata_size},
+            "flash.sh": {sha256: $flash_sha256, size: $flash_size}
+        }
+    }' >"$tmp_manifest"
+
 log "writing artifact checksums"
 (
     cd "$tmp"
-    sha256sum boot.img userdata.img >SHA256SUMS
+    sha256sum boot.img flash.sh manifest.json userdata.img >SHA256SUMS
 )
 
 output_owner="$(stat -c %u "$output_dir"):$(stat -c %g "$output_dir")"
-chown "$output_owner" "$tmp_boot_img" "$tmp_sparse_img" "$tmp_checksums"
+chown "$output_owner" \
+    "$tmp_boot_img" "$tmp_sparse_img" "$tmp_flash_helper" "$tmp_manifest" "$tmp_checksums"
 rm -f "$checksums"
 mv -f "$tmp_boot_img" "$boot_img"
 mv -f "$tmp_sparse_img" "$sparse_img"
+mv -f "$tmp_flash_helper" "$output_dir/flash.sh"
+mv -f "$tmp_manifest" "$output_dir/manifest.json"
 mv -f "$tmp_checksums" "$checksums"
 
-log "wrote $boot_img, $sparse_img, and $checksums"
+log "wrote $boot_img, $sparse_img, $output_dir/flash.sh, $output_dir/manifest.json, and $checksums"
