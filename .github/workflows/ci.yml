@@ -212,6 +212,9 @@ jobs:
             podman \
             skopeo \
             zstd
+          # Reconcile the hosted runner's pre-existing Podman lock table with
+          # the num_locks value from Ubuntu's installed package.
+          sudo podman system renumber
 
       - name: Restore Buildah cache
         uses: actions/cache/restore@v5
@@ -383,6 +386,9 @@ jobs:
             podman \
             skopeo \
             zstd
+          # Reconcile the hosted runner's pre-existing Podman lock table with
+          # the num_locks value from Ubuntu's installed package.
+          sudo podman system renumber
 
       - name: Restore Buildah cache
         uses: actions/cache/restore@v5
