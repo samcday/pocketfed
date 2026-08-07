@@ -53,11 +53,20 @@ jobs:
             just \
             podman \
             skopeo
+          # Runner image 20260726 combines Podman 5.8 from /usr/local with
+          # Ubuntu's crun 1.14 in /usr/bin. Pin Podman to the matching bundled
+          # runtime; fixed runner images already carry an equivalent drop-in.
+          if [[ -x /usr/local/bin/crun ]]; then
+            sudo install -d /etc/containers/containers.conf.d
+            printf '[engine.runtimes]\ncrun = ["/usr/local/bin/crun"]\n' |
+              sudo tee /etc/containers/containers.conf.d/00-pocketfed-ci-runtime.conf >/dev/null
+          fi
           # Hosted arm64 images can retain a shared-memory lock table from a
           # different Podman build. Podman must open that table before it can
           # renumber it, so discard the stale table on this disposable runner.
           sudo rm -f /dev/shm/libpod_lock
           sudo podman system renumber
+          sudo podman info --format 'Podman OCI runtime: {{.Host.OCIRuntime.Path}}'
 
       - name: Restore Buildah cache
         uses: actions/cache/restore@v5
@@ -214,10 +223,17 @@ jobs:
             podman \
             skopeo \
             zstd
+          # Select the OCI runtime bundled with the hosted runner's Podman 5.x.
+          if [[ -x /usr/local/bin/crun ]]; then
+            sudo install -d /etc/containers/containers.conf.d
+            printf '[engine.runtimes]\ncrun = ["/usr/local/bin/crun"]\n' |
+              sudo tee /etc/containers/containers.conf.d/00-pocketfed-ci-runtime.conf >/dev/null
+          fi
           # Recreate the disposable runner's lock table with this Podman build
           # before asking Podman to reconcile stored lock numbers.
           sudo rm -f /dev/shm/libpod_lock
           sudo podman system renumber
+          sudo podman info --format 'Podman OCI runtime: {{.Host.OCIRuntime.Path}}'
 
       - name: Restore Buildah cache
         uses: actions/cache/restore@v5
@@ -389,10 +405,17 @@ jobs:
             podman \
             skopeo \
             zstd
+          # Select the OCI runtime bundled with the hosted runner's Podman 5.x.
+          if [[ -x /usr/local/bin/crun ]]; then
+            sudo install -d /etc/containers/containers.conf.d
+            printf '[engine.runtimes]\ncrun = ["/usr/local/bin/crun"]\n' |
+              sudo tee /etc/containers/containers.conf.d/00-pocketfed-ci-runtime.conf >/dev/null
+          fi
           # Recreate the disposable runner's lock table with this Podman build
           # before asking Podman to reconcile stored lock numbers.
           sudo rm -f /dev/shm/libpod_lock
           sudo podman system renumber
+          sudo podman info --format 'Podman OCI runtime: {{.Host.OCIRuntime.Path}}'
 
       - name: Restore Buildah cache
         uses: actions/cache/restore@v5
