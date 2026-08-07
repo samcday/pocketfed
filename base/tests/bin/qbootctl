@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$*" >>"${POCKETFED_TEST_QBOOTCTL_LOG:?}"
+case "${1:-}" in
+    -x) printf '_a\n' ;;
+    -s) ;;
+    *) exit 2 ;;
+esac
