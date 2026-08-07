@@ -1,0 +1,112 @@
+.TH QBOOTCTL 8 "August 2026" "qbootctl 0.2.2" "System Administration"
+.SH NAME
+qbootctl \- inspect or modify Qualcomm Android A/B boot metadata
+.SH SYNOPSIS
+.B qbootctl
+.br
+.B qbootctl
+.RB { \-c | \-a }
+.br
+.B qbootctl
+.RB { \-b | \-n }
+.I SLOT
+.br
+.B qbootctl \-x
+.RI [ SLOT ]
+.br
+.B qbootctl
+.RB { \-m | \-u }
+.RI [ SLOT ]
+.br
+.B qbootctl \-s
+.I SLOT
+.SH DESCRIPTION
+.B qbootctl
+reads and writes Android A/B metadata on Qualcomm devices.
+It is a low-level recovery and boot-control utility, not a general-purpose
+PocketFed deployment interface.
+.PP
+The accepted slot spellings are
+.BR 0 ,
+.BR 1 ,
+.BR a ,
+and
+.BR b .
+Run the command as root on an A/B device.
+.SH OPTIONS
+.TP
+.B \-c
+Print the current slot reported by the kernel command line.
+.TP
+.B \-a
+Print the slot marked active in the boot partition GPT attributes.
+.TP
+.BI \-b " SLOT"
+Report whether
+.I SLOT
+is bootable.
+.TP
+.BI \-n " SLOT"
+Report whether
+.I SLOT
+is marked successful.
+.TP
+.B \-x
+Print a slot suffix. With no argument, print the current kernel-command-line
+suffix.
+.TP
+.B \-m
+Mark a slot successful and bootable. With no argument, use the current
+kernel-command-line slot. The packaged
+.B qbootctl.service
+runs this operation after
+.BR boot-complete.target (7).
+.TP
+.B \-u
+Mark a slot unbootable. With no argument, use the current
+kernel-command-line slot.
+.TP
+.BI \-s " SLOT"
+Activate a complete Qualcomm firmware slot.
+.B This is not a boot-image-only operation.
+It rewrites GPT metadata for a fixed list of paired firmware and operating
+system partitions, then changes the UFS boot-LUN selector used by PBL to load
+XBL.
+.TP
+.B \-h
+Print the upstream usage text. In qbootctl 0.2.2, privilege and device probing
+unfortunately occur before option parsing, and the usage path exits with a
+failure status.
+.SH POCKETFED FAJITA WARNING
+Do not use
+.B qbootctl \-s
+or
+.B fastboot set_active
+as part of a PocketFed update or installation on the OnePlus 6T (fajita).
+Those commands switch the complete vendor firmware chain and the UFS XBL boot
+LUN. PocketFed does not provision a verified matching vendor firmware stack in
+both slots.
+.PP
+The PocketFed Fajita installer deliberately writes
+.I boot.img
+to the already-current, known-good slot and leaves that slot active.
+.SH STATUS LIMITATIONS
+The no-argument status display does not read the UFS
+.I bBootLunEn
+attribute. Its \(lqCurrent\(rq value comes from the kernel command line, while
+its \(lqActive\(rq value comes from boot partition GPT attributes. It therefore
+cannot diagnose disagreement between those values and the XBL boot LUN.
+.PP
+Some qbootctl 0.2.2 status-query failures are reported as zero or default
+values. Do not treat its formatted status as sufficient proof that a Qualcomm
+firmware slot is coherent.
+.SH FILES
+.TP
+.I /usr/lib/systemd/system/qbootctl.service
+Marks the current boot partition successful after boot completion.
+.TP
+.I /dev/disk/by-partlabel/
+Partition-label links used to locate A/B GPT entries.
+.SH SEE ALSO
+.BR fastboot (1),
+.BR systemd.service (5)

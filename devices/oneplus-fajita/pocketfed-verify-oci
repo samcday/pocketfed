@@ -11,6 +11,7 @@ grep -Fxq 'POCKETFED_SLOT_SWITCH=disabled' /usr/lib/ostree-boot/aboot.cfg ||
     fail 'unsafe aboot slot switching is not disabled'
 grep -Fq 'refusing to flash or activate the staged deployment' /usr/bin/aboot-deploy ||
     fail 'aboot-deploy does not enforce the device policy'
+test -s /usr/share/man/man8/qbootctl.8 || fail 'qbootctl safety documentation is missing'
 
 rpm -q phosh upower upower-libs
 systemctl is-enabled upower.service
