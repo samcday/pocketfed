@@ -43,6 +43,9 @@ jobs:
       - name: Test aboot deployment policy
         run: base/test-aboot-deploy
 
+      - name: Test safe fastboot flashing helper
+        run: builder/test-flash-fastboot
+
       - name: Install host dependencies
         run: |
           sudo apt-get update

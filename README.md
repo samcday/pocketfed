@@ -13,9 +13,11 @@ PocketFed uses two layers for device installation:
 
    - `boot.img`
    - `userdata.img` (Android sparse ext4, 8 GiB before first-boot growth)
+   - `flash.sh` (a guarded flashing helper that preserves the current slot)
+   - `manifest.json` (source OCI provenance and installation policy)
    - `SHA256SUMS`
 
-The OCI is the natural update and source-build boundary. Hosting the three
+The OCI is the natural update and source-build boundary. Hosting the five
 flash artifacts separately is optional and does not change their format.
 
 ### Build everything from this checkout
@@ -30,7 +32,7 @@ just fastboot
 ```
 
 This builds the Fajita device OCI and image-builder container locally, exports
-the device OCI through a temporary read-only OCI layout, and writes the three
+the device OCI through a temporary read-only OCI layout, and writes the five
 artifacts to `out/oneplus-fajita/`. The userdata image temporarily requires 8
 GiB plus space for the OCI and sparse output. Temporary files stay on the output
 filesystem instead of consuming `/tmp`. Override the logical size with
@@ -66,24 +68,38 @@ Verify the completed artifact set before flashing:
 
 ### Experimental flashing
 
-This initial Fajita image has build-time verification but has not yet completed
-a hardware boot test. Flashing `userdata` destroys the phone's existing user
-data. Unlock the bootloader and back up anything important. Using the inactive
-boot partition avoids overwriting both boot images, but it is not an Android
-rollback path: both slots share the userdata that this procedure replaces. Be
-prepared to restore the stock firmware if PocketFed does not boot.
+The Fajita image has booted through the graphical session on hardware, but the
+installation remains experimental. Flashing `userdata` destroys the phone's
+existing user data. Unlock the bootloader, back up anything important, and be
+prepared to restore the stock firmware.
 
-Check the current slot with `fastboot getvar current-slot`. If it reports `a`,
-flash PocketFed to `boot_b` and activate `b`; if it reports `b`, use `boot_a`
-and activate `a`. For example, when Android currently uses slot `a`:
+Use the generated helper from bootloader fastboot. It verifies the artifacts,
+requires a destructive-operation confirmation, reads the current slot, and
+flashes `boot.img` back to that same slot:
 
 ```sh
 cd out/oneplus-fajita
-fastboot flash userdata userdata.img
-fastboot flash boot_b boot.img
-fastboot set_active b
-fastboot reboot
+./flash.sh
 ```
 
-Do not flash both boot slots until the first boot, storage, watchdog, display,
-touch, USB networking, and SSH have been validated on the device.
+Keeping the current slot is intentional. On Fajita, changing slots also changes
+the complete Qualcomm firmware stack and the UFS XBL boot LUN. Do not run
+`fastboot set_active` as part of a PocketFed installation.
+
+The reported current slot must already be known to boot a coherent vendor
+firmware chain. If the phone reached EDL or fastboot after a failed Android slot
+transition, repair that firmware state before using these artifacts.
+
+For a manual installation, first run `fastboot getvar current-slot`. Flash
+`userdata.img`, then flash `boot.img` to the reported partition (`boot_a` when
+the current slot is `a`, or `boot_b` when it is `b`), and reboot without changing
+the active slot. This overwrites the current Android boot image, but preserving
+it would require the unsafe whole-firmware slot transition; replacing userdata
+already means the other Android slot is not a usable rollback path.
+
+An existing pre-guard PocketFed installation must not use `rpm-ostree upgrade`
+to reach a guarded image: OSTree executes `aboot-deploy` from the currently
+booted deployment, whose old implementation ignores the staged policy. Install
+the first guarded deployment using freshly generated `userdata.img` and the
+current-slot `boot.img`; subsequent updates will fail safely until PocketFed has
+a boot-only activation mechanism.

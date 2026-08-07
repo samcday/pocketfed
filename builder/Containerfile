@@ -12,6 +12,7 @@ RUN --mount=type=cache,id=pocketfed-builder-dnf,target=/var/cache,sharing=locked
         bootc \
         coreutils \
         e2fsprogs \
+        jq \
         ostree \
         skopeo \
         util-linux
@@ -26,5 +27,6 @@ RUN test -s /usr/lib/ostree/prepare-root.conf \
     && /usr/bin/aboot-deploy --help >/dev/null 2>&1
 
 COPY builder/bootc-to-fastboot /usr/local/bin/bootc-to-fastboot
+COPY builder/flash-fastboot /usr/local/libexec/pocketfed/flash-fastboot
 
 ENTRYPOINT ["/usr/local/bin/bootc-to-fastboot"]

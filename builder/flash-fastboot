@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+assume_yes=0
+reboot=1
+serial=${ANDROID_SERIAL:-}
+
+usage() {
+    cat <<'EOF'
+Usage: flash.sh [OPTIONS]
+
+Flash the PocketFed artifacts beside this script to one fastboot device.
+
+The current Android slot is deliberately preserved: boot.img is written to
+that slot and this script never invokes `fastboot set_active`. Flashing
+userdata destroys all existing user data on the device.
+
+Run this only when the current slot's complete vendor firmware chain is known
+to boot successfully. It cannot repair an interrupted or incoherent Android
+firmware update.
+
+Options:
+  -s, --serial SERIAL  Select a device when more than one is connected
+  -y, --yes            Skip the destructive-operation confirmation
+      --no-reboot      Leave the device in fastboot after flashing
+  -h, --help           Show this help
+EOF
+}
+
+die() {
+    printf 'flash.sh: %s\n' "$*" >&2
+    exit 1
+}
+
+require_cmd() {
+    command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+while (($#)); do
+    case "$1" in
+        -s | --serial)
+            (($# >= 2)) || die "$1 requires a serial number"
+            serial=$2
+            shift 2
+            ;;
+        -y | --yes)
+            assume_yes=1
+            shift
+            ;;
+        --no-reboot)
+            reboot=0
+            shift
+            ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            usage >&2
+            die "unknown option: $1"
+            ;;
+    esac
+done
+(($# == 0)) || die 'positional arguments are not supported'
+
+require_cmd fastboot
+require_cmd grep
+require_cmd sha256sum
+require_cmd sed
+require_cmd tail
+
+artifact_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+boot_img=$artifact_dir/boot.img
+userdata_img=$artifact_dir/userdata.img
+checksums=$artifact_dir/SHA256SUMS
+manifest=$artifact_dir/manifest.json
+
+[[ -f "$boot_img" ]] || die "missing artifact: $boot_img"
+[[ -f "$userdata_img" ]] || die "missing artifact: $userdata_img"
+[[ -f "$checksums" ]] || die "missing artifact: $checksums"
+[[ -f "$manifest" ]] || die "missing artifact: $manifest"
+
+printf 'Verifying PocketFed artifacts...\n' >&2
+(cd "$artifact_dir" && sha256sum --check SHA256SUMS)
+grep -Fq '"boot_flash": "current-active-slot"' "$manifest" ||
+    die 'artifact manifest does not require current-slot flashing'
+grep -Fq '"change_active_slot": false' "$manifest" ||
+    die 'artifact manifest does not forbid changing the active slot'
+if grep -Fq '"device": "oneplus-fajita"' "$manifest"; then
+    grep -Fq '"firmware_slot_switch": "forbidden"' "$manifest" ||
+        die 'Fajita artifact manifest does not forbid firmware slot switching'
+fi
+
+if [[ -z "$serial" ]]; then
+    mapfile -t serials < <(fastboot devices | sed -nE 's/^([^[:space:]]+)[[:space:]]+fastboot.*$/\1/p')
+    case ${#serials[@]} in
+        0) die 'no fastboot device found' ;;
+        1) serial=${serials[0]} ;;
+        *) die 'multiple fastboot devices found; select one with --serial' ;;
+    esac
+fi
+
+fastboot_cmd=(fastboot -s "$serial")
+
+userspace_output=$("${fastboot_cmd[@]}" getvar is-userspace 2>&1 || true)
+if [[ "$userspace_output" =~ is-userspace:[[:space:]]*yes ]]; then
+    die 'device is in fastbootd; reboot to the bootloader fastboot interface first'
+fi
+
+slot_output=$("${fastboot_cmd[@]}" getvar current-slot 2>&1) || {
+    printf '%s\n' "$slot_output" >&2
+    die 'cannot read the current slot'
+}
+slot=$(
+    sed -nE 's/.*current-slot:[[:space:]]*_?([ab])[[:space:]]*$/\1/p' <<<"$slot_output" |
+        tail -n 1
+)
+[[ "$slot" == a || "$slot" == b ]] || {
+    printf '%s\n' "$slot_output" >&2
+    die 'current slot is missing or ambiguous; refusing to guess'
+}
+boot_partition=boot_$slot
+
+printf '\nDevice:       %s\n' "$serial" >&2
+printf 'Current slot: %s\n' "$slot" >&2
+printf 'Boot target:  %s (slot will NOT be changed)\n' "$boot_partition" >&2
+printf 'Userdata:     ERASED and replaced with userdata.img\n\n' >&2
+printf 'Only continue if this slot has already booted a coherent vendor firmware chain.\n\n' >&2
+
+if (( ! assume_yes )); then
+    [[ -t 0 ]] || die 'confirmation requires a terminal; pass --yes for unattended use'
+    confirmation=
+    printf 'Type "erase %s %s" to continue: ' "$serial" "$boot_partition" >&2
+    IFS= read -r confirmation
+    [[ "$confirmation" == "erase $serial $boot_partition" ]] || die 'confirmation did not match'
+fi
+
+"${fastboot_cmd[@]}" flash userdata "$userdata_img"
+"${fastboot_cmd[@]}" flash "$boot_partition" "$boot_img"
+
+if (( reboot )); then
+    "${fastboot_cmd[@]}" reboot
+else
+    printf 'Flash complete; device left in fastboot as requested.\n' >&2
+fi
