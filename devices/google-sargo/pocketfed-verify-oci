@@ -20,6 +20,16 @@ test -L /etc/systemd/system/ModemManager.service.wants/pocketfed-sargo-uim-selec
 
 systemctl is-enabled systemd-boot-check-no-failures.service
 systemctl is-enabled qbootctl.service
+test -f /usr/lib/ostree-boot/aboot.cfg
+grep -Fxq 'POCKETFED_SLOT_SWITCH=qbootctl' /usr/lib/ostree-boot/aboot.cfg
+test -x /usr/bin/aboot-deploy
+grep -Fq 'finalize_boot_image' /usr/bin/aboot-deploy
+grep -Fxq \
+    'init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl' \
+    /usr/lib/ostree-boot/aboot-kargs
+test -x /usr/libexec/pocketfed-aboot-finalize
+test -x /usr/libexec/abl-exorcist-assembler
+rpm -q python3
 
 /usr/libexec/pocketfed-verify-kernel
 
@@ -29,3 +39,14 @@ test -f "$1/vmlinuz"
 test -f "$1/dtb/qcom/sdm670-google-sargo.dtb"
 test -f "$1/initramfs.img"
 test -f "$1/aboot.img"
+
+repacked=$(mktemp)
+trap 'rm -f -- "$repacked"' EXIT
+options='root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.1/pocketfed/verify/0 ath10k_core.rawmode=1'
+/usr/libexec/pocketfed-aboot-finalize \
+    --options "$options" \
+    --append-options-file /usr/lib/ostree-boot/aboot-kargs \
+    "$1/aboot.img" "$repacked"
+expected_cmdline="<S> $(cat /usr/lib/ostree-boot/aboot-kargs) $options <E>"
+cmdline=$(dd if="$repacked" bs=1 skip=64 count=512 status=none | tr '\000' '\n' | sed -n '1p')
+[ "$cmdline" = "$expected_cmdline" ]

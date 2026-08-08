@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+finalizer=${1:-$repo_root/devices/google-sargo/pocketfed-aboot-finalize}
+assembler=$repo_root/devices/google-sargo/tests/bin/abl-exorcist-assembler
+
+fail() {
+    printf 'test-pocketfed-aboot-finalize: %s\n' "$*" >&2
+    exit 1
+}
+
+tmp=$(mktemp -d)
+trap 'rm -rf -- "$tmp"' EXIT
+bootdir=$tmp/boot/ostree/pocketfed-test
+kver=7.1.2-test.aarch64
+template=$bootdir/aboot-$kver.img
+kernel=$bootdir/vmlinuz-$kver
+initramfs=$bootdir/initramfs-$kver.img
+static_options=$tmp/aboot-kargs
+output=$tmp/finalized.img
+mkdir -p "$bootdir"
+
+python3 - "$template" "$kernel" "$initramfs" <<'PY'
+import hashlib
+from pathlib import Path
+import struct
+import sys
+
+template, kernel_path, initramfs_path = map(Path, sys.argv[1:])
+page_size = 4096
+kernel = b"outer-ablx-shim"
+ramdisk = b"old-ablx-ramdisk"
+second = b"second-stage"
+recovery = b"recovery-dtbo"
+dtb = b"sargo-dtb"
+cmdline = b"<S> old.template=1 <E>"
+
+
+def padded(payload):
+    return payload + b"\0" * ((-len(payload)) % page_size)
+
+
+header = bytearray(page_size)
+header[:8] = b"ANDROID!"
+struct.pack_into("<I", header, 8, len(kernel))
+struct.pack_into("<I", header, 12, 0x00008000)
+struct.pack_into("<I", header, 16, len(ramdisk))
+struct.pack_into("<I", header, 20, 0x04000000)
+struct.pack_into("<I", header, 24, len(second))
+struct.pack_into("<I", header, 28, 0x00F00000)
+struct.pack_into("<I", header, 32, 0x00000100)
+struct.pack_into("<I", header, 36, page_size)
+struct.pack_into("<I", header, 40, 2)
+header[64 : 64 + len(cmdline)] = cmdline
+
+digest = hashlib.sha1()
+for payload in (kernel, ramdisk, second, recovery, dtb):
+    digest.update(payload)
+    digest.update(struct.pack("<I", len(payload)))
+header[576:608] = digest.digest().ljust(32, b"\0")
+struct.pack_into("<I", header, 1632, len(recovery))
+recovery_offset = page_size + len(padded(kernel)) + len(padded(ramdisk)) + len(padded(second))
+struct.pack_into("<Q", header, 1636, recovery_offset)
+struct.pack_into("<I", header, 1644, 1660)
+struct.pack_into("<I", header, 1648, len(dtb))
+struct.pack_into("<Q", header, 1652, 0x03000000)
+
+template.write_bytes(
+    header
+    + padded(kernel)
+    + padded(ramdisk)
+    + padded(second)
+    + padded(recovery)
+    + padded(dtb)
+)
+kernel_path.write_bytes(b"deployment-linux-kernel")
+initramfs_path.write_bytes(b"deployment-initramfs")
+PY
+
+printf '%s\n' \
+    'init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl' \
+    >"$static_options"
+template_hash=$(sha256sum "$template")
+options='root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.1/pocketfed/test/0 ath10k_core.rawmode=1'
+
+"$finalizer" \
+    --assembler "$assembler" \
+    --options "$options" \
+    --append-options-file "$static_options" \
+    "$template" "$output"
+
+[[ -s "$output" ]] || fail 'finalizer produced no boot image'
+[[ $(sha256sum "$template") == "$template_hash" ]] || fail 'finalizer modified its template'
+
+python3 - "$output" "$kernel" "$initramfs" "$options" "$static_options" <<'PY'
+import hashlib
+from pathlib import Path
+import struct
+import sys
+
+image_path, kernel_path, initramfs_path, options, static_path = sys.argv[1:]
+image = Path(image_path).read_bytes()
+page_size = struct.unpack_from("<I", image, 36)[0]
+
+
+def align(value):
+    return (value + page_size - 1) & -page_size
+
+
+def section(offset, size):
+    return image[offset : offset + size]
+
+
+kernel_size = struct.unpack_from("<I", image, 8)[0]
+ramdisk_size = struct.unpack_from("<I", image, 16)[0]
+second_size = struct.unpack_from("<I", image, 24)[0]
+recovery_size = struct.unpack_from("<I", image, 1632)[0]
+dtb_size = struct.unpack_from("<I", image, 1648)[0]
+kernel_offset = page_size
+ramdisk_offset = align(kernel_offset + kernel_size)
+second_offset = align(ramdisk_offset + ramdisk_size)
+recovery_offset = align(second_offset + second_size)
+dtb_offset = align(recovery_offset + recovery_size)
+
+kernel = section(kernel_offset, kernel_size)
+ramdisk = section(ramdisk_offset, ramdisk_size)
+second = section(second_offset, second_size)
+recovery = section(recovery_offset, recovery_size)
+dtb = section(dtb_offset, dtb_size)
+expected_ramdisk = (
+    b"ABLX:"
+    + Path(kernel_path).read_bytes()
+    + b":"
+    + Path(initramfs_path).read_bytes()
+)
+assert kernel == b"outer-ablx-shim"
+assert ramdisk == expected_ramdisk
+assert second == b"second-stage"
+assert recovery == b"recovery-dtbo"
+assert dtb == b"sargo-dtb"
+
+raw_cmdline = image[64:576] + image[608:1632]
+cmdline = raw_cmdline.split(b"\0", 1)[0].decode()
+static_options = " ".join(Path(static_path).read_text().split())
+assert cmdline == f"<S> {static_options} {options} <E>"
+
+digest = hashlib.sha1()
+for payload in (kernel, ramdisk, second, recovery, dtb):
+    digest.update(payload)
+    digest.update(struct.pack("<I", len(payload)))
+assert image[576:608] == digest.digest().ljust(32, b"\0")
+assert struct.unpack_from("<Q", image, 1636)[0] == recovery_offset
+assert len(image) == align(dtb_offset + dtb_size)
+PY
+
+long_options=$(python3 -c 'print("x" * 1537)')
+if "$finalizer" \
+    --assembler "$assembler" \
+    --options "$long_options" \
+    --append-options-file "$static_options" \
+    "$template" "$tmp/too-long.img" >"$tmp/long.stdout" 2>"$tmp/long.stderr"
+then
+    fail 'oversized kernel command line unexpectedly succeeded'
+fi
+grep -Fq 'command line is too long' "$tmp/long.stderr" ||
+    fail 'oversized kernel command line was not diagnosed'
+
+printf 'test-pocketfed-aboot-finalize: all tests passed\n'

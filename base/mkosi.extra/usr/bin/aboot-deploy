@@ -7,12 +7,14 @@ config_path=
 verbose=0
 ostree_root=
 slot_switch_policy=qbootctl
+generated_boot_image=
 
 usage() {
     cat >&2 <<'EOF'
 Usage: aboot-deploy [OPTIONS] aboot_img
 
-Deploy a prebuilt Android boot image for an OSTree Android A/B sysroot.
+Finalize when supported, then deploy an Android boot image for an OSTree
+Android A/B sysroot.
 
 Options:
   -c, --config PATH      Device policy config supplied by OSTree
@@ -36,6 +38,12 @@ log() {
 require_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
 }
+
+cleanup() {
+    [[ -z "$generated_boot_image" ]] || rm -f -- "$generated_boot_image"
+}
+
+trap cleanup EXIT
 
 cmdline_key() {
     local cmdline=$1 key=$2 token
@@ -101,6 +109,33 @@ resolve_boot_image() {
     else
         root_path "/boot/$image"
     fi
+}
+
+finalize_boot_image() {
+    local finalizer static_options_file
+
+    finalizer=$(root_path /usr/libexec/pocketfed-aboot-finalize)
+    [[ -e "$finalizer" || -L "$finalizer" ]] || return 0
+    [[ -x "$finalizer" ]] || die "Android boot image finalizer is not executable: $finalizer"
+
+    static_options_file=$(
+        root_path "/ostree/$deployment_rel/usr/lib/ostree-boot/aboot-kargs"
+    )
+    [[ -f "$static_options_file" ]] \
+        || die 'Android boot image finalizer is installed but the staged deployment has no aboot-kargs'
+
+    generated_boot_image=$(mktemp "${TMPDIR:-/var/tmp}/pocketfed-aboot.XXXXXX.img") \
+        || die 'cannot create temporary Android boot image'
+    "$finalizer" \
+        --options "$options" \
+        --append-options-file "$static_options_file" \
+        "$boot_image" "$generated_boot_image" \
+        || die 'failed to finalize Android boot image'
+    [[ -s "$generated_boot_image" ]] \
+        || die 'Android boot image finalizer produced an empty image'
+
+    boot_image=$generated_boot_image
+    log 'finalized Android boot image with deployment kernel, initramfs, and arguments'
 }
 
 resolve_ostree_deployment() {
@@ -249,6 +284,7 @@ require_cmd dd
 
 boot_image=$(resolve_boot_image "$aboot_arg")
 [[ -f "$boot_image" ]] || die "missing boot image: $boot_image"
+finalize_boot_image
 
 select_target_slot "$(current_slot_suffix)"
 [[ -b "$target_partition" ]] \
