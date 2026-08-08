@@ -4,6 +4,8 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 deploy=${1:-$repo_root/base/mkosi.extra/usr/bin/aboot-deploy}
 fajita_policy=${2:-$repo_root/devices/oneplus-fajita/aboot.cfg}
+sargo_policy=${3:-$repo_root/devices/google-sargo/aboot.cfg}
+sargo_kargs=${4:-$repo_root/devices/google-sargo/aboot-kargs}
 test_bin=$repo_root/base/tests/bin
 
 fail() {
@@ -16,9 +18,11 @@ trap 'rm -rf -- "$tmp"' EXIT
 [[ -x "$test_bin/qbootctl" ]] || fail 'qbootctl test stub is missing or not executable'
 qbootctl_log=$tmp/qbootctl.log
 export POCKETFED_TEST_QBOOTCTL_LOG=$qbootctl_log
+finalizer_log=$tmp/aboot-finalize.log
+export POCKETFED_TEST_ABOOT_FINALIZE_LOG=$finalizer_log
 
 setup_fixture() {
-    local name=$1 links=$2 config=$3
+    local name=$1 links=$2 config=$3 finalizer=${4:-no}
 
     fixture=$tmp/$name
     config_arg=/ostree/deploy/pocketfed/deploy/new.0/usr/lib/ostree-boot/aboot.cfg
@@ -35,12 +39,23 @@ setup_fixture() {
         fajita)
             install -m0644 "$fajita_policy" "$fixture$config_arg"
             ;;
+        sargo)
+            install -m0644 "$sargo_policy" "$fixture$config_arg"
+            install -m0644 "$sargo_kargs" \
+                "$fixture/ostree/deploy/pocketfed/deploy/new.0/usr/lib/ostree-boot/aboot-kargs"
+            ;;
         empty)
             install -m0644 /dev/null "$fixture$config_arg"
             ;;
         absent) ;;
         *) fail "unsupported fixture config: $config" ;;
     esac
+
+    if [[ "$finalizer" == yes ]]; then
+        mkdir -p "$fixture/usr/libexec"
+        install -m0755 "$test_bin/pocketfed-aboot-finalize" \
+            "$fixture/usr/libexec/pocketfed-aboot-finalize"
+    fi
 
     if [[ "$links" == yes ]]; then
         ln -s deploy/pocketfed/deploy/old.0 "$fixture/ostree/root.a"
@@ -94,6 +109,28 @@ grep -Fq 'device policy config is absent; using legacy qbootctl slot switching' 
 }
 grep -Fq 'target boot partition is not a block device' <<<"$output" ||
     fail 'legacy policy did not proceed through slot selection'
+
+setup_fixture finalized yes sargo yes
+install -m0644 /dev/null "$qbootctl_log"
+install -m0644 /dev/null "$finalizer_log"
+if output=$(run_deploy 2>&1); then
+    fail 'finalizer fixture unexpectedly reached a usable boot partition'
+fi
+grep -Fq 'slot switch policy: qbootctl' <<<"$output" ||
+    fail 'Sargo slot policy was not loaded'
+grep -Fq 'finalized Android boot image with deployment kernel, initramfs, and arguments' \
+    <<<"$output" || fail 'deployment did not invoke the Android boot image finalizer'
+grep -Fxq -- '--options' "$finalizer_log" ||
+    fail 'finalizer did not receive deployment options'
+grep -Fxq 'root=LABEL=pfroot ostree=/ostree/boot.1/pocketfed/testboot/0' \
+    "$finalizer_log" || fail 'finalizer received the wrong deployment options'
+grep -Fxq -- '--append-options-file' "$finalizer_log" ||
+    fail 'finalizer did not receive device-static options'
+grep -Fqx \
+    "$fixture/ostree/deploy/pocketfed/deploy/new.0/usr/lib/ostree-boot/aboot-kargs" \
+    "$finalizer_log" || fail 'finalizer received the wrong device-static options path'
+grep -Fq 'target boot partition is not a block device' <<<"$output" ||
+    fail 'finalized deployment did not continue through slot validation'
 
 setup_fixture initial no fajita
 install -m0644 /dev/null "$qbootctl_log"
