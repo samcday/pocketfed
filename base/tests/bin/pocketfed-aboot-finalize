@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf '%s\n' "$@" >"${POCKETFED_TEST_ABOOT_FINALIZE_LOG:?}"
+source_image=${*: -2:1}
+output_image=${*: -1}
+cp -- "$source_image" "$output_image"
+printf 'finalized\n' >>"$output_image"

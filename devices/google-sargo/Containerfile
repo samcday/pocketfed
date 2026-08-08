@@ -6,6 +6,8 @@ FROM ${BASE_IMAGE} AS device-root
 COPY devices/google-sargo/samcday-kernel-sdm670-mainline.repo /etc/yum.repos.d/
 COPY devices/google-sargo/samcday-pocketfed.repo /etc/yum.repos.d/
 COPY devices/google-sargo/samcday-usb-signaller.repo /etc/yum.repos.d/
+COPY devices/google-sargo/aboot.cfg /usr/lib/ostree-boot/aboot.cfg
+COPY devices/google-sargo/aboot-kargs /usr/lib/ostree-boot/aboot-kargs
 COPY devices/google-sargo/dracut.conf /etc/dracut.conf.d/60-google-sargo.conf
 COPY devices/google-sargo/rpmsg-wwan-blacklist.conf /etc/modprobe.d/
 COPY --chmod=0755 devices/google-sargo/pocketfed-swclock-offset /usr/libexec/pocketfed-swclock-offset
@@ -42,7 +44,8 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
         --setopt=keepcache=True \
         clatd \
         dnsmasq \
-        libqmi-utils; \
+        libqmi-utils \
+        python3; \
     dnf install -y \
         --refresh \
         --enable-repo='copr:copr.fedorainfracloud.org:samcday:usb-signaller' \
@@ -135,7 +138,9 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-dnf,target=/var/cache,sha
 COPY --from=initrd /out /in
 COPY --from=abl-exorcist-build /out/abl-exorcist.bin /tmp/abl-exorcist.bin
 COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/local/bin/abl-exorcist-assembler
+COPY devices/google-sargo/aboot-kargs /in/aboot-kargs
 RUN install -d /out && \
+    aboot_kargs="$(cat /in/aboot-kargs)" && \
     gzip -n -9 -c /tmp/abl-exorcist.bin >/tmp/abl-exorcist.bin.gz && \
     abl-exorcist-assembler --ramdisk /in/vmlinuz /in/initramfs.img >/tmp/ablx-ramdisk.img && \
     mkbootimg \
@@ -150,17 +155,21 @@ RUN install -d /out && \
         --dtb /in/sdm670-google-sargo.dtb \
         --kernel /tmp/abl-exorcist.bin.gz \
         --ramdisk /tmp/ablx-ramdisk.img \
-        --cmdline '<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl <E>' \
+        --cmdline "<S> root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true $aboot_kargs <E>" \
         -o /out/aboot.img && \
     install -m0644 /in/initramfs.img /out/initramfs.img && \
     install -m0644 /in/kver /out/kver
 
 FROM device-root
 COPY --from=bootimg /out /tmp/pocketfed-device
+COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/libexec/abl-exorcist-assembler
+COPY --chmod=0755 devices/google-sargo/pocketfed-aboot-finalize /usr/libexec/
+COPY --chmod=0755 base/mkosi.extra/usr/bin/aboot-deploy /usr/bin/aboot-deploy
 RUN set -eu; \
     kver="$(cat /tmp/pocketfed-device/kver)"; \
     module_dir="/usr/lib/modules/$kver" && \
     [ -d "$module_dir" ] && \
     install -m0644 /tmp/pocketfed-device/initramfs.img "$module_dir/initramfs.img" && \
     install -m0644 /tmp/pocketfed-device/aboot.img "$module_dir/aboot.img" && \
-    rm -rf /tmp/pocketfed-device
+    rm -rf /tmp/pocketfed-device && \
+    /usr/libexec/pocketfed-verify-oci

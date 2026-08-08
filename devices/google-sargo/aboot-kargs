@@ -1,0 +1,1 @@
+init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl

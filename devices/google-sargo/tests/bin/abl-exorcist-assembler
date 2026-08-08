@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ $# -eq 3 && $1 == --ramdisk ]]
+printf 'ABLX:'
+cat -- "$2"
+printf ':'
+cat -- "$3"

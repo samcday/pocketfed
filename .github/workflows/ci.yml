@@ -40,6 +40,9 @@ jobs:
       - name: Test Sargo USB signaller policy
         run: devices/google-sargo/test-pocketfed-usb-signaller-policy
 
+      - name: Test Sargo late-bound Android boot image
+        run: devices/google-sargo/test-pocketfed-aboot-finalize
+
       - name: Test aboot deployment policy
         run: base/test-aboot-deploy
 
