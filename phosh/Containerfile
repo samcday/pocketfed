@@ -39,6 +39,11 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
         xdg-desktop-portal-gtk \
         xdg-user-dirs-gtk
 
+COPY phosh/pocketfed-phrog-tmpfiles.conf /usr/lib/tmpfiles.d/
+
 RUN set -eux; \
+    systemd-tmpfiles --create /usr/lib/tmpfiles.d/pocketfed-phrog-tmpfiles.conf; \
+    test -d /var/lib/greetd/.config/dconf; \
+    test "$(stat -c '%U:%G:%a' /var/lib/greetd/.config/dconf)" = greetd:greetd:700; \
     systemctl enable phrog.service; \
     bootc container lint --no-truncate
