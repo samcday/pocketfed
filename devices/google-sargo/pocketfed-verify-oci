@@ -20,6 +20,16 @@ grep -Fxq 'Restart=on-failure' \
     /usr/lib/systemd/system/81voltd.service.d/10-pocketfed-sargo.conf
 systemctl is-enabled 81voltd.service
 
+test "$(rpm -q --qf '%{VERSION}\n' q6voiced)" = 0.3.1
+test -x /usr/bin/q6voiced
+grep -Fxq 'q6voice_card=0' /usr/share/q6voiced/q6voiced.conf
+grep -Fxq 'q6voice_device=4' /usr/share/q6voiced/q6voiced.conf
+test "$(readlink '/usr/share/alsa/ucm2/conf.d/sdm660/Google Pixel 3a.conf')" = \
+    '../../Google/sargo/sargo.conf'
+grep -Fq 'SectionUseCase."VoiceCall"' /usr/share/alsa/ucm2/Google/sargo/sargo.conf
+test ! -e /usr/share/alsa/ucm2/Google/sargo/HiFi.conf
+systemctl is-enabled q6voiced.service
+
 test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd
 grep -Fq 'device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd
 grep -Fq 'qmapmux*|rmnet*)' /usr/lib/NetworkManager/dispatcher.d/50-clatd
