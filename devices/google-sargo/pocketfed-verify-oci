@@ -27,7 +27,14 @@ grep -Fxq 'q6voice_device=4' /usr/share/q6voiced/q6voiced.conf
 test "$(readlink '/usr/share/alsa/ucm2/conf.d/sdm660/Google Pixel 3a.conf')" = \
     '../../Google/sargo/sargo.conf'
 grep -Fq 'SectionUseCase."Voice Call"' /usr/share/alsa/ucm2/Google/sargo/sargo.conf
-test ! -e /usr/share/alsa/ucm2/Google/sargo/HiFi.conf
+grep -Fq 'SectionUseCase."HiFi"' /usr/share/alsa/ucm2/Google/sargo/sargo.conf
+hifi=/usr/share/alsa/ucm2/Google/sargo/HiFi.conf
+test -s "$hifi"
+grep -Fq 'SectionDevice."Speaker"' "$hifi"
+grep -Fq 'SectionDevice."Headphones"' "$hifi"
+grep -Fq 'SectionDevice."Headset"' "$hifi"
+grep -Fq 'SectionDevice."Mic"' "$hifi"
+grep -Fq 'JackControl "Mic Jack"' "$hifi"
 systemctl is-enabled q6voiced.service
 
 test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd
