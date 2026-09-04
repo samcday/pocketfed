@@ -187,7 +187,7 @@ jobs:
           sudo chroot "$root" rpm -q authselect btrfs-progs systemd-pam
           sudo chroot "$root" authselect check
           sudo chroot "$root" authselect is-feature-enabled with-systemd-homed
-          sudo grep -Fq pam_systemd_home.so "$root/etc/pam.d/system-auth"
+          sudo chroot "$root" grep -Fq pam_systemd_home.so /etc/pam.d/system-auth
           test "$(sudo chroot "$root" matchpathcon -n /home/pocketfed.home)" = \
             system_u:object_r:systemd_homed_crypto_luks_t:s0
           sudo systemctl --root="$root" is-enabled systemd-homed.service
