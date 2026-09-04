@@ -1,0 +1,278 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -eu
+
+readonly QMI_DEVICE="${QMI_DEVICE:-qrtr://0}"
+readonly QMICLI="${QMICLI:-qmicli}"
+readonly PDC_LOAD_QMICLI="${PDC_LOAD_QMICLI:-/usr/libexec/pocketfed-qmicli-pdc}"
+readonly MCFG_MAP="${MCFG_MAP:-/usr/lib/pocketfed/sargo-mcfg.tsv}"
+readonly MCFG_ROOT="${MCFG_ROOT:-/lib/firmware/updates/qcom/sdm670/sargo/mcfg}"
+readonly UIM_SELECT_HELPER="${UIM_SELECT_HELPER:-/usr/libexec/pocketfed-sargo-uim-select}"
+readonly SIM_WAIT_SECONDS="${SIM_WAIT_SECONDS:-30}"
+readonly PDC_WAIT_SECONDS="${PDC_WAIT_SECONDS:-45}"
+
+log() {
+	printf 'pocketfed-sargo-mcfg: %s\n' "$*"
+}
+
+valid_seconds() {
+	case "$1" in
+		''|*[!0-9]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+valid_imsi() {
+	[ "${#1}" -ge 5 ] || return 1
+	case "$1" in
+		*[!0-9]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+decode_ef_imsi() {
+	awk '
+		function nibble(c) {
+			return index("0123456789abcdef", c) - 1
+		}
+		function invalid() {
+			exit 1
+		}
+		{
+			hex = tolower($0)
+			if (length(hex) < 4 || length(hex) % 2 ||
+			    hex !~ /^[[:xdigit:]]+$/)
+				invalid()
+
+			bytes = nibble(substr(hex, 1, 1)) * 16 + nibble(substr(hex, 2, 1))
+			if (bytes < 1 || length(hex) != (bytes + 1) * 2)
+				invalid()
+
+			swapped = ""
+			for (i = 3; i <= length(hex); i += 2)
+				swapped = swapped substr(hex, i + 1, 1) substr(hex, i, 1)
+			sub(/f+$/, "", swapped)
+
+			parity = substr(swapped, 1, 1)
+			if (parity != "1" && parity != "9")
+				invalid()
+
+			expected = bytes * 2 - 1
+			if (parity == "1")
+				expected--
+			decoded = substr(swapped, 2)
+			if (length(decoded) != expected || decoded !~ /^[0-9]+$/ ||
+			    length(decoded) < 6 || length(decoded) > 15)
+				invalid()
+
+			print decoded
+		}
+	'
+}
+
+read_uim_imsi() {
+	file_path=$1
+	"$QMICLI" --silent --device="$QMI_DEVICE" \
+		--uim-read-transparent="$file_path" 2>/dev/null |
+		awk '
+			/^Read result:$/ { in_result = 1; next }
+			in_result && /^[[:space:]]*[[:xdigit:]][[:xdigit:]](:[[:xdigit:]][[:xdigit:]])*[[:space:]]*$/ {
+				gsub(/[[:space:]:]/, "")
+				data = data $0
+			}
+			END {
+				if (data != "")
+					print tolower(data)
+			}
+		' | decode_ef_imsi
+}
+
+read_imsi() {
+	# qmicli's deprecated DMS IMSI request returns NotSupported on Sargo.
+	# The selected Primary-GW application exposes EF-IMSI through the UIM
+	# service.  Prefer the USIM application-dedicated file and retain the
+	# legacy DF-GSM path for older cards.
+	for file_path in \
+		'0x3F00,0x7FFF,0x6F07' \
+		'0x3F00,0x7F20,0x6F07'
+	do
+		candidate=$(read_uim_imsi "$file_path" || :)
+		if valid_imsi "$candidate"; then
+			printf '%s\n' "$candidate"
+			return 0
+		fi
+	done
+	return 1
+}
+
+profile_for_imsi() {
+	imsi=$1
+	mccmnc6=$(printf '%.6s' "$imsi")
+	mccmnc5=$(printf '%.5s' "$imsi")
+
+	awk -v mccmnc6="$mccmnc6" -v mccmnc5="$mccmnc5" '
+		$1 !~ /^#/ && $1 == mccmnc6 && six == "" { six = $2 }
+		$1 !~ /^#/ && $1 == mccmnc5 && five == "" { five = $2 }
+		END {
+			if (six != "")
+				print six
+			else if (five != "")
+				print five
+		}
+	' "$MCFG_MAP"
+}
+
+wait_for_pdc() {
+	count=0
+	while ! "$QMICLI" --silent --device="$QMI_DEVICE" --pdc-noop >/dev/null 2>&1; do
+		[ "$count" -lt "$PDC_WAIT_SECONDS" ] || return 1
+		sleep 1
+		count=$((count + 1))
+	done
+}
+
+configuration_status() {
+	wanted_id=$1
+	awk -v wanted_id="$wanted_id" '
+		/^[[:space:]]*Configuration [0-9]+:/ { status = "" }
+		/^[[:space:]]*Status:/ {
+			status = $0
+			sub(/^[^:]*:[[:space:]]*/, "", status)
+			sub(/[[:space:]]*$/, "", status)
+		}
+		/^[[:space:]]*ID:/ {
+			id = $0
+			sub(/^[^:]*:[[:space:]]*/, "", id)
+			gsub(/:/, "", id)
+			gsub(/[[:space:]]/, "", id)
+			if (tolower(id) == wanted_id) {
+				print status
+				exit
+			}
+		}
+	'
+}
+
+if ! valid_seconds "$SIM_WAIT_SECONDS" || ! valid_seconds "$PDC_WAIT_SECONDS"; then
+	log 'wait durations must be non-negative integers'
+	exit 1
+fi
+
+if ! command -v "$QMICLI" >/dev/null 2>&1; then
+	log 'qmicli is not installed'
+	exit 1
+fi
+
+if [ ! -r "$MCFG_MAP" ]; then
+	log 'carrier profile map is unavailable; leaving modem configuration unchanged'
+	exit 0
+fi
+
+count=0
+imsi=
+while :; do
+	imsi=$(read_imsi || :)
+	if valid_imsi "$imsi"; then
+		break
+	fi
+
+	if [ "$count" -ge "$SIM_WAIT_SECONDS" ]; then
+		log "no valid IMSI appeared after ${SIM_WAIT_SECONDS}s; leaving modem configuration unchanged"
+		exit 0
+	fi
+
+	sleep 1
+	count=$((count + 1))
+done
+
+profile=$(profile_for_imsi "$imsi")
+imsi=
+if [ -z "$profile" ]; then
+	log 'no carrier profile mapping matched the inserted SIM; leaving modem configuration unchanged'
+	exit 0
+fi
+
+case "$profile" in
+	/*|*..*)
+		log 'carrier profile map contains an unsafe path'
+		exit 1
+		;;
+esac
+
+mbn="${MCFG_ROOT%/}/$profile"
+if [ ! -r "$mbn" ]; then
+	log "mapped carrier profile is unavailable: $profile"
+	exit 0
+fi
+
+if ! command -v sha1sum >/dev/null 2>&1; then
+	log 'sha1sum is not installed'
+	exit 1
+fi
+config_id=$(sha1sum "$mbn" | awk '{ print $1 }')
+case "$config_id" in
+	????????????????????????????????????????) ;;
+	*)
+		log 'could not calculate the carrier profile identifier'
+		exit 1
+		;;
+esac
+
+if ! wait_for_pdc; then
+	log "PDC service did not appear after ${PDC_WAIT_SECONDS}s; leaving modem configuration unchanged"
+	exit 0
+fi
+
+if ! configs=$("$QMICLI" --silent --device="$QMI_DEVICE" --pdc-list-configs=software 2>/dev/null); then
+	log 'could not list software modem configurations'
+	exit 1
+fi
+status=$(printf '%s\n' "$configs" | configuration_status "$config_id")
+
+if [ "$status" = Active ]; then
+	log 'mapped carrier profile is already active'
+	exit 0
+fi
+
+if [ -z "$status" ]; then
+	if ! command -v "$PDC_LOAD_QMICLI" >/dev/null 2>&1; then
+		log 'the isolated PDC loader is not installed'
+		exit 1
+	fi
+	log "loading mapped carrier profile: $profile"
+	if ! "$PDC_LOAD_QMICLI" --silent --device="$QMI_DEVICE" \
+		--pdc-load-config="$mbn" >/dev/null 2>&1; then
+		log 'failed to load the mapped carrier profile'
+		exit 1
+	fi
+fi
+
+log "activating mapped carrier profile: $profile"
+if ! "$QMICLI" --silent --device="$QMI_DEVICE" \
+	--pdc-activate-config="software,$config_id" >/dev/null 2>&1; then
+	# Successful activation normally resets the modem and may make qmicli
+	# report a transport error.  The post-reset state is authoritative.
+	log 'activation request lost the modem transport; checking post-reset state'
+fi
+
+if ! wait_for_pdc; then
+	log "PDC service did not return after ${PDC_WAIT_SECONDS}s"
+	exit 1
+fi
+
+if [ -x "$UIM_SELECT_HELPER" ] && ! "$UIM_SELECT_HELPER"; then
+	log 'USIM reselection after the modem reset failed; continuing verification'
+fi
+
+if ! configs=$("$QMICLI" --silent --device="$QMI_DEVICE" --pdc-list-configs=software 2>/dev/null); then
+	log 'could not verify software modem configurations after activation'
+	exit 1
+fi
+status=$(printf '%s\n' "$configs" | configuration_status "$config_id")
+if [ "$status" != Active ]; then
+	log 'mapped carrier profile did not become active'
+	exit 1
+fi
+
+log 'mapped carrier profile is active'

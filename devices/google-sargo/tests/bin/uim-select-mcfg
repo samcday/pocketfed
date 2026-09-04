@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+: "${UIM_LOG:?UIM_LOG is required}"
+printf 'reselected\n' >>"$UIM_LOG"
+[ "${UIM_SELECT_FAIL:-0}" -eq 0 ]
