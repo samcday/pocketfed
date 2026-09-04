@@ -21,7 +21,7 @@ check_sha256() {
 }
 
 check_sha256 \
-	fd2e021325cb7d25bbd250d39202fef1eabd5715f8cf346f090875d86ada1e24 \
+	3256c3c7945681be1f440d89445869b223a4214cde173b57a6ea8a7aa8729a1f \
 	"$ucm_root/Google/sargo/sargo.conf"
 check_sha256 \
 	fd72268d58f7afa5306685339df9468271d24c968b168ada5dae1fa97eee0e03 \
@@ -33,7 +33,11 @@ check_sha256 \
 card_link="$ucm_root/conf.d/sdm660/Google Pixel 3a.conf"
 test -L "$card_link"
 test "$(readlink "$card_link")" = '../../Google/sargo/sargo.conf'
-grep -Fq 'SectionUseCase."VoiceCall"' "$ucm_root/Google/sargo/sargo.conf"
+grep -Fq 'SectionUseCase."Voice Call"' "$ucm_root/Google/sargo/sargo.conf"
+if grep -Fq 'SectionUseCase."VoiceCall"' "$ucm_root/Google/sargo/sargo.conf"; then
+	printf 'Sargo call-audio slice uses the non-canonical VoiceCall verb\n' >&2
+	exit 1
+fi
 if grep -Fq 'SectionUseCase."HiFi"' "$ucm_root/Google/sargo/sargo.conf"; then
 	printf 'Sargo call-audio slice unexpectedly enables HiFi\n' >&2
 	exit 1
