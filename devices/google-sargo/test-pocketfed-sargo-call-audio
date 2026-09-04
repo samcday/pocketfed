@@ -24,7 +24,7 @@ check_sha256 \
 	fd2e021325cb7d25bbd250d39202fef1eabd5715f8cf346f090875d86ada1e24 \
 	"$ucm_root/Google/sargo/sargo.conf"
 check_sha256 \
-	3071db3175c60536d66c1d1986f6274afc9d62d0c8e4e1a97db8ae9f09fe7824 \
+	fd72268d58f7afa5306685339df9468271d24c968b168ada5dae1fa97eee0e03 \
 	"$ucm_root/Google/sargo/VoiceCall.conf"
 check_sha256 \
 	ebffd84f252e01bbd9887645b7dace140fd28f7d87f5e6e73fd6f539c7dd4733 \
@@ -39,6 +39,12 @@ if grep -Fq 'SectionUseCase."HiFi"' "$ucm_root/Google/sargo/sargo.conf"; then
 	exit 1
 fi
 test ! -e "$ucm_root/Google/sargo/HiFi.conf"
+grep -Fq 'SectionDevice."Earpiece"' "$ucm_root/Google/sargo/VoiceCall.conf"
+grep -Fq 'SectionDevice."Speaker"' "$ucm_root/Google/sargo/VoiceCall.conf"
+if grep -Fq 'SectionDevice."Speakers"' "$ucm_root/Google/sargo/VoiceCall.conf"; then
+	printf 'Sargo call-audio slice combines earpiece and speaker\n' >&2
+	exit 1
+fi
 
 test "$(cat "$q6voiced_conf")" = 'q6voice_card=0
 q6voice_device=4'
