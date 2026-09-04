@@ -7,6 +7,18 @@ rpm -q kernel
 rpm -q clatd tayga libqmi-utils
 rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager |
     grep -Eq '^1\.24\.2-4\.1\.pocketfed\.fc[0-9]+$'
+test "$(rpm -q --qf '%{VERSION}\n' 81voltd)" = 1.2.0
+test -x /usr/bin/81voltd
+grep -Fxq 'ExecStart=/usr/bin/81voltd' /usr/lib/systemd/system/81voltd.service
+grep -Fxq 'Wants=ModemManager.service' \
+    /usr/lib/systemd/system/81voltd.service.d/10-pocketfed-sargo.conf
+grep -Fxq 'After=ModemManager.service' \
+    /usr/lib/systemd/system/81voltd.service.d/10-pocketfed-sargo.conf
+grep -Fxq 'StartLimitIntervalSec=0' \
+    /usr/lib/systemd/system/81voltd.service.d/10-pocketfed-sargo.conf
+grep -Fxq 'Restart=on-failure' \
+    /usr/lib/systemd/system/81voltd.service.d/10-pocketfed-sargo.conf
+systemctl is-enabled 81voltd.service
 
 test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd
 grep -Fq 'device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd
