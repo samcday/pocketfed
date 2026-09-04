@@ -10,6 +10,7 @@ stateroot=${PF_STATEROOT:-pocketfed}
 source_ref=${PF_SOURCE_REF:-install}
 arch=${PF_ARCH:-arm64}
 root_ssh_authorized_keys=${PF_ROOT_SSH_AUTHORIZED_KEYS:-}
+sargo_initramfs_origin_helper=/usr/local/libexec/pocketfed/pocketfed-seed-sargo-initramfs-origin
 
 usage() {
     cat >&2 <<'EOF'
@@ -687,6 +688,10 @@ require_cmd jq
 require_cmd realpath
 [[ -x /usr/local/libexec/pocketfed/flash-fastboot ]] ||
     die 'safe fastboot flashing helper is missing from the builder image'
+if [[ "$device" == google-sargo ]]; then
+    [[ -x "$sargo_initramfs_origin_helper" ]] ||
+        die 'Sargo rpm-ostree initramfs policy helper is missing from the builder image'
+fi
 require_cmd mknod
 require_cmd unshare
 require_cmd chroot
@@ -848,6 +853,11 @@ if [[ "$deployment_name" =~ ^([[:xdigit:]]{64})\.[[:digit:]]+$ ]]; then
     ostree_commit=${BASH_REMATCH[1]}
 else
     die "cannot determine OSTree commit from deployment: $deployment_name"
+fi
+
+if [[ "$device" == google-sargo ]]; then
+    log 'persisting Sargo host-only initramfs policy in the initial deployment origin'
+    "$sargo_initramfs_origin_helper" "${deployment}.origin"
 fi
 
 slot_switch_policy=qbootctl

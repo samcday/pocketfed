@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+helper=$repo_root/builder/pocketfed-seed-sargo-initramfs-origin
+dracut_policy=$repo_root/devices/google-sargo/dracut.conf
+tmp=$(mktemp -d)
+trap 'rm -rf -- "$tmp"' EXIT
+
+fail() {
+    printf 'test-pocketfed-seed-sargo-initramfs-origin: %s\n' "$*" >&2
+    exit 1
+}
+
+for setting in \
+    'hostonly="yes"' \
+    'hostonly_mode="strict"' \
+    'hostonly_cmdline="no"' \
+    'hostonly_default_device="no"'
+do
+    grep -Fxq "$setting" "$dracut_policy" ||
+        fail "declarative dracut policy is missing: $setting"
+done
+
+origin=$tmp/deployment.origin
+expected=$tmp/expected.origin
+printf '%s\n' \
+    '[origin]' \
+    'container-image-reference=ostree-unverified-registry:ghcr.io/samcday/pocketfed-phosh-google-sargo:rawhide' \
+    >"$origin"
+printf '%s\n' \
+    '[origin]' \
+    'container-image-reference=ostree-unverified-registry:ghcr.io/samcday/pocketfed-phosh-google-sargo:rawhide' \
+    '' \
+    '[rpmostree]' \
+    'regenerate-initramfs=true' \
+    'initramfs-args=--hostonly;--hostonly-mode=strict;--no-hostonly-cmdline;--no-hostonly-default-device;' \
+    >"$expected"
+
+"$helper" "$origin"
+cmp -s "$origin" "$expected" || fail 'fresh deployment origin received the wrong policy'
+
+before=$(sha256sum "$origin")
+"$helper" "$origin"
+[[ $(sha256sum "$origin") == "$before" ]] || fail 'seeding the policy is not idempotent'
+
+args_line=$(grep -E '^initramfs-args=' "$origin")
+IFS=';' read -r -a seeded_args <<<"${args_line#initramfs-args=}"
+expected_args=(
+    --hostonly
+    --hostonly-mode=strict
+    --no-hostonly-cmdline
+    --no-hostonly-default-device
+)
+[[ ${#seeded_args[@]} -eq ${#expected_args[@]} ]] ||
+    fail 'deployment origin has the wrong initramfs argument count'
+for i in "${!expected_args[@]}"; do
+    [[ "${seeded_args[i]}" == "${expected_args[i]}" ]] ||
+        fail "deployment origin argument $i is out of order"
+done
+
+# Model rpm-ostree 2026.2's compatibility fallback followed by the seeded
+# origin arguments. The final host-only selector must remain --hostonly.
+hostonly_state=
+for argument in --no-hostonly "${seeded_args[@]}"; do
+    case "$argument" in
+        --hostonly) hostonly_state=yes ;;
+        --no-hostonly) hostonly_state=no ;;
+    esac
+done
+[[ "$hostonly_state" == yes ]] || fail 'rpm-ostree fallback overrides the seeded policy'
+
+incompatible=$tmp/incompatible.origin
+printf '%s\n' \
+    '[origin]' \
+    'container-image-reference=ostree-unverified-registry:example.invalid/image:latest' \
+    '' \
+    '[rpmostree]' \
+    'regenerate-initramfs=false' \
+    >"$incompatible"
+before=$(sha256sum "$incompatible")
+if "$helper" "$incompatible" >"$tmp/incompatible.stdout" 2>"$tmp/incompatible.stderr"; then
+    fail 'incompatible existing policy was accepted'
+fi
+[[ $(sha256sum "$incompatible") == "$before" ]] ||
+    fail 'incompatible existing policy was modified'
+grep -Fq 'incompatible regenerate-initramfs value' "$tmp/incompatible.stderr" ||
+    fail 'incompatible existing policy lacked a useful diagnostic'
+
+ln -s "$origin" "$tmp/symlink.origin"
+if "$helper" "$tmp/symlink.origin" >"$tmp/symlink.stdout" 2>"$tmp/symlink.stderr"; then
+    fail 'symlink deployment origin was accepted'
+fi
+
+printf 'test-pocketfed-seed-sargo-initramfs-origin: all tests passed\n'
