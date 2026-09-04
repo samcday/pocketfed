@@ -367,7 +367,7 @@ jobs:
               test -f /usr/lib64/security/pam_gnome_keyring.so
               grep -Fq "pam_gnome_keyring.so" /etc/pam.d/phosh
               grep -Eq "^auth[[:space:]]+substack[[:space:]]+system-auth$" \
-                /etc/pam.d/greetd
+                /usr/lib/pam.d/greetd
               grep -Eq "^auth[[:space:]]+substack[[:space:]]+system-auth$" \
                 /etc/pam.d/phosh
               grep -Eq "^account[[:space:]]+include[[:space:]]+system-auth$" \
