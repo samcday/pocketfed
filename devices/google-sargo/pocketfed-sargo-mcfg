@@ -288,3 +288,14 @@ if ! wait_for_configuration_active "$config_id"; then
 fi
 
 log 'mapped carrier profile is active'
+
+# On Sargo the PDC activation reset can leave NAS online but indefinitely in
+# power-save.  ModemManager then retries registration without waking the radio.
+# Request one search after the new profile and Primary-GW session are known
+# good; this is deliberately skipped by the already-active idempotent path.
+if ! "$QMICLI" --silent --device="$QMI_DEVICE" \
+	--nas-force-network-search >/dev/null 2>&1; then
+	log 'failed to request a network search after carrier profile activation'
+	exit 1
+fi
+log 'network search requested after carrier profile activation'

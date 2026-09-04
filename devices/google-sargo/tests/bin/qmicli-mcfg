@@ -31,6 +31,9 @@ for arg in "$@"; do
 		--pdc-activate-config=*)
 			action=activate
 			;;
+		--nas-force-network-search)
+			action=network-search
+			;;
 	esac
 done
 
@@ -139,6 +142,9 @@ case "$action" in
 		if [ "$QMI_SCENARIO" = reset-race ]; then
 			exit 1
 		fi
+		;;
+	network-search)
+		[ "$QMI_SCENARIO" != search-failure ]
 		;;
 	*)
 		exit 2
