@@ -1,0 +1,13 @@
+[Unit]
+Description=Wake the Sargo radio after carrier profile activation
+Wants=ModemManager.service
+After=ModemManager.service pocketfed-sargo-mcfg.service
+ConditionPathExists=/run/pocketfed-sargo-mcfg-activated
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/pocketfed-sargo-network-search
+TimeoutStartSec=90s
+
+[Install]
+WantedBy=multi-user.target

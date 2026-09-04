@@ -144,7 +144,17 @@ case "$action" in
 		fi
 		;;
 	network-search)
-		[ "$QMI_SCENARIO" != search-failure ]
+		case "$QMI_SCENARIO" in
+			search-failure)
+				exit 1
+				;;
+			search-delayed)
+				if [ ! -e "$QMI_STATE" ]; then
+					: >"$QMI_STATE"
+					exit 1
+				fi
+				;;
+		esac
 		;;
 	*)
 		exit 2

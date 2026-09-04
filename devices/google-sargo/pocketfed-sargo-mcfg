@@ -9,6 +9,7 @@ readonly PDC_LOAD_QMICLI="${PDC_LOAD_QMICLI:-/usr/libexec/pocketfed-qmicli-pdc}"
 readonly MCFG_MAP="${MCFG_MAP:-/usr/lib/pocketfed/sargo-mcfg.tsv}"
 readonly MCFG_ROOT="${MCFG_ROOT:-/lib/firmware/updates/qcom/sdm670/sargo/mcfg}"
 readonly UIM_SELECT_HELPER="${UIM_SELECT_HELPER:-/usr/libexec/pocketfed-sargo-uim-select}"
+readonly ACTIVATION_MARKER="${ACTIVATION_MARKER:-/run/pocketfed-sargo-mcfg-activated}"
 readonly SIM_WAIT_SECONDS="${SIM_WAIT_SECONDS:-30}"
 readonly PDC_WAIT_SECONDS="${PDC_WAIT_SECONDS:-45}"
 
@@ -289,13 +290,8 @@ fi
 
 log 'mapped carrier profile is active'
 
-# On Sargo the PDC activation reset can leave NAS online but indefinitely in
-# power-save.  ModemManager then retries registration without waking the radio.
-# Request one search after the new profile and Primary-GW session are known
-# good; this is deliberately skipped by the already-active idempotent path.
-if ! "$QMICLI" --silent --device="$QMI_DEVICE" \
-	--nas-force-network-search >/dev/null 2>&1; then
-	log 'failed to request a network search after carrier profile activation'
-	exit 1
-fi
-log 'network search requested after carrier profile activation'
+# The activation reset can leave NAS in power-save, but a search request is
+# rejected until ModemManager has brought the modem online.  Leave an ephemeral
+# hand-off for the separately ordered post-ModemManager service.  The marker is
+# deliberately absent from the already-active idempotent path.
+: >"$ACTIVATION_MARKER"
