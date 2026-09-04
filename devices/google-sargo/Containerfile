@@ -8,7 +8,7 @@ ARG BLOB_WRANGLER_NEVRA
 COPY devices/google-sargo/samcday-kernel-sdm670-mainline.repo /etc/yum.repos.d/
 COPY devices/google-sargo/samcday-pocketfed.repo /etc/yum.repos.d/
 COPY devices/google-sargo/samcday-usb-signaller.repo /etc/yum.repos.d/
-COPY base/mkosi.sandbox/etc/yum.repos.d/samcday-blob-wrangler-nightly-fedora-rawhide.repo /etc/yum.repos.d/
+COPY devices/google-sargo/samcday-blob-wrangler-nightly.repo /etc/yum.repos.d/
 COPY devices/google-sargo/aboot.cfg /usr/lib/ostree-boot/aboot.cfg
 COPY devices/google-sargo/aboot-kargs /usr/lib/ostree-boot/aboot-kargs
 COPY devices/google-sargo/dracut.conf /etc/dracut.conf.d/60-google-sargo.conf
@@ -33,7 +33,8 @@ COPY devices/google-sargo/usb-signaller.service.d/10-pocketfed-sargo.conf /usr/l
 # usb-signaller is pinned to COPR build 10712403 from source commit bf2f2d6;
 # the aarch64 RPM SHA-256 is 1d575c3f1e6f06beac4e9e0410f8c327f232445d68e94d7a1f97b894fe02e84a.
 # blob-wrangler is pinned to COPR build 10949855 from source commit 4ba8407;
-# the aarch64 RPM SHA-256 is 44f4e4b0699ddfc55931a59dd4a4d2619d477b7add816867284d4c12f9c4dc8b.
+# that build was published only for Fedora 45, and the aarch64 RPM SHA-256 is
+# 44f4e4b0699ddfc55931a59dd4a4d2619d477b7add816867284d4c12f9c4dc8b.
 RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/cache,sharing=locked \
     set -eux; \
     blob_wrangler_nevra="$BLOB_WRANGLER_NEVRA"; \
