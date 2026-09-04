@@ -24,12 +24,14 @@ RUN --mount=type=cache,id=pocketfed-builder-dnf,target=/var/cache,sharing=locked
 
 COPY base/mkosi.extra/usr/lib/ostree/prepare-root.conf /usr/lib/ostree/prepare-root.conf
 COPY base/mkosi.extra/usr/bin/aboot-deploy /usr/bin/aboot-deploy
+COPY --chmod=0755 builder/pocketfed-seed-sargo-initramfs-origin /usr/local/libexec/pocketfed/
 
 RUN test -s /usr/lib/ostree/prepare-root.conf \
     && grep -Fqx 'enabled = no' /usr/lib/ostree/prepare-root.conf \
     && grep -Fqx 'readonly = true' /usr/lib/ostree/prepare-root.conf \
     && test -x /usr/bin/aboot-deploy \
-    && /usr/bin/aboot-deploy --help >/dev/null 2>&1
+    && /usr/bin/aboot-deploy --help >/dev/null 2>&1 \
+    && test -x /usr/local/libexec/pocketfed/pocketfed-seed-sargo-initramfs-origin
 
 COPY builder/bootc-to-fastboot /usr/local/bin/bootc-to-fastboot
 COPY builder/flash-fastboot /usr/local/libexec/pocketfed/flash-fastboot

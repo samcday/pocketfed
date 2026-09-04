@@ -43,6 +43,12 @@ test -x /usr/libexec/pocketfed-aboot-finalize
 test -x /usr/libexec/abl-exorcist-assembler
 rpm -q python3
 
+dracut_policy=/etc/dracut.conf.d/60-google-sargo.conf
+grep -Fxq 'hostonly="yes"' "$dracut_policy"
+grep -Fxq 'hostonly_mode="strict"' "$dracut_policy"
+grep -Fxq 'hostonly_cmdline="no"' "$dracut_policy"
+grep -Fxq 'hostonly_default_device="no"' "$dracut_policy"
+
 /usr/libexec/pocketfed-verify-kernel
 
 set -- /usr/lib/modules/*
@@ -62,3 +68,8 @@ options='root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.1/poc
 expected_cmdline="<S> $(cat /usr/lib/ostree-boot/aboot-kargs) $options <E>"
 cmdline=$(dd if="$repacked" bs=1 skip=64 count=512 status=none | tr '\000' '\n' | sed -n '1p')
 [ "$cmdline" = "$expected_cmdline" ]
+repacked_size=$(stat -c %s "$repacked")
+[ "$repacked_size" -le 67108864 ] || {
+    printf 'Sargo boot image exceeds the 64 MiB partition: %s bytes\n' "$repacked_size" >&2
+    exit 1
+}

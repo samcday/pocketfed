@@ -46,6 +46,9 @@ jobs:
       - name: Test Sargo late-bound Android boot image
         run: devices/google-sargo/test-pocketfed-aboot-finalize
 
+      - name: Test Sargo rpm-ostree initramfs policy
+        run: builder/test-pocketfed-seed-sargo-initramfs-origin
+
       - name: Test aboot deployment policy
         run: base/test-aboot-deploy
 
