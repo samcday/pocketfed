@@ -154,6 +154,23 @@ configuration_status() {
 	'
 }
 
+wait_for_configuration_active() {
+	wanted_id=$1
+	count=0
+	while :; do
+		if configs=$("$QMICLI" --silent --device="$QMI_DEVICE" \
+			--pdc-list-configs=software 2>/dev/null); then
+			status=$(printf '%s\n' "$configs" |
+				configuration_status "$wanted_id")
+			[ "$status" = Active ] && return 0
+		fi
+
+		[ "$count" -lt "$PDC_WAIT_SECONDS" ] || return 1
+		sleep 1
+		count=$((count + 1))
+	done
+}
+
 if ! valid_seconds "$SIM_WAIT_SECONDS" || ! valid_seconds "$PDC_WAIT_SECONDS"; then
 	log 'wait durations must be non-negative integers'
 	exit 1
@@ -265,13 +282,8 @@ if [ -x "$UIM_SELECT_HELPER" ] && ! "$UIM_SELECT_HELPER"; then
 	log 'USIM reselection after the modem reset failed; continuing verification'
 fi
 
-if ! configs=$("$QMICLI" --silent --device="$QMI_DEVICE" --pdc-list-configs=software 2>/dev/null); then
-	log 'could not verify software modem configurations after activation'
-	exit 1
-fi
-status=$(printf '%s\n' "$configs" | configuration_status "$config_id")
-if [ "$status" != Active ]; then
-	log 'mapped carrier profile did not become active'
+if ! wait_for_configuration_active "$config_id"; then
+	log "mapped carrier profile did not become active after ${PDC_WAIT_SECONDS}s"
 	exit 1
 fi
 

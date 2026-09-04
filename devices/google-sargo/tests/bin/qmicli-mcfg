@@ -37,7 +37,7 @@ done
 initial_state() {
 	case "$QMI_SCENARIO" in
 		active) printf '%s\n' active ;;
-		inactive|activate-failure) printf '%s\n' inactive ;;
+		inactive|activate-failure|delayed-active) printf '%s\n' inactive ;;
 		pending) printf '%s\n' pending ;;
 		*) printf '%s\n' absent ;;
 	esac
@@ -88,16 +88,33 @@ case "$action" in
 			printf 'Total configurations: 0\n'
 			exit 0
 		fi
-		printf 'Total configurations: 1\n'
-		printf 'Configuration 1:\n'
+		if [ "$state" = delayed ]; then
+			# An unrelated active profile must not satisfy verification of the
+			# exact profile ID.  The wanted profile converges on the next poll.
+			printf 'Total configurations: 2\n'
+			printf 'Configuration 1:\n'
+			printf '\tDescription: Unrelated_Active_Profile\n'
+			printf '\tType:        software\n'
+			printf '\tSize:        4096\n'
+			printf '\tStatus:      Active\n'
+			printf '\tVersion:     0x1\n'
+			printf '\tID:          00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\n'
+			configuration=2
+			status=Inactive
+			printf '%s\n' active >"$QMI_STATE"
+		else
+			printf 'Total configurations: 1\n'
+			configuration=1
+			case "$state" in
+				active) status=Active ;;
+				pending) status=Pending ;;
+				*) status=Inactive ;;
+			esac
+		fi
+		printf 'Configuration %s:\n' "$configuration"
 		printf '\tDescription: Telstra_Australia_Commercial\n'
 		printf '\tType:        software\n'
 		printf '\tSize:        116800\n'
-		case "$state" in
-			active) status=Active ;;
-			pending) status=Pending ;;
-			*) status=Inactive ;;
-		esac
 		printf '\tStatus:      %s\n' "$status"
 		printf '\tVersion:     0x8010F1B\n'
 		display_id=$(printf '%s\n' "$QMI_CONFIG_ID" |
@@ -114,7 +131,11 @@ case "$action" in
 		if [ "$QMI_SCENARIO" = activate-failure ]; then
 			exit 1
 		fi
-		printf '%s\n' active >"$QMI_STATE"
+		if [ "$QMI_SCENARIO" = delayed-active ]; then
+			printf '%s\n' delayed >"$QMI_STATE"
+		else
+			printf '%s\n' active >"$QMI_STATE"
+		fi
 		if [ "$QMI_SCENARIO" = reset-race ]; then
 			exit 1
 		fi

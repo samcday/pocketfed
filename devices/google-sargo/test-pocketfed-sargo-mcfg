@@ -168,6 +168,15 @@ grep -Fq 'checking post-reset state' "$output" ||
 grep -Fq 'mapped carrier profile is active' "$output" ||
 	fail 'post-reset active state was not authoritative'
 
+run_case delayed-active PDC_WAIT_SECONDS=1
+assert_private_output delayed-active
+grep -Fq 'mapped carrier profile is active' "$output" ||
+	fail 'delayed exact-profile activation did not converge'
+[ "$(grep -Fc -- '--pdc-list-configs=software' "$qmi_log")" -eq 3 ] ||
+	fail 'delayed activation did not poll after the exact profile remained inactive'
+[ "$(wc -l <"$uim_log")" -eq 1 ] ||
+	fail 'delayed activation reselected the USIM more than once'
+
 run_case absent
 assert_private_output absent
 grep -Fq -- "--pdc-load-config=$mbn" "$qmi_log" ||
