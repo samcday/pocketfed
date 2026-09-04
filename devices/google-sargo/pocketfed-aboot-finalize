@@ -19,10 +19,13 @@ BOOT_MAGIC = b"ANDROID!"
 BOOT_HEADER_V2_SIZE = 1660
 BOOT_CMDLINE_OFFSET = 64
 BOOT_CMDLINE_SIZE = 512
+BOOT_CMDLINE_CONTENT_SIZE = BOOT_CMDLINE_SIZE - 1
 BOOT_ID_OFFSET = 576
 BOOT_ID_SIZE = 32
 BOOT_EXTRA_CMDLINE_OFFSET = 608
 BOOT_EXTRA_CMDLINE_SIZE = 1024
+BOOT_EXTRA_CMDLINE_CONTENT_SIZE = BOOT_EXTRA_CMDLINE_SIZE - 1
+BOOT_CMDLINE_CAPACITY = BOOT_CMDLINE_CONTENT_SIZE + BOOT_EXTRA_CMDLINE_CONTENT_SIZE
 
 
 class FinalizeError(Exception):
@@ -123,10 +126,10 @@ def encode_cmdline(static_options: str, deployment_options: str) -> bytes:
         raise FinalizeError("deployment kernel arguments contain a forbidden control character")
 
     cmdline = f"<S> {static_options} {deployment_options} <E>".encode("utf-8")
-    capacity = BOOT_CMDLINE_SIZE + BOOT_EXTRA_CMDLINE_SIZE
-    if len(cmdline) > capacity:
+    if len(cmdline) > BOOT_CMDLINE_CAPACITY:
         raise FinalizeError(
-            f"Android boot image command line is too long: {len(cmdline)} > {capacity} bytes"
+            "Android boot image command line is too long: "
+            f"{len(cmdline)} > {BOOT_CMDLINE_CAPACITY} bytes"
         )
     return cmdline
 
@@ -211,7 +214,9 @@ def repack_boot_image(
 
                 struct.pack_into("<I", header, 16, ramdisk_size)
                 header[BOOT_CMDLINE_OFFSET : BOOT_CMDLINE_OFFSET + BOOT_CMDLINE_SIZE] = (
-                    cmdline[:BOOT_CMDLINE_SIZE].ljust(BOOT_CMDLINE_SIZE, b"\0")
+                    (cmdline[:BOOT_CMDLINE_CONTENT_SIZE] + b"\0").ljust(
+                        BOOT_CMDLINE_SIZE, b"\0"
+                    )
                 )
                 header[BOOT_ID_OFFSET : BOOT_ID_OFFSET + BOOT_ID_SIZE] = digest.digest().ljust(
                     BOOT_ID_SIZE, b"\0"
@@ -219,7 +224,9 @@ def repack_boot_image(
                 header[
                     BOOT_EXTRA_CMDLINE_OFFSET : BOOT_EXTRA_CMDLINE_OFFSET
                     + BOOT_EXTRA_CMDLINE_SIZE
-                ] = cmdline[BOOT_CMDLINE_SIZE:].ljust(BOOT_EXTRA_CMDLINE_SIZE, b"\0")
+                ] = (cmdline[BOOT_CMDLINE_CONTENT_SIZE:] + b"\0").ljust(
+                    BOOT_EXTRA_CMDLINE_SIZE, b"\0"
+                )
 
                 new_ramdisk_offset = align_up(page_size + kernel_size, page_size)
                 new_second_offset = align_up(

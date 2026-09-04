@@ -140,8 +140,10 @@ assert second == b"second-stage"
 assert recovery == b"recovery-dtbo"
 assert dtb == b"sargo-dtb"
 
-raw_cmdline = image[64:576] + image[608:1632]
-cmdline = raw_cmdline.split(b"\0", 1)[0].decode()
+cmdline = (
+    image[64:576].split(b"\0", 1)[0]
+    + image[608:1632].split(b"\0", 1)[0]
+).decode()
 static_options = " ".join(Path(static_path).read_text().split())
 assert cmdline == f"<S> {static_options} {options} <E>"
 
@@ -154,7 +156,54 @@ assert struct.unpack_from("<Q", image, 1636)[0] == recovery_offset
 assert len(image) == align(dtb_offset + dtb_size)
 PY
 
-long_options=$(python3 -c 'print("x" * 1537)')
+cmdline_overhead=$(python3 - "$static_options" <<'PY'
+from pathlib import Path
+import sys
+
+static_options = " ".join(Path(sys.argv[1]).read_text().split())
+print(len(f"<S> {static_options}  <E>".encode()))
+PY
+)
+
+make_options_for_cmdline_size() {
+    python3 - "$1" "$cmdline_overhead" <<'PY'
+import sys
+
+size, overhead = map(int, sys.argv[1:])
+assert size > overhead
+print("x" * (size - overhead))
+PY
+}
+
+for cmdline_size in 511 512 1534; do
+    boundary_options=$(make_options_for_cmdline_size "$cmdline_size")
+    boundary_output=$tmp/cmdline-$cmdline_size.img
+    "$finalizer" \
+        --assembler "$assembler" \
+        --options "$boundary_options" \
+        --append-options-file "$static_options" \
+        "$template" "$boundary_output"
+
+    python3 - \
+        "$boundary_output" "$cmdline_size" "$boundary_options" "$static_options" <<'PY'
+from pathlib import Path
+import sys
+
+image_path, size, options, static_path = sys.argv[1:]
+image = Path(image_path).read_bytes()
+primary = image[64:576]
+extra = image[608:1632]
+assert primary[-1] == 0
+assert extra[-1] == 0
+cmdline = primary.split(b"\0", 1)[0] + extra.split(b"\0", 1)[0]
+static_options = " ".join(Path(static_path).read_text().split())
+expected = f"<S> {static_options} {options} <E>".encode()
+assert len(cmdline) == int(size)
+assert cmdline == expected
+PY
+done
+
+long_options=$(make_options_for_cmdline_size 1535)
 if "$finalizer" \
     --assembler "$assembler" \
     --options "$long_options" \
