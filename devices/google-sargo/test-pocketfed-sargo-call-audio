@@ -24,7 +24,7 @@ check_sha256 \
 	3256c3c7945681be1f440d89445869b223a4214cde173b57a6ea8a7aa8729a1f \
 	"$ucm_root/Google/sargo/sargo.conf"
 check_sha256 \
-	fd72268d58f7afa5306685339df9468271d24c968b168ada5dae1fa97eee0e03 \
+	08750b71f393fdfff274f65bff43cc2c32e87974e9773449ae447c127a4261bd \
 	"$ucm_root/Google/sargo/VoiceCall.conf"
 check_sha256 \
 	ebffd84f252e01bbd9887645b7dace140fd28f7d87f5e6e73fd6f539c7dd4733 \
@@ -45,8 +45,13 @@ fi
 test ! -e "$ucm_root/Google/sargo/HiFi.conf"
 grep -Fq 'SectionDevice."Earpiece"' "$ucm_root/Google/sargo/VoiceCall.conf"
 grep -Fq 'SectionDevice."Speaker"' "$ucm_root/Google/sargo/VoiceCall.conf"
+grep -Fq 'SectionDevice."Mic"' "$ucm_root/Google/sargo/VoiceCall.conf"
 if grep -Fq 'SectionDevice."Speakers"' "$ucm_root/Google/sargo/VoiceCall.conf"; then
 	printf 'Sargo call-audio slice combines earpiece and speaker\n' >&2
+	exit 1
+fi
+if grep -Fq 'SectionDevice."Microphone"' "$ucm_root/Google/sargo/VoiceCall.conf"; then
+	printf 'Sargo call-audio slice uses the non-canonical Microphone device\n' >&2
 	exit 1
 fi
 

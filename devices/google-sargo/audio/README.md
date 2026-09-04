@@ -21,7 +21,9 @@ PCM, mixer, topology, and ACDB selections.
 
 The use-case name is also normalized from the upstream `VoiceCall` spelling to
 ALSA's canonical `Voice Call`. WirePlumber's ModemManager hook matches that
-canonical name when it automatically selects a call profile.
+canonical name when it automatically selects a call profile. The built-in
+microphone likewise uses ALSA's canonical `Mic` device name so PipeWire exports
+it with microphone semantics.
 
 `q6voiced.conf` selects Sargo's `VoiceMMode1` PCM at card 0, device 4. The
 daemon is transitional: remove q6voiced and this configuration once kernel
