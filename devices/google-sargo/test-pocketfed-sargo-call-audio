@@ -1,0 +1,50 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+device_dir="$repo_root/devices/google-sargo"
+audio_root="$device_dir/audio/root"
+ucm_root="$audio_root/usr/share/alsa/ucm2"
+q6voiced_conf="$audio_root/usr/share/q6voiced/q6voiced.conf"
+containerfile="$device_dir/Containerfile"
+verifier="$device_dir/pocketfed-verify-oci"
+
+check_sha256() {
+	expected=$1
+	file=$2
+	actual="$(sha256sum "$file")"
+	actual="${actual%% *}"
+	if [ "$actual" != "$expected" ]; then
+		printf 'unexpected SHA-256 for %s: %s\n' "$file" "$actual" >&2
+		exit 1
+	fi
+}
+
+check_sha256 \
+	fd2e021325cb7d25bbd250d39202fef1eabd5715f8cf346f090875d86ada1e24 \
+	"$ucm_root/Google/sargo/sargo.conf"
+check_sha256 \
+	3071db3175c60536d66c1d1986f6274afc9d62d0c8e4e1a97db8ae9f09fe7824 \
+	"$ucm_root/Google/sargo/VoiceCall.conf"
+check_sha256 \
+	ebffd84f252e01bbd9887645b7dace140fd28f7d87f5e6e73fd6f539c7dd4733 \
+	"$audio_root/usr/share/licenses/pocketfed-sargo-call-audio/LICENSE"
+
+card_link="$ucm_root/conf.d/sdm660/Google Pixel 3a.conf"
+test -L "$card_link"
+test "$(readlink "$card_link")" = '../../Google/sargo/sargo.conf'
+grep -Fq 'SectionUseCase."VoiceCall"' "$ucm_root/Google/sargo/sargo.conf"
+if grep -Fq 'SectionUseCase."HiFi"' "$ucm_root/Google/sargo/sargo.conf"; then
+	printf 'Sargo call-audio slice unexpectedly enables HiFi\n' >&2
+	exit 1
+fi
+test ! -e "$ucm_root/Google/sargo/HiFi.conf"
+
+test "$(cat "$q6voiced_conf")" = 'q6voice_card=0
+q6voice_device=4'
+grep -Fq 'COPY devices/google-sargo/audio/root/ /' "$containerfile"
+grep -Fq "q6voiced_version='0.3.1'" "$containerfile"
+grep -Fq 'q6voiced.service' "$containerfile"
+grep -Fq 'systemctl is-enabled q6voiced.service' "$verifier"
+
+printf '%s\n' 'PocketFed Sargo call-audio tests passed'

@@ -42,6 +42,7 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
     blob_wrangler_nevra="$BLOB_WRANGLER_NEVRA"; \
     ims_data_daemon_version='1.2.0'; \
     pdc_qmicli_version='1.36.0'; \
+    q6voiced_version='0.3.1'; \
     usb_signaller_nevra='usb-signaller-0.3.0-1.20260713172459428921.stabilizesargo.usb.lab.impl.17.gbf2f2d6.fc45.aarch64'; \
     set -- $(rpm -qa \
         kernel \
@@ -100,10 +101,12 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
         --setopt=install_weak_deps=False \
         --setopt=keepcache=True \
         81voltd \
-        pocketfed-qmicli-pdc-fixed; \
+        pocketfed-qmicli-pdc-fixed \
+        q6voiced; \
     test "$(rpm -q --qf '%{VERSION}\n' 81voltd)" = "$ims_data_daemon_version"; \
     test "$(rpm -q --qf '%{VERSION}\n' pocketfed-qmicli-pdc-fixed)" = "$pdc_qmicli_version"; \
     test -x /usr/libexec/pocketfed-qmicli-pdc; \
+    test "$(rpm -q --qf '%{VERSION}\n' q6voiced)" = "$q6voiced_version"; \
     test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
     grep -Fq 'device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
     grep -Fq 'qmapmux*|rmnet*)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
@@ -124,12 +127,17 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
         pocketfed-sargo-uim-select.service \
         pocketfed-swclock-offset.service \
         pocketfed-swclock-offset-save.timer \
+        q6voiced.service \
         systemd-boot-check-no-failures.service \
         systemd-timesyncd.service \
         usb-signaller.service; \
     test "$(systemctl is-enabled 81voltd.service)" = enabled; \
     test "$(systemctl is-enabled usb-signaller.service)" = enabled; \
     test "$(systemctl is-enabled usb-moded-developer-mode.service)" = static
+
+# Apply the pinned UCM files after package transactions so the device overlay
+# remains authoritative if alsa-ucm-conf later gains Sargo files.
+COPY devices/google-sargo/audio/root/ /
 
 FROM device-root AS initrd
 RUN set -eu; \

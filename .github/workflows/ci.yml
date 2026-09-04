@@ -46,6 +46,9 @@ jobs:
       - name: Test Sargo IMS data service
         run: devices/google-sargo/test-pocketfed-sargo-81voltd
 
+      - name: Test Sargo call audio
+        run: devices/google-sargo/test-pocketfed-sargo-call-audio
+
       - name: Test Sargo late-bound Android boot image
         run: devices/google-sargo/test-pocketfed-aboot-finalize
 
