@@ -134,6 +134,9 @@ assert_no_mutation active
 assert_private_output active
 grep -Fq 'mapped carrier profile is already active' "$output" ||
 	fail 'active profile was not an idempotent no-op'
+if grep -Fq -- '--nas-force-network-search' "$qmi_log"; then
+	fail 'already-active profile unexpectedly forced a network search'
+fi
 
 run_case inactive
 assert_private_output inactive
@@ -186,6 +189,10 @@ grep -Fq -- "--pdc-activate-config=software,$config_id" "$qmi_log" ||
 	fail 'newly loaded profile was not activated'
 [ "$(wc -l <"$uim_log")" -eq 1 ] ||
 	fail 'USIM was not reselected after loading and activation'
+grep -Fq -- '--nas-force-network-search' "$qmi_log" ||
+	fail 'network search was not requested after carrier profile activation'
+grep -Fq 'network search requested after carrier profile activation' "$output" ||
+	fail 'successful post-activation network search was not logged'
 
 : >"$qmi_log"
 : >"$uim_log"
@@ -228,6 +235,27 @@ fi
 assert_private_output load-failure
 grep -Fq 'failed to load the mapped carrier profile' "$output" ||
 	fail 'loader failure was not diagnosed'
+
+reset_case
+if env \
+	QMI_LOG="$qmi_log" \
+	QMI_SCENARIO=search-failure \
+	QMI_STATE="$state" \
+	QMI_CONFIG_ID="$config_id" \
+	QMICLI="$fake_bin/qmicli-mcfg" \
+	PDC_LOAD_QMICLI="$fake_bin/qmicli-mcfg" \
+	UIM_SELECT_HELPER="$fake_bin/uim-select-mcfg" \
+	UIM_LOG="$uim_log" \
+	MCFG_MAP="$map" \
+	MCFG_ROOT="$mcfg_root" \
+	SIM_WAIT_SECONDS=0 \
+	PDC_WAIT_SECONDS=0 \
+	sh "$helper" >"$output" 2>&1; then
+	fail 'post-activation network-search failure was reported as success'
+fi
+assert_private_output search-failure
+grep -Fq 'failed to request a network search' "$output" ||
+	fail 'post-activation network-search failure was not diagnosed'
 
 reset_case
 if env \
