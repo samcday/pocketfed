@@ -1,0 +1,259 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+helper="$repo_root/devices/google-sargo/pocketfed-sargo-mcfg"
+unit="$repo_root/devices/google-sargo/pocketfed-sargo-mcfg.service"
+fake_bin="$repo_root/devices/google-sargo/tests/bin"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+
+known_imsi=505017012345678
+unknown_imsi=505999876543210
+mcfg_root="$tmp/mcfg"
+map="$tmp/sargo-mcfg.tsv"
+mbn="$mcfg_root/telstra-au-commercial.mbn"
+qmi_log="$tmp/qmi.log"
+uim_log="$tmp/uim.log"
+output="$tmp/output"
+state="$tmp/state"
+
+mkdir -p "$mcfg_root"
+printf 'proven Telstra modem configuration fixture\n' >"$mbn"
+config_id=$(sha1sum "$mbn" | awk '{ print $1 }')
+printf '50501\ttelstra-au-commercial.mbn\n' >"$map"
+
+fail() {
+	printf 'sargo MCFG helper test failed: %s\n' "$*" >&2
+	exit 1
+}
+
+reset_case() {
+	: >"$qmi_log"
+	: >"$uim_log"
+	: >"$output"
+	rm -f "$state"
+}
+
+run_case() {
+	scenario=$1
+	shift
+	reset_case
+	env \
+		QMI_LOG="$qmi_log" \
+		QMI_SCENARIO="$scenario" \
+		QMI_STATE="$state" \
+		QMI_CONFIG_ID="$config_id" \
+		QMICLI="$fake_bin/qmicli-mcfg" \
+		PDC_LOAD_QMICLI="$fake_bin/qmicli-mcfg" \
+		UIM_SELECT_HELPER="$fake_bin/uim-select-mcfg" \
+		UIM_LOG="$uim_log" \
+		MCFG_MAP="$map" \
+		MCFG_ROOT="$mcfg_root" \
+		SIM_WAIT_SECONDS=0 \
+		PDC_WAIT_SECONDS=0 \
+		"$@" \
+		sh "$helper" >"$output" 2>&1
+}
+
+assert_private_output() {
+	if grep -Fq "$known_imsi" "$output" ||
+		grep -Fq "$unknown_imsi" "$output" ||
+		grep -Fq "$known_imsi" "$qmi_log" ||
+		grep -Fq "$unknown_imsi" "$qmi_log"; then
+		fail "the $1 case logged an IMSI"
+	fi
+	if grep -Fq -- '--dms-uim-get-imsi' "$qmi_log"; then
+		fail "the $1 case used Sargo's unsupported DMS IMSI request"
+	fi
+}
+
+assert_no_mutation() {
+	if grep -Eq -- '--pdc-(load|activate)-config=' "$qmi_log"; then
+		fail "the $1 case mutated PDC state"
+	fi
+	if [ -s "$uim_log" ]; then
+		fail "the $1 case unexpectedly reselected the USIM"
+	fi
+}
+
+run_case no-imsi
+assert_no_mutation no-imsi
+assert_private_output no-imsi
+grep -Fq 'no valid IMSI appeared' "$output" ||
+	fail 'missing IMSI did not fail open'
+
+run_case invalid-imsi
+assert_no_mutation invalid-imsi
+assert_private_output invalid-imsi
+grep -Fq 'no valid IMSI appeared' "$output" ||
+	fail 'invalid IMSI did not fail open'
+
+run_case unknown
+assert_no_mutation unknown
+assert_private_output unknown
+grep -Fq 'no carrier profile mapping matched' "$output" ||
+	fail 'unknown carrier did not fail open'
+
+saved_mbn="$tmp/telstra.mbn"
+mv "$mbn" "$saved_mbn"
+run_case absent
+assert_no_mutation missing-blob
+assert_private_output missing-blob
+grep -Fq 'mapped carrier profile is unavailable' "$output" ||
+	fail 'missing extracted blob did not fail open'
+mv "$saved_mbn" "$mbn"
+
+run_case pdc-unavailable
+assert_no_mutation pdc-unavailable
+assert_private_output pdc-unavailable
+grep -Fq 'PDC service did not appear' "$output" ||
+	fail 'missing PDC service did not fail open'
+
+run_case legacy-imsi
+assert_private_output legacy-imsi
+grep -Fq -- '--uim-read-transparent=0x3F00,0x7FFF,0x6F07' "$qmi_log" ||
+	fail 'USIM application EF-IMSI path was not attempted first'
+grep -Fq -- '--uim-read-transparent=0x3F00,0x7F20,0x6F07' "$qmi_log" ||
+	fail 'legacy DF-GSM EF-IMSI path was not attempted as fallback'
+grep -Fq 'mapped carrier profile is active' "$output" ||
+	fail 'legacy EF-IMSI path did not select the carrier profile'
+
+six_digit_mbn="$mcfg_root/six-digit-match.mbn"
+cp "$mbn" "$six_digit_mbn"
+printf '50501\ttelstra-au-commercial.mbn\n505017\tsix-digit-match.mbn\n' >"$map"
+run_case absent
+assert_private_output six-digit-match
+grep -Fq -- "--pdc-load-config=$six_digit_mbn" "$qmi_log" ||
+	fail 'six-digit MCCMNC mapping did not take precedence over five-digit mapping'
+printf '50501\ttelstra-au-commercial.mbn\n' >"$map"
+
+run_case active
+assert_no_mutation active
+assert_private_output active
+grep -Fq 'mapped carrier profile is already active' "$output" ||
+	fail 'active profile was not an idempotent no-op'
+
+run_case inactive
+assert_private_output inactive
+grep -Fq -- "--pdc-activate-config=software,$config_id" "$qmi_log" ||
+	fail 'inactive profile was not activated'
+if grep -Fq -- '--pdc-load-config=' "$qmi_log"; then
+	fail 'inactive profile was loaded again'
+fi
+[ "$(wc -l <"$uim_log")" -eq 1 ] ||
+	fail 'USIM was not reselected exactly once after activation'
+
+run_case inactive UIM_SELECT_FAIL=1
+assert_private_output uim-reselection-failure
+grep -Fq 'USIM reselection after the modem reset failed' "$output" ||
+	fail 'USIM reselection failure did not take the fail-open path'
+grep -Fq 'mapped carrier profile is active' "$output" ||
+	fail 'USIM reselection failure masked verified active PDC state'
+[ "$(wc -l <"$uim_log")" -eq 1 ] ||
+	fail 'failing USIM reselection was not attempted exactly once'
+
+run_case pending
+assert_private_output pending
+grep -Fq -- "--pdc-activate-config=software,$config_id" "$qmi_log" ||
+	fail 'pending profile was not activated'
+if grep -Fq -- '--pdc-load-config=' "$qmi_log"; then
+	fail 'pending profile was loaded again'
+fi
+
+run_case reset-race
+assert_private_output reset-race
+grep -Fq 'checking post-reset state' "$output" ||
+	fail 'transport loss during reset was treated as definitive failure'
+grep -Fq 'mapped carrier profile is active' "$output" ||
+	fail 'post-reset active state was not authoritative'
+
+run_case absent
+assert_private_output absent
+grep -Fq -- "--pdc-load-config=$mbn" "$qmi_log" ||
+	fail 'absent profile was not loaded with the isolated loader'
+grep -Fq -- "--pdc-activate-config=software,$config_id" "$qmi_log" ||
+	fail 'newly loaded profile was not activated'
+[ "$(wc -l <"$uim_log")" -eq 1 ] ||
+	fail 'USIM was not reselected after loading and activation'
+
+: >"$qmi_log"
+: >"$uim_log"
+env \
+	QMI_LOG="$qmi_log" \
+	QMI_SCENARIO=absent \
+	QMI_STATE="$state" \
+	QMI_CONFIG_ID="$config_id" \
+	QMICLI="$fake_bin/qmicli-mcfg" \
+	PDC_LOAD_QMICLI="$fake_bin/qmicli-mcfg" \
+	UIM_SELECT_HELPER="$fake_bin/uim-select-mcfg" \
+	UIM_LOG="$uim_log" \
+	MCFG_MAP="$map" \
+	MCFG_ROOT="$mcfg_root" \
+	SIM_WAIT_SECONDS=0 \
+	PDC_WAIT_SECONDS=0 \
+	sh "$helper" >"$output" 2>&1
+assert_no_mutation second-run
+assert_private_output second-run
+grep -Fq 'mapped carrier profile is already active' "$output" ||
+	fail 'second run was not idempotent'
+
+reset_case
+if env \
+	QMI_LOG="$qmi_log" \
+	QMI_SCENARIO=load-failure \
+	QMI_STATE="$state" \
+	QMI_CONFIG_ID="$config_id" \
+	QMICLI="$fake_bin/qmicli-mcfg" \
+	PDC_LOAD_QMICLI="$fake_bin/qmicli-mcfg" \
+	UIM_SELECT_HELPER="$fake_bin/uim-select-mcfg" \
+	UIM_LOG="$uim_log" \
+	MCFG_MAP="$map" \
+	MCFG_ROOT="$mcfg_root" \
+	SIM_WAIT_SECONDS=0 \
+	PDC_WAIT_SECONDS=0 \
+	sh "$helper" >"$output" 2>&1; then
+	fail 'loader failure was reported as success'
+fi
+assert_private_output load-failure
+grep -Fq 'failed to load the mapped carrier profile' "$output" ||
+	fail 'loader failure was not diagnosed'
+
+reset_case
+if env \
+	QMI_LOG="$qmi_log" \
+	QMI_SCENARIO=activate-failure \
+	QMI_STATE="$state" \
+	QMI_CONFIG_ID="$config_id" \
+	QMICLI="$fake_bin/qmicli-mcfg" \
+	PDC_LOAD_QMICLI="$fake_bin/qmicli-mcfg" \
+	UIM_SELECT_HELPER="$fake_bin/uim-select-mcfg" \
+	UIM_LOG="$uim_log" \
+	MCFG_MAP="$map" \
+	MCFG_ROOT="$mcfg_root" \
+	SIM_WAIT_SECONDS=0 \
+	PDC_WAIT_SECONDS=0 \
+	sh "$helper" >"$output" 2>&1; then
+	fail 'activation failure was reported as success'
+fi
+assert_private_output activate-failure
+grep -Fq 'did not become active' "$output" ||
+	fail 'activation failure was not diagnosed after verification'
+
+grep -Fxq 'Requires=rmtfs.service' "$unit" ||
+	fail 'unit does not require rmtfs'
+grep -Fxq 'Wants=blob-wrangler.service pocketfed-sargo-uim-select.service' "$unit" ||
+	fail 'unit does not pull in extraction and UIM selection'
+grep -Fxq 'After=blob-wrangler.service rmtfs.service pocketfed-sargo-uim-select.service' "$unit" ||
+	fail 'unit ordering does not serialize extraction, rmtfs, and UIM selection'
+grep -Fxq 'Before=ModemManager.service' "$unit" ||
+	fail 'unit is not ordered before ModemManager'
+grep -Fxq 'WantedBy=ModemManager.service' "$unit" ||
+	fail 'ModemManager does not weakly pull in the helper'
+grep -Fq '/usr/libexec/pocketfed-qmicli-pdc' "$helper" ||
+	fail 'helper does not use the isolated PDC loader path'
+if grep -Eq '^Requires=.*ModemManager' "$unit"; then
+	fail 'unit failure can prevent ModemManager startup'
+fi
+
+printf 'sargo MCFG helper tests passed\n'

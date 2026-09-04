@@ -1,0 +1,14 @@
+[Unit]
+Description=Select the Sargo carrier modem configuration before ModemManager
+Requires=rmtfs.service
+Wants=blob-wrangler.service pocketfed-sargo-uim-select.service
+After=blob-wrangler.service rmtfs.service pocketfed-sargo-uim-select.service
+Before=ModemManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/pocketfed-sargo-mcfg
+TimeoutStartSec=240s
+
+[Install]
+WantedBy=ModemManager.service

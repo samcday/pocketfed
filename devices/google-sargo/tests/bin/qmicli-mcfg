@@ -1,0 +1,125 @@
+#!/bin/sh
+set -eu
+
+: "${QMI_LOG:?QMI_LOG is required}"
+: "${QMI_SCENARIO:?QMI_SCENARIO is required}"
+: "${QMI_STATE:?QMI_STATE is required}"
+: "${QMI_CONFIG_ID:?QMI_CONFIG_ID is required}"
+
+printf '%s\n' "$*" >>"$QMI_LOG"
+
+action=
+uim_path=
+for arg in "$@"; do
+	case "$arg" in
+		--dms-uim-get-imsi)
+			action=dms-imsi
+			;;
+		--uim-read-transparent=*)
+			action=uim-imsi
+			uim_path=${arg#*=}
+			;;
+		--pdc-noop)
+			action=noop
+			;;
+		--pdc-list-configs=software)
+			action=list
+			;;
+		--pdc-load-config=*)
+			action=load
+			;;
+		--pdc-activate-config=*)
+			action=activate
+			;;
+	esac
+done
+
+initial_state() {
+	case "$QMI_SCENARIO" in
+		active) printf '%s\n' active ;;
+		inactive|activate-failure) printf '%s\n' inactive ;;
+		pending) printf '%s\n' pending ;;
+		*) printf '%s\n' absent ;;
+	esac
+}
+
+read_state() {
+	if [ -r "$QMI_STATE" ]; then
+		sed -n '1p' "$QMI_STATE"
+	else
+		initial_state
+	fi
+}
+
+case "$action" in
+	dms-imsi)
+		# Sargo's modem rejects this deprecated DMS request.
+		exit 1
+		;;
+	uim-imsi)
+		case "$QMI_SCENARIO" in
+			no-imsi)
+				exit 1
+				;;
+			invalid-imsi)
+				encoded=08:FF
+				;;
+			legacy-imsi)
+				[ "$uim_path" = '0x3F00,0x7F20,0x6F07' ] || exit 1
+				encoded=08:59:50:10:07:21:43:65:87
+				;;
+			unknown)
+				encoded=08:59:50:99:89:67:45:23:01
+				;;
+			*)
+				encoded=08:59:50:10:07:21:43:65:87
+				;;
+		esac
+		printf '[qrtr://0] Successfully read information from the UIM:\n'
+		printf "Card result:\n\tSW1: '0x90'\n\tSW2: '0x00'\n"
+		printf 'Read result:\n\t%s\n' "$encoded"
+		;;
+	noop)
+		[ "$QMI_SCENARIO" != pdc-unavailable ]
+		;;
+	list)
+		state=$(read_state)
+		if [ "$state" = absent ]; then
+			printf 'Total configurations: 0\n'
+			exit 0
+		fi
+		printf 'Total configurations: 1\n'
+		printf 'Configuration 1:\n'
+		printf '\tDescription: Telstra_Australia_Commercial\n'
+		printf '\tType:        software\n'
+		printf '\tSize:        116800\n'
+		case "$state" in
+			active) status=Active ;;
+			pending) status=Pending ;;
+			*) status=Inactive ;;
+		esac
+		printf '\tStatus:      %s\n' "$status"
+		printf '\tVersion:     0x8010F1B\n'
+		display_id=$(printf '%s\n' "$QMI_CONFIG_ID" |
+			tr '[:lower:]' '[:upper:]' | sed 's/../&:/g; s/:$//')
+		printf '\tID:          %s\n' "$display_id"
+		;;
+	load)
+		if [ "$QMI_SCENARIO" = load-failure ]; then
+			exit 1
+		fi
+		printf '%s\n' inactive >"$QMI_STATE"
+		;;
+	activate)
+		if [ "$QMI_SCENARIO" = activate-failure ]; then
+			exit 1
+		fi
+		printf '%s\n' active >"$QMI_STATE"
+		if [ "$QMI_SCENARIO" = reset-race ]; then
+			exit 1
+		fi
+		;;
+	*)
+		exit 2
+		;;
+esac
