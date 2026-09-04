@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+source_file=${1:?usage: test-pdc-load-ownership QMICLI_PDC_C}
+
+load_function=$(
+    awk '
+        /^load_config_file_from_string \(const gchar \*str\)$/ {
+            in_function = 1
+        }
+        in_function {
+            print
+        }
+        in_function && /^}$/ {
+            exit
+        }
+    ' "$source_file"
+)
+
+test -n "$load_function"
+printf '%s\n' "$load_function" |
+    grep -Fq 'g_mapped_file_get_contents (mapped_file)'
+printf '%s\n' "$load_function" |
+    grep -Fq 'data->mapped_file = g_mapped_file_ref (mapped_file);'
+
+if printf '%s\n' "$load_function" | grep -Fq 'g_free (file_contents);'; then
+    printf '%s\n' \
+        'PDC loader frees the transfer-none mapped-file contents pointer' >&2
+    exit 1
+fi
+
+test "$(grep -Fc \
+    'g_mapped_file_unref (context->load_config_file_data->mapped_file);' \
+    "$source_file")" -eq 1
+
+printf '%s\n' 'qmicli PDC mapped-file ownership regression test passed'

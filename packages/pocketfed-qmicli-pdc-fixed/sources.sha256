@@ -1,0 +1,3 @@
+67c97feee86e6709b9cdec303c3650059b298f1c2b886b6053a56aced1616b3f  libqmi-1.36.0.tar.bz2
+2d6d05914e8375c5831e78eeadeb830d96debbb2c2c2c0fe213b8a61a4a085e5  0001-qmicli-pdc-do-not-free-mapped-file-contents.patch
+2692b3dfa7748d7a6aebbf4572d3f357e8ebfbcacaad46e9c86f6e3d52f8a536  test-pdc-load-ownership

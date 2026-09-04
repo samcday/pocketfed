@@ -1,0 +1,6 @@
+diff --git a/src/qmicli/qmicli-pdc.c b/src/qmicli/qmicli-pdc.c
+index 4e7a19c4..8139ef4b 100644
+--- a/src/qmicli/qmicli-pdc.c
++++ b/src/qmicli/qmicli-pdc.c
+@@ -1130 +1129,0 @@ load_config_file_from_string (const gchar *str)
+-    g_free (file_contents);
