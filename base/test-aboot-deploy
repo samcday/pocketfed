@@ -15,6 +15,7 @@ fail() {
 
 tmp=$(mktemp -d)
 trap 'rm -rf -- "$tmp"' EXIT
+export TMPDIR=$tmp
 [[ -x "$test_bin/qbootctl" ]] || fail 'qbootctl test stub is missing or not executable'
 qbootctl_log=$tmp/qbootctl.log
 export POCKETFED_TEST_QBOOTCTL_LOG=$qbootctl_log
@@ -28,12 +29,14 @@ setup_fixture() {
     config_arg=/ostree/deploy/pocketfed/deploy/new.0/usr/lib/ostree-boot/aboot.cfg
     mkdir -p \
         "$fixture/boot" \
-        "$fixture/ostree/boot.1/pocketfed/testboot" \
+        "$fixture/ostree/boot.1.0/pocketfed/testboot" \
         "$fixture/ostree/deploy/pocketfed/deploy/old.0" \
         "$fixture/ostree/deploy/pocketfed/deploy/new.0/usr/lib/ostree-boot"
+    ln -s boot.1.0 "$fixture/ostree/boot.1"
     ln -s ../../../deploy/pocketfed/deploy/new.0 \
-        "$fixture/ostree/boot.1/pocketfed/testboot/0"
-    install -m0644 /dev/null "$fixture/boot/aboot.img"
+        "$fixture/ostree/boot.1.0/pocketfed/testboot/0"
+    printf 'template payload\n' >"$fixture/boot/aboot.img"
+    chmod 0644 "$fixture/boot/aboot.img"
 
     case "$config" in
         fajita)
@@ -110,12 +113,64 @@ grep -Fq 'device policy config is absent; using legacy qbootctl slot switching' 
 grep -Fq 'target boot partition is not a block device' <<<"$output" ||
     fail 'legacy policy did not proceed through slot selection'
 
+setup_fixture empty-boot yes sargo yes
+install -m0644 /dev/null "$fixture/boot/aboot.img"
+install -m0644 /dev/null "$qbootctl_log"
+if output=$(run_deploy 2>&1); then
+    fail 'an empty source boot image was accepted'
+fi
+grep -Fq 'missing or empty boot image' <<<"$output" ||
+    fail 'empty source boot image was not diagnosed'
+[[ ! -s "$qbootctl_log" ]] || fail 'empty source boot image invoked qbootctl'
+
 setup_fixture finalized yes sargo yes
 install -m0644 /dev/null "$qbootctl_log"
 install -m0644 /dev/null "$finalizer_log"
+partlabel_dir=$fixture/dev/disk/by-partlabel
+mkdir -p "$partlabel_dir"
+truncate -s 1048576 "$partlabel_dir/boot_b"
+export POCKETFED_BY_PARTLABEL_DIR=$partlabel_dir
+export POCKETFED_ALLOW_REGULAR_BOOT_PARTITION=1
+export POCKETFED_ALLOW_REGULAR_BOOT_PARTITION=yes
 if output=$(run_deploy 2>&1); then
-    fail 'finalizer fixture unexpectedly reached a usable boot partition'
+    fail 'a noncanonical regular-partition test flag was accepted'
 fi
+grep -Fq 'POCKETFED_ALLOW_REGULAR_BOOT_PARTITION must be exactly 0 or 1' \
+    <<<"$output" || fail 'noncanonical regular-partition flag was not diagnosed'
+export POCKETFED_ALLOW_REGULAR_BOOT_PARTITION=1
+
+outside_partlabel_dir=$tmp/outside-by-partlabel
+mkdir -p "$outside_partlabel_dir"
+export POCKETFED_BY_PARTLABEL_DIR=$outside_partlabel_dir
+if output=$(run_deploy 2>&1); then
+    fail 'a test by-partlabel directory outside the alternate sysroot was accepted'
+fi
+grep -Fq 'test by-partlabel directory escapes the alternate sysroot' \
+    <<<"$output" || fail 'escaping test by-partlabel directory was not diagnosed'
+export POCKETFED_BY_PARTLABEL_DIR=$partlabel_dir
+
+if output=$(PATH="$test_bin:/usr/bin:/bin" "$deploy" \
+    -r / \
+    -o 'root=LABEL=pfroot ostree=/ostree/boot.1/pocketfed/testboot/0' \
+    aboot.img 2>&1); then
+    fail 'boot-partition test overrides were accepted for the production root'
+fi
+grep -Fq 'boot-partition test overrides are forbidden for the production root' \
+    <<<"$output" || fail 'production-root test override rejection was not diagnosed'
+
+export POCKETFED_TEST_FINALIZER_EMPTY=1
+if output=$(run_deploy 2>&1); then
+    fail 'an empty finalized boot image was accepted'
+fi
+unset POCKETFED_TEST_FINALIZER_EMPTY
+grep -Fq 'Android boot image finalizer produced an empty image' <<<"$output" ||
+    fail 'empty finalized boot image was not diagnosed'
+[[ ! -s "$qbootctl_log" ]] || fail 'empty finalized boot image invoked qbootctl'
+
+output=$(run_deploy 2>&1) || {
+    printf '%s\n' "$output" >&2
+    fail 'finalized inactive-slot deployment failed'
+}
 grep -Fq 'slot switch policy: qbootctl' <<<"$output" ||
     fail 'Sargo slot policy was not loaded'
 grep -Fq 'finalized Android boot image with deployment kernel, initramfs, and arguments' \
@@ -129,9 +184,63 @@ grep -Fxq -- '--append-options-file' "$finalizer_log" ||
 grep -Fqx \
     "$fixture/ostree/deploy/pocketfed/deploy/new.0/usr/lib/ostree-boot/aboot-kargs" \
     "$finalizer_log" || fail 'finalizer received the wrong device-static options path'
-grep -Fq 'target boot partition is not a block device' <<<"$output" ||
-    fail 'finalized deployment did not continue through slot validation'
+grep -Fq 'verified inactive boot image readback' <<<"$output" ||
+    fail 'finalized deployment did not verify the inactive image'
+grep -Fxq -- '-x' "$qbootctl_log" ||
+    fail 'finalized deployment did not query the current slot'
+grep -Fxq -- '-s 1' "$qbootctl_log" ||
+    fail 'finalized deployment did not activate slot B'
+[[ $(readlink "$fixture/ostree/root.a") == deploy/pocketfed/deploy/old.0 ]] ||
+    fail 'finalized deployment changed current root.a'
+[[ $(readlink "$fixture/ostree/root.b") == deploy/pocketfed/deploy/new.0 ]] ||
+    fail 'finalized deployment did not update root.b'
+grep -Fq finalized "$partlabel_dir/boot_b" ||
+    fail 'finalized deployment did not write the inactive boot partition'
 
+setup_fixture finalized-b-to-a yes sargo yes
+install -m0644 /dev/null "$qbootctl_log"
+install -m0644 /dev/null "$finalizer_log"
+partlabel_dir=$fixture/dev/disk/by-partlabel
+mkdir -p "$partlabel_dir"
+export POCKETFED_BY_PARTLABEL_DIR=$partlabel_dir
+truncate -s 1048576 "$partlabel_dir/boot_a"
+export POCKETFED_TEST_CURRENT_SLOT=_b
+output=$(run_deploy 2>&1) || {
+    printf '%s\n' "$output" >&2
+    fail 'mirrored finalized inactive-slot deployment failed'
+}
+unset POCKETFED_TEST_CURRENT_SLOT
+grep -Fxq -- '-x' "$qbootctl_log" ||
+    fail 'mirrored deployment did not query the current slot'
+grep -Fxq -- '-s 0' "$qbootctl_log" ||
+    fail 'mirrored deployment did not activate slot A'
+[[ $(readlink "$fixture/ostree/root.a") == deploy/pocketfed/deploy/new.0 ]] ||
+    fail 'mirrored deployment did not update root.a'
+[[ $(readlink "$fixture/ostree/root.b") == deploy/pocketfed/deploy/old.0 ]] ||
+    fail 'mirrored deployment changed current root.b'
+grep -Fq finalized "$partlabel_dir/boot_a" ||
+    fail 'mirrored deployment did not write the inactive boot partition'
+
+setup_fixture readback-failure yes sargo yes
+install -m0644 /dev/null "$qbootctl_log"
+install -m0644 /dev/null "$finalizer_log"
+partlabel_dir=$fixture/dev/disk/by-partlabel
+mkdir -p "$partlabel_dir"
+export POCKETFED_BY_PARTLABEL_DIR=$partlabel_dir
+truncate -s 1048576 "$partlabel_dir/boot_b"
+export POCKETFED_TEST_CMP_FAIL=1
+if output=$(run_deploy 2>&1); then
+    fail 'readback mismatch unexpectedly activated the inactive slot'
+fi
+unset POCKETFED_TEST_CMP_FAIL
+grep -Fq 'inactive boot image readback did not match' <<<"$output" ||
+    fail 'readback mismatch was not diagnosed'
+[[ $(readlink "$fixture/ostree/root.b") == deploy/pocketfed/deploy/old.0 ]] ||
+    fail 'readback mismatch changed root.b'
+! grep -Fxq -- '-s 1' "$qbootctl_log" ||
+    fail 'readback mismatch activated the bad slot'
+
+unset POCKETFED_BY_PARTLABEL_DIR POCKETFED_ALLOW_REGULAR_BOOT_PARTITION
 setup_fixture initial no fajita
 install -m0644 /dev/null "$qbootctl_log"
 output=$(run_deploy 2>&1) || fail 'initial link setup failed under disabled policy'

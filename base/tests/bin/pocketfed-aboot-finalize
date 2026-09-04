@@ -4,5 +4,9 @@ set -euo pipefail
 printf '%s\n' "$@" >"${POCKETFED_TEST_ABOOT_FINALIZE_LOG:?}"
 source_image=${*: -2:1}
 output_image=${*: -1}
+if [[ ${POCKETFED_TEST_FINALIZER_EMPTY:-0} == 1 ]]; then
+    : >"$output_image"
+    exit 0
+fi
 cp -- "$source_image" "$output_image"
 printf 'finalized\n' >>"$output_image"

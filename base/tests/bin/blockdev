@@ -1,4 +1,12 @@
 #!/bin/sh
-# aboot-deploy checks for blockdev before validating that its target is a block
-# device. The policy fixture must never execute it.
+set -eu
+
+if [ "${POCKETFED_ALLOW_REGULAR_BOOT_PARTITION:-0}" = 1 ] &&
+    [ "${1:-}" = --getsize64 ] && [ "$#" -eq 2 ]
+then
+    stat -c %s "$2"
+    exit 0
+fi
+
+# Policy fixtures must never reach a real block-device operation.
 exit 99

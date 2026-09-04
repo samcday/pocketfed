@@ -3,7 +3,12 @@ set -euo pipefail
 
 printf '%s\n' "$*" >>"${POCKETFED_TEST_QBOOTCTL_LOG:?}"
 case "${1:-}" in
-    -x) printf '_a\n' ;;
+    -x)
+        case "${POCKETFED_TEST_CURRENT_SLOT:-_a}" in
+            _a | _b | a | b) printf '%s\n' "${POCKETFED_TEST_CURRENT_SLOT:-_a}" ;;
+            *) exit 2 ;;
+        esac
+        ;;
     -s) ;;
     *) exit 2 ;;
 esac
