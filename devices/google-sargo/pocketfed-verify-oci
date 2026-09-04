@@ -26,7 +26,7 @@ grep -Fxq 'q6voice_card=0' /usr/share/q6voiced/q6voiced.conf
 grep -Fxq 'q6voice_device=4' /usr/share/q6voiced/q6voiced.conf
 test "$(readlink '/usr/share/alsa/ucm2/conf.d/sdm660/Google Pixel 3a.conf')" = \
     '../../Google/sargo/sargo.conf'
-grep -Fq 'SectionUseCase."VoiceCall"' /usr/share/alsa/ucm2/Google/sargo/sargo.conf
+grep -Fq 'SectionUseCase."Voice Call"' /usr/share/alsa/ucm2/Google/sargo/sargo.conf
 test ! -e /usr/share/alsa/ucm2/Google/sargo/HiFi.conf
 systemctl is-enabled q6voiced.service
 

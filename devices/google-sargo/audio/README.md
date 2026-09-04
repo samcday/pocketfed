@@ -1,7 +1,7 @@
 # Google Sargo call audio
 
 This rootfs overlay carries the minimal userspace configuration for voice-call
-audio on Sargo. It deliberately contains only a `VoiceCall` UCM;
+audio on Sargo. It deliberately contains only a `Voice Call` UCM;
 HiFi/media routing is outside this slice.
 
 The UCM files and symlink are based on
@@ -18,6 +18,10 @@ splits those proven amplifier controls into singular `Earpiece` and `Speaker`
 devices. Its priorities prefer a connected wired headset, then the earpiece,
 and leave the loudspeaker as an explicit choice. This retains the upstream
 PCM, mixer, topology, and ACDB selections.
+
+The use-case name is also normalized from the upstream `VoiceCall` spelling to
+ALSA's canonical `Voice Call`. WirePlumber's ModemManager hook matches that
+canonical name when it automatically selects a call profile.
 
 `q6voiced.conf` selects Sargo's `VoiceMMode1` PCM at card 0, device 4. The
 daemon is transitional: remove q6voiced and this configuration once kernel
