@@ -21,10 +21,13 @@ check_sha256() {
 }
 
 check_sha256 \
-	3256c3c7945681be1f440d89445869b223a4214cde173b57a6ea8a7aa8729a1f \
+	bf1b9037b4f0db060d51e97d5155ee22848a2b2524151003cc4e51bbab361b66 \
 	"$ucm_root/Google/sargo/sargo.conf"
 check_sha256 \
-	08750b71f393fdfff274f65bff43cc2c32e87974e9773449ae447c127a4261bd \
+	86f9c7229fc73d12e8d10882252937c24a1b46fcad74b2ddc319450cf25b77ac \
+	"$ucm_root/Google/sargo/HiFi.conf"
+check_sha256 \
+	32c23f1586873cc3955a4c9295ce930232bcfbd02ad627147e84a970e851ffcb \
 	"$ucm_root/Google/sargo/VoiceCall.conf"
 check_sha256 \
 	ebffd84f252e01bbd9887645b7dace140fd28f7d87f5e6e73fd6f539c7dd4733 \
@@ -34,24 +37,44 @@ card_link="$ucm_root/conf.d/sdm660/Google Pixel 3a.conf"
 test -L "$card_link"
 test "$(readlink "$card_link")" = '../../Google/sargo/sargo.conf'
 grep -Fq 'SectionUseCase."Voice Call"' "$ucm_root/Google/sargo/sargo.conf"
+grep -Fq 'SectionUseCase."HiFi"' "$ucm_root/Google/sargo/sargo.conf"
 if grep -Fq 'SectionUseCase."VoiceCall"' "$ucm_root/Google/sargo/sargo.conf"; then
 	printf 'Sargo call-audio slice uses the non-canonical VoiceCall verb\n' >&2
 	exit 1
 fi
-if grep -Fq 'SectionUseCase."HiFi"' "$ucm_root/Google/sargo/sargo.conf"; then
-	printf 'Sargo call-audio slice unexpectedly enables HiFi\n' >&2
+
+hifi="$ucm_root/Google/sargo/HiFi.conf"
+voice_call="$ucm_root/Google/sargo/VoiceCall.conf"
+
+grep -Fq 'SectionDevice."Earpiece"' "$voice_call"
+for ucm_file in "$hifi" "$voice_call"; do
+	grep -Fq 'SectionDevice."Speaker"' "$ucm_file"
+	grep -Fq 'SectionDevice."Headphones"' "$ucm_file"
+	grep -Fq 'SectionDevice."Headset"' "$ucm_file"
+	grep -Fq 'SectionDevice."Mic"' "$ucm_file"
+	grep -Fq 'PlaybackPriority 600' "$ucm_file"
+	grep -Fq 'JackControl "Headphone Jack"' "$ucm_file"
+	grep -Fq 'JackControl "Mic Jack"' "$ucm_file"
+	grep -Fq "name='LPI_MI2S_RX_0 Audio Mixer MultiMedia2'" "$ucm_file"
+	grep -Fq "name='MultiMedia3 Mixer LPI_MI2S_TX_3'" "$ucm_file"
+done
+
+if grep -Fq 'SectionDevice."Speakers"' "$hifi" "$voice_call"; then
+	printf 'Sargo UCM uses the non-canonical plural Speakers device\n' >&2
 	exit 1
 fi
-test ! -e "$ucm_root/Google/sargo/HiFi.conf"
-grep -Fq 'SectionDevice."Earpiece"' "$ucm_root/Google/sargo/VoiceCall.conf"
-grep -Fq 'SectionDevice."Speaker"' "$ucm_root/Google/sargo/VoiceCall.conf"
-grep -Fq 'SectionDevice."Mic"' "$ucm_root/Google/sargo/VoiceCall.conf"
-if grep -Fq 'SectionDevice."Speakers"' "$ucm_root/Google/sargo/VoiceCall.conf"; then
-	printf 'Sargo call-audio slice combines earpiece and speaker\n' >&2
+if grep -Fq 'SectionDevice."Microphone"' "$hifi" "$voice_call"; then
+	printf 'Sargo UCM uses the non-canonical Microphone device\n' >&2
 	exit 1
 fi
-if grep -Fq 'SectionDevice."Microphone"' "$ucm_root/Google/sargo/VoiceCall.conf"; then
-	printf 'Sargo call-audio slice uses the non-canonical Microphone device\n' >&2
+if grep -Fq 'SectionDevice."Headset Mic"' "$hifi" "$voice_call"; then
+	printf 'Sargo UCM uses the non-canonical Headset Mic device\n' >&2
+	exit 1
+fi
+if grep -Fq 'INT0_MI2S_RX' "$hifi" "$voice_call" ||
+	grep -Fq 'INT3_MI2S_TX' "$hifi" "$voice_call" ||
+	grep -Fq 'Headset Jack' "$hifi" "$voice_call"; then
+	printf 'Sargo UCM contains a stale DAI or jack control name\n' >&2
 	exit 1
 fi
 
@@ -61,5 +84,11 @@ grep -Fq 'COPY devices/google-sargo/audio/root/ /' "$containerfile"
 grep -Fq "q6voiced_version='0.3.1'" "$containerfile"
 grep -Fq 'q6voiced.service' "$containerfile"
 grep -Fq 'systemctl is-enabled q6voiced.service' "$verifier"
+grep -Fq 'SectionUseCase."HiFi"' "$verifier"
+grep -Fq "test -s \"\$hifi\"" "$verifier"
+if grep -Fq 'test ! -e /usr/share/alsa/ucm2/Google/sargo/HiFi.conf' "$verifier"; then
+	printf 'Sargo OCI verifier still rejects the restored HiFi profile\n' >&2
+	exit 1
+fi
 
 printf '%s\n' 'PocketFed Sargo call-audio tests passed'
