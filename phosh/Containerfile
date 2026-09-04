@@ -41,6 +41,10 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
 
 COPY phosh/pocketfed-phrog-tmpfiles.conf /usr/lib/tmpfiles.d/
 
+# Fedora's phosh PAM service currently authenticates with pam_unix directly.
+# Delegate to authselect's stack so the lock screen also accepts homed users.
+COPY phosh/pam.d/phosh /etc/pam.d/phosh
+
 RUN set -eux; \
     systemd-tmpfiles --create /usr/lib/tmpfiles.d/pocketfed-phrog-tmpfiles.conf; \
     test -d /var/lib/greetd/.config/dconf; \

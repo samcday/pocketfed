@@ -1,0 +1,17 @@
+#!/bin/bash
+set -euxo pipefail
+
+# Keep the Fedora-generated PAM stack, but let it authenticate and activate
+# users managed by systemd-homed as well as conventional local users.
+authselect enable-feature with-systemd-homed
+authselect check
+
+# Enabling the main unit also enables systemd-homed-activate.service through
+# the unit's Also= relationship.
+systemctl enable systemd-homed.service
+
+# Let sshd authenticate against public keys stored in a homed user record,
+# including while the encrypted home itself is still inactive.
+test -f /usr/lib/systemd/sshd_config.d/20-systemd-userdb.conf
+ln -sfn /usr/lib/systemd/sshd_config.d/20-systemd-userdb.conf \
+    /etc/ssh/sshd_config.d/20-systemd-userdb.conf

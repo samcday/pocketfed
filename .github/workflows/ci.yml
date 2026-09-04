@@ -181,6 +181,20 @@ jobs:
         run: |
           PF_MKOSI='mkosi -f --wipe-build-dir --cache-only=never' just base
 
+      - name: Verify systemd-homed support
+        run: |
+          root=base/mkosi.output/pocketfed-base_rawhide
+          sudo chroot "$root" rpm -q authselect btrfs-progs systemd-pam
+          sudo chroot "$root" authselect check
+          sudo chroot "$root" authselect is-feature-enabled with-systemd-homed
+          sudo grep -Fq pam_systemd_home.so "$root/etc/pam.d/system-auth"
+          test "$(sudo chroot "$root" matchpathcon -n /home/pocketfed.home)" = \
+            system_u:object_r:systemd_homed_crypto_luks_t:s0
+          sudo systemctl --root="$root" is-enabled systemd-homed.service
+          sudo systemctl --root="$root" is-enabled systemd-homed-activate.service
+          test "$(sudo readlink "$root/etc/ssh/sshd_config.d/20-systemd-userdb.conf")" = \
+            /usr/lib/systemd/sshd_config.d/20-systemd-userdb.conf
+
       - name: Pack base OCI artifact
         if: github.event_name != 'push'
         run: |
@@ -352,6 +366,16 @@ jobs:
                 /usr/share/xdg-desktop-portal/portals/gnome-keyring.portal
               test -f /usr/lib64/security/pam_gnome_keyring.so
               grep -Fq "pam_gnome_keyring.so" /etc/pam.d/phosh
+              grep -Eq "^auth[[:space:]]+substack[[:space:]]+system-auth$" \
+                /etc/pam.d/greetd
+              grep -Eq "^auth[[:space:]]+substack[[:space:]]+system-auth$" \
+                /etc/pam.d/phosh
+              grep -Eq "^account[[:space:]]+include[[:space:]]+system-auth$" \
+                /etc/pam.d/phosh
+              grep -Eq "^password[[:space:]]+include[[:space:]]+system-auth$" \
+                /etc/pam.d/phosh
+              grep -Eq "^session[[:space:]]+include[[:space:]]+system-auth$" \
+                /etc/pam.d/phosh
             '
 
       - name: Inspect Phosh OCI
