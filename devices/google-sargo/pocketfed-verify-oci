@@ -30,6 +30,23 @@ test -x /usr/libexec/pocketfed-sargo-uim-select
 systemctl is-enabled pocketfed-sargo-uim-select.service
 test -L /etc/systemd/system/ModemManager.service.wants/pocketfed-sargo-uim-select.service
 
+rpm -q pocketfed-qmicli-pdc-fixed
+test -x /usr/libexec/pocketfed-qmicli-pdc
+/usr/libexec/pocketfed-qmicli-pdc --version | grep -Fq 'qmicli 1.36.0'
+test -x /usr/libexec/pocketfed-sargo-mcfg
+test -s /usr/lib/pocketfed/sargo-mcfg.tsv
+grep -Fxq 'ExecStart=/usr/libexec/pocketfed-sargo-mcfg' \
+    /usr/lib/systemd/system/pocketfed-sargo-mcfg.service
+grep -Fxq 'Before=ModemManager.service' \
+    /usr/lib/systemd/system/pocketfed-sargo-mcfg.service
+systemctl is-enabled pocketfed-sargo-mcfg.service
+test -L /etc/systemd/system/ModemManager.service.wants/pocketfed-sargo-mcfg.service
+test -s /usr/share/blob-wrangler/configs/google,sargo.toml
+grep -Fq 'destination = "qcom/sdm670/sargo/mcfg"' \
+    /usr/share/blob-wrangler/configs/google,sargo.toml
+grep -Fq 'rename = "telstra-au-commercial.mbn"' \
+    /usr/share/blob-wrangler/configs/google,sargo.toml
+
 systemctl is-enabled systemd-boot-check-no-failures.service
 systemctl is-enabled qbootctl.service
 test -f /usr/lib/ostree-boot/aboot.cfg

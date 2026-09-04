@@ -34,6 +34,9 @@ jobs:
       - name: Test Sargo UIM selection helper
         run: devices/google-sargo/test-pocketfed-sargo-uim-select
 
+      - name: Test Sargo carrier profile helper
+        run: devices/google-sargo/test-pocketfed-sargo-mcfg
+
       - name: Test Sargo CLAT dispatcher
         run: devices/google-sargo/test-pocketfed-clat-dispatcher
 
