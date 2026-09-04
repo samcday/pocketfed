@@ -41,6 +41,13 @@ grep -Fxq 'Before=ModemManager.service' \
     /usr/lib/systemd/system/pocketfed-sargo-mcfg.service
 systemctl is-enabled pocketfed-sargo-mcfg.service
 test -L /etc/systemd/system/ModemManager.service.wants/pocketfed-sargo-mcfg.service
+test -x /usr/libexec/pocketfed-sargo-network-search
+grep -Fxq 'After=ModemManager.service pocketfed-sargo-mcfg.service' \
+    /usr/lib/systemd/system/pocketfed-sargo-network-search.service
+grep -Fxq 'ConditionPathExists=/run/pocketfed-sargo-mcfg-activated' \
+    /usr/lib/systemd/system/pocketfed-sargo-network-search.service
+systemctl is-enabled pocketfed-sargo-network-search.service
+test -L /etc/systemd/system/multi-user.target.wants/pocketfed-sargo-network-search.service
 test -s /usr/share/blob-wrangler/configs/google,sargo.toml
 grep -Fq 'destination = "qcom/sdm670/sargo/mcfg"' \
     /usr/share/blob-wrangler/configs/google,sargo.toml
