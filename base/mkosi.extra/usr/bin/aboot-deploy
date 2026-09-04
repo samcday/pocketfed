@@ -8,6 +8,12 @@ verbose=0
 ostree_root=
 slot_switch_policy=qbootctl
 generated_boot_image=
+by_partlabel_dir=${POCKETFED_BY_PARTLABEL_DIR:-/dev/disk/by-partlabel}
+allow_regular_boot_partition=${POCKETFED_ALLOW_REGULAR_BOOT_PARTITION:-0}
+by_partlabel_overridden=0
+allow_regular_overridden=0
+[[ -v POCKETFED_BY_PARTLABEL_DIR ]] && by_partlabel_overridden=1
+[[ -v POCKETFED_ALLOW_REGULAR_BOOT_PARTITION ]] && allow_regular_overridden=1
 
 usage() {
     cat >&2 <<'EOF'
@@ -65,6 +71,43 @@ root_path() {
     else
         printf '%s/%s' "$rootdir" "${path#/}"
     fi
+}
+
+validate_partition_test_overrides() {
+    local resolved_dir
+
+    case "$allow_regular_boot_partition" in
+        0 | 1) ;;
+        *) die 'POCKETFED_ALLOW_REGULAR_BOOT_PARTITION must be exactly 0 or 1' ;;
+    esac
+    if (( ! by_partlabel_overridden && ! allow_regular_overridden )); then
+        return 0
+    fi
+
+    [[ "$rootdir" != / ]] ||
+        die 'boot-partition test overrides are forbidden for the production root'
+    resolved_dir=$(realpath -e -- "$by_partlabel_dir") ||
+        die "cannot resolve test by-partlabel directory: $by_partlabel_dir"
+    [[ -d "$resolved_dir" ]] ||
+        die "test by-partlabel path is not a directory: $by_partlabel_dir"
+    case "$resolved_dir" in
+        "$rootdir"/*) ;;
+        *) die 'test by-partlabel directory escapes the alternate sysroot' ;;
+    esac
+    by_partlabel_dir=$resolved_dir
+}
+
+validate_test_target_partition() {
+    local resolved_target
+
+    (( by_partlabel_overridden || allow_regular_overridden )) || return 0
+    resolved_target=$(realpath -e -- "$target_partition") ||
+        die "cannot resolve test target boot partition: $target_partition"
+    case "$resolved_target" in
+        "$rootdir"/*) ;;
+        *) die 'test target boot partition escapes the alternate sysroot' ;;
+    esac
+    target_partition=$resolved_target
 }
 
 load_config() {
@@ -212,7 +255,7 @@ select_target_slot() {
             ;;
     esac
 
-    target_partition="/dev/disk/by-partlabel/boot_$target_slot"
+    target_partition="$by_partlabel_dir/boot_$target_slot"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -260,7 +303,11 @@ done
 [[ -n "$options" ]] || die '--options is required'
 
 aboot_arg=$1
-rootdir=$(realpath -m "$rootdir")
+rootdir_input=$rootdir
+rootdir=$(realpath -e -- "$rootdir_input") ||
+    die "cannot resolve OSTree sysroot: $rootdir_input"
+[[ -d "$rootdir" ]] || die "OSTree sysroot is not a directory: $rootdir_input"
+validate_partition_test_overrides
 ostree_root=$(realpath "$(root_path /ostree)") \
     || die "cannot resolve OSTree root: $(root_path /ostree)"
 deployment_rel=
@@ -280,15 +327,23 @@ fi
 
 require_cmd qbootctl
 require_cmd blockdev
+require_cmd cmp
 require_cmd dd
 
 boot_image=$(resolve_boot_image "$aboot_arg")
-[[ -f "$boot_image" ]] || die "missing boot image: $boot_image"
+[[ -s "$boot_image" ]] || die "missing or empty boot image: $boot_image"
 finalize_boot_image
+[[ -s "$boot_image" ]] || die 'selected boot image is empty after finalization'
 
 select_target_slot "$(current_slot_suffix)"
-[[ -b "$target_partition" ]] \
-    || die "target boot partition is not a block device: $target_partition"
+validate_test_target_partition
+if [[ "$allow_regular_boot_partition" == 1 ]]; then
+    [[ -f "$target_partition" && ! -L "$target_partition" ]] \
+        || die "test target boot partition is not a regular file: $target_partition"
+else
+    [[ -b "$target_partition" ]] \
+        || die "target boot partition is not a block device: $target_partition"
+fi
 
 image_size=$(stat -c %s "$boot_image")
 partition_size=$(blockdev --getsize64 "$target_partition")
@@ -297,6 +352,9 @@ partition_size=$(blockdev --getsize64 "$target_partition")
 
 log "writing $boot_image to inactive slot $target_slot ($target_partition); current slot is $current_slot"
 dd if="$boot_image" of="$target_partition" bs=4M conv=fsync status=none
+cmp --silent --bytes="$image_size" "$boot_image" "$target_partition" \
+    || die "inactive boot image readback did not match: $target_partition"
+log "verified inactive boot image readback on $target_partition"
 create_root_link "$target_slot" "$deployment_rel"
 sync
 qbootctl -s "$target_slot_num" >/dev/null
