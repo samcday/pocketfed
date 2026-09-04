@@ -4,6 +4,7 @@ set -eu
 repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
 helper="$repo_root/devices/google-sargo/pocketfed-sargo-mcfg"
 unit="$repo_root/devices/google-sargo/pocketfed-sargo-mcfg.service"
+package_repo="$repo_root/devices/google-sargo/samcday-pocketfed.repo"
 fake_bin="$repo_root/devices/google-sargo/tests/bin"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
@@ -261,6 +262,9 @@ grep -Fxq 'WantedBy=ModemManager.service' "$unit" ||
 	fail 'ModemManager does not weakly pull in the helper'
 grep -Fq '/usr/libexec/pocketfed-qmicli-pdc' "$helper" ||
 	fail 'helper does not use the isolated PDC loader path'
+sed -n 's/^includepkgs=//p' "$package_repo" | tr ',' '\n' |
+	grep -Fxq 'pocketfed-qmicli-pdc-fixed' ||
+	fail 'PocketFed repo does not allow the isolated PDC loader package'
 if grep -Eq '^Requires=.*ModemManager' "$unit"; then
 	fail 'unit failure can prevent ModemManager startup'
 fi

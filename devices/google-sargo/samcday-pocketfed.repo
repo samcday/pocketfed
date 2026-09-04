@@ -9,4 +9,4 @@ repo_gpgcheck=0
 enabled=1
 enabled_metadata=1
 priority=50
-includepkgs=81voltd,ModemManager,ModemManager-glib
+includepkgs=81voltd,ModemManager,ModemManager-glib,pocketfed-qmicli-pdc-fixed
