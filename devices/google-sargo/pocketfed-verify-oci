@@ -48,6 +48,7 @@ grep -Fxq 'hostonly="yes"' "$dracut_policy"
 grep -Fxq 'hostonly_mode="strict"' "$dracut_policy"
 grep -Fxq 'hostonly_cmdline="no"' "$dracut_policy"
 grep -Fxq 'hostonly_default_device="no"' "$dracut_policy"
+grep -Fxq 'filesystems+=" ext4 overlay "' "$dracut_policy"
 
 /usr/libexec/pocketfed-verify-kernel
 
@@ -57,6 +58,11 @@ test -f "$1/vmlinuz"
 test -f "$1/dtb/qcom/sdm670-google-sargo.dtb"
 test -f "$1/initramfs.img"
 test -f "$1/aboot.img"
+lsinitrd "$1/initramfs.img" |
+    grep -Fq '/kernel/fs/overlayfs/overlay.ko' || {
+    printf 'Sargo initramfs is missing the OverlayFS kernel module\n' >&2
+    exit 1
+}
 
 repacked=$(mktemp)
 trap 'rm -f -- "$repacked"' EXIT
