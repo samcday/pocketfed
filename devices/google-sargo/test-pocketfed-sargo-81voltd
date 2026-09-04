@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+device_dir="$repo_root/devices/google-sargo"
+containerfile="$device_dir/Containerfile"
+dropin="$device_dir/81voltd.service.d/10-pocketfed-sargo.conf"
+package_dir="$repo_root/packages/81voltd"
+spec="$package_dir/81voltd.spec"
+verifier="$device_dir/pocketfed-verify-oci"
+
+grep -Fxq 'Version:        1.2.0' "$spec"
+grep -Fq '/-/archive/v%{version}/%{name}-v%{version}.tar.gz' "$spec"
+grep -Fxq \
+    'bb0e9774463fb4964067bf70f10cc316afc1c8ed163ff7969b3fd3ae3dc2e937  81voltd-v1.2.0.tar.gz' \
+    "$package_dir/sources.sha256"
+if grep -Eq '^[[:space:]]*Patch[0-9]*:' "$spec"; then
+    printf '%s\n' '81voltd must be packaged without downstream patches' >&2
+    exit 1
+fi
+
+grep -Fxq 'Wants=ModemManager.service' "$dropin"
+grep -Fxq 'After=ModemManager.service' "$dropin"
+grep -Fxq 'StartLimitIntervalSec=0' "$dropin"
+grep -Fxq 'Restart=on-failure' "$dropin"
+grep -Fxq 'RestartSec=5s' "$dropin"
+
+grep -Fq "ims_data_daemon_version='1.2.0'" "$containerfile"
+grep -Fq 'COPY devices/google-sargo/81voltd.service.d/10-pocketfed-sargo.conf' \
+    "$containerfile"
+grep -Eq '^[[:space:]]+81voltd[.]service [\\]$' "$containerfile"
+grep -Fq 'includepkgs=81voltd,ModemManager,ModemManager-glib' \
+    "$device_dir/samcday-pocketfed.repo"
+grep -Fq 'systemctl is-enabled 81voltd.service' "$verifier"
+
+printf '%s\n' 'PocketFed Sargo 81voltd tests passed'
