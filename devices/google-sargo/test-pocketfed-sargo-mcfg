@@ -20,6 +20,8 @@ qmi_log="$tmp/qmi.log"
 uim_log="$tmp/uim.log"
 output="$tmp/output"
 state="$tmp/state"
+mmcli_state="$tmp/mmcli-state"
+mmcli_log="$tmp/mmcli.log"
 activation_marker="$tmp/activated"
 
 mkdir -p "$mcfg_root"
@@ -36,7 +38,9 @@ reset_case() {
 	: >"$qmi_log"
 	: >"$uim_log"
 	: >"$output"
+	: >"$mmcli_log"
 	rm -f "$state"
+	rm -f "$mmcli_state"
 	rm -f "$activation_marker"
 }
 
@@ -290,32 +294,62 @@ if grep -Eq '^Requires=.*ModemManager' "$unit"; then
 	fail 'unit failure can prevent ModemManager startup'
 fi
 
-reset_case
-env \
-	QMI_LOG="$qmi_log" \
-	QMI_SCENARIO=search-delayed \
-	QMI_STATE="$state" \
-	QMI_CONFIG_ID="$config_id" \
-	QMICLI="$fake_bin/qmicli-mcfg" \
-	SEARCH_WAIT_SECONDS=1 \
-	sh "$search_helper" >"$output" 2>&1
+run_search_case() {
+	reset_case
+	env \
+		QMI_LOG="$qmi_log" \
+		QMI_SCENARIO=absent \
+		QMI_STATE="$state" \
+		QMI_CONFIG_ID="$config_id" \
+		QMICLI="$fake_bin/qmicli-mcfg" \
+		MMCLI="$fake_bin/mmcli-network-search" \
+		MMCLI_LOG="$mmcli_log" \
+		MMCLI_STATE="$mmcli_state" \
+		SEARCH_WAIT_SECONDS=0 \
+		"$@" \
+		sh "$search_helper" >"$output" 2>&1
+}
+
+run_search_case QMI_SCENARIO=search-delayed SEARCH_WAIT_SECONDS=1
 [ "$(grep -Fc -- '--nas-force-network-search' "$qmi_log")" -eq 2 ] ||
 	fail 'post-ModemManager search did not retry once while the radio became ready'
 grep -Fq 'network search requested after carrier profile activation' "$output" ||
 	fail 'successful post-ModemManager search was not logged'
 
-reset_case
-if env \
-	QMI_LOG="$qmi_log" \
-	QMI_SCENARIO=search-failure \
-	QMI_STATE="$state" \
-	QMI_CONFIG_ID="$config_id" \
-	QMICLI="$fake_bin/qmicli-mcfg" \
-	SEARCH_WAIT_SECONDS=0 \
-	sh "$search_helper" >"$output" 2>&1; then
+if run_search_case QMI_SCENARIO=search-failure; then
 	fail 'post-ModemManager network-search failure was reported as success'
 fi
 grep -Fq 'network search was not accepted after 0s' "$output" ||
 	fail 'post-ModemManager network-search failure was not diagnosed'
+
+for scenario in enabling disabled missing malformed; do
+	if run_search_case MMCLI_SCENARIO="$scenario"; then
+		fail "network search succeeded before ModemManager was ready: $scenario"
+	fi
+	[ ! -s "$qmi_log" ] ||
+		fail "network search reached QMI before ModemManager was ready: $scenario"
+done
+
+for scenario in enabling-once missing-once; do
+	run_search_case MMCLI_SCENARIO="$scenario" SEARCH_WAIT_SECONDS=1
+	[ "$(wc -l <"$mmcli_log")" -eq 2 ] ||
+		fail "search did not wait for ModemManager readiness: $scenario"
+	[ "$(grep -Fc -- '--nas-force-network-search' "$qmi_log")" -eq 1 ] ||
+		fail "search did not run exactly once after ModemManager became ready: $scenario"
+done
+
+for scenario in enabled searching; do
+	run_search_case MMCLI_SCENARIO="$scenario"
+	[ "$(grep -Fc -- '--nas-force-network-search' "$qmi_log")" -eq 1 ] ||
+		fail "ready modem did not receive one search request: $scenario"
+done
+
+for scenario in registered connecting connected; do
+	run_search_case MMCLI_SCENARIO="$scenario"
+	[ ! -s "$qmi_log" ] ||
+		fail "network search disturbed an already registered modem: $scenario"
+	grep -Fq 'modem is already registered' "$output" ||
+		fail "already registered modem was not diagnosed: $scenario"
+done
 
 printf 'sargo MCFG helper tests passed\n'

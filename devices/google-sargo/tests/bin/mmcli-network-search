@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+: "${MMCLI_LOG:?MMCLI_LOG is required}"
+: "${MMCLI_STATE:?MMCLI_STATE is required}"
+
+[ "$*" = '--modem=any --output-keyvalue' ] || exit 2
+printf '%s\n' "$*" >>"$MMCLI_LOG"
+
+state=${MMCLI_SCENARIO:-enabled}
+case "$state" in
+	missing) exit 1 ;;
+	enabling-once|missing-once)
+		if [ ! -e "$MMCLI_STATE" ]; then
+			: >"$MMCLI_STATE"
+			[ "$state" != missing-once ] || exit 1
+			state=enabling
+		else
+			state=enabled
+		fi
+		;;
+	malformed)
+		printf 'modem.generic.state-failed-reason : enabled\n'
+		exit 0
+		;;
+esac
+
+printf 'modem.generic.state-failed-reason : unknown\n'
+printf 'modem.generic.state                             : %s\n' "$state"
