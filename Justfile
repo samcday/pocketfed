@@ -17,6 +17,8 @@ oci_output := env("PF_OCI_OUTPUT", "oci:" + base_oci_dir + ":" + tag)
 base := env("PF_DEVICE_BASE", "ghcr.io/" + owner + "/pocketfed-phosh:" + tag)
 device := env("PF_DEVICE", "")
 image := env("PF_DEVICE_IMAGE", "")
+device_image := if image == "" { "ghcr.io/" + owner + "/pocketfed-phosh-" + device + ":" + tag } else { image }
+device_target := "ghcr.io/" + owner + "/pocketfed-phosh-" + device + ":" + tag
 desktop_base := env("PF_DESKTOP_BASE", base_image)
 desktop := env("PF_DESKTOP", "")
 desktop_image := env("PF_DESKTOP_IMAGE", "")
@@ -123,7 +125,7 @@ device:
 
     device="{{device}}"
     base="{{base}}"
-    image="{{image}}"
+    image="{{device_image}}"
     SUDO="{{sudo}}"
 
     if [[ -z "$device" ]]; then
@@ -133,10 +135,6 @@ device:
     if [[ "$device" != "samsung-a5u-eur" ]]; then
         git submodule update --init --recursive --depth 1 -- vendor/abl-exorcist
     fi
-    if [[ -z "$image" ]]; then
-        image="ghcr.io/{{owner}}/pocketfed-phosh-$device:{{tag}}"
-    fi
-
     containerfile="devices/$device/Containerfile"
     if [[ ! -f "$containerfile" ]]; then
         echo "missing device Containerfile: $containerfile" >&2
@@ -179,12 +177,18 @@ _fastboot-preflight:
         fi
     fi
 
-fastboot: _fastboot-preflight device builder
+fastboot: _fastboot-preflight device builder (_fastboot "containers-storage:" + device_image device_target)
+
+# Build artifacts from an existing device OCI without rebuilding it locally.
+fastboot-from-image source_image: _fastboot-preflight builder (_fastboot source_image source_image)
+
+_fastboot source_image default_target:
     #!/usr/bin/env bash
     set -euo pipefail
 
     device="{{device}}"
-    device_image="{{image}}"
+    source_image={{quote(source_image)}}
+    default_target={{quote(default_target)}}
     builder_image="{{builder_image}}"
     SUDO="{{sudo}}"
 
@@ -192,11 +196,23 @@ fastboot: _fastboot-preflight device builder
         echo "PF_DEVICE is required" >&2
         exit 1
     fi
-    if [[ -z "$device_image" ]]; then
-        device_image="ghcr.io/{{owner}}/pocketfed-phosh-$device:{{tag}}"
-    fi
 
-    target_image="${PF_TARGET_IMAGE_REF:-ghcr.io/{{owner}}/pocketfed-phosh-$device:{{tag}}}"
+    case "$source_image" in
+        docker://*)
+            default_target=${default_target#docker://}
+            ;;
+        *://* | containers-storage:* | dir:* | oci:* | docker-archive:* | oci-archive:*)
+            if [[ -z "${PF_TARGET_IMAGE_REF:-}" && "$default_target" == "$source_image" ]]; then
+                echo "PF_TARGET_IMAGE_REF is required for non-registry source: $source_image" >&2
+                exit 1
+            fi
+            ;;
+        *)
+            source_image="docker://$source_image"
+            ;;
+    esac
+
+    target_image="${PF_TARGET_IMAGE_REF:-$default_target}"
     output="${PF_OUTPUT_DIR:-out/$device}"
     mkdir -p "$output"
     output=$(realpath "$output")
@@ -213,7 +229,7 @@ fastboot: _fastboot-preflight device builder
     $SUDO skopeo copy \
         --override-os linux \
         --override-arch arm64 \
-        "containers-storage:$device_image" \
+        "$source_image" \
         "oci:$source_oci:$source_ref"
 
     podman_args=(

@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+fail() {
+    printf 'test-fastboot-from-image: %s\n' "$*" >&2
+    exit 1
+}
+
+cd "$repo_root"
+
+PF_DEVICE=google-sargo PF_SUDO=true \
+    just --dry-run fastboot-from-image ghcr.io/example/sam-sargo:rawhide \
+    >"$tmp/external" 2>&1
+
+grep -Fq 'builder/Containerfile' "$tmp/external" ||
+    fail 'external recipe did not build the image builder'
+! grep -Fq 'devices/google-sargo/Containerfile' "$tmp/external" ||
+    fail 'external recipe rebuilt the device image'
+grep -Fq "source_image='ghcr.io/example/sam-sargo:rawhide'" "$tmp/external" ||
+    fail 'external source image was not forwarded'
+grep -Fq "default_target='ghcr.io/example/sam-sargo:rawhide'" "$tmp/external" ||
+    fail 'external update target did not default to the source image'
+
+PF_DEVICE=google-sargo PF_SUDO=true \
+    just --dry-run fastboot >"$tmp/local" 2>&1
+
+grep -Fq "containerfile=\"devices/\$device/Containerfile\"" "$tmp/local" ||
+    fail 'legacy recipe stopped building the device image'
+grep -Fq "source_image='containers-storage:ghcr.io/samcday/pocketfed-phosh-google-sargo:rawhide'" \
+    "$tmp/local" || fail 'legacy recipe did not consume its local device image'
+grep -Fq "default_target='ghcr.io/samcday/pocketfed-phosh-google-sargo:rawhide'" \
+    "$tmp/local" || fail 'legacy update target changed'
+
+fake_sudo=$tmp/fake-sudo
+log=$tmp/commands.log
+runtime=$tmp/runtime
+mkdir -p "$runtime"
+cat >"$fake_sudo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%q ' "$@" >>"$PF_TEST_COMMAND_LOG"
+printf '\n' >>"$PF_TEST_COMMAND_LOG"
+EOF
+chmod +x "$fake_sudo"
+
+PF_TEST_COMMAND_LOG=$log \
+PF_DEVICE=google-sargo \
+PF_OUTPUT_DIR=$tmp/output \
+PF_SUDO=$fake_sudo \
+XDG_RUNTIME_DIR=$runtime \
+    just fastboot-from-image docker://ghcr.io/example/sam-sargo:rawhide \
+    >"$tmp/registry" 2>&1
+
+grep -Fq 'skopeo copy --override-os linux --override-arch arm64 docker://ghcr.io/example/sam-sargo:rawhide ' \
+    "$log" || fail 'registry source transport was not preserved'
+grep -Fq 'PF_TARGET_IMAGE_REF=ghcr.io/example/sam-sargo:rawhide' "$log" ||
+    fail 'registry transport leaked into the installed update target'
+
+if PF_TEST_COMMAND_LOG=$log \
+    PF_DEVICE=google-sargo \
+    PF_OUTPUT_DIR=$tmp/output \
+    PF_SUDO=$fake_sudo \
+    XDG_RUNTIME_DIR=$runtime \
+    just fastboot-from-image oci:/tmp/device.oci:rawhide \
+    >"$tmp/non-registry" 2>&1; then
+    fail 'non-registry source was accepted without an update target'
+fi
+grep -Fq 'PF_TARGET_IMAGE_REF is required for non-registry source' \
+    "$tmp/non-registry" || fail 'non-registry source lacked a diagnostic'
+
+printf 'test-fastboot-from-image: all tests passed\n'

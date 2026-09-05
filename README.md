@@ -22,6 +22,20 @@ Install `git`, `just`, `podman`, and `skopeo` to build from this checkout. On an
 x86-64 host, Podman also needs working arm64 binfmt/QEMU support. The builder is
 arm64-only and needs `--privileged` for its temporary loop-mounted filesystems.
 
+To generate installation artifacts from an already-published device OCI without
+rebuilding that image from this checkout, use `fastboot-from-image`:
+
+```sh
+PF_DEVICE=google-sargo \
+PF_ROOT_SSH_AUTHORIZED_KEYS="$HOME/.ssh/id_ed25519.pub" \
+just fastboot-from-image ghcr.io/samcday/sam-sargo:rawhide
+```
+
+The source OCI also becomes the future update target embedded in userdata. Set
+`PF_TARGET_IMAGE_REF` only when the installed system should track a different
+registry reference. Authenticate the root Podman/Skopeo store first when the
+source image is private.
+
 ## Google Pixel 3a (Sargo)
 
 The Sargo device OCI carries a reproducible Android boot image as a template,
