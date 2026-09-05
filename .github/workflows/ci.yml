@@ -49,6 +49,9 @@ jobs:
       - name: Test Sargo call audio
         run: devices/google-sargo/test-pocketfed-sargo-call-audio
 
+      - name: Test Sargo first-boot service preset
+        run: devices/google-sargo/test-pocketfed-sargo-preset
+
       - name: Test Sargo late-bound Android boot image
         run: devices/google-sargo/test-pocketfed-aboot-finalize
 

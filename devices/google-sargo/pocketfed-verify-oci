@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+fail() {
+    printf 'pocketfed Sargo OCI verification failed: %s\n' "$*" >&2
+    exit 1
+}
+
 rpm -q phosh upower upower-libs
 systemctl is-enabled upower.service
 rpm -q kernel
@@ -73,6 +78,33 @@ grep -Fq 'rename = "telstra-au-commercial.mbn"' \
 
 systemctl is-enabled systemd-boot-check-no-failures.service
 systemctl is-enabled qbootctl.service
+
+# PID 1 reapplies presets when bootc initializes an unprovisioned deployment.
+# Verify the policy as well as the build-time symlinks so required phone
+# services survive that first-boot pass.
+for unit in \
+    81voltd.service \
+    clatd.service \
+    pocketfed-sargo-mcfg.service \
+    pocketfed-sargo-network-search.service \
+    pocketfed-sargo-uim-select.service \
+    pocketfed-swclock-offset.service \
+    pocketfed-swclock-offset-save.timer \
+    q6voiced.service \
+    systemd-boot-check-no-failures.service \
+    systemd-timesyncd.service \
+    usb-signaller.service
+do
+    [ "$(systemctl is-enabled "$unit")" = enabled ] ||
+        fail "$unit is not enabled in the image"
+    preset=$(
+        systemctl list-unit-files "$unit" --no-legend --no-pager |
+            awk 'NR == 1 { print $3 }'
+    )
+    [ "$preset" = enabled ] ||
+        fail "$unit first-boot preset is not enabled: ${preset:-missing}"
+done
+
 test -f /usr/lib/ostree-boot/aboot.cfg
 grep -Fxq 'POCKETFED_SLOT_SWITCH=qbootctl' /usr/lib/ostree-boot/aboot.cfg
 test -x /usr/bin/aboot-deploy

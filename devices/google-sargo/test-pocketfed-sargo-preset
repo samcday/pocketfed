@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+device_dir="$repo_root/devices/google-sargo"
+preset="$device_dir/80-pocketfed-google-sargo.preset"
+containerfile="$device_dir/Containerfile"
+verifier="$device_dir/pocketfed-verify-oci"
+
+expected=$(cat <<'EOF'
+enable 81voltd.service
+enable clatd.service
+enable pocketfed-sargo-mcfg.service
+enable pocketfed-sargo-network-search.service
+enable pocketfed-sargo-uim-select.service
+enable pocketfed-swclock-offset.service
+enable pocketfed-swclock-offset-save.timer
+enable q6voiced.service
+enable systemd-boot-check-no-failures.service
+enable systemd-timesyncd.service
+enable usb-signaller.service
+EOF
+)
+
+actual=$(sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' "$preset")
+[ "$actual" = "$expected" ] || {
+    printf '%s\n' 'Sargo first-boot preset does not match the required unit set' >&2
+    diff -u /dev/stdin "$preset" <<EOF >&2 || true
+$expected
+EOF
+    exit 1
+}
+
+grep -Fq \
+    'COPY devices/google-sargo/80-pocketfed-google-sargo.preset /usr/lib/systemd/system-preset/' \
+    "$containerfile"
+grep -Fq 'first-boot preset is not enabled' "$verifier"
+
+printf '%s\n' 'PocketFed Sargo first-boot preset tests passed'
