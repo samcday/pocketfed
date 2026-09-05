@@ -8,6 +8,7 @@ ucm_root="$audio_root/usr/share/alsa/ucm2"
 q6voiced_conf="$audio_root/usr/share/q6voiced/q6voiced.conf"
 containerfile="$device_dir/Containerfile"
 verifier="$device_dir/pocketfed-verify-oci"
+kernel_verifier="$device_dir/pocketfed-verify-kernel"
 
 check_sha256() {
 	expected=$1
@@ -81,11 +82,19 @@ fi
 test "$(cat "$q6voiced_conf")" = 'q6voice_card=0
 q6voice_device=4'
 grep -Fq 'COPY devices/google-sargo/audio/root/ /' "$containerfile"
-grep -Fq "q6voiced_version='0.3.1'" "$containerfile"
+grep -Fq 'ARG Q6VOICED_NEVRA=q6voiced-0.3.1-1788567722.fc46.aarch64' "$containerfile"
+grep -Fq "q6voiced_nevra=\"\$Q6VOICED_NEVRA\"" "$containerfile"
+grep -Fq "\"\$q6voiced_nevra\"" "$containerfile"
+grep -Fq '319674d425c241f91cfbe1e19a1de6cb1078cee625f44d711fe45cef2a6f1bbc' "$containerfile"
 grep -Fq 'q6voiced.service' "$containerfile"
 grep -Fq 'systemctl is-enabled q6voiced.service' "$verifier"
 grep -Fq 'SectionUseCase."HiFi"' "$verifier"
 grep -Fq "test -s \"\$hifi\"" "$verifier"
+grep -Fq '7.1.2-0.pocketfed.sdm670.5.fc*.aarch64' "$kernel_verifier"
+grep -Fq "CONFIG_SND_SOC_SM8250=m" "$kernel_verifier"
+grep -Fq "CONFIG_SND_SOC_CS35L36=m" "$kernel_verifier"
+grep -Fq "snd-soc-sm8250" "$kernel_verifier"
+grep -Fq "snd-soc-cs35l36" "$kernel_verifier"
 if grep -Fq 'test ! -e /usr/share/alsa/ucm2/Google/sargo/HiFi.conf' "$verifier"; then
 	printf 'Sargo OCI verifier still rejects the restored HiFi profile\n' >&2
 	exit 1
