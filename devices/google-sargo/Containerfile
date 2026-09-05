@@ -32,6 +32,7 @@ COPY --chmod=0755 devices/google-sargo/pocketfed-verify-oci /usr/libexec/
 COPY --chmod=0755 devices/google-sargo/50-clatd /tmp/pocketfed-50-clatd
 COPY devices/google-sargo/usb-signaller-sargo.conf /usr/lib/pocketfed/
 COPY devices/google-sargo/usb-signaller.service.d/10-pocketfed-sargo.conf /usr/lib/systemd/system/usb-signaller.service.d/
+COPY devices/google-sargo/80-pocketfed-google-sargo.preset /usr/lib/systemd/system-preset/
 # ModemManager 1.24.2 has a netlink transaction use-after-free. The PocketFed
 # build below carries upstream fix c0900eefe196 until Fedora does.
 # usb-signaller is pinned to COPR build 10712403 from source commit bf2f2d6;
