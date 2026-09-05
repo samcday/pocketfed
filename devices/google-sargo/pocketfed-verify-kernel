@@ -13,7 +13,7 @@ module_dir="$1"
 kver="${module_dir##*/}"
 
 case "$kver" in
-    7.1.2-0.pocketfed.sdm670.3.fc*.aarch64) ;;
+    7.1.2-0.pocketfed.sdm670.5.fc*.aarch64) ;;
     *) fail "unexpected release: $kver" ;;
 esac
 
@@ -41,5 +41,22 @@ rmnet_vermagic="$(modinfo -F vermagic "$rmnet_module")" ||
 rmnet_uts_release="${rmnet_vermagic%% *}"
 [ "$rmnet_uts_release" = "$kver" ] ||
     fail "rmnet vermagic $rmnet_uts_release does not match module directory $kver"
+
+grep -Fxq 'CONFIG_SND_SOC_SM8250=m' "$module_dir/config" ||
+    fail 'CONFIG_SND_SOC_SM8250 is not modular'
+grep -Fxq 'CONFIG_SND_SOC_CS35L36=m' "$module_dir/config" ||
+    fail 'CONFIG_SND_SOC_CS35L36 is not modular'
+
+for sound_driver in snd-soc-sm8250 snd-soc-cs35l36; do
+    sound_module="$(find "$module_dir/kernel/sound/soc" \
+        -type f -name "$sound_driver.ko*" -print -quit 2>/dev/null)"
+    [ -n "$sound_module" ] || fail "$sound_driver module is missing"
+
+    sound_vermagic="$(modinfo -F vermagic "$sound_module")" ||
+        fail "cannot read vermagic from $sound_module"
+    sound_uts_release="${sound_vermagic%% *}"
+    [ "$sound_uts_release" = "$kver" ] ||
+        fail "$sound_driver vermagic $sound_uts_release does not match module directory $kver"
+done
 
 printf 'verified pocketfed kernel release %s\n' "$kver"

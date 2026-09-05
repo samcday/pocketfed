@@ -2,9 +2,11 @@ ARG BASE_IMAGE=ghcr.io/samcday/pocketfed-phosh:rawhide
 ARG FEDORA_IMAGE=quay.io/fedora/fedora:rawhide
 ARG RUST_IMAGE=docker.io/library/rust:1.96-bookworm
 ARG BLOB_WRANGLER_NEVRA=blob-wrangler-v0.0.1-1.20260904090801321088.main.5.g4ba8407.fc45.aarch64
+ARG Q6VOICED_NEVRA=q6voiced-0.3.1-1788567722.fc46.aarch64
 
 FROM ${BASE_IMAGE} AS device-root
 ARG BLOB_WRANGLER_NEVRA
+ARG Q6VOICED_NEVRA
 COPY devices/google-sargo/samcday-kernel-sdm670-mainline.repo /etc/yum.repos.d/
 COPY devices/google-sargo/samcday-pocketfed.repo /etc/yum.repos.d/
 COPY devices/google-sargo/samcday-usb-signaller.repo /etc/yum.repos.d/
@@ -37,12 +39,14 @@ COPY devices/google-sargo/usb-signaller.service.d/10-pocketfed-sargo.conf /usr/l
 # blob-wrangler is pinned to COPR build 10949855 from source commit 4ba8407;
 # that build was published only for Fedora 45, and the aarch64 RPM SHA-256 is
 # 44f4e4b0699ddfc55931a59dd4a4d2619d477b7add816867284d4c12f9c4dc8b.
+# q6voiced is pinned to COPR build 10951987; the Rawhide aarch64 RPM SHA-256
+# is 319674d425c241f91cfbe1e19a1de6cb1078cee625f44d711fe45cef2a6f1bbc.
 RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/cache,sharing=locked \
     set -eux; \
     blob_wrangler_nevra="$BLOB_WRANGLER_NEVRA"; \
     ims_data_daemon_version='1.2.0'; \
     pdc_qmicli_version='1.36.0'; \
-    q6voiced_version='0.3.1'; \
+    q6voiced_nevra="$Q6VOICED_NEVRA"; \
     usb_signaller_nevra='usb-signaller-0.3.0-1.20260713172459428921.stabilizesargo.usb.lab.impl.17.gbf2f2d6.fc45.aarch64'; \
     set -- $(rpm -qa \
         kernel \
@@ -102,11 +106,11 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
         --setopt=keepcache=True \
         81voltd \
         pocketfed-qmicli-pdc-fixed \
-        q6voiced; \
+        "$q6voiced_nevra"; \
     test "$(rpm -q --qf '%{VERSION}\n' 81voltd)" = "$ims_data_daemon_version"; \
     test "$(rpm -q --qf '%{VERSION}\n' pocketfed-qmicli-pdc-fixed)" = "$pdc_qmicli_version"; \
     test -x /usr/libexec/pocketfed-qmicli-pdc; \
-    test "$(rpm -q --qf '%{VERSION}\n' q6voiced)" = "$q6voiced_version"; \
+    test "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' q6voiced)" = "$q6voiced_nevra"; \
     test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
     grep -Fq 'device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
     grep -Fq 'qmapmux*|rmnet*)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
