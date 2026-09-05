@@ -38,6 +38,14 @@ reliably switch away from it. WirePlumber 0.5.11 and newer track ModemManager
 call state and select a profile whose name starts with `Voice Call`; when the
 call ends, the normal stored/best-profile policy selects `HiFi` again.
 
+Sargo's built-in speakers and RT5514 microphone are connected through primary
+TDM backends whose machine-driver fixups use 16-bit samples and 16-bit slots.
+ALSA also advertises 24-bit formats through the generic multimedia frontends,
+so PipeWire otherwise prefers `S24_32LE` and misframes the speaker channels and
+microphone samples. The Sargo-only WirePlumber rule pins the built-in
+`hw:G3a,0` playback and `hw:G3a,3` capture PCMs to `S16LE`. It deliberately
+does not constrain the separate headset paths.
+
 `q6voiced.conf` selects Sargo's `VoiceMMode1` PCM at card 0, device 4. The
 daemon is transitional: remove q6voiced and this configuration once kernel
 codec-to-codec routing supersedes the dedicated voice PCM.
