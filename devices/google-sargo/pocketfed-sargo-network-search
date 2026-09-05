@@ -5,6 +5,7 @@ set -eu
 
 readonly QMI_DEVICE="${QMI_DEVICE:-qrtr://0}"
 readonly QMICLI="${QMICLI:-qmicli}"
+readonly MMCLI="${MMCLI:-mmcli}"
 readonly SEARCH_WAIT_SECONDS="${SEARCH_WAIT_SECONDS:-45}"
 
 log() {
@@ -22,16 +23,38 @@ if ! command -v "$QMICLI" >/dev/null 2>&1; then
 	log 'qmicli is not installed'
 	exit 1
 fi
+if ! command -v "$MMCLI" >/dev/null 2>&1; then
+	log 'mmcli is not installed'
+	exit 1
+fi
 
 count=0
-while ! "$QMICLI" --silent --device="$QMI_DEVICE" \
-	--nas-force-network-search >/dev/null 2>&1; do
+while :; do
+	# Ordering after the daemon is not ordering after modem enablement. NAS
+	# can accept a search while ModemManager is still enabling the modem,
+	# then lose it and remain in power-save. Wait for the modem's state too.
+	state=
+	if modem_info=$("$MMCLI" --modem=any --output-keyvalue 2>/dev/null); then
+		state=$(printf '%s\n' "$modem_info" |
+			awk '$1 == "modem.generic.state" && $2 == ":" { print $3 }')
+	fi
+	case "$state" in
+		registered|connecting|connected)
+			log 'modem is already registered; no network search needed'
+			exit 0
+			;;
+		enabled|searching)
+			if "$QMICLI" --silent --device="$QMI_DEVICE" \
+				--nas-force-network-search >/dev/null 2>&1; then
+				log 'network search requested after carrier profile activation'
+				exit 0
+			fi
+			;;
+	esac
 	if [ "$count" -ge "$SEARCH_WAIT_SECONDS" ]; then
-		log "network search was not accepted after ${SEARCH_WAIT_SECONDS}s"
+		log "modem was not ready or network search was not accepted after ${SEARCH_WAIT_SECONDS}s"
 		exit 1
 	fi
 	sleep 1
 	count=$((count + 1))
 done
-
-log 'network search requested after carrier profile activation'
