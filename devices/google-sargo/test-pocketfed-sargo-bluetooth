@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+device_dir="$repo_root/devices/google-sargo"
+containerfile="$device_dir/Containerfile"
+kernel_verifier="$device_dir/pocketfed-verify-kernel"
+
+grep -Fq -- \
+	'--features cache-sdm670-experiment,bdaddr-google-sdm670' \
+	"$containerfile"
+grep -Fq 'dnf install -y --setopt=keepcache=True android-tools dtc gzip' \
+	"$containerfile"
+grep -Fq \
+	'fdtget -t bx /in/sdm670-google-sargo.dtb /soc@0/geniqup@8c0000/serial@898000/bluetooth local-bd-address' \
+	"$containerfile"
+grep -Fq "= '0 0 0 0 0 0'" "$containerfile"
+grep -Fq '7.1.2-0.pocketfed.sdm670.6.fc*.aarch64' "$kernel_verifier"
+
+printf '%s\n' 'PocketFed Sargo Bluetooth address tests passed'

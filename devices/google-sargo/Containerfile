@@ -177,19 +177,20 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-cargo-registry,target=/us
     rustup target add aarch64-unknown-none && \
     install -d /out && \
     cd /src/abl-exorcist && \
-    cargo build --locked --release --target aarch64-unknown-none -p abl-exorcist --features cache-sdm670-experiment && \
+    cargo build --locked --release --target aarch64-unknown-none -p abl-exorcist --features cache-sdm670-experiment,bdaddr-google-sdm670 && \
     llvm-objcopy -O binary target/aarch64-unknown-none/release/abl-exorcist /out/abl-exorcist.bin && \
     cargo build --locked --release -p abl-exorcist-assembler && \
     install -m0755 target/release/abl-exorcist-assembler /out/abl-exorcist-assembler
 
 FROM ${FEDORA_IMAGE} AS bootimg
 RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-dnf,target=/var/cache,sharing=locked \
-    dnf install -y --setopt=keepcache=True android-tools gzip
+    dnf install -y --setopt=keepcache=True android-tools dtc gzip
 COPY --from=initrd /out /in
 COPY --from=abl-exorcist-build /out/abl-exorcist.bin /tmp/abl-exorcist.bin
 COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/local/bin/abl-exorcist-assembler
 COPY devices/google-sargo/aboot-kargs /in/aboot-kargs
 RUN install -d /out && \
+    test "$(fdtget -t bx /in/sdm670-google-sargo.dtb /soc@0/geniqup@8c0000/serial@898000/bluetooth local-bd-address)" = '0 0 0 0 0 0' && \
     aboot_kargs="$(cat /in/aboot-kargs)" && \
     gzip -n -9 -c /tmp/abl-exorcist.bin >/tmp/abl-exorcist.bin.gz && \
     abl-exorcist-assembler --ramdisk /in/vmlinuz /in/initramfs.img >/tmp/ablx-ramdisk.img && \
