@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
+dropin="$repo_root/base/mkosi.extra/usr/lib/systemd/system/systemd-growfs-root.service.d/50-pocketfed-ostree.conf"
+root_mount_dropin="$repo_root/base/mkosi.extra/usr/lib/systemd/system/-.mount.d/50-pocketfed-growfs-root.conf"
+local_fs_dropin="$repo_root/base/mkosi.extra/usr/lib/systemd/system/local-fs.target.d/50-pocketfed-growfs-root.conf"
+
+grep -Fxq 'ConditionKernelCommandLine=ostree=true' "$dropin"
+grep -Fxq 'After=ostree-remount.service' "$dropin"
+grep -Fxq 'Wants=systemd-growfs-root.service' "$root_mount_dropin"
+grep -Fxq 'After=systemd-growfs-root.service' "$local_fs_dropin"
+
+# Android boot images are the installation path that needs the 8 GiB builder
+# filesystem expanded to fill userdata. Keep their kernel argument and the
+# growfs condition identical so first boot cannot silently skip the service.
+for device in google-sargo google-crosshatch oneplus-fajita
+do
+    containerfile="$repo_root/devices/$device/Containerfile"
+    grep -Fq 'rootfstype=ext4 ostree=true' "$containerfile" || {
+        printf 'PocketFed %s boot command line lacks ostree=true\n' "$device" >&2
+        exit 1
+    }
+done
+
+printf '%s\n' 'PocketFed root filesystem growth policy tests passed'
