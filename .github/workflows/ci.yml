@@ -346,10 +346,12 @@ jobs:
             sh -euxc '
               rpm -q phosh phrog calls chatty feedbackd phosh-mobile-settings \
                 default-fonts-core-emoji google-noto-color-emoji-fonts \
-                gnome-control-center gnome-keyring gnome-keyring-pam nautilus
+                gnome-control-center gnome-keyring gnome-keyring-pam \
+                libcanberra-backend-pulse nautilus
               test "$(fc-match --format="%{family[0]}|%{color}" emoji)" = \
                 "Noto Color Emoji|True"
               test -x /usr/bin/gnome-control-center
+              test -f /usr/lib64/libcanberra-0.30/libcanberra-pulse.so
               test -x /usr/bin/nautilus
               test -x /usr/bin/gnome-keyring-daemon
               test -f /usr/share/applications/org.gnome.Settings.desktop
