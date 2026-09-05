@@ -25,6 +25,7 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
         gnome-maps \
         gnome-photos \
         gnome-software \
+        libcanberra-backend-pulse \
         nautilus \
         phoc \
         phosh \
@@ -47,6 +48,7 @@ COPY phosh/pam.d/phosh /etc/pam.d/phosh
 
 RUN set -eux; \
     systemd-tmpfiles --create /usr/lib/tmpfiles.d/pocketfed-phrog-tmpfiles.conf; \
+    test -f /usr/lib64/libcanberra-0.30/libcanberra-pulse.so; \
     test -d /var/lib/greetd/.config/dconf; \
     test "$(stat -c '%U:%G:%a' /var/lib/greetd/.config/dconf)" = greetd:greetd:700; \
     systemctl enable phrog.service; \
