@@ -1,0 +1,118 @@
+diff --git a/q6voiced.c b/q6voiced.c
+index 072dd7f..ae8efc1 100644
+--- a/q6voiced.c
++++ b/q6voiced.c
+@@ -1,39 +1,53 @@
+ // SPDX-License-Identifier: MIT
+ #include <stdbool.h>
+ #include <stdio.h>
++#include <unistd.h>
+ #include <dbus/dbus.h>
+ #include <string.h>
+ #include <alsa/asoundlib.h>
+ 
++#define PCM_OPEN_RETRY_ATTEMPTS 30
++#define PCM_OPEN_RETRY_DELAY_US (100 * 1000)
++
+ struct q6voiced {
+ 	char card[64];
+ 	snd_pcm_t *tx, *rx;
+ };
+ 
+-static void q6voiced_open(struct q6voiced *v)
++static int q6voiced_open_once(struct q6voiced *v)
+ {
++	int ret;
++
+ 	if (v->tx)
+-		return; /* Already active */
++		return 0; /* Already active */
+ 
+ 	/*
+ 	 * Opening the PCM devices starts the stream.
+ 	 * This should be replaced by a codec2codec link probably.
+ 	 */
+-	if (snd_pcm_open(&v->tx, v->card, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK) < 0 ||
+-	    snd_pcm_set_params(v->tx, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, 1, 8000, 0, 500000) < 0 ||
+-	    snd_pcm_prepare(v->tx) < 0) {
+-		perror("Failed to open tx");
++	ret = snd_pcm_open(&v->tx, v->card, SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK);
++	if (ret < 0)
+ 		goto error;
+-	}
+-	if (snd_pcm_open(&v->rx, v->card, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK) < 0 ||
+-	    snd_pcm_set_params(v->rx, SND_PCM_FORMAT_S16_LE, SND_PCM_ACCESS_RW_INTERLEAVED, 1, 8000, 0, 500000) < 0 ||
+-	    snd_pcm_prepare(v->rx) < 0) {
+-		perror("Failed to open rx");
++	ret = snd_pcm_set_params(v->tx, SND_PCM_FORMAT_S16_LE,
++				 SND_PCM_ACCESS_RW_INTERLEAVED, 1, 8000, 0, 500000);
++	if (ret < 0)
++		goto error;
++	ret = snd_pcm_prepare(v->tx);
++	if (ret < 0)
+ 		goto error;
+-	}
+ 
+-	printf("PCM devices were opened.\n");
+-	return;
++	ret = snd_pcm_open(&v->rx, v->card, SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
++	if (ret < 0)
++		goto error;
++	ret = snd_pcm_set_params(v->rx, SND_PCM_FORMAT_S16_LE,
++				 SND_PCM_ACCESS_RW_INTERLEAVED, 1, 8000, 0, 500000);
++	if (ret < 0)
++		goto error;
++	ret = snd_pcm_prepare(v->rx);
++	if (ret < 0)
++		goto error;
++
++	return 0;
+ 
+ error:
+ 	if (v->tx) {
+@@ -44,6 +58,36 @@ error:
+ 		snd_pcm_close(v->rx);
+ 		v->rx = NULL;
+ 	}
++	return ret;
++}
++
++static void q6voiced_open(struct q6voiced *v)
++{
++	unsigned int attempt;
++	int ret = 0;
++
++	if (v->tx)
++		return; /* Already active */
++
++	/*
++	 * Audio policy may receive the same call state change and enable the
++	 * voice UCM route shortly after us. Retry briefly while that independent
++	 * subscriber makes the hostless voice PCM routable.
++	 */
++	for (attempt = 1; attempt <= PCM_OPEN_RETRY_ATTEMPTS; attempt++) {
++		ret = q6voiced_open_once(v);
++		if (ret == 0) {
++			fprintf(stderr, "PCM devices were opened after %u attempt%s.\n",
++				attempt, attempt == 1 ? "" : "s");
++			return;
++		}
++
++		if (attempt < PCM_OPEN_RETRY_ATTEMPTS)
++			usleep(PCM_OPEN_RETRY_DELAY_US);
++	}
++
++	fprintf(stderr, "Failed to open PCM devices after %u attempts: %s\n",
++		PCM_OPEN_RETRY_ATTEMPTS, snd_strerror(ret));
+ }
+ 
+ static void q6voiced_close(struct q6voiced *v)
+@@ -55,7 +99,7 @@ static void q6voiced_close(struct q6voiced *v)
+ 	snd_pcm_close(v->rx);
+ 	v->rx = v->tx = NULL;
+ 
+-	printf("PCM devices were closed.\n");
++	fprintf(stderr, "PCM devices were closed.\n");
+ }
+ 
+ /* See ModemManager-enums.h */

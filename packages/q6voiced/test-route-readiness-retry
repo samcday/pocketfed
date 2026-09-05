@@ -1,0 +1,53 @@
+#!/bin/sh
+set -eu
+
+fake_source=$1
+q6voiced=$2
+
+tmpdir=$(mktemp -d)
+cleanup() {
+	if test -n "${daemon_pid:-}"; then
+		kill "$daemon_pid" 2>/dev/null || true
+		wait "$daemon_pid" 2>/dev/null || true
+	fi
+	rm -rf "$tmpdir"
+}
+trap cleanup EXIT HUP INT TERM
+
+cc -shared -fPIC -I"$(pkg-config --variable=includedir alsa)" \
+	-o "$tmpdir/test-fake-alsa.so" "$fake_source"
+
+export Q6VOICED_FAKE_LOG="$tmpdir/alsa.log"
+export LD_PRELOAD="$tmpdir/test-fake-alsa.so"
+
+"$q6voiced" hw:0,4 >"$tmpdir/daemon.log" 2>&1 &
+daemon_pid=$!
+sleep 0.2
+
+busctl --user emit /org/freedesktop/ModemManager1/Call/Test \
+	org.freedesktop.ModemManager1.Call StateChanged ii 5 4
+
+i=0
+while ! grep -Fq 'PCM devices were opened after 3 attempts.' "$tmpdir/daemon.log"; do
+	test "$i" -lt 30
+	kill -0 "$daemon_pid"
+	i=$((i + 1))
+	sleep 0.1
+done
+
+busctl --user emit /org/freedesktop/ModemManager1/Call/Test \
+	org.freedesktop.ModemManager1.Call StateChanged ii 4 7
+
+i=0
+while ! grep -Fq 'PCM devices were closed.' "$tmpdir/daemon.log"; do
+	test "$i" -lt 20
+	kill -0 "$daemon_pid"
+	i=$((i + 1))
+	sleep 0.1
+done
+
+test "$(grep -c '^open retry ' "$tmpdir/alsa.log")" -eq 2
+test "$(grep -c '^open success ' "$tmpdir/alsa.log")" -eq 2
+test "$(grep -c '^close ' "$tmpdir/alsa.log")" -eq 2
+
+printf '%s\n' 'q6voiced route-readiness retry test passed'

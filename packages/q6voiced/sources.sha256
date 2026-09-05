@@ -1,1 +1,4 @@
 b9728837c137113737f1492ab08fcdcea58de157cc5ec204452587c7a9b111ba  q6voiced-0.3.1.tar.gz
+da579800f5ab5bb0dd01f0069222d29e690e32d8dc97e81f7c1377eb33f769e2  q6voiced-0.3.1-retry-voice-pcm-open.patch
+4e39fdfb5be398a8ee83073881ef52a7b2c7bcbf8db1b69f643f18546e841d8d  test-fake-alsa.c
+d0321843a0b62919e2f98c9fdb6ce16967972f80c350bbd48e5453630257b7ae  test-route-readiness-retry
