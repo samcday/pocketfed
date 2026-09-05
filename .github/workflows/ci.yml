@@ -83,6 +83,9 @@ jobs:
           sudo podman system renumber
           sudo podman info --format 'Podman OCI runtime: {{.Host.OCIRuntime.Path}}'
 
+      - name: Test fastboot build from an existing OCI
+        run: builder/test-fastboot-from-image
+
       - name: Restore Buildah cache
         uses: actions/cache/restore@v5
         with:
