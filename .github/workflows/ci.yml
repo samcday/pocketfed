@@ -64,6 +64,9 @@ jobs:
       - name: Test safe fastboot flashing helper
         run: builder/test-flash-fastboot
 
+      - name: Test root filesystem growth policy
+        run: base/test-growfs-root-policy
+
       - name: Install host dependencies
         run: |
           sudo apt-get update
