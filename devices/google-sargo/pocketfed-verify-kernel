@@ -13,7 +13,7 @@ module_dir="$1"
 kver="${module_dir##*/}"
 
 case "$kver" in
-    7.1.2-0.pocketfed.sdm670.5.fc*.aarch64) ;;
+    7.1.2-0.pocketfed.sdm670.6.fc*.aarch64) ;;
     *) fail "unexpected release: $kver" ;;
 esac
 
