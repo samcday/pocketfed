@@ -41,6 +41,14 @@ grep -Fq 'SectionDevice."Headset"' "$hifi"
 grep -Fq 'SectionDevice."Mic"' "$hifi"
 grep -Fq 'JackControl "Mic Jack"' "$hifi"
 systemctl is-enabled q6voiced.service
+wireplumber_conf=/usr/share/wireplumber/wireplumber.conf.d/90-pocketfed-sargo-s16.conf
+test -s "$wireplumber_conf"
+grep -Fq 'alsa.card_name = "Google Pixel 3a"' "$wireplumber_conf"
+grep -Fq 'api.alsa.pcm.stream = "playback"' "$wireplumber_conf"
+grep -Fq 'api.alsa.path = "hw:G3a,0"' "$wireplumber_conf"
+grep -Fq 'api.alsa.pcm.stream = "capture"' "$wireplumber_conf"
+grep -Fq 'api.alsa.path = "hw:G3a,3"' "$wireplumber_conf"
+grep -Fq 'audio.format = "S16LE"' "$wireplumber_conf"
 
 test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd
 grep -Fq 'device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd

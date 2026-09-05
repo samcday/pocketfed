@@ -6,6 +6,7 @@ device_dir="$repo_root/devices/google-sargo"
 audio_root="$device_dir/audio/root"
 ucm_root="$audio_root/usr/share/alsa/ucm2"
 q6voiced_conf="$audio_root/usr/share/q6voiced/q6voiced.conf"
+wireplumber_conf="$audio_root/usr/share/wireplumber/wireplumber.conf.d/90-pocketfed-sargo-s16.conf"
 containerfile="$device_dir/Containerfile"
 verifier="$device_dir/pocketfed-verify-oci"
 kernel_verifier="$device_dir/pocketfed-verify-kernel"
@@ -81,6 +82,17 @@ fi
 
 test "$(cat "$q6voiced_conf")" = 'q6voice_card=0
 q6voice_device=4'
+test -s "$wireplumber_conf"
+grep -Fq 'alsa.card_name = "Google Pixel 3a"' "$wireplumber_conf"
+grep -Fq 'api.alsa.pcm.stream = "playback"' "$wireplumber_conf"
+grep -Fq 'api.alsa.path = "hw:G3a,0"' "$wireplumber_conf"
+grep -Fq 'api.alsa.pcm.stream = "capture"' "$wireplumber_conf"
+grep -Fq 'api.alsa.path = "hw:G3a,3"' "$wireplumber_conf"
+grep -Fq 'audio.format = "S16LE"' "$wireplumber_conf"
+if grep -Fq 'hw:G3a,1' "$wireplumber_conf" || grep -Fq 'hw:G3a,2' "$wireplumber_conf"; then
+	printf 'Sargo S16 policy unexpectedly constrains a headset path\n' >&2
+	exit 1
+fi
 grep -Fq 'COPY devices/google-sargo/audio/root/ /' "$containerfile"
 grep -Fq 'ARG Q6VOICED_NEVRA=q6voiced-0.3.1-1788567722.fc46.aarch64' "$containerfile"
 grep -Fq "q6voiced_nevra=\"\$Q6VOICED_NEVRA\"" "$containerfile"
@@ -89,6 +101,8 @@ grep -Fq '319674d425c241f91cfbe1e19a1de6cb1078cee625f44d711fe45cef2a6f1bbc' "$co
 grep -Fq 'q6voiced.service' "$containerfile"
 grep -Fq 'systemctl is-enabled q6voiced.service' "$verifier"
 grep -Fq 'SectionUseCase."HiFi"' "$verifier"
+grep -Fq '90-pocketfed-sargo-s16.conf' "$verifier"
+grep -Fq 'audio.format = "S16LE"' "$verifier"
 grep -Fq "test -s \"\$hifi\"" "$verifier"
 grep -Fq '7.1.2-0.pocketfed.sdm670.5.fc*.aarch64' "$kernel_verifier"
 grep -Fq "CONFIG_SND_SOC_SM8250=m" "$kernel_verifier"
