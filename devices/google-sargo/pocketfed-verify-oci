@@ -9,6 +9,14 @@ fail() {
 rpm -q phosh upower upower-libs
 systemctl is-enabled upower.service
 rpm -q kernel
+# The generated API5 descriptor differs from Fedora's metadata by only MFP bit
+# 12. Verify the complete tested file, not merely the presence of a filename.
+python3 -c '
+from pathlib import Path
+import hashlib
+data = Path("/usr/lib/firmware/ath10k/WCN3990/hw1.0/firmware-5.bin").read_bytes()
+assert hashlib.sha256(data).hexdigest() == "5a2be7e78fea5997be65af401e13d5a0832b960680c73b08a4a4359765441db6", "WCN3990 MFP descriptor mismatch"
+'
 rpm -q clatd tayga libqmi-utils
 rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager |
     grep -Eq '^1\.24\.2-4\.1\.pocketfed\.fc[0-9]+$'

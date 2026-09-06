@@ -144,6 +144,14 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
 # remains authoritative if alsa-ucm-conf later gains Sargo files.
 COPY devices/google-sargo/audio/root/ /
 
+# WCN3990 API5 is capability metadata, not executable firmware. Generate the
+# tested Sargo descriptor after package transactions; fail on unreviewed input.
+# This build helper is not installed in the final image. See wifi/README.md.
+COPY devices/google-sargo/wifi/generate-descriptor.py /tmp/pocketfed-wcn3990-descriptor.py
+COPY devices/google-sargo/wifi/LICENSE /usr/share/licenses/pocketfed-wcn3990-descriptor/LICENSE
+RUN python3 /tmp/pocketfed-wcn3990-descriptor.py /usr/lib/firmware/ath10k/WCN3990/hw1.0 && \
+    rm /tmp/pocketfed-wcn3990-descriptor.py
+
 FROM device-root AS initrd
 RUN set -eu; \
     set -- /usr/lib/modules/*; \
