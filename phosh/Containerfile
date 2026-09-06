@@ -5,6 +5,8 @@ FROM ${BASE_IMAGE}
 LABEL org.opencontainers.image.title="PocketFed Phosh"
 LABEL org.opencontainers.image.description="PocketFed Phosh desktop layer"
 
+COPY phosh/samcday-pocketfed.repo /etc/yum.repos.d/
+
 RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=locked \
     set -eux; \
     dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True \
@@ -13,6 +15,7 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
         default-fonts-core-emoji \
         epiphany \
         feedbackd \
+        feedbackd-device-themes \
         glib-networking \
         gnome-calculator \
         gnome-calendar \
