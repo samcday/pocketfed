@@ -52,6 +52,9 @@ jobs:
       - name: Test Sargo Bluetooth address handoff
         run: devices/google-sargo/test-pocketfed-sargo-bluetooth
 
+      - name: Test Sargo Wi-Fi capability descriptor
+        run: python3 devices/google-sargo/wifi/test-descriptor.py
+
       - name: Test Sargo first-boot service preset
         run: devices/google-sargo/test-pocketfed-sargo-preset
 
