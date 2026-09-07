@@ -243,6 +243,9 @@ jobs:
           test "$(sudo readlink "$root/etc/ssh/sshd_config.d/20-systemd-userdb.conf")" = \
             /usr/lib/systemd/sshd_config.d/20-systemd-userdb.conf
 
+      - name: Verify base utilities
+        run: sudo chroot base/mkosi.output/pocketfed-base_rawhide /usr/bin/bash < base/test-utilities
+
       - name: Pack base OCI artifact
         if: github.event_name != 'push'
         run: |
@@ -387,6 +390,11 @@ jobs:
           PF_DESKTOP_BUILD_IMAGE="$PF_CI_PHOSH_BUILD_IMAGE" \
           PF_DESKTOP_PULL=never \
           just desktop
+
+      - name: Verify Phosh utilities
+        run: |
+          sudo podman run --rm --interactive --pull=never --arch arm64 \
+            "$PF_CI_PHOSH_IMAGE" /usr/bin/bash < base/test-utilities
 
       - name: Verify Phosh packages
         run: |
@@ -581,6 +589,11 @@ jobs:
           PF_DEVICE_BASE="$PF_CI_PHOSH_IMAGE" \
           PF_DEVICE_IMAGE="$PF_CI_DEVICE_IMAGE" \
           just device
+
+      - name: Verify Device utilities
+        run: |
+          sudo podman run --rm --interactive --pull=never --arch arm64 \
+            "$PF_CI_DEVICE_IMAGE" /usr/bin/bash < base/test-utilities
 
       - name: Verify Device OCI
         run: >-

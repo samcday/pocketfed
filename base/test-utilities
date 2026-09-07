@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Run inside the built image (or feed to bash in its chroot/container).
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+rpm -q tar bzip2 zip unzip file jq rsync which bash-completion gzip xz zstd
+for command in tar bzip2 zip unzip file jq rsync which gzip xz zstd; do
+    command -v "$command"
+done
+
+work=$(mktemp -d /tmp/pocketfed-utilities.XXXXXX)
+trap 'rm -rf -- "$work"' EXIT
+cd "$work"
+mkdir source extracted synced
+printf '{"pocketfed":true}\n' > source/example.json
+
+# Exercise tar's external compressors as well as archive creation/extraction.
+for suffix in tar tar.gz tar.bz2 tar.xz tar.zst; do
+    tar -caf "archive.$suffix" -C source example.json
+    tar -xaf "archive.$suffix" -C extracted
+    cmp source/example.json extracted/example.json
+    rm extracted/example.json
+done
+
+(cd source && zip -q ../archive.zip example.json)
+unzip -q archive.zip -d extracted
+cmp source/example.json extracted/example.json
+rsync -a source/ synced/
+cmp source/example.json synced/example.json
+jq -e '.pocketfed == true' synced/example.json
+file --mime-type source/example.json | grep -Eq 'application/json|text/plain'
+test "$(which tar)" = "$(command -v tar)"
+
+# Loading completion must leave a default completion handler registered.
+bash --noprofile --norc -ec '
+    source /usr/share/bash-completion/bash_completion
+    complete -p -D
+'
+
+echo 'PocketFed base utilities verified'
