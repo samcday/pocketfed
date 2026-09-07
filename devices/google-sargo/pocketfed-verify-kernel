@@ -13,7 +13,7 @@ module_dir="$1"
 kver="${module_dir##*/}"
 
 case "$kver" in
-    7.1.2-0.pocketfed.sdm670.7.fc*.aarch64) ;;
+    7.1.2-0.pocketfed.sdm670.8.fc*.aarch64) ;;
     *) fail "unexpected release: $kver" ;;
 esac
 
@@ -68,5 +68,21 @@ typec_vermagic="$(modinfo -F vermagic "$typec_module")" ||
     fail "cannot read vermagic from $typec_module"
 [ "${typec_vermagic%% *}" = "$kver" ] ||
     fail 'qcom_pmic_typec_smb2 vermagic does not match kernel release'
+
+grep -Fxq 'CONFIG_MAC80211_MESH=y' "$module_dir/config" ||
+    fail 'CONFIG_MAC80211_MESH is not enabled'
+for wifi_config in ATH10K ATH10K_SNOC; do
+    grep -Fxq "CONFIG_$wifi_config=m" "$module_dir/config" ||
+        fail "CONFIG_$wifi_config is not modular"
+done
+for wifi_driver in ath10k_core ath10k_snoc; do
+    wifi_module="$(find "$module_dir/kernel/drivers/net/wireless/ath/ath10k" \
+        -type f -name "$wifi_driver.ko*" -print -quit 2>/dev/null)"
+    [ -n "$wifi_module" ] || fail "$wifi_driver module is missing"
+    wifi_vermagic="$(modinfo -F vermagic "$wifi_module")" ||
+        fail "cannot read vermagic from $wifi_module"
+    [ "${wifi_vermagic%% *}" = "$kver" ] ||
+        fail "$wifi_driver vermagic does not match kernel release"
+done
 
 printf 'verified pocketfed kernel release %s\n' "$kver"
