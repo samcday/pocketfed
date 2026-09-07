@@ -1,5 +1,5 @@
 [copr:copr.fedorainfracloud.org:samcday:pocketfed]
-name=Copr repo for PocketFed device hotfixes
+name=Copr repo for PocketFed hotfixes
 baseurl=https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-$basearch/
 type=rpm-md
 skip_if_unavailable=False
@@ -9,4 +9,4 @@ repo_gpgcheck=0
 enabled=1
 enabled_metadata=1
 priority=50
-includepkgs=ModemManager,ModemManager-glib,phoc,phoc-*
+includepkgs=phoc,phoc-*
