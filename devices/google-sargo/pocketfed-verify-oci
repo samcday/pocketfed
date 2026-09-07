@@ -19,8 +19,10 @@ assert hashlib.sha256(data).hexdigest() == "5a2be7e78fea5997be65af401e13d5a0832b
 '
 rpm -q clatd tayga libqmi-utils
 rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager |
-    grep -Eq '^1\.24\.2-4\.1\.pocketfed\.fc[0-9]+$'
+    grep -Eq '^1\.24\.2-5\.1\.pocketfed\.fc[0-9]+$'
 test "$(rpm -q --qf '%{VERSION}\n' 81voltd)" = 1.2.0
+rpm -q --qf '%{RELEASE}\n' 81voltd |
+    grep -Eq '^1\.1\.pocketfed\.fc[0-9]+$'
 test -x /usr/bin/81voltd
 grep -Fxq 'ExecStart=/usr/bin/81voltd' /usr/lib/systemd/system/81voltd.service
 grep -Fxq 'Wants=ModemManager.service' \

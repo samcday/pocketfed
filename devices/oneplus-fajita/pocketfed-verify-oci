@@ -19,7 +19,7 @@ systemctl is-enabled upower.service
 rpm -q kernel kernel-core kernel-modules kernel-modules-core
 rpm -q clatd tayga libqmi-utils
 rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager |
-    grep -Eq '^1\.24\.2-4\.1\.pocketfed\.fc[0-9]+$'
+    grep -Eq '^1\.24\.2-5\.1\.pocketfed\.fc[0-9]+$'
 
 test -x /usr/lib/NetworkManager/dispatcher.d/50-clatd || fail 'CLAT dispatcher is missing'
 grep -Fq 'device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd
