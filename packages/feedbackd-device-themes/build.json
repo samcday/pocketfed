@@ -1,0 +1,79 @@
+{
+  "build_id": 10954637,
+  "url": "https://copr.fedorainfracloud.org/coprs/build/10954637",
+  "state": "succeeded",
+  "chroots": [
+    "fedora-rawhide-aarch64",
+    "fedora-rawhide-x86_64"
+  ],
+  "upstream_tag": "v0.8.9",
+  "upstream_commit": "2f9d81c968764f8f640f20b96be2d1777027e089",
+  "uploaded_srpm_sha256": "e7f521427c88596864c18d76610319fa0182a6e0d36b02e9c763ff553552ebbc",
+  "binary_rpm": "feedbackd-device-themes-0.8.9-1.fc46.noarch.rpm",
+  "binary_rpm_sha256": "894021577c58792c8b54d72f9ba4e83dc1450f07b531e846e93f51fbd3017739",
+  "signatures_verified_on_sargo": true,
+  "validation": {
+    "upstream_theme_tests": "12 passed",
+    "rpmlint": "0 errors, 0 warnings"
+  },
+  "image_check": {
+    "base": "localhost/pocketfed-phosh:gtk4-preedit-trial",
+    "image_id": "sha256:6f9cbf8e9577e2a3f7a3d58de9ec4d5e37522d48fe845aa4db6fc99061ad9159",
+    "architecture": "aarch64",
+    "signed_rpm_install": "passed",
+    "device_theme_validation": "Sargo and Fajita passed",
+    "bootc_lint": "10 passed, 1 skipped, 4 existing image warnings",
+    "full_image_rebuilt": false,
+    "image_published": false,
+    "copr_allowlist_install": "passed on 2026-09-07",
+    "settings_backend": "memory for CI theme validation"
+  },
+  "sargo_trial": {
+    "base_image_digest": "sha256:3a9430a43d718f2a5d7fd993941790e47ba987e2d292ebf078684d40bdf6cf04",
+    "rpm_install": "live-applied and staged for next boot on 2026-09-07",
+    "user_theme_applied_at": "2026-09-06T21:27:33+10:00",
+    "user_theme_path": "/home/sam/.config/feedbackd/themes/pocketfed-sargo-upstream.json",
+    "theme_sha256": "7430e68b1eb01436ec9bbd66ae11ebec0df4f7550d3ba7ed351f5bb13532a4da",
+    "original_theme_dconf_value": "unset",
+    "physical_assessment": "Sam confirmed 15 ms at 50% is perceptible on 2026-09-07",
+    "user_theme_retired_at": "2026-09-07T08:54:21+10:00",
+    "final_theme_setting": "default (original unset preference restored)",
+    "device_discovery": "validated using google,sargo compatible; packaged theme matches trial SHA-256",
+    "post_install_reboot_tested": false,
+    "live_and_staged_commit": "512809792d284f0d8a60c1a705529b2fa99a668c23109d95d9c6c1c0568f3e61",
+    "rpm_integrity": "passed with --nomtime (OSTree-normalized timestamps)"
+  },
+  "fedora_review_candidate": {
+    "nvr": "feedbackd-device-themes-0.8.9-2.fc46",
+    "build_id": 10956064,
+    "url": "https://copr.fedorainfracloud.org/coprs/build/10956064",
+    "state": "succeeded",
+    "project_directory": "pocketfed:custom:feedbackd-review",
+    "chroots": [
+      "fedora-rawhide-aarch64",
+      "fedora-rawhide-x86_64"
+    ],
+    "artifacts": {
+      "feedbackd-device-themes.spec": {
+        "url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed:custom:feedbackd-review/srpm-builds/10956064/feedbackd-device-themes.spec",
+        "sha256": "f64f3d7a9ef7a972d4c07c5bee496d8e77cf0f50d80e280c3f4bf606fce0a8de",
+        "anonymous_download_matches_tested_artifact": true
+      },
+      "feedbackd-device-themes-0.8.9-2.fc46.src.rpm": {
+        "url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed:custom:feedbackd-review/srpm-builds/10956064/feedbackd-device-themes-0.8.9-2.fc46.src.rpm",
+        "sha256": "ff4b765e28d2918eda8dce8d4db91eb10b742ec6e3d3cd062902986790ab07c1",
+        "anonymous_download_matches_tested_artifact": true
+      }
+    },
+    "source_signature": "openpgpverify: 1 of 1 valid before extraction",
+    "validation": {
+      "upstream_theme_tests": "12 passed on both COPR architectures and all three local Mock builds",
+      "rpmlint": "0 errors, 0 warnings for spec, SRPM and binary RPM",
+      "fedora_review": "0.11.0 full local Rawhide rebuild and installation completed; manual source-verifier check explained in review/README.md",
+      "fedora_review_service": "not submitted",
+      "stable_compatibility": "Fedora 43/44 built with only openpgpverify from updates-testing"
+    },
+    "phone_deployment": "This candidate was not installed; device-theme payload matches the physically confirmed 0.8.9-1 package.",
+    "review_request": "draft in review/bugzilla-request.md; not filed"
+  }
+}

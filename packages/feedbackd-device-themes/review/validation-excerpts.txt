@@ -1,0 +1,56 @@
+Verbatim excerpts from final Mock build logs, 2026-09-07.
+Full local audit: /var/tmp/fbd-fedora-review-20260907
+
+Rawhide x86_64
++ /usr/libexec/openpgpverify --keyring=/builddir/build/SOURCES/signing-key-2025.asc --signature=/builddir/build/SOURCES/feedbackd-device-themes-0.8.9.tar.xz.asc --data=/builddir/build/SOURCES/feedbackd-device-themes-0.8.9.tar.xz
+1 of 1 signatures are valid (threshold is: 1).
+ 1/12 feedbackd-device-themes:fairphone,fp5.json        OK              0.05s
+ 2/12 feedbackd-device-themes:google,bonito.json        OK              0.04s
+ 3/12 feedbackd-device-themes:google,sargo.json         OK              0.04s
+ 4/12 feedbackd-device-themes:oneplus,enchilada.json    OK              0.04s
+ 5/12 feedbackd-device-themes:oneplus,fajita.json       OK              0.04s
+ 6/12 feedbackd-device-themes:pine64,pinephone.json     OK              0.04s
+ 7/12 feedbackd-device-themes:pine64,pinephone-pro.json OK              0.04s
+ 8/12 feedbackd-device-themes:purism,librem5.json       OK              0.04s
+ 9/12 feedbackd-device-themes:samsung,midas.json        OK              0.04s
+10/12 feedbackd-device-themes:shift,axolotl.json        OK              0.04s
+11/12 feedbackd-device-themes:xiaomi,beryllium.json     OK              0.04s
+12/12 feedbackd-device-themes:xiaomi,davinci.json       OK              0.04s
+Ok:                12
+Fail:              0
+
+Fedora 44 x86_64; only openpgpverify allowed from updates-testing
++ /usr/libexec/openpgpverify --keyring=/builddir/build/SOURCES/signing-key-2025.asc --signature=/builddir/build/SOURCES/feedbackd-device-themes-0.8.9.tar.xz.asc --data=/builddir/build/SOURCES/feedbackd-device-themes-0.8.9.tar.xz
+1 of 1 signatures are valid (threshold is: 1).
+ 1/12 feedbackd-device-themes:fairphone,fp5.json        OK              0.05s
+ 2/12 feedbackd-device-themes:google,bonito.json        OK              0.05s
+ 3/12 feedbackd-device-themes:google,sargo.json         OK              0.05s
+ 4/12 feedbackd-device-themes:oneplus,enchilada.json    OK              0.05s
+ 5/12 feedbackd-device-themes:oneplus,fajita.json       OK              0.05s
+ 6/12 feedbackd-device-themes:pine64,pinephone.json     OK              0.05s
+ 7/12 feedbackd-device-themes:pine64,pinephone-pro.json OK              0.05s
+ 8/12 feedbackd-device-themes:purism,librem5.json       OK              0.05s
+ 9/12 feedbackd-device-themes:samsung,midas.json        OK              0.05s
+10/12 feedbackd-device-themes:xiaomi,beryllium.json     OK              0.05s
+11/12 feedbackd-device-themes:shift,axolotl.json        OK              0.05s
+12/12 feedbackd-device-themes:xiaomi,davinci.json       OK              0.05s
+Ok:                12
+Fail:              0
+
+Fedora 43 x86_64; only openpgpverify allowed from updates-testing
++ /usr/libexec/openpgpverify --keyring=/builddir/build/SOURCES/signing-key-2025.asc --signature=/builddir/build/SOURCES/feedbackd-device-themes-0.8.9.tar.xz.asc --data=/builddir/build/SOURCES/feedbackd-device-themes-0.8.9.tar.xz
+1 of 1 signatures are valid (threshold is: 1).
+ 1/12 fairphone,fp5.json        OK              0.05s
+ 2/12 google,bonito.json        OK              0.05s
+ 3/12 oneplus,enchilada.json    OK              0.05s
+ 4/12 google,sargo.json         OK              0.05s
+ 5/12 oneplus,fajita.json       OK              0.05s
+ 6/12 pine64,pinephone.json     OK              0.05s
+ 7/12 pine64,pinephone-pro.json OK              0.05s
+ 8/12 purism,librem5.json       OK              0.05s
+ 9/12 samsung,midas.json        OK              0.05s
+10/12 shift,axolotl.json        OK              0.05s
+11/12 xiaomi,beryllium.json     OK              0.05s
+12/12 xiaomi,davinci.json       OK              0.05s
+Ok:                12
+Fail:              0

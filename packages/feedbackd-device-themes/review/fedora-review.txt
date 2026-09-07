@@ -1,0 +1,198 @@
+This is a review *template*. Besides handling the [ ]-marked tests you are
+also supposed to fix the template before pasting into bugzilla:
+- Add issues you find to the list of issues on top. If there isn't such
+  a list, create one.
+- Add your own remarks to the template checks.
+- Add new lines marked [!] or [?] when you discover new things not
+  listed by fedora-review.
+- Change or remove any text in the template which is plain wrong. In this
+  case you could also file a bug against fedora-review
+- Remove the "[ ] Manual check required", you will not have any such lines
+  in what you paste.
+- Remove attachments which you deem not really useful (the rpmlint
+  ones are mandatory, though)
+- Remove this text
+
+
+
+Package Review
+==============
+
+Legend:
+[x] = Pass, [!] = Fail, [-] = Not applicable, [?] = Not evaluated
+[ ] = Manual review needed
+
+
+
+===== MUST items =====
+
+Generic:
+[ ]: Package is licensed with an open-source compatible license and meets
+     other legal requirements as defined in the legal section of Packaging
+     Guidelines.
+[ ]: License field in the package spec file matches the actual license.
+     Note: Checking patched sources after %prep for licenses. Licenses
+     found: "Unknown or generated". 1 files have unknown license. Detailed
+     output of licensecheck in /var/tmp/fbd-fedora-
+     review-20260907/submission/review-feedbackd-device-
+     themes/licensecheck.txt
+[ ]: Package contains no bundled libraries or specifies bundled libraries
+     with Provides: bundled(<libname>) if unbundling is not possible.
+[ ]: Changelog in prescribed format.
+[ ]: Sources contain only permissible code or content.
+[ ]: Package contains desktop file if it is a GUI application.
+[ ]: Development files must be in a -devel package
+[ ]: Package uses nothing in %doc for runtime.
+[ ]: Package consistently uses macros (instead of hard-coded directory
+     names).
+[ ]: Package is named according to the Package Naming Guidelines.
+[ ]: Package does not generate any conflict.
+[ ]: Package obeys FHS, except libexecdir and /usr/target.
+[ ]: If the package is a rename of another package, proper Obsoletes and
+     Provides are present.
+[ ]: Requires correct, justified where necessary.
+[ ]: Spec file is legible and written in American English.
+[ ]: Package contains systemd file(s) if in need.
+[ ]: Package is not known to require an ExcludeArch tag.
+[ ]: Package complies to the Packaging Guidelines
+[x]: Package successfully compiles and builds into binary rpms on at least
+     one supported primary architecture.
+[x]: Package installs properly.
+[x]: Rpmlint is run on all rpms the build produces.
+     Note: No rpmlint messages.
+[x]: If (and only if) the source package includes the text of the
+     license(s) in its own file, then that file, containing the text of the
+     license(s) for the package is included in %license.
+[x]: The License field must be a valid SPDX expression.
+[x]: Package requires other packages for directories it uses.
+[x]: Package must own all directories that it creates.
+[x]: Package does not own files or directories owned by other packages.
+[x]: Package uses either %{buildroot} or $RPM_BUILD_ROOT
+[x]: Package does not run rm -rf %{buildroot} (or $RPM_BUILD_ROOT) at the
+     beginning of %install.
+[x]: Macros in Summary, %description expandable at SRPM build time.
+[x]: Dist tag is present.
+[x]: Package does not contain duplicates in %files.
+[x]: Permissions on files are set properly.
+[x]: Package must not depend on deprecated() packages.
+[x]: Package use %makeinstall only when make install DESTDIR=... doesn't
+     work.
+[x]: Package is named using only allowed ASCII characters.
+[x]: Package does not use a name that already exists.
+[x]: Package is not relocatable.
+[x]: Sources used to build the package match the upstream source, as
+     provided in the spec URL.
+[x]: Spec file name must match the spec package %{name}, in the format
+     %{name}.spec.
+[x]: File names are valid UTF-8.
+[x]: Large documentation must go in a -doc subpackage. Large could be size
+     (~1MB) or number of files.
+     Note: Documentation size is 4722 bytes in 2 files.
+[x]: Packages must not store files under /srv, /opt or /usr/local
+
+===== SHOULD items =====
+
+Generic:
+[ ]: If the source package does not include license text(s) as a separate
+     file from upstream, the packager SHOULD query upstream to include it.
+[ ]: Final provides and requires are sane (see attachments).
+[ ]: Package functions as described.
+[ ]: Latest version is packaged.
+[ ]: Package does not include license text files separate from upstream.
+[ ]: Sources are verified with gpgverify first in %prep if upstream
+     publishes signatures.
+     Note: gpgverify is not used.
+[ ]: Package should compile and build into binary rpms on all supported
+     architectures.
+[ ]: %check is present and all tests pass.
+[ ]: Packages should try to preserve timestamps of original installed
+     files.
+[x]: Reviewer should test that the package builds in mock.
+[x]: Buildroot is not present
+[x]: Package has no %clean section with rm -rf %{buildroot} (or
+     $RPM_BUILD_ROOT)
+[x]: No file requires outside of /etc, /bin, /sbin, /usr/bin, /usr/sbin.
+[x]: Packager, Vendor, PreReq, Copyright tags should not be in spec file
+[x]: Sources can be downloaded from URI in Source: tag
+[x]: SourceX is a working URL.
+[x]: Spec use %global instead of %define unless justified.
+
+===== EXTRA items =====
+
+Generic:
+[x]: Rpmlint is run on all installed packages.
+     Note: No rpmlint messages.
+[x]: Spec file according to URL is the same as in SRPM.
+
+
+Rpmlint
+-------
+Checking: feedbackd-device-themes-0.8.9-2.fc46.noarch.rpm
+          feedbackd-device-themes-0.8.9-2.fc46.src.rpm
+============================ rpmlint session starts ============================
+rpmlint: 2.8.0
+configuration:
+    /usr/lib/python3.14/site-packages/rpmlint/configdefaults.toml
+    /etc/xdg/rpmlint/fedora-spdx-licenses.toml
+    /etc/xdg/rpmlint/fedora.toml
+    /etc/xdg/rpmlint/scoring.toml
+    /etc/xdg/rpmlint/users-groups.toml
+    /etc/xdg/rpmlint/warn-on-functions.toml
+rpmlintrc: [PosixPath('/var/tmp/fbd-fedora-review-20260907/rpm/TMP/tmpakbjv2fj')]
+checks: 32, packages: 2
+
+ 2 packages and 0 specfiles checked; 0 errors, 0 warnings, 7 filtered, 0 badness; has taken 0.1 s
+
+
+
+
+Rpmlint (installed packages)
+----------------------------
+============================ rpmlint session starts ============================
+rpmlint: 2.10.0
+configuration:
+    /usr/lib/python3.15/site-packages/rpmlint/configdefaults.toml
+    /etc/xdg/rpmlint/fedora-spdx-licenses.toml
+    /etc/xdg/rpmlint/fedora.toml
+    /etc/xdg/rpmlint/scoring.toml
+    /etc/xdg/rpmlint/users-groups.toml
+    /etc/xdg/rpmlint/warn-on-functions.toml
+checks: 33, packages: 1
+
+ 1 packages and 0 specfiles checked; 0 errors, 0 warnings, 3 filtered, 0 badness; has taken 0.0 s
+
+
+
+Source checksums
+----------------
+https://sources.phosh.mobi/releases/feedbackd-device-themes/feedbackd-device-themes-0.8.9.tar.xz :
+  CHECKSUM(SHA256) this package     : b3892d7691c965ab8a126be3f2085763c58ab35ccd6e17e21a4a150656341d9f
+  CHECKSUM(SHA256) upstream package : b3892d7691c965ab8a126be3f2085763c58ab35ccd6e17e21a4a150656341d9f
+https://sources.phosh.mobi/releases/feedbackd-device-themes/feedbackd-device-themes-0.8.9.tar.xz.asc :
+  CHECKSUM(SHA256) this package     : b82b2911bfd9ad082d12b71d05c4b8f0d5d65186e4458a63b4ec10a23bc09353
+  CHECKSUM(SHA256) upstream package : b82b2911bfd9ad082d12b71d05c4b8f0d5d65186e4458a63b4ec10a23bc09353
+https://sources.phosh.mobi/misc/signing-keys/signing-key-2025.asc :
+  CHECKSUM(SHA256) this package     : 2d21c96a90eb14db1ebd4761f7442060dc78ae503e45169ee969a00b2e4ef990
+  CHECKSUM(SHA256) upstream package : 2d21c96a90eb14db1ebd4761f7442060dc78ae503e45169ee969a00b2e4ef990
+
+
+Requires
+--------
+feedbackd-device-themes (rpmlib, GLIBC filtered):
+    feedbackd
+
+
+
+Provides
+--------
+feedbackd-device-themes:
+    feedbackd-device-themes
+
+
+
+Generated by fedora-review 0.11.0 (05c5b26) last change: 2025-11-29
+Command line :/usr/bin/fedora-review --no-colors --name feedbackd-device-themes --mock-config /var/tmp/fbd-fedora-review-20260907/config/fedora-rawhide-x86_64-feedbackd-review.cfg --checksum sha256
+Buildroot used: fedora-rawhide-x86_64-feedbackd-review
+Active plugins: Generic, Shell-api
+Disabled plugins: SugarActivity, C/C++, Perl, Haskell, PHP, Ocaml, Python, fonts, Java, R
+Disabled flags: EXARCH, EPEL6, EPEL7, DISTTAG, BATCH
