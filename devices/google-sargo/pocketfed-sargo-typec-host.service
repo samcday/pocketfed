@@ -1,0 +1,12 @@
+[Unit]
+Description=Request USB data host on Sargo's attached powered dock
+JobTimeoutSec=30s
+BindsTo=sys-class-typec-port0\x2dpartner.device
+After=sys-class-typec-port0\x2dpartner.device
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/pocketfed-sargo-typec-host
+TimeoutStartSec=30s
+StandardOutput=journal+console
+StandardError=journal+console

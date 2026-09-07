@@ -17,7 +17,17 @@ import hashlib
 data = Path("/usr/lib/firmware/ath10k/WCN3990/hw1.0/firmware-5.bin").read_bytes()
 assert hashlib.sha256(data).hexdigest() == "5a2be7e78fea5997be65af401e13d5a0832b960680c73b08a4a4359765441db6", "WCN3990 MFP descriptor mismatch"
 '
-rpm -q clatd tayga libqmi-utils
+rpm -q clatd tayga libqmi-utils android-tools usbutils
+test -x /usr/bin/lsusb
+test -x /usr/bin/fastboot
+test -x /usr/libexec/pocketfed-sargo-typec-host
+grep -Fxq 'ExecStart=/usr/libexec/pocketfed-sargo-typec-host' \
+    /usr/lib/systemd/system/pocketfed-sargo-typec-host.service
+[ "$(systemctl is-enabled pocketfed-sargo-typec-host.service)" = static ] ||
+    fail 'Type-C host request must only run when explicitly started'
+! grep -Fq SYSTEMD_WANTS /usr/lib/udev/rules.d/99-pocketfed-sargo-typec-host.rules ||
+    fail 'Type-C host request must not start automatically on attachment'
+grep -Fq 'ACTION=="add|change"' /usr/lib/udev/rules.d/99-pocketfed-sargo-typec-host.rules
 rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager |
     grep -Eq '^1\.24\.2-5\.1\.pocketfed\.fc[0-9]+$'
 test "$(rpm -q --qf '%{VERSION}\n' 81voltd)" = 1.2.0
@@ -149,11 +159,28 @@ test -f "$1/vmlinuz"
 test -f "$1/dtb/qcom/sdm670-google-sargo.dtb"
 test -f "$1/initramfs.img"
 test -f "$1/aboot.img"
-lsinitrd "$1/initramfs.img" |
-    grep -Fq '/kernel/fs/overlayfs/overlay.ko' || {
-    printf 'Sargo initramfs is missing the OverlayFS kernel module\n' >&2
-    exit 1
-}
+initrd_contents="$(lsinitrd "$1/initramfs.img")"
+printf '%s\n' "$initrd_contents" |
+    grep -Fq '/kernel/fs/overlayfs/overlay.ko' ||
+    fail 'Sargo initramfs is missing the OverlayFS kernel module'
+
+# Validate the built archive, not just the source dracut configuration. Type-C
+# must be able to unsuspend charger input before the real root filesystem.
+initrd_preload="$(lsinitrd -f etc/cmdline.d/20-force_drivers.conf "$1/initramfs.img")"
+previous_preload_line=0
+for driver in phy_qcom_qusb2 dwc3 dwc3_qcom_legacy qcom_smbx qcom_pmic_typec_smb2; do
+    module_pattern="$(printf '%s' "$driver" | sed 's/_/[-_]/g')"
+    printf '%s\n' "$initrd_contents" |
+        grep -Eq "/${module_pattern}[.]ko([.]|[[:space:]]|$)" ||
+        fail "Sargo initramfs is missing the $driver module"
+    preload_line="$(printf '%s\n' "$initrd_preload" |
+        grep -n -Fx "rd.driver.pre=$driver" | cut -d: -f1)"
+    [ -n "$preload_line" ] ||
+        fail "Sargo initramfs does not preload $driver"
+    [ "$preload_line" -gt "$previous_preload_line" ] ||
+        fail "Sargo initramfs preloads $driver before its Type-C suppliers"
+    previous_preload_line="$preload_line"
+done
 
 repacked=$(mktemp)
 trap 'rm -f -- "$repacked"' EXIT

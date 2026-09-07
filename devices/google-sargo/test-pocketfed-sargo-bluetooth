@@ -15,6 +15,6 @@ grep -Fq \
 	'fdtget -t bx /in/sdm670-google-sargo.dtb /soc@0/geniqup@8c0000/serial@898000/bluetooth local-bd-address' \
 	"$containerfile"
 grep -Fq "= '0 0 0 0 0 0'" "$containerfile"
-grep -Fq '7.1.2-0.pocketfed.sdm670.6.fc*.aarch64' "$kernel_verifier"
+grep -Fq '7.1.2-0.pocketfed.sdm670.7.fc*.aarch64' "$kernel_verifier"
 
 printf '%s\n' 'PocketFed Sargo Bluetooth address tests passed'

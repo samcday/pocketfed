@@ -1,0 +1,203 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -eu
+
+# This is an explicit, one-shot request for the currently attached powered dock.
+# It is never started automatically. With PD 2.0, TCPM cannot discover partner
+# identity while we are a data device, so VID/PID cannot gate the initial swap.
+# SYSFS/MODEL/REQUEST overrides exist solely for the isolated regression tests.
+if [ "$#" -ne 0 ]; then
+	printf 'usage: pocketfed-sargo-typec-host (no arguments)\n' >&2
+	exit 2
+fi
+
+readonly EXPECTED_MODEL='Google Pixel 3a'
+readonly SYSFS_ROOT="${TYPEC_HOST_SYSFS_ROOT:-/sys}"
+readonly MODEL_FILE="${TYPEC_HOST_MODEL_FILE:-/proc/device-tree/model}"
+readonly PORT_PATH="$SYSFS_ROOT/class/typec/port0"
+readonly PARTNER_PATH="$SYSFS_ROOT/class/typec/port0-partner"
+readonly POWER_SUPPLY_PATH="$SYSFS_ROOT/class/power_supply"
+readonly REQUEST_PATH="${TYPEC_HOST_REQUEST_PATH:-$PORT_PATH/data_role}"
+readonly WAIT_ATTEMPTS="${TYPEC_HOST_WAIT_ATTEMPTS:-150}"
+readonly WAIT_DELAY="${TYPEC_HOST_WAIT_DELAY:-0.1}"
+readonly POST_WAIT_ATTEMPTS="${TYPEC_HOST_POST_WAIT_ATTEMPTS:-30}"
+readonly POST_WAIT_DELAY="${TYPEC_HOST_POST_WAIT_DELAY:-0.1}"
+
+log() {
+	printf 'pocketfed-sargo-typec-host: %s\n' "$*"
+}
+
+is_uint() {
+	case "$1" in
+		''|*[!0-9]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+read_uint() {
+	value="$(cat "$1" 2>/dev/null)" || return 1
+	is_uint "$value" || return 1
+	printf '%s\n' "$value"
+}
+
+read_optional() {
+	cat "$1" 2>/dev/null || printf '<unavailable>\n'
+}
+
+active_role_is() {
+	role_value="$(cat "$1" 2>/dev/null)" || return 1
+	case "$role_value" in
+		*"[$2]"*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+find_tcpm_supply() {
+	set -- "$POWER_SUPPLY_PATH"/tcpm-source-psy-*
+	[ "$#" -eq 1 ] || return 1
+	[ -d "$1" ] || return 1
+	tcpm_supply=$1
+}
+
+contract_is_safe() {
+	[ -d "$PARTNER_PATH" ] || return 1
+	[ "$(read_optional "$PORT_PATH/power_operation_mode")" = usb_power_delivery ] || return 1
+	active_role_is "$PORT_PATH/power_role" sink || return 1
+	[ "$(read_optional "$PARTNER_PATH/supports_usb_power_delivery")" = yes ] || return 1
+
+	find_tcpm_supply || return 1
+	tcpm_online="$(read_uint "$tcpm_supply/online")" || return 1
+	tcpm_voltage="$(read_uint "$tcpm_supply/voltage_now")" || return 1
+	tcpm_current="$(read_uint "$tcpm_supply/current_max")" || return 1
+	charger_online="$(read_uint "$POWER_SUPPLY_PATH/pm660-charger/online")" || return 1
+	charger_current="$(read_uint "$POWER_SUPPLY_PATH/pm660-charger/current_max")" || return 1
+
+	[ "$tcpm_online" -eq 1 ] || return 1
+	[ "$tcpm_voltage" -eq 5000000 ] || return 1
+	[ "$tcpm_current" -gt 0 ] || return 1
+	[ "$tcpm_current" -le 3000000 ] || return 1
+	[ "$charger_online" -eq 1 ] || return 1
+	[ "$charger_current" -gt 0 ] || return 1
+	[ "$charger_current" -le "$tcpm_current" ] || return 1
+}
+
+report_identity() {
+	# Discovery happens after a PD 2.0 DR_SWAP. It may still be pending, or the
+	# partner may not implement it; report that without claiming a dock match.
+	id_header="$(read_optional "$PARTNER_PATH/identity/id_header")"
+	product="$(read_optional "$PARTNER_PATH/identity/product")"
+	case "$id_header:$product" in
+		0x????????:0x????????)
+			case "${id_header#0x}${product#0x}" in
+				*[!0-9a-fA-F]*) ;;
+				*)
+					if [ "$((id_header & 0xffff))" -eq "$((0x291a))" ] &&
+						[ "$(((product >> 16) & 0xffff))" -eq "$((0x8396))" ]; then
+						log 'partner identity: Anker A8396 (VID 291a, PID 8396)'
+						return
+					fi
+					;;
+			esac
+			;;
+	esac
+	log "partner identity (may still be pending): id_header=$id_header product=$product"
+}
+
+# A test request FIFO must stay inside the selected port. No arbitrary write
+# path or port selector is accepted by the command.
+case "$SYSFS_ROOT:$REQUEST_PATH" in
+	*'/../'*|*'/./'*|*'/..'|*'/.' ) log 'invalid sysfs path'; exit 1 ;;
+esac
+case "$SYSFS_ROOT" in
+	/*) ;;
+	*) log 'sysfs root must be absolute'; exit 1 ;;
+esac
+case "$REQUEST_PATH" in
+	"$PORT_PATH/"*) ;;
+	*) log 'request path must be inside port0'; exit 1 ;;
+esac
+
+if ! is_uint "$WAIT_ATTEMPTS" || [ "$WAIT_ATTEMPTS" -eq 0 ] ||
+	! is_uint "$POST_WAIT_ATTEMPTS" || [ "$POST_WAIT_ATTEMPTS" -eq 0 ]; then
+	log 'invalid wait-attempt configuration'
+	exit 1
+fi
+
+model="$(tr -d '\000' <"$MODEL_FILE" 2>/dev/null)" || exit 1
+if [ "$model" != "$EXPECTED_MODEL" ]; then
+	log "skipping unsupported model: $model"
+	exit 1
+fi
+
+if [ ! -d "$PARTNER_PATH" ]; then
+	log 'partner disappeared before policy evaluation'
+	exit 1
+fi
+partner_token="$(stat -Lc '%d:%i' "$PARTNER_PATH" 2>/dev/null)" || exit 1
+
+log 'waiting for a fixed-5V PD sink/device contract on port0'
+ready=0
+attempt=0
+while [ "$attempt" -lt "$WAIT_ATTEMPTS" ]; do
+	current_token="$(stat -Lc '%d:%i' "$PARTNER_PATH" 2>/dev/null)" || {
+		log 'partner detached while waiting for a safe PD contract'
+		exit 1
+	}
+	if [ "$current_token" != "$partner_token" ]; then
+		log 'partner changed while waiting for a safe PD contract'
+		exit 1
+	fi
+
+	if contract_is_safe; then
+		if active_role_is "$PORT_PATH/data_role" host; then
+			log 'data role is already host; no swap requested'
+			report_identity
+			exit 0
+		fi
+		if active_role_is "$PORT_PATH/data_role" device; then
+			ready=1
+			break
+		fi
+	fi
+
+	attempt=$((attempt + 1))
+	[ "$attempt" -lt "$WAIT_ATTEMPTS" ] && sleep "$WAIT_DELAY"
+done
+
+if [ "$ready" -ne 1 ]; then
+	log "no safe fixed-5V sink/device contract after $WAIT_ATTEMPTS checks; no swap requested"
+	exit 1
+fi
+
+current_token="$(stat -Lc '%d:%i' "$PARTNER_PATH" 2>/dev/null)" || exit 1
+if [ "$current_token" != "$partner_token" ] ||
+	! contract_is_safe ||
+	! active_role_is "$PORT_PATH/data_role" device; then
+	log 'contract or partner changed before DR_SWAP; no swap requested'
+	exit 1
+fi
+
+log "requesting one DR_SWAP to host (tcpm=${tcpm_voltage}uV/${tcpm_current}uA charger_icl=${charger_current}uA)"
+if ! printf 'host\n' >"$REQUEST_PATH"; then
+	log 'the one permitted DR_SWAP request failed'
+	exit 1
+fi
+
+attempt=0
+while [ "$attempt" -lt "$POST_WAIT_ATTEMPTS" ]; do
+	current_token="$(stat -Lc '%d:%i' "$PARTNER_PATH" 2>/dev/null)" || break
+	if [ "$current_token" = "$partner_token" ] &&
+		contract_is_safe &&
+		active_role_is "$PORT_PATH/data_role" host; then
+		log "DR_SWAP completed: power=$(read_optional "$PORT_PATH/power_role") data=$(read_optional "$PORT_PATH/data_role")"
+		report_identity
+		exit 0
+	fi
+
+	attempt=$((attempt + 1))
+	[ "$attempt" -lt "$POST_WAIT_ATTEMPTS" ] && sleep "$POST_WAIT_DELAY"
+done
+
+log "DR_SWAP did not leave a safe sink/host contract: power=$(read_optional "$PORT_PATH/power_role") data=$(read_optional "$PORT_PATH/data_role")"
+exit 1

@@ -1,0 +1,2 @@
+# Track attachment for the manually started service; never request a DR_SWAP.
+ACTION=="add|change", SUBSYSTEM=="typec", ENV{DEVTYPE}=="typec_partner", KERNEL=="port0-partner", TAG+="systemd", ENV{SYSTEMD_ALIAS}+="/sys/class/typec/port0-partner"
