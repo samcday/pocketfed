@@ -13,7 +13,7 @@ module_dir="$1"
 kver="${module_dir##*/}"
 
 case "$kver" in
-    7.1.2-0.pocketfed.sdm670.6.fc*.aarch64) ;;
+    7.1.2-0.pocketfed.sdm670.7.fc*.aarch64) ;;
     *) fail "unexpected release: $kver" ;;
 esac
 
@@ -58,5 +58,15 @@ for sound_driver in snd-soc-sm8250 snd-soc-cs35l36; do
     [ "$sound_uts_release" = "$kver" ] ||
         fail "$sound_driver vermagic $sound_uts_release does not match module directory $kver"
 done
+
+grep -Fxq 'CONFIG_TYPEC_QCOM_PMIC_SMB2=m' "$module_dir/config" ||
+    fail 'CONFIG_TYPEC_QCOM_PMIC_SMB2 is not modular'
+typec_module="$(find "$module_dir/kernel/drivers/usb/typec/tcpm/qcom" \
+    -type f -name 'qcom_pmic_typec_smb2.ko*' -print -quit 2>/dev/null)"
+[ -n "$typec_module" ] || fail 'qcom_pmic_typec_smb2 module is missing'
+typec_vermagic="$(modinfo -F vermagic "$typec_module")" ||
+    fail "cannot read vermagic from $typec_module"
+[ "${typec_vermagic%% *}" = "$kver" ] ||
+    fail 'qcom_pmic_typec_smb2 vermagic does not match kernel release'
 
 printf 'verified pocketfed kernel release %s\n' "$kver"

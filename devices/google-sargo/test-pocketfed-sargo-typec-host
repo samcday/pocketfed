@@ -1,0 +1,236 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
+device_dir="$repo_root/devices/google-sargo"
+helper="$device_dir/pocketfed-sargo-typec-host"
+service="$device_dir/pocketfed-sargo-typec-host.service"
+rule="$device_dir/99-pocketfed-sargo-typec-host.rules"
+tmp="$(mktemp -d)"
+watcher=
+cleanup() {
+    [ -z "$watcher" ] || kill "$watcher" 2>/dev/null || :
+    rm -rf "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
+sysfs="$tmp/sys"
+port="$sysfs/class/typec/port0"
+partner="$sysfs/class/typec/port0-partner"
+supplies="$sysfs/class/power_supply"
+tcpm="$supplies/tcpm-source-psy-test"
+charger="$supplies/pm660-charger"
+model="$tmp/model"
+request="$port/request-fifo"
+request_log="$tmp/request.log"
+output="$tmp/output"
+test_wait_attempts=2
+test_wait_delay=0
+
+fail() {
+    printf 'sargo Type-C host test failed: %s\n' "$*" >&2
+    cat "$output" >&2
+    exit 1
+}
+
+reset_state() {
+    rm -rf "$sysfs" "$request_log"
+    mkdir -p "$port" "$partner" "$tcpm" "$charger"
+    printf 'Google Pixel 3a\000' >"$model"
+    printf '%s\n' usb_power_delivery >"$port/power_operation_mode"
+    printf '%s\n' '[sink] source' >"$port/power_role"
+    printf '%s\n' 'host [device]' >"$port/data_role"
+    printf '%s\n' yes >"$partner/supports_usb_power_delivery"
+    printf '%s\n' 1 >"$tcpm/online"
+    printf '%s\n' 5000000 >"$tcpm/voltage_now"
+    printf '%s\n' 3000000 >"$tcpm/current_max"
+    printf '%s\n' 1 >"$charger/online"
+    printf '%s\n' 2500000 >"$charger/current_max"
+    test_wait_attempts=2
+    test_wait_delay=0
+    : >"$output"
+}
+
+run_helper() {
+    timeout 5s env \
+        TYPEC_HOST_SYSFS_ROOT="$sysfs" \
+        TYPEC_HOST_MODEL_FILE="$model" \
+        TYPEC_HOST_REQUEST_PATH="$request" \
+        TYPEC_HOST_WAIT_ATTEMPTS="$test_wait_attempts" \
+        TYPEC_HOST_WAIT_DELAY="$test_wait_delay" \
+        TYPEC_HOST_POST_WAIT_ATTEMPTS=20 \
+        TYPEC_HOST_POST_WAIT_DELAY=0.01 \
+        sh "$helper" "$@" >"$output" 2>&1
+}
+
+reject_without_write() {
+    if run_helper; then fail "$1 succeeded unexpectedly"; fi
+    [ ! -e "$request" ] || fail "$1 requested a data-role swap"
+}
+
+await_evaluation() {
+    checks=0
+    until grep -Fq 'waiting for a fixed-5V' "$output"; do
+        checks=$((checks + 1))
+        [ "$checks" -lt 100 ] || exit 1
+        sleep 0.01
+    done
+}
+
+reset_state
+printf '%s\n' 'Google Pixel 3a XL' >"$model"
+reject_without_write wrong-model
+
+reset_state
+printf '%s\n' no >"$partner/supports_usb_power_delivery"
+reject_without_write non-pd
+
+reset_state
+printf '%s\n' default >"$port/power_operation_mode"
+reject_without_write no-contract
+
+reset_state
+printf '%s\n' 'sink [source]' >"$port/power_role"
+reject_without_write source-role
+
+reset_state
+printf '%s\n' 9000000 >"$tcpm/voltage_now"
+reject_without_write over-voltage
+
+reset_state
+printf '%s\n' 3000001 >"$tcpm/current_max"
+reject_without_write over-current
+
+reset_state
+printf '%s\n' 0 >"$tcpm/current_max"
+reject_without_write zero-current
+
+reset_state
+printf '%s\n' 3000001 >"$charger/current_max"
+reject_without_write charger-over-current
+
+reset_state
+printf '%s\n' 0 >"$charger/online"
+reject_without_write charger-offline
+
+reset_state
+mkdir "$supplies/tcpm-source-psy-other"
+reject_without_write ambiguous-tcpm-supply
+
+reset_state
+printf '%s\n' oops >"$tcpm/current_max"
+reject_without_write malformed-current
+
+reset_state
+test_wait_attempts='1:2'
+reject_without_write malformed-wait
+
+reset_state
+if run_helper ../../other-port; then fail 'accepted an arbitrary port argument'; fi
+[ ! -e "$request" ] || fail 'argument requested a swap'
+
+reset_state
+saved_request="$request"
+request="$tmp/arbitrary-file"
+reject_without_write arbitrary-request-path
+request="$saved_request"
+
+reset_state
+printf '%s\n' '[host] device' >"$port/data_role"
+mkdir "$partner/identity"
+printf '%s\n' 0x6c00291a >"$partner/identity/id_header"
+printf '%s\n' 0x83960000 >"$partner/identity/product"
+run_helper || fail 'existing host role was not preserved'
+[ ! -e "$request" ] || fail 'already-host requested another swap'
+grep -Fq 'Anker A8396 (VID 291a, PID 8396)' "$output" || fail 'known identity was not decoded'
+
+# Identity is unavailable before the explicit PD 2.0 swap, and need not be
+# ready as soon as host is reached. Neither zero nor missing identity blocks it.
+reset_state
+printf '%s\n' 0 >"$tcpm/online"
+mkfifo "$request"
+test_wait_attempts=100
+test_wait_delay=0.02
+(
+    await_evaluation
+    sleep 0.1
+    printf '%s\n' 1 >"$tcpm/online"
+    IFS= read -r requested <"$request"
+    [ "$requested" = host ] || exit 1
+    printf '%s\n' "$requested" >>"$request_log"
+    printf '%s\n' '[host] device' >"$port/data_role"
+) &
+watcher=$!
+run_helper || fail 'explicit swap with initially unavailable contract failed'
+wait "$watcher" || fail 'successful-swap watcher failed'
+watcher=
+[ "$(cat "$request_log")" = host ] || fail 'helper did not make exactly one host request'
+grep -Fq 'DR_SWAP completed' "$output" || fail 'successful swap was not logged'
+grep -Fq 'partner identity (may still be pending)' "$output" || fail 'missing identity was not reported'
+
+reset_state
+printf '%s\n' 0 >"$tcpm/online"
+test_wait_attempts=100
+test_wait_delay=0.02
+(
+    await_evaluation
+    mv "$partner" "$sysfs/old-partner"
+    mkdir "$partner"
+) &
+watcher=$!
+reject_without_write replaced-partner
+wait "$watcher" || fail 'replace watcher failed'
+watcher=
+grep -Fq 'partner changed while waiting' "$output" || fail 'replacement was not detected'
+
+reset_state
+printf '%s\n' 0 >"$tcpm/online"
+test_wait_attempts=100
+test_wait_delay=0.02
+(
+    await_evaluation
+    rm -rf "$partner"
+) &
+watcher=$!
+reject_without_write detached-partner
+wait "$watcher" || fail 'detach watcher failed'
+watcher=
+grep -Fq 'partner detached while waiting' "$output" || fail 'detach was not detected'
+
+reset_state
+# A successful sysfs write alone is insufficient: retain device to model a
+# failed swap, then ensure there is only one write and an unsuccessful result.
+if run_helper; then fail 'reported success while data role stayed device'; fi
+[ "$(cat "$request")" = host ] || fail 'failed swap did not record one request'
+grep -Fq 'DR_SWAP did not leave a safe sink/host contract' "$output" || fail 'postcondition failure was not reported'
+
+reset_state
+mkfifo "$request"
+(
+    IFS= read -r requested <"$request"
+    [ "$requested" = host ] || exit 1
+    printf '%s\n' '[host] device' >"$port/data_role"
+    printf '%s\n' 0 >"$charger/online"
+) &
+watcher=$!
+if run_helper; then fail 'reported success after charger went offline'; fi
+wait "$watcher" || fail 'lost-sink watcher failed'
+watcher=
+
+reset_state
+mkdir "$request"
+if run_helper; then fail 'reported success after write error'; fi
+grep -Fq 'DR_SWAP request failed' "$output" || fail 'write error was not reported'
+
+# Device presence stays tracked on both add and change, but no attach event
+# starts this operator-only service. The unit has no enable/preset entry.
+grep -Fq 'BindsTo=sys-class-typec-port0\x2dpartner.device' "$service"
+grep -Fq 'After=sys-class-typec-port0\x2dpartner.device' "$service"
+grep -Fq 'TimeoutStartSec=30s' "$service"
+grep -Fq 'ACTION=="add|change"' "$rule"
+grep -Fq 'TAG+="systemd"' "$rule"
+! grep -Eq 'SYSTEMD_WANTS|RUN[+:]?=' "$rule" || fail 'udev automatically starts a host request'
+! grep -Eq '^\[Install\]|^WantedBy=' "$service" || fail 'host request can be enabled'
+! grep -Fq 'pocketfed-sargo-typec-host' "$device_dir/80-pocketfed-google-sargo.preset" || fail 'host request has an automatic preset'
+
+printf 'PocketFed sargo explicit Type-C host tests passed\n'

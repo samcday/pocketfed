@@ -30,6 +30,9 @@ COPY devices/google-sargo/81voltd.service.d/10-pocketfed-sargo.conf /usr/lib/sys
 COPY --chmod=0755 devices/google-sargo/pocketfed-verify-kernel /usr/libexec/
 COPY --chmod=0755 devices/google-sargo/pocketfed-verify-oci /usr/libexec/
 COPY --chmod=0755 devices/google-sargo/50-clatd /tmp/pocketfed-50-clatd
+COPY --chmod=0755 devices/google-sargo/pocketfed-sargo-typec-host /usr/libexec/
+COPY devices/google-sargo/pocketfed-sargo-typec-host.service /usr/lib/systemd/system/
+COPY devices/google-sargo/99-pocketfed-sargo-typec-host.rules /usr/lib/udev/rules.d/
 COPY devices/google-sargo/usb-signaller-sargo.conf /usr/lib/pocketfed/
 COPY devices/google-sargo/usb-signaller.service.d/10-pocketfed-sargo.conf /usr/lib/systemd/system/usb-signaller.service.d/
 COPY devices/google-sargo/80-pocketfed-google-sargo.preset /usr/lib/systemd/system-preset/
@@ -64,6 +67,8 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
     dnf install -y \
         --setopt=install_weak_deps=False \
         --setopt=keepcache=True \
+        android-tools \
+        usbutils \
         clatd \
         dnsmasq \
         libqmi-utils \
@@ -199,7 +204,18 @@ COPY --from=initrd /out /in
 COPY --from=abl-exorcist-build /out/abl-exorcist.bin /tmp/abl-exorcist.bin
 COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/local/bin/abl-exorcist-assembler
 COPY devices/google-sargo/aboot-kargs /in/aboot-kargs
+# Check the actual DTB embedded in aboot.img, including the conservative PD
+# policy. Neither a different DTB nor a mismatched kernel may slip into release.
 RUN install -d /out && \
+    connector='/soc@0/spmi@c440000/pmic@0/typec@1300/connector' && \
+    test "$(fdtget /in/sdm670-google-sargo.dtb "$connector" power-role)" = dual && \
+    test "$(fdtget /in/sdm670-google-sargo.dtb "$connector" data-role)" = dual && \
+    test "$(fdtget /in/sdm670-google-sargo.dtb "$connector" try-power-role)" = sink && \
+    test "$(fdtget -t bx /in/sdm670-google-sargo.dtb "$connector" pd-revision)" = '2 0 1 2' && \
+    test "$(fdtget -t x /in/sdm670-google-sargo.dtb "$connector" source-pdos)" = 26019032 && \
+    test "$(fdtget -t x /in/sdm670-google-sargo.dtb "$connector" sink-pdos)" = 2601912c && \
+    ! fdtget /in/sdm670-google-sargo.dtb "$connector" pd-disable >/dev/null 2>&1 && \
+    test "$(fdtget /in/sdm670-google-sargo.dtb /soc@0/usb@a6f8800/usb@a600000 maximum-speed)" = high-speed && \
     test "$(fdtget -t bx /in/sdm670-google-sargo.dtb /soc@0/geniqup@8c0000/serial@898000/bluetooth local-bd-address)" = '0 0 0 0 0 0' && \
     aboot_kargs="$(cat /in/aboot-kargs)" && \
     gzip -n -9 -c /tmp/abl-exorcist.bin >/tmp/abl-exorcist.bin.gz && \
