@@ -1,0 +1,118 @@
+{
+  "build_id": 10955562,
+  "url": "https://copr.fedorainfracloud.org/coprs/build/10955562",
+  "source_rpm": "81voltd-1.2.0-1.1.pocketfed.fc46.src.rpm",
+  "source_rpm_sha256": "6617f21fd2340fd0e8e5c406174fe1905ce08434045ae2e718831987929a7695",
+  "upstream_commit": "7c0cd9442d71b55260c9917c89ebc4bd20e283a8",
+  "patch_sha256": "413e958c13e6e433747f7266d8c6b19d91baba836312e99b6a35b21dc057e13f",
+  "signing_key_fingerprint": "F247F3B726A312E90D74BB76E220B1E0AE59FCB5",
+  "results": {
+    "fedora-rawhide-aarch64": {
+      "state": "succeeded",
+      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-aarch64/10955562-81voltd/",
+      "rpm": "81voltd-1.2.0-1.1.pocketfed.fc46.aarch64.rpm",
+      "sha256": "f647b6edf91ac033fd2f46178f8a8da0a9d15d899ad79ef05f30da06825b2e09",
+      "signatures_verified": true,
+      "meson_tests": {
+        "passed": 18,
+        "failed": 0
+      }
+    },
+    "fedora-rawhide-x86_64": {
+      "state": "succeeded",
+      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-x86_64/10955562-81voltd/",
+      "rpm": "81voltd-1.2.0-1.1.pocketfed.fc46.x86_64.rpm",
+      "sha256": "d3fd6bb3939d5e36f55db9c1438f355ddafc1645bbe3850d4202d0d31f4301e4",
+      "signatures_verified": true,
+      "meson_tests": {
+        "passed": 18,
+        "failed": 0
+      }
+    },
+    "fedora-45-aarch64": {
+      "state": "succeeded",
+      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-45-aarch64/10955562-81voltd/",
+      "rpm": "81voltd-1.2.0-1.1.pocketfed.fc45.aarch64.rpm",
+      "sha256": "434147d0fa031d2ed01f304a3b467661b030f805e1e65e265fce38c44dfee195",
+      "signatures_verified": true,
+      "meson_tests": {
+        "passed": 18,
+        "failed": 0
+      }
+    }
+  },
+  "validation": {
+    "native_rpmbuild": "passed, 18/18 tests",
+    "offline_package_ci": "passed, 18/18 tests",
+    "rpmlint": "One unchanged upstream LICENSE incorrect-fsf-address error; no spec errors",
+    "sanitizers": "Not run: build environment lacks runtime libraries",
+    "device_acceptance": "Cold-boot modem/IMS checks passed; controlled suspend/wake/call tests pending"
+  },
+  "image_validation": {
+    "image": "localhost/sam-sargo:personal-baseline",
+    "architecture": "aarch64 (QEMU on x86_64)",
+    "network": "disabled",
+    "checks": [
+      "combined RPM dependency transaction",
+      "signed RPM installation",
+      "rpm -V for all three runtime packages",
+      "ModemManager --version",
+      "81voltd shared-library resolution",
+      "updated Sargo pocketfed-verify-oci"
+    ],
+    "result": "passed",
+    "device_acceptance": "Cold-boot modem/IMS checks passed; controlled suspend/wake/call tests pending"
+  },
+  "sargo_rollout": {
+    "device": "sam-sargo",
+    "checked_at": "2026-09-07T09:58:00+10:00",
+    "state": "booted; cold-boot modem/IMS checks passed",
+    "deployment_checksum": "356d00c9ee8564b36159ed521ff4a44d0427ec711408ea8f4a4cf97b2c2c57a9",
+    "retained_booted_checksum": "1912fa2d44e96afbdaf7e765e4a611b21bf528d16e97cbbb892a31bde7885c37",
+    "preserved_customizations": [
+      "gtk4-4.23.4-1.1.pocketfed.fc46",
+      "feedbackd-device-themes-0.8.9-1.fc46",
+      "tailscale"
+    ],
+    "pre_reboot_imsa": "registered; voice and SMS available over WWAN",
+    "suspend_wake_call_acceptance": "pending",
+    "staging_services_restarted": false,
+    "activation": {
+      "boot_id": "4b818fb7-f39d-400c-b141-21e704e72f6d",
+      "deployment_checksum": "356d00c9ee8564b36159ed521ff4a44d0427ec711408ea8f4a4cf97b2c2c57a9",
+      "imsa_checked_at": "2026-09-07T10:05:47+10:00",
+      "modemmanager": {
+        "pid": 1469,
+        "restarts": 0,
+        "version": "1.24.2-5.1.pocketfed.fc46.aarch64"
+      },
+      "81voltd": {
+        "pid": 1534,
+        "restarts": 0,
+        "version": "1.2.0-1.1.pocketfed.fc46.aarch64"
+      },
+      "data_bearer": {
+        "id": 1,
+        "apn": "mdata.net.au",
+        "ip_type": "ipv4",
+        "connected": true
+      },
+      "ims_bearer": {
+        "id": 2,
+        "apn": "ims",
+        "ip_type": "ipv6",
+        "profile_id": 2,
+        "connected": true
+      },
+      "imsa": {
+        "registration": "registered",
+        "voice": "available",
+        "sms": "available",
+        "technology": "WWAN"
+      },
+      "calls_at_capture": 0,
+      "cold_boot_result": "passed",
+      "suspend_wake_and_call_audio": "pending controlled tests"
+    }
+  }
+}

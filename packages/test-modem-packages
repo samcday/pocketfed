@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Check the prepared ModemManager and 81voltd package sources.
+
+Fetch mode needs Python and TLS certificates. Test mode additionally needs
+patch, a C compiler, pkg-config, Meson, GLib/mm-glib/qmi-glib/qrtr development
+files, Python GObject introspection, and dbus-daemon. No modem is accessed.
+"""
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import urllib.request
+
+
+PACKAGES = {
+    "ModemManager": (
+        "ModemManager-1.24.2.tar.bz2",
+        "https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/archive/"
+        "1.24.2/ModemManager-1.24.2.tar.bz2",
+        "ModemManager-1.24.2",
+    ),
+    "81voltd": (
+        "81voltd-v1.2.0.tar.gz",
+        "https://gitlab.postmarketos.org/modem/81voltd/-/archive/"
+        "v1.2.0/81voltd-v1.2.0.tar.gz",
+        "81voltd-v1.2.0",
+    ),
+}
+
+
+def run(*command, **kwargs):
+    print("+", " ".join(map(str, command)), flush=True)
+    return subprocess.run(list(map(str, command)), check=True, **kwargs)
+
+
+def expected_digest(package, archive):
+    records = (package / "sources.sha256").read_text().splitlines()
+    matches = [line.split()[0] for line in records
+               if line.split() and line.split()[-1].lstrip("*") == archive]
+    if len(matches) != 1 or not re.fullmatch(r"[0-9a-f]{64}", matches[0]):
+        raise RuntimeError(f"Expected one pinned SHA-256 for {archive}")
+    return matches[0]
+
+
+def verify(path, expected):
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != expected:
+        raise RuntimeError(f"Checksum mismatch for {path}: {actual}")
+    print(f"Verified {path.name}: {actual}", flush=True)
+
+
+def fetch(path, url, expected, offline):
+    if path.exists():
+        verify(path, expected)
+        return
+    if offline:
+        raise RuntimeError(f"Missing source archive in offline mode: {path}")
+    temporary = path.with_suffix(path.suffix + ".partial")
+    for attempt in range(3):
+        try:
+            print(f"Downloading {url}", flush=True)
+            with urllib.request.urlopen(url, timeout=60) as response:
+                with temporary.open("wb") as output:
+                    while chunk := response.read(1024 * 1024):
+                        output.write(chunk)
+            verify(temporary, expected)
+            temporary.replace(path)
+            return
+        except OSError:
+            if attempt == 2:
+                raise
+            time.sleep(2 * (attempt + 1))
+
+
+def patches_from_spec(package):
+    """Use RPM's numeric patch order; refuse URLs/macros instead of guessing."""
+    declarations = []
+    for line in (package / (package.name + ".spec")).read_text().splitlines():
+        match = re.fullmatch(r"Patch(\d*):\s*(.*?)\s*", line)
+        if match:
+            number = int(match[1] or 0)
+            name = match[2].split("#", 1)[0].strip()
+            if (not name or len(name.split()) != 1 or Path(name).name != name
+                    or "%" in name or ":" in name):
+                raise RuntimeError(f"Expected a local literal patch name: {line}")
+            declarations.append((number, package / name))
+    if not declarations or len({number for number, _ in declarations}) != len(declarations):
+        raise RuntimeError(f"Missing or duplicate Patch declarations in {package}")
+    return [path for _, path in sorted(declarations)]
+
+
+def prepare(package, archive, top_directory, work):
+    destination = work / package.name
+    destination.mkdir()
+    with tarfile.open(archive) as source:
+        source.extractall(destination, filter="data")
+    tree = destination / top_directory
+    if not tree.is_dir():
+        raise RuntimeError(f"Expected extracted source directory {tree}")
+    for patch in patches_from_spec(package):
+        command = ("patch", "--batch", "--forward", "--fuzz=0", "-p1", "--input", patch)
+        run(*command, "--dry-run", cwd=tree)
+        run(*command, cwd=tree)
+    return tree
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source-cache", type=Path, required=True)
+    parser.add_argument("--work-dir", type=Path,
+                        help="New directory for prepared sources, builds, and logs")
+    parser.add_argument("--fetch-only", action="store_true")
+    parser.add_argument("--offline", action="store_true")
+    options = parser.parse_args()
+    packages = Path(__file__).resolve().parent
+    options.source_cache.mkdir(parents=True, exist_ok=True)
+    cache = options.source_cache.resolve()
+    for name, (filename, url, _) in PACKAGES.items():
+        fetch(cache / filename, url,
+              expected_digest(packages / name, filename), options.offline)
+    if options.fetch_only:
+        return
+
+    if options.work_dir:
+        options.work_dir.mkdir(parents=True, exist_ok=False)
+        work = options.work_dir.resolve()
+    else:
+        work = Path(tempfile.mkdtemp(prefix="pocketfed-modem-tests-"))
+    print(f"Builds and logs: {work}", flush=True)
+    trees = {
+        name: prepare(packages / name, cache / archive, directory, work)
+        for name, (archive, _, directory) in PACKAGES.items()
+    }
+    run(sys.executable, packages / "ModemManager/test-bearer-count.py",
+        trees["ModemManager"])
+    build = work / "81voltd-build"
+    run("meson", "setup", build, trees["81voltd"], "--buildtype=debugoptimized")
+    definitions = json.loads(subprocess.check_output(
+        ["meson", "introspect", "--tests", str(build)], text=True))
+    if not definitions:
+        raise RuntimeError("81voltd has no registered Meson tests; regression patch missing")
+    run("meson", "compile", "-C", build)
+    run("meson", "test", "-C", build, "--print-errorlogs")
+
+
+if __name__ == "__main__":
+    main()

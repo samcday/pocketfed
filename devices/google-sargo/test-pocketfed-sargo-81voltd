@@ -14,10 +14,12 @@ grep -Fq '/-/archive/v%{version}/%{name}-v%{version}.tar.gz' "$spec"
 grep -Fxq \
     'bb0e9774463fb4964067bf70f10cc316afc1c8ed163ff7969b3fd3ae3dc2e937  81voltd-v1.2.0.tar.gz' \
     "$package_dir/sources.sha256"
-if grep -Eq '^[[:space:]]*Patch[0-9]*:' "$spec"; then
-    printf '%s\n' '81voltd must be packaged without downstream patches' >&2
-    exit 1
-fi
+# The reviewed recovery backport is required until upstream carries it.
+grep -Eq '^Release:[[:space:]]+1\.1\.pocketfed%\{\?dist\}$' "$spec"
+grep -Eq '^Patch[0-9]*:[[:space:]]+81voltd-1\.2\.0-harden-ims-lifecycle\.patch$' "$spec"
+test -s "$package_dir/81voltd-1.2.0-harden-ims-lifecycle.patch"
+grep -Eq '^%autosetup .* -p1$|^%autosetup -p1 ' "$spec"
+grep -Fxq '%meson_test' "$spec"
 
 grep -Fxq 'Wants=ModemManager.service' "$dropin"
 grep -Fxq 'After=ModemManager.service' "$dropin"
@@ -26,6 +28,8 @@ grep -Fxq 'Restart=on-failure' "$dropin"
 grep -Fxq 'RestartSec=5s' "$dropin"
 
 grep -Fq "ims_data_daemon_version='1.2.0'" "$containerfile"
+grep -Fq "grep -Eq '^1\\.1\\.pocketfed\\.fc[0-9]+$'" "$containerfile"
+grep -Fq "grep -Eq '^1\\.1\\.pocketfed\\.fc[0-9]+$'" "$verifier"
 grep -Fq 'COPY devices/google-sargo/81voltd.service.d/10-pocketfed-sargo.conf' \
     "$containerfile"
 grep -Eq '^[[:space:]]+81voltd[.]service [\\]$' "$containerfile"

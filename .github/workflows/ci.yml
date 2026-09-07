@@ -19,6 +19,48 @@ env:
   PF_BUILDAH_CACHE_DIR: /var/tmp/buildah-cache-0
 
 jobs:
+  modem-package-regressions:
+    name: Test modem package regressions
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    container: quay.io/fedora/fedora:rawhide
+    permissions:
+      contents: read
+
+    steps:
+      - name: Install regression dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            gcc git patch meson ninja-build pkgconf-pkg-config \
+            glib2-devel ModemManager-glib-devel libqmi-devel 'pkgconfig(qrtr)' \
+            python3 python3-gobject-base dbus-daemon
+
+      - name: Checkout pocketfed
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fetch and verify pinned modem sources
+        run: >-
+          packages/test-modem-packages
+          --source-cache .cache/modem-package-sources --fetch-only
+
+      - name: Test prepared package sources
+        run: >-
+          packages/test-modem-packages
+          --source-cache .cache/modem-package-sources
+          --work-dir .cache/modem-package-tests --offline
+
+      - name: Upload modem regression logs
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: modem-package-regression-logs
+          path: .cache/modem-package-tests/81voltd-build/meson-logs/
+          retention-days: 7
+          if-no-files-found: ignore
+
   image-builder:
     name: Build image builder
     runs-on: ubuntu-24.04-arm

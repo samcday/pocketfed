@@ -1,0 +1,2542 @@
+Subject: [PATCH] Serialize IMS bearer requests across modem recovery
+
+Upstream: 81voltd v1.2.0 (7c0cd9442d71b55260c9917c89ebc4bd20e283a8)
+Status: downstream; upstream main a7794dd6 inspected 2026-09-07
+
+Acknowledge firmware handles promptly, wait for MM readiness, bound transient
+connection retries and report terminal failures using the existing indication.
+Cancel stopped requests without losing late CreateBearer results and guard
+callbacks against MM owner/generation replacement. Test production sources on
+private D-Bus and a wrapped QRTR transport, including actual IMSD wire messages.
+
+--- a/qvd-connection.c
++++ b/qvd-connection.c
+@@ -1,221 +1,337 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+-/*
+- * Copyright (c) 2024, Richard Acayan. All rights reserved.
+- */
+-
++/* Copyright (c) 2024, Richard Acayan. All rights reserved. */
+ #include <libmm-glib.h>
+-#include <stdbool.h>
+-
+ #include "qvd-connection.h"
+ 
+-enum {
+-	ADDR_CHANGED,
+-	CONNECT_ERR,
+-	DISCONNECT_ERR,
+-	N_SIGNALS,
+-};
++#ifndef QVD_CONNECT_TIMEOUT_SECONDS
++#define QVD_CONNECT_TIMEOUT_SECONDS 60
++#endif
++#ifndef QVD_RETRY_MILLISECONDS
++#define QVD_RETRY_MILLISECONDS 1000
++#endif
++#define QVD_MAX_CONNECT_ATTEMPTS 3
++
++enum { ADDR_CHANGED, CONNECT_ERR, DISCONNECT_ERR, N_SIGNALS };
++enum { OP_NONE, OP_CONNECT, OP_DISCONNECT };
+ 
+ struct _QVDConnection {
+ 	GObject parent_instance;
+-
+ 	MMBearer *bearer;
++	MMModem *modem;
++	gulong bearer_sig, modem_sig;
+ 	MMBearerIpFamily ip_type;
+ 	gchar *addr;
+-	gboolean requested;
+-
++	gboolean requested, invalidated;
++	guint generation, operation_generation, operation, address_generation;
++	guint attempts, retry_id, deadline_id;
+ 	guint32 sub_id, conn_id;
+ 	guint8 local_id;
+ };
+ 
++struct operation {
++	QVDConnection *conn;
++	MMBearer *bearer;
++	gchar *owner;
++	guint generation;
++};
++
+ G_DEFINE_TYPE(QVDConnection, qvd_connection, G_TYPE_OBJECT)
+-
+ static guint conn_signals[N_SIGNALS];
+-
+-static void qvd_connection_dispose(GObject *obj);
++static void drive_connection(QVDConnection *conn);
++static void start_disconnect(QVDConnection *conn);
++
++static void clear_timer(guint *id)
++{
++	if (*id) {
++		g_source_remove(*id);
++		*id = 0;
++	}
++}
++
++static void qvd_connection_dispose(GObject *obj)
++{
++	QVDConnection *conn = QVD_CONNECTION(obj);
++	clear_timer(&conn->retry_id);
++	clear_timer(&conn->deadline_id);
++	if (conn->bearer_sig) {
++		g_signal_handler_disconnect(conn->bearer, conn->bearer_sig);
++		conn->bearer_sig = 0;
++	}
++	if (conn->modem_sig) {
++		g_signal_handler_disconnect(conn->modem, conn->modem_sig);
++		conn->modem_sig = 0;
++	}
++	g_clear_object(&conn->bearer);
++	g_clear_object(&conn->modem);
++	g_clear_pointer(&conn->addr, g_free);
++	G_OBJECT_CLASS(qvd_connection_parent_class)->dispose(obj);
++}
+ 
+ static void qvd_connection_class_init(QVDConnectionClass *c)
+ {
+-	GObjectClass *obj_class = G_OBJECT_CLASS(c);
+-
+-	obj_class->dispose = qvd_connection_dispose;
+-
+-	conn_signals[ADDR_CHANGED] = g_signal_new("qvd-address-changed",
+-						  QVD_TYPE_CONNECTION,
+-						  G_SIGNAL_RUN_LAST,
+-						  0, NULL, NULL, NULL,
+-						  G_TYPE_NONE,
+-						  2, G_TYPE_INT, G_TYPE_STRING);
+-	conn_signals[CONNECT_ERR] = g_signal_new("qvd-connect-error",
+-						 QVD_TYPE_CONNECTION,
+-						 G_SIGNAL_RUN_LAST,
+-						 0, NULL, NULL, NULL,
+-						 G_TYPE_NONE,
+-						 1, G_TYPE_ERROR);
+-	conn_signals[DISCONNECT_ERR] = g_signal_new("qvd-disconnect-error",
+-						    QVD_TYPE_CONNECTION,
+-						    G_SIGNAL_RUN_LAST,
+-						    0, NULL, NULL, NULL,
+-						    G_TYPE_NONE,
+-						    1, G_TYPE_ERROR);
+-}
+-
+-static void qvd_connection_init(QVDConnection *conn)
+-{
+-}
+-
+-static void qvd_connection_dispose(GObject *obj)
+-{
+-	QVDConnection *conn = QVD_CONNECTION(obj);
+-
+-	if (conn->addr != NULL)
+-		g_free(g_steal_pointer(&conn->addr));
+-
+-	g_clear_object(&conn->bearer);
+-}
++	G_OBJECT_CLASS(c)->dispose = qvd_connection_dispose;
++	conn_signals[ADDR_CHANGED] = g_signal_new("qvd-address-changed", QVD_TYPE_CONNECTION,
++		G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 2, G_TYPE_INT, G_TYPE_STRING);
++	conn_signals[CONNECT_ERR] = g_signal_new("qvd-connect-error", QVD_TYPE_CONNECTION,
++		G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_ERROR);
++	conn_signals[DISCONNECT_ERR] = g_signal_new("qvd-disconnect-error", QVD_TYPE_CONNECTION,
++		G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_ERROR);
++}
++static void qvd_connection_init(QVDConnection *conn) { }
+ 
+ QVDConnection *qvd_connection_new(MMBearerIpFamily ip_type)
+ {
+-	QVDConnection *conn;
+-
+-	conn = QVD_CONNECTION(g_object_new(QVD_TYPE_CONNECTION, NULL));
++	QVDConnection *conn = g_object_new(QVD_TYPE_CONNECTION, NULL);
+ 	conn->ip_type = ip_type;
+-
+ 	return conn;
+ }
+-
+ const gchar *qvd_connection_get_path(QVDConnection *conn)
+ {
+-	if (conn->bearer == NULL)
+-		return NULL;
+-
+-	return g_dbus_proxy_get_object_path(G_DBUS_PROXY(conn->bearer));
+-}
+-
+-void qvd_connection_get_handles(const QVDConnection *conn,
+-				guint32 *sub_id, guint32 *conn_id,
+-				guint8 *local_id)
+-{
+-	g_assert(conn != NULL);
+-
+-	if (sub_id != NULL)
+-		*sub_id = conn->sub_id;
+-
+-	if (conn_id != NULL)
+-		*conn_id = conn->conn_id;
+-
+-	if (local_id != NULL)
+-		*local_id = conn->local_id;
+-}
+-
+-static void try_notify_address(QVDConnection *conn,
+-			       GVariant *changed,
+-			       MMBearerIpFamily ip_type,
+-			       const gchar *conf_name)
+-{
+-	GVariant *ip_conf;
+-	gchar *addr = NULL;
+-
+-	ip_conf = g_variant_lookup_value(changed, conf_name, G_VARIANT_TYPE_DICTIONARY);
+-	if (ip_conf == NULL)
+-		return;
+-
+-	g_variant_lookup(ip_conf, "address", "s", &addr);
+-
+-	if (g_strcmp0(addr, conn->addr)) {
+-		g_signal_emit(conn, conn_signals[ADDR_CHANGED], 0, ip_type, addr);
+-		conn->addr = addr;
+-	} else {
+-		g_free(addr);
+-	}
+-}
+-
+-void qvd_connection_set_handles(QVDConnection *conn,
+-				guint32 sub_id, guint32 conn_id,
+-				guint8 local_id)
+-{
+-	g_assert(conn != NULL);
+-
++	return conn->bearer ? mm_bearer_get_path(conn->bearer) : NULL;
++}
++gboolean qvd_connection_is_requested(QVDConnection *conn) { return conn->requested; }
++gboolean qvd_connection_has_bearer(QVDConnection *conn) { return conn->bearer != NULL; }
++void qvd_connection_get_handles(const QVDConnection *conn, guint32 *sub_id,
++	guint32 *conn_id, guint8 *local_id)
++{
++	if (sub_id) *sub_id = conn->sub_id;
++	if (conn_id) *conn_id = conn->conn_id;
++	if (local_id) *local_id = conn->local_id;
++}
++void qvd_connection_set_handles(QVDConnection *conn, guint32 sub_id,
++	guint32 conn_id, guint8 local_id)
++{
+ 	conn->sub_id = sub_id;
+ 	conn->conn_id = conn_id;
+ 	conn->local_id = local_id;
+ }
+ 
++static struct operation *operation_new(QVDConnection *conn, guint kind)
++{
++	struct operation *op = g_new0(struct operation, 1);
++	op->conn = g_object_ref(conn);
++	op->bearer = g_object_ref(conn->bearer);
++	op->owner = g_dbus_proxy_get_name_owner(G_DBUS_PROXY(conn->bearer));
++	op->generation = conn->generation;
++	conn->operation = kind;
++	conn->operation_generation = conn->generation;
++	return op;
++}
++static void operation_free(struct operation *op)
++{
++	g_object_unref(op->conn);
++	g_object_unref(op->bearer);
++	g_free(op->owner);
++	g_free(op);
++}
++static gboolean operation_live(struct operation *op)
++{
++	g_autofree gchar *owner = g_dbus_proxy_get_name_owner(G_DBUS_PROXY(op->bearer));
++	return !op->conn->invalidated && op->conn->bearer == op->bearer &&
++		op->owner && !g_strcmp0(op->owner, owner);
++}
++
++static void fail_connection(QVDConnection *conn, const GError *error)
++{
++	if (!conn->requested)
++		return;
++	conn->requested = FALSE;
++	conn->generation++;
++	clear_timer(&conn->retry_id);
++	clear_timer(&conn->deadline_id);
++	g_signal_emit(conn, conn_signals[CONNECT_ERR], 0, error);
++	/* A timed out D-Bus Connect may still complete. Keep its callback alive;
++	 * it will disconnect the old attempt instead of reviving this request. */
++	if (conn->operation == OP_NONE && conn->bearer && mm_bearer_get_connected(conn->bearer))
++		start_disconnect(conn);
++}
++static gboolean connection_timeout(gpointer data)
++{
++	QVDConnection *conn = data;
++	g_autoptr(GError) error = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
++		"IMS bearer did not become ready before its deadline");
++	conn->deadline_id = 0;
++	fail_connection(conn, error);
++	return G_SOURCE_REMOVE;
++}
++static gboolean retry_connection(gpointer data)
++{
++	QVDConnection *conn = data;
++	conn->retry_id = 0;
++	drive_connection(conn);
++	return G_SOURCE_REMOVE;
++}
++static gboolean retryable(const GError *error)
++{
++	return g_error_matches(error, MM_CORE_ERROR, MM_CORE_ERROR_CANCELLED) ||
++		g_error_matches(error, MM_CORE_ERROR, MM_CORE_ERROR_IN_PROGRESS) ||
++		g_error_matches(error, MM_CORE_ERROR, MM_CORE_ERROR_WRONG_STATE) ||
++		g_error_matches(error, MM_CORE_ERROR, MM_CORE_ERROR_RETRY) ||
++		g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED) ||
++		g_error_matches(error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT) ||
++		g_error_matches(error, G_DBUS_ERROR, G_DBUS_ERROR_NO_REPLY);
++}
++
++static void report_address(QVDConnection *conn, gboolean replay)
++{
++	g_autoptr(MMBearerIpConfig) config = NULL;
++	const gchar *address;
++	if (!conn->requested || conn->invalidated || !conn->bearer ||
++		(conn->operation != OP_NONE && conn->operation_generation != conn->generation))
++		return;
++	config = conn->ip_type == MM_BEARER_IP_FAMILY_IPV4 ?
++		mm_bearer_get_ipv4_config(conn->bearer) : mm_bearer_get_ipv6_config(conn->bearer);
++	address = config && mm_bearer_get_connected(conn->bearer) ? mm_bearer_ip_config_get_address(config) : NULL;
++	if (!address && !conn->addr) return;
++	if (!replay && conn->address_generation == conn->generation && !g_strcmp0(address, conn->addr))
++		return;
++	g_free(conn->addr);
++	conn->addr = g_strdup(address);
++	conn->address_generation = conn->generation;
++	if (address)
++		clear_timer(&conn->deadline_id);
++	g_signal_emit(conn, conn_signals[ADDR_CHANGED], 0, conn->ip_type, address);
++}
++
++static void on_disconnect(GObject *obj, GAsyncResult *res, gpointer data)
++{
++	struct operation *op = data;
++	QVDConnection *conn = op->conn;
++	g_autoptr(GError) error = NULL;
++	mm_bearer_disconnect_finish(MM_BEARER(obj), res, &error);
++	if (operation_live(op)) {
++		conn->operation = OP_NONE;
++		if (error) {
++			g_signal_emit(conn, conn_signals[DISCONNECT_ERR], 0, error);
++			/* Do not launch a new connection on top of an uncertain disconnect. */
++			fail_connection(conn, error);
++		} else {
++			g_clear_pointer(&conn->addr, g_free);
++			drive_connection(conn);
++		}
++	}
++	operation_free(op);
++}
++static void start_disconnect(QVDConnection *conn)
++{
++	if (conn->operation != OP_NONE || !conn->bearer || conn->invalidated)
++		return;
++	mm_bearer_disconnect(conn->bearer, NULL, on_disconnect, operation_new(conn, OP_DISCONNECT));
++}
+ static void on_connect(GObject *obj, GAsyncResult *res, gpointer data)
+ {
++	struct operation *op = data;
++	QVDConnection *conn = op->conn;
++	g_autoptr(GError) error = NULL;
++	mm_bearer_connect_finish(MM_BEARER(obj), res, &error);
++	if (!operation_live(op))
++		goto done;
++	conn->operation = OP_NONE;
++	if (!conn->requested || op->generation != conn->generation) {
++		/* Stop/new Start while Connect was in flight: drain the old operation
++		 * through Disconnect before attempting the new request. */
++		start_disconnect(conn);
++		goto done;
++	}
++	if (error) {
++		g_message("IMS bearer connection attempt %u failed: %s", conn->attempts, error->message);
++		if (retryable(error) && conn->attempts < QVD_MAX_CONNECT_ATTEMPTS) {
++			conn->retry_id = g_timeout_add_full(G_PRIORITY_DEFAULT,
++				QVD_RETRY_MILLISECONDS * conn->attempts, retry_connection,
++				g_object_ref(conn), g_object_unref);
++		} else {
++			fail_connection(conn, error);
++		}
++	} else {
++		report_address(conn, FALSE);
++	}
++ done:
++	operation_free(op);
++}
++static gboolean modem_ready(QVDConnection *conn)
++{
++	MMModemState state = conn->modem ? mm_modem_get_state(conn->modem) : MM_MODEM_STATE_UNKNOWN;
++	return state == MM_MODEM_STATE_REGISTERED || state == MM_MODEM_STATE_CONNECTING || state == MM_MODEM_STATE_CONNECTED;
++}
++static void drive_connection(QVDConnection *conn)
++{
++	if (!conn->requested || conn->invalidated || !conn->bearer ||
++		conn->operation != OP_NONE || conn->retry_id || !modem_ready(conn))
++		return;
++	if (mm_bearer_get_connected(conn->bearer)) {
++		report_address(conn, FALSE);
++		return;
++	}
++	conn->attempts++;
++	mm_bearer_connect(conn->bearer, NULL, on_connect, operation_new(conn, OP_CONNECT));
++}
++void qvd_connection_connect(QVDConnection *conn)
++{
++	if (conn->invalidated)
++		return;
++	if (!conn->requested) {
++		conn->requested = TRUE;
++		conn->generation++;
++		conn->attempts = 0;
++		conn->deadline_id = g_timeout_add_seconds_full(G_PRIORITY_DEFAULT,
++			QVD_CONNECT_TIMEOUT_SECONDS, connection_timeout, g_object_ref(conn), g_object_unref);
++	}
++	drive_connection(conn);
++}
++void qvd_connection_disconnect(QVDConnection *conn)
++{
++	conn->requested = FALSE;
++	conn->generation++;
++	clear_timer(&conn->retry_id);
++	clear_timer(&conn->deadline_id);
++	start_disconnect(conn);
++}
++static void on_bearer_properties_changed(GDBusProxy *bearer, GVariant *changed,
++	gchar **invalidated, gpointer data)
++{
+ 	QVDConnection *conn = QVD_CONNECTION(data);
+-	GError *err = NULL;
+-
+-	mm_bearer_connect_finish(MM_BEARER(obj), res, &err);
+-	if (err != NULL) {
+-		g_printerr("Failed to connect: %s\n", err->message);
+-		g_signal_emit(conn, conn_signals[CONNECT_ERR], 0, err);
+-		g_clear_error(&err);
+-	}
+-
+-	g_object_unref(conn);
+-}
+-
+-void qvd_connection_connect(QVDConnection *conn)
+-{
+-	g_assert(conn != NULL);
+-
+-	conn->requested = TRUE;
+-
+-	if (conn->bearer != NULL)
+-		mm_bearer_connect(conn->bearer, NULL, on_connect, g_object_ref(conn));
+-}
+-
+-static void on_disconnect(GObject *obj, GAsyncResult *res, gpointer data)
+-{
+-	QVDConnection *conn = QVD_CONNECTION(data);
+-	GError *err = NULL;
+-
+-	mm_bearer_disconnect_finish(MM_BEARER(obj), res, &err);
+-	if (err != NULL) {
+-		g_printerr("Failed to disconnect: %s\n", err->message);
+-		g_signal_emit(conn, conn_signals[DISCONNECT_ERR], 0, err);
+-		g_clear_error(&err);
+-	}
+-
+-	g_object_unref(conn);
+-}
+-
+-void qvd_connection_disconnect(QVDConnection *conn)
+-{
+-	g_assert(conn != NULL);
+-	g_assert(conn->bearer != NULL);
+-
+-	conn->requested = FALSE;
+-
+-	if (conn->bearer != NULL)
+-		mm_bearer_disconnect(conn->bearer, NULL, on_disconnect, g_object_ref(conn));
+-}
+-
+-static void on_bearer_properties_changed(GDBusProxy* bearer,
+-					 GVariant* changed,
+-					 char** invalidated,
+-					 gpointer data)
+-{
+-	QVDConnection *conn = QVD_CONNECTION(data);
+-
+-	g_assert(conn->ip_type == MM_BEARER_IP_FAMILY_IPV4
+-	      || conn->ip_type == MM_BEARER_IP_FAMILY_IPV6);
+-	if (conn->ip_type == MM_BEARER_IP_FAMILY_IPV4)
+-		try_notify_address(conn, changed, MM_BEARER_IP_FAMILY_IPV4, "Ip4Config");
++	/* Even a D-Bus timeout does not guarantee that the remote Connect
++	 * stopped. Drain a subsequently connected bearer for a retired request. */
++	if (!conn->requested && !conn->invalidated && mm_bearer_get_connected(conn->bearer))
++		start_disconnect(conn);
+ 	else
+-		try_notify_address(conn, changed, MM_BEARER_IP_FAMILY_IPV6, "Ip6Config");
+-}
+-
++		report_address(conn, FALSE);
++}
++static void on_modem_state_changed(GObject *modem, GParamSpec *pspec, gpointer data)
++{
++	drive_connection(QVD_CONNECTION(data));
++}
++void qvd_connection_set_modem(QVDConnection *conn, MMModem *modem)
++{
++	g_return_if_fail(!conn->modem);
++	conn->modem = g_object_ref(modem);
++	conn->modem_sig = g_signal_connect(modem, "notify::state", G_CALLBACK(on_modem_state_changed), conn);
++}
+ void qvd_connection_set_bearer(QVDConnection *conn, MMBearer *bearer)
+ {
+-	g_assert(conn != NULL);
+-	g_assert(conn->bearer == NULL);
+-
++	g_return_if_fail(!conn->bearer && !conn->invalidated);
+ 	conn->bearer = g_object_ref(bearer);
+-
+-	g_signal_connect(bearer, "g-properties-changed",
+-			 G_CALLBACK(on_bearer_properties_changed), conn);
+-
+-	if (conn->requested)
+-		mm_bearer_connect(conn->bearer, NULL, on_connect, conn);
+-}
++	conn->bearer_sig = g_signal_connect(bearer, "g-properties-changed",
++		G_CALLBACK(on_bearer_properties_changed), conn);
++	drive_connection(conn);
++}
++void qvd_connection_invalidate(QVDConnection *conn)
++{
++	g_autoptr(GError) error = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_CLOSED,
++		"ModemManager removed the IMS modem or bearer");
++	conn->invalidated = TRUE;
++	fail_connection(conn, error);
++	conn->generation++;
++	clear_timer(&conn->retry_id);
++	clear_timer(&conn->deadline_id);
++	if (conn->bearer_sig) {
++		g_signal_handler_disconnect(conn->bearer, conn->bearer_sig);
++		conn->bearer_sig = 0;
++	}
++	if (conn->modem_sig) {
++		g_signal_handler_disconnect(conn->modem, conn->modem_sig);
++		conn->modem_sig = 0;
++	}
++	g_clear_object(&conn->bearer);
++	g_clear_object(&conn->modem);
++}
+--- a/qvd-connection.h
++++ b/qvd-connection.h
+@@ -29,6 +29,10 @@
+ void qvd_connection_connect(QVDConnection *conn);
+ void qvd_connection_disconnect(QVDConnection *conn);
+ void qvd_connection_set_bearer(QVDConnection *conn, MMBearer *bearer);
++void qvd_connection_set_modem(QVDConnection *conn, MMModem *modem);
++void qvd_connection_invalidate(QVDConnection *conn);
++gboolean qvd_connection_is_requested(QVDConnection *conn);
++gboolean qvd_connection_has_bearer(QVDConnection *conn);
+ 
+ G_END_DECLS
+ 
+--- a/qvd-modem.c
++++ b/qvd-modem.c
+@@ -1,455 +1,362 @@
+ // SPDX-License-Identifier: GPL-2.0-or-later
+-/*
+- * Copyright (c) 2024, Richard Acayan. All rights reserved.
+- */
+-
++/* Copyright (c) 2024, Richard Acayan. All rights reserved. */
+ #include <gio/gio.h>
+-#include <glib.h>
+ #include <libmm-glib.h>
+-#include <ModemManager-enums.h>
+-#include <stdio.h>
+-
+ #include "qvd-connection.h"
+ #include "qvd-modem.h"
+ 
+-enum {
+-	ADDR_CHANGED,
+-	CONNECT_ERR,
+-	DISCONNECT_ERR,
+-	N_SIGNALS,
+-};
++#ifndef QVD_CREATE_TIMEOUT_SECONDS
++#define QVD_CREATE_TIMEOUT_SECONDS 60
++#endif
+ 
++enum { ADDR_CHANGED, CONNECT_ERR, DISCONNECT_ERR, N_SIGNALS };
+ struct _QVDModem {
+ 	GObject parent_instance;
+-
+ 	GDBusConnection *dbus;
+ 	MMManager *manager;
+ 	MMModem *modem;
++	gulong modem_sig;
++	guint generation;
+ 	GHashTable *bearers;
+ 	GPtrArray *pending_bearers;
+ };
+-
+-struct qvd_pending_bearer {
++struct creation {
+ 	MMBearerProperties *props;
+-	GTask *task;
++	QVDConnection *conn;
++	MMModem *modem;
++	gchar *owner;
++	guint generation, timeout_id;
++	gulong cancel_id;
++	gboolean creating, completed;
+ };
+-
+ struct qvd_bearer_config {
+ 	MMBearerIpFamily ip_type;
++	guint16 profile;
+ 	gchar apn[256];
+ };
+-
++static guint modem_signals[N_SIGNALS];
+ static void qvd_modem_initable_iface_init(GInitableIface *iface);
+-
++static gboolean qvd_modem_initable_init(GInitable *, GCancellable *, GError **);
++static void qvd_modem_dispose(GObject *obj);
++static void drive_pending(QVDModem *ctx);
+ G_DEFINE_TYPE_WITH_CODE(QVDModem, qvd_modem, G_TYPE_OBJECT,
+-			G_IMPLEMENT_INTERFACE(G_TYPE_INITABLE,
+-					      qvd_modem_initable_iface_init))
+-
+-static gboolean qvd_modem_initable_init(GInitable *initable,
+-					GCancellable *cancellable,
+-					GError **out_err);
+-static void qvd_modem_dispose(GObject *obj);
+-
+-static guint modem_signals[N_SIGNALS];
++	G_IMPLEMENT_INTERFACE(G_TYPE_INITABLE, qvd_modem_initable_iface_init))
+ 
+ static void qvd_modem_class_init(QVDModemClass *c)
+ {
+-	GObjectClass *obj_class = G_OBJECT_CLASS(c);
++	G_OBJECT_CLASS(c)->dispose = qvd_modem_dispose;
++	modem_signals[ADDR_CHANGED] = g_signal_new("qvd-connection-address-changed", QVD_TYPE_MODEM,
++		G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 3,
++		QVD_TYPE_CONNECTION, G_TYPE_INT, G_TYPE_STRING);
++	modem_signals[CONNECT_ERR] = g_signal_new("qvd-connection-connect-error", QVD_TYPE_MODEM,
++		G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 2, QVD_TYPE_CONNECTION, G_TYPE_ERROR);
++	modem_signals[DISCONNECT_ERR] = g_signal_new("qvd-connection-disconnect-error", QVD_TYPE_MODEM,
++		G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 2, QVD_TYPE_CONNECTION, G_TYPE_ERROR);
++}
++static void qvd_modem_initable_iface_init(GInitableIface *iface) { iface->init = qvd_modem_initable_init; }
++static void qvd_modem_init(QVDModem *self) { }
+ 
+-	obj_class->dispose = qvd_modem_dispose;
+-
+-	modem_signals[ADDR_CHANGED] = g_signal_new("qvd-connection-address-changed",
+-						   QVD_TYPE_MODEM,
+-						   G_SIGNAL_RUN_LAST,
+-						   0, NULL, NULL, NULL,
+-						   G_TYPE_NONE,
+-						   3,
+-						   QVD_TYPE_CONNECTION,
+-						   G_TYPE_INT,
+-						   G_TYPE_STRING);
+-	modem_signals[CONNECT_ERR] = g_signal_new("qvd-connection-connect-error",
+-						  QVD_TYPE_MODEM,
+-						  G_SIGNAL_RUN_LAST,
+-						  0, NULL, NULL, NULL,
+-						  G_TYPE_NONE,
+-						  2,
+-						  QVD_TYPE_CONNECTION,
+-						  G_TYPE_ERROR);
+-	modem_signals[DISCONNECT_ERR] = g_signal_new("qvd-connection-disconnect-error",
+-						     QVD_TYPE_MODEM,
+-						     G_SIGNAL_RUN_LAST,
+-						     0, NULL, NULL, NULL,
+-						     G_TYPE_NONE,
+-						     2,
+-						     QVD_TYPE_CONNECTION,
+-						     G_TYPE_ERROR);
+-}
+-
+-static void qvd_modem_initable_iface_init(GInitableIface *iface)
+-{
+-	iface->init = qvd_modem_initable_init;
+-}
+-
+-static void qvd_modem_init(QVDModem *self)
+-{
+-}
+-
++static void creation_free(struct creation *op)
++{
++	g_clear_object(&op->props);
++	g_clear_object(&op->conn);
++	g_clear_object(&op->modem);
++	g_free(op->owner);
++	g_free(op);
++}
++static void finish_creation(GTask *task, GError *error)
++{
++	QVDModem *ctx = g_task_get_source_object(task);
++	struct creation *op = g_task_get_task_data(task);
++	GCancellable *cancel = g_task_get_cancellable(task);
++	g_autoptr(GTask) hold = g_object_ref(task);
++	if (op->completed) {
++		g_clear_error(&error);
++		return;
++	}
++	op->completed = TRUE;
++	if (op->timeout_id) {
++		g_source_remove(op->timeout_id);
++		op->timeout_id = 0;
++	}
++	if (op->cancel_id) {
++		g_signal_handler_disconnect(cancel, op->cancel_id);
++		op->cancel_id = 0;
++	}
++	g_ptr_array_remove(ctx->pending_bearers, task);
++	if (error && !qvd_connection_has_bearer(op->conn)) {
++		GHashTableIter iter;
++		gpointer value;
++		g_hash_table_iter_init(&iter, ctx->bearers);
++		while (g_hash_table_iter_next(&iter, NULL, &value)) {
++			if (value == op->conn) { g_hash_table_iter_remove(&iter); break; }
++		}
++	}
++	if (error)
++		g_task_return_error(task, error);
++	else
++		g_task_return_boolean(task, TRUE);
++}
++static gboolean creation_timeout(gpointer data)
++{
++	GTask *task = data;
++	struct creation *op = g_task_get_task_data(task);
++	op->timeout_id = 0;
++	/* Finish even if CreateBearer is still running. Its separate callback ref
++	 * retains the result and cleans it up when the original owner replies. */
++	finish_creation(task, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
++		"Timed out waiting for a registered IMS modem and bearer"));
++	return G_SOURCE_REMOVE;
++}
++static gboolean cancelled_idle(gpointer data)
++{
++	GTask *task = data;
++	struct creation *op = g_task_get_task_data(task);
++	if (!op->completed)
++		finish_creation(task, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_CANCELLED,
++			"IMSD connection request was stopped"));
++	return G_SOURCE_REMOVE;
++}
++static void creation_cancelled(GCancellable *cancel, gpointer data)
++{
++	/* Dispatch after GCancellable's signal emission so cleanup never waits
++	 * for its own cancellation callback. */
++	g_idle_add_full(G_PRIORITY_DEFAULT, cancelled_idle, g_object_ref(data), g_object_unref);
++}
++static gboolean same_modem_owner(QVDModem *ctx, struct creation *op)
++{
++	g_autofree gchar *owner = op->modem ? g_dbus_proxy_get_name_owner(G_DBUS_PROXY(op->modem)) : NULL;
++	return ctx->modem == op->modem && ctx->generation == op->generation &&
++		op->owner && !g_strcmp0(op->owner, owner);
++}
+ static void create_bearer_ready(GObject *obj, GAsyncResult *res, gpointer data)
+ {
+-	GTask *task = G_TASK(data);
+-	QVDConnection *conn;
+-	GError *err = NULL;
+-	MMBearer *bearer;
+-
+-	bearer = mm_modem_create_bearer_finish(MM_MODEM(obj), res, &err);
+-	if (err != NULL) {
+-		g_printerr("Failed to create bearer: %s\n", err->message);
+-		g_task_return_error(task, err);
+-		goto err;
+-	}
+-
+-	conn = QVD_CONNECTION(g_task_get_task_data(task));
+-
+-	qvd_connection_set_bearer(conn, bearer);
+-
+-	g_task_return_boolean(task, TRUE);
+-
+-err:
+-	g_object_unref(task);
+-}
+-
++	g_autoptr(GTask) task = data;
++	QVDModem *ctx = g_task_get_source_object(task);
++	struct creation *op = g_task_get_task_data(task);
++	g_autoptr(GError) error = NULL;
++	g_autoptr(MMBearer) bearer = mm_modem_create_bearer_finish(MM_MODEM(obj), res, &error);
++	gboolean live = same_modem_owner(ctx, op);
++	if (op->completed || g_cancellable_is_cancelled(g_task_get_cancellable(task)) ||
++		!qvd_connection_is_requested(op->conn) || !live) {
++		/* A local cancellation does not cancel the remote CreateBearer. Only
++		 * delete our late result if its original MM owner is still present. */
++		if (bearer && live)
++			mm_modem_delete_bearer(op->modem, mm_bearer_get_path(bearer), NULL, NULL, NULL);
++		if (!op->completed)
++			finish_creation(task, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_CANCELLED,
++				"IMS bearer creation belongs to an expired request or modem"));
++		return;
++	}
++	if (!bearer) {
++		finish_creation(task, g_steal_pointer(&error));
++		return;
++	}
++	qvd_connection_set_bearer(op->conn, bearer);
++	finish_creation(task, NULL);
++}
++static void drive_pending(QVDModem *ctx)
++{
++	guint i = 0;
++	MMModemState state = ctx->modem ? mm_modem_get_state(ctx->modem) : MM_MODEM_STATE_UNKNOWN;
++	while (i < ctx->pending_bearers->len) {
++		GTask *task = ctx->pending_bearers->pdata[i];
++		struct creation *op = g_task_get_task_data(task);
++		if (g_cancellable_is_cancelled(g_task_get_cancellable(task))) {
++			finish_creation(task, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_CANCELLED,
++				"IMSD connection request was stopped"));
++			continue;
++		}
++		if (!op->creating && (state == MM_MODEM_STATE_REGISTERED || state == MM_MODEM_STATE_CONNECTING || state == MM_MODEM_STATE_CONNECTED)) {
++			op->creating = TRUE;
++			op->modem = g_object_ref(ctx->modem);
++			op->owner = g_dbus_proxy_get_name_owner(G_DBUS_PROXY(ctx->modem));
++			op->generation = ctx->generation;
++			qvd_connection_set_modem(op->conn, ctx->modem);
++			/* Do not cancel the D-Bus call itself; retain its returned path for
++			 * exact cleanup if Stop/removal wins the race. */
++			mm_modem_create_bearer(ctx->modem, op->props, NULL, create_bearer_ready, g_object_ref(task));
++		}
++		i++;
++	}
++}
++static gboolean drive_pending_idle(gpointer data)
++{
++	drive_pending(QVD_MODEM(data));
++	return G_SOURCE_REMOVE;
++}
+ static gboolean is_bearer_listed(QVDConnection *conn, GVariant *bearers)
+ {
+-	GVariantIter *iter;
+-	gchar *path;
+-	const gchar *conn_path;
+-	gboolean matched = FALSE;
+-
+-	conn_path = qvd_connection_get_path(conn);
+-	if (conn_path == NULL)
++	GVariantIter iter;
++	const gchar *path, *expected = qvd_connection_get_path(conn);
++	if (!expected)
+ 		return TRUE;
+-
+-	g_variant_get(bearers, "ao", &iter);
+-
+-	while (g_variant_iter_loop(iter, "o", &path)) {
+-		if (!strcmp(path, conn_path)) {
+-			matched = TRUE;
+-			g_free(path);
+-			break;
++	g_variant_iter_init(&iter, bearers);
++	while (g_variant_iter_next(&iter, "&o", &path))
++		if (!g_strcmp0(path, expected)) return TRUE;
++	return FALSE;
++}
++static void on_modem_props_changed(GDBusProxy *modem, GVariant *changed,
++	gchar **invalidated, gpointer data)
++{
++	QVDModem *ctx = data;
++	g_autoptr(GVariant) bearers = g_variant_lookup_value(changed, "Bearers", G_VARIANT_TYPE("ao"));
++	if (bearers) {
++		GHashTableIter iter;
++		gpointer value;
++		g_hash_table_iter_init(&iter, ctx->bearers);
++		while (g_hash_table_iter_next(&iter, NULL, &value)) {
++			if (!is_bearer_listed(value, bearers)) {
++				qvd_connection_invalidate(value);
++				g_hash_table_iter_remove(&iter);
++			}
+ 		}
+ 	}
+-
+-	g_variant_iter_free(iter);
+-
+-	return matched;
+-}
+-
+-static void on_modem_props_changed(GDBusProxy *modem,
+-				   GVariant *changed,
+-				   char **invalidated,
+-				   gpointer data)
+-{
+-	struct qvd_bearer_config *config;
+-	QVDModem *ctx = QVD_MODEM(data);
+-	QVDConnection *conn;
+-	GHashTableIter tracked_bearers;
+-	GVariantIter *props;
+-	gpointer k, v;
+-	GVariant *prop;
+-	gchar *name;
+-
+-	g_variant_get(changed, "a{sv}", &props);
+-	while (g_variant_iter_loop(props, "{sv}", &name, &prop)) {
+-		if (!strcmp(name, "Bearers"))
+-			break;
+-	}
+-
+-	g_variant_iter_free(props);
+-
+-	if (name == NULL || prop == NULL)
+-		return;
+-
+-	g_free(name);
+-
+-	g_hash_table_iter_init(&tracked_bearers, ctx->bearers);
+-	while (g_hash_table_iter_next(&tracked_bearers, &k, &v)) {
+-		config = k;
+-		conn = QVD_CONNECTION(v);
+-
+-		if (!is_bearer_listed(conn, prop)) {
+-			g_signal_emit(ctx, modem_signals[ADDR_CHANGED], 0,
+-				      QVD_CONNECTION(v), config->ip_type, NULL);
+-			g_hash_table_iter_remove(&tracked_bearers);
+-			g_warning("Bearer removed remotely");
+-		}
+-	}
+-
+-	g_variant_unref(prop);
+-}
+-
+-static void on_object_added(QVDConnection *conn,
+-			    GDBusObject *object,
+-			    gpointer data)
+-{
+-	MMModem *modem;
++	drive_pending(ctx);
++}
++static gboolean is_qrtr_modem(MMModem *modem)
++{
+ 	const MMModemPortInfo *ports;
+-	struct qvd_pending_bearer *pending;
+-	guint n_ports = 0, i;
+-	gboolean is_qrtr = FALSE;
+-	QVDModem *ctx = QVD_MODEM(data);
+-
+-	modem = mm_object_get_modem(MM_OBJECT(object));
+-	if (modem == NULL)
+-		return;
+-
+-	mm_modem_peek_ports(modem, &ports, &n_ports);
+-
+-	for (i = 0; i < n_ports; i++) {
+-		if (ports[i].type == MM_MODEM_PORT_TYPE_QMI
+-		 && !strcmp(ports[i].name, "qrtr0")) {
+-			is_qrtr = TRUE;
+-			break;
+-		}
+-	}
+-
+-	if (is_qrtr) {
+-		g_info("New ModemManager QRTR modem detected: path: %s\n", mm_modem_get_path(modem));
+-		ctx->modem = g_object_ref(modem);
+-		g_signal_connect(modem, "g-properties-changed",
+-				 G_CALLBACK(on_modem_props_changed), ctx);
+-
+-		for (i = 0; i < ctx->pending_bearers->len; i++) {
+-			pending = ctx->pending_bearers->pdata[i];
+-			mm_modem_create_bearer(ctx->modem, pending->props, NULL, create_bearer_ready, pending->task);
+-			g_object_unref(pending->props);
+-		}
+-
+-		g_ptr_array_unref(g_steal_pointer(&ctx->pending_bearers));
+-		ctx->pending_bearers = g_ptr_array_new_full(0, g_free);
+-	} else {
+-		g_info("Ignoring new modem: path %s, not a qrtr modem.\n", mm_modem_get_path(modem));
+-	}
+-}
+-
+-static void send_bearer_disconnected(gpointer k, gpointer v, gpointer data)
+-{
+-	struct qvd_bearer_config *config = k;
+-	QVDModem *ctx = QVD_MODEM(data);
+-	QVDConnection *conn = QVD_CONNECTION(v);
+-
+-	g_signal_emit(ctx, modem_signals[ADDR_CHANGED], 0, conn, config->ip_type, NULL);
+-}
+-
+-
+-static void on_object_removed(QVDConnection *conn,
+-			      GDBusObject *object,
+-			      gpointer data)
+-{
+-	QVDModem *ctx = QVD_MODEM(data);
+-	const gchar *removed_path, *path;
+-
+-	removed_path = mm_object_get_path(MM_OBJECT(object));
+-	path = mm_modem_get_path(ctx->modem);
+-
+-	g_info("ModemManager removed object: path: %s\n", removed_path);
+-	if (strcmp(path, removed_path))
+-		return;
+-
+-	g_warning("ModemManager QRTR modem removed: path: %s\n", path);
+-
+-	g_hash_table_foreach(ctx->bearers, send_bearer_disconnected, ctx);
++	guint count, i;
++	if (!modem) return FALSE;
++	mm_modem_peek_ports(modem, &ports, &count);
++	for (i = 0; i < count; i++)
++		if (ports[i].type == MM_MODEM_PORT_TYPE_QMI && !g_strcmp0(ports[i].name, "qrtr0")) return TRUE;
++	return FALSE;
++}
++static void on_object_added(GDBusObjectManager *manager, GDBusObject *object, gpointer data)
++{
++	QVDModem *ctx = data;
++	g_autoptr(MMModem) modem = mm_object_get_modem(MM_OBJECT(object));
++	if (ctx->modem || !is_qrtr_modem(modem)) return;
++	ctx->modem = g_object_ref(modem);
++	ctx->generation++;
++	ctx->modem_sig = g_signal_connect(modem, "g-properties-changed", G_CALLBACK(on_modem_props_changed), ctx);
++	drive_pending(ctx);
++}
++static void on_object_removed(GDBusObjectManager *manager, GDBusObject *object, gpointer data)
++{
++	QVDModem *ctx = data;
++	GHashTableIter iter;
++	gpointer value;
++	if (!ctx->modem || g_strcmp0(mm_modem_get_path(ctx->modem), g_dbus_object_get_object_path(object))) return;
++	ctx->generation++;
++	g_signal_handler_disconnect(ctx->modem, ctx->modem_sig);
++	ctx->modem_sig = 0;
++	g_clear_object(&ctx->modem);
++	g_hash_table_iter_init(&iter, ctx->bearers);
++	while (g_hash_table_iter_next(&iter, NULL, &value))
++		qvd_connection_invalidate(value);
+ 	g_hash_table_remove_all(ctx->bearers);
+-	g_clear_object(&ctx->modem);
+-}
+-
+-static void find_modem(gpointer memb, gpointer data)
+-{
+-	MMModem **out = data;
+-	MMModem *modem;
+-	const MMModemPortInfo *ports;
+-	guint n_ports = 0, i;
+-	gboolean is_qrtr = FALSE;
+-
+-	modem = mm_object_get_modem(memb);
+-	if (modem == NULL)
+-		return;
+-
+-	mm_modem_peek_ports(modem, &ports, &n_ports);
+-
+-	for (i = 0; i < n_ports; i++) {
+-		if (ports[i].type == MM_MODEM_PORT_TYPE_QMI
+-		 && !strcmp(ports[i].name, "qrtr0")) {
+-			is_qrtr = TRUE;
+-			break;
+-		}
+-	}
+-
+-	if (is_qrtr)
+-		*out = g_object_ref(modem);
+-}
+-
+-static guint qvd_bearer_config_hash(gconstpointer key)
++	while (ctx->pending_bearers->len) {
++		GTask *task = ctx->pending_bearers->pdata[0];
++		finish_creation(task, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_CLOSED,
++			"ModemManager removed the IMS modem"));
++	}
++}
++static guint config_hash(gconstpointer key)
+ {
+ 	const struct qvd_bearer_config *conf = key;
+-
+-	return g_int_hash(&conf->ip_type) ^ g_str_hash(conf->apn);
+-}
+-
+-static gboolean qvd_bearer_config_equal(gconstpointer va, gconstpointer vb)
+-{
+-	const struct qvd_bearer_config *a = va;
+-	const struct qvd_bearer_config *b = vb;
+-
+-	return g_int_equal(&a->ip_type, &b->ip_type) && g_str_equal(a->apn, b->apn);
+-}
+-
+-static gboolean qvd_modem_initable_init(GInitable *initable,
+-					GCancellable *cancellable,
+-					GError **out_err)
++	return g_str_hash(conf->apn) ^ conf->ip_type ^ conf->profile;
++}
++static gboolean config_equal(gconstpointer a, gconstpointer b)
++{
++	const struct qvd_bearer_config *x = a, *y = b;
++	return x->ip_type == y->ip_type && x->profile == y->profile && !strcmp(x->apn, y->apn);
++}
++static gboolean qvd_modem_initable_init(GInitable *initable, GCancellable *cancel, GError **error)
+ {
+ 	QVDModem *ctx = QVD_MODEM(initable);
+-	GError *err = NULL;
+-	GList *objs;
+-
+-	ctx->dbus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, cancellable, &err);
+-	if (err != NULL) {
+-		g_propagate_error(out_err, err);
+-		return FALSE;
+-	}
+-
++	GList *objects, *l;
++	ctx->bearers = g_hash_table_new_full(config_hash, config_equal, g_free, g_object_unref);
++	ctx->pending_bearers = g_ptr_array_new_with_free_func(g_object_unref);
++	ctx->dbus = g_bus_get_sync(G_BUS_TYPE_SYSTEM, cancel, error);
++	if (!ctx->dbus) return FALSE;
+ 	ctx->manager = mm_manager_new_sync(ctx->dbus,
+-					   G_DBUS_OBJECT_MANAGER_CLIENT_FLAGS_DO_NOT_AUTO_START,
+-					   NULL, &err);
+-	if (err != NULL) {
+-		g_propagate_error(out_err, err);
+-		return FALSE;
+-	}
+-
+-	objs = g_dbus_object_manager_get_objects(G_DBUS_OBJECT_MANAGER(ctx->manager));
+-	g_list_foreach(objs, find_modem, &ctx->modem);
+-	g_list_free_full(objs, g_object_unref);
+-	if (ctx->modem != NULL)
+-		g_signal_connect(ctx->modem, "g-properties-changed",
+-				 G_CALLBACK(on_modem_props_changed), ctx);
+-	else
+-		g_warning("ModemManager QRTR modem not detected on startup\n");
+-
++		G_DBUS_OBJECT_MANAGER_CLIENT_FLAGS_DO_NOT_AUTO_START, cancel, error);
++	if (!ctx->manager) return FALSE;
+ 	g_signal_connect(ctx->manager, "object-added", G_CALLBACK(on_object_added), ctx);
+ 	g_signal_connect(ctx->manager, "object-removed", G_CALLBACK(on_object_removed), ctx);
+-
+-	ctx->bearers = g_hash_table_new_full(qvd_bearer_config_hash, qvd_bearer_config_equal,
+-					     g_free, g_object_unref);
+-	ctx->pending_bearers = g_ptr_array_new_full(0, g_free);
+-
++	objects = g_dbus_object_manager_get_objects(G_DBUS_OBJECT_MANAGER(ctx->manager));
++	for (l = objects; l; l = l->next) on_object_added(G_DBUS_OBJECT_MANAGER(ctx->manager), l->data, ctx);
++	g_list_free_full(objects, g_object_unref);
+ 	return TRUE;
+ }
+-
+ static void qvd_modem_dispose(GObject *obj)
+ {
+ 	QVDModem *ctx = QVD_MODEM(obj);
+-
+-	if (ctx->bearers != NULL)
+-		g_hash_table_destroy(g_steal_pointer(&ctx->bearers));
+-
+-	if (ctx->pending_bearers != NULL)
+-		g_ptr_array_unref(g_steal_pointer(&ctx->pending_bearers));
+-
++	if (ctx->modem_sig) {
++		g_signal_handler_disconnect(ctx->modem, ctx->modem_sig);
++		ctx->modem_sig = 0;
++	}
++	if (ctx->manager) g_signal_handlers_disconnect_by_data(ctx->manager, ctx);
++	g_clear_object(&ctx->modem);
++	g_clear_pointer(&ctx->bearers, g_hash_table_unref);
++	g_clear_pointer(&ctx->pending_bearers, g_ptr_array_unref);
+ 	g_clear_object(&ctx->manager);
+ 	g_clear_object(&ctx->dbus);
+-}
+-
+-QVDModem *qvd_modem_new(GError **err)
+-{
+-	return g_initable_new(QVD_TYPE_MODEM, NULL, err, NULL);
+-}
+-
+-static void on_address_changed(QVDConnection *conn,
+-			       MMBearerIpFamily ip_type,
+-			       const gchar *addr,
+-			       gpointer data)
+-{
+-	QVDModem *ctx = QVD_MODEM(data);
+-
+-	g_signal_emit(ctx, modem_signals[ADDR_CHANGED], 0, conn, ip_type, addr);
+-}
+-
+-static void on_connect_error(QVDConnection *conn, const GError *err, gpointer data)
+-{
+-	QVDModem *ctx = QVD_MODEM(data);
+-
+-	g_signal_emit(ctx, modem_signals[CONNECT_ERR], 0, conn, err);
+-}
+-
+-static void on_disconnect_error(QVDConnection *conn, const GError *err, gpointer data)
+-{
+-	QVDModem *ctx = QVD_MODEM(data);
+-
+-	g_signal_emit(ctx, modem_signals[DISCONNECT_ERR], 0, conn, err);
+-}
+-
+-gboolean qvd_modem_get_connection_finish(QVDModem *ctx, GAsyncResult *res, GError **err)
+-{
+-	return g_task_propagate_boolean(G_TASK(res), err);
+-}
+-
+-QVDConnection *qvd_modem_get_connection(QVDModem *ctx,
+-					const gchar *apn,
+-					MMBearerIpFamily ip_family,
+-					guint16 profile_idx_3gpp,
+-					GCancellable *cancellable,
+-					GAsyncReadyCallback cb,
+-					gpointer data)
+-{
+-	struct qvd_bearer_config *conf;
+-	struct qvd_pending_bearer *pending;
++	G_OBJECT_CLASS(qvd_modem_parent_class)->dispose(obj);
++}
++QVDModem *qvd_modem_new(GError **error) { return g_initable_new(QVD_TYPE_MODEM, NULL, error, NULL); }
++static void on_address_changed(QVDConnection *conn, MMBearerIpFamily ip, const gchar *addr, gpointer data)
++{
++	g_signal_emit(data, modem_signals[ADDR_CHANGED], 0, conn, ip, addr);
++}
++static void on_connect_error(QVDConnection *conn, const GError *error, gpointer data)
++{
++	g_signal_emit(data, modem_signals[CONNECT_ERR], 0, conn, error);
++}
++static void on_disconnect_error(QVDConnection *conn, const GError *error, gpointer data)
++{
++	g_signal_emit(data, modem_signals[DISCONNECT_ERR], 0, conn, error);
++}
++gboolean qvd_modem_get_connection_finish(QVDModem *ctx, GAsyncResult *res, GError **error)
++{
++	return g_task_propagate_boolean(G_TASK(res), error);
++}
++QVDConnection *qvd_modem_get_connection(QVDModem *ctx, const gchar *apn,
++	MMBearerIpFamily ip, guint16 profile, GCancellable *cancel, GAsyncReadyCallback cb, gpointer data)
++{
++	struct qvd_bearer_config key = { .ip_type = ip, .profile = profile };
++	struct creation *op;
++	QVDConnection *conn;
+ 	GTask *task;
+-	QVDConnection *conn;
+-	MMBearerProperties *props;
+-
+-	g_assert(ctx != NULL);
+-
+-	task = g_task_new(ctx, cancellable, cb, data);
+-
+-	conf = g_malloc(sizeof(struct qvd_bearer_config));
+-	conf->ip_type = ip_family;
+-	strncpy(conf->apn, apn, 255);
+-	conf->apn[255] = '\0';
+-
+-	if (!g_hash_table_contains(ctx->bearers, conf)) {
+-		conn = qvd_connection_new(ip_family);
+-		g_signal_connect(conn, "qvd-address-changed",
+-				 G_CALLBACK(on_address_changed), ctx);
+-		g_signal_connect(conn, "qvd-connect-error",
+-				 G_CALLBACK(on_connect_error), ctx);
+-		g_signal_connect(conn, "qvd-disconnect-error",
+-				 G_CALLBACK(on_disconnect_error), ctx);
+-		g_hash_table_insert(ctx->bearers, conf, conn);
+-
+-		props = mm_bearer_properties_new();
+-		mm_bearer_properties_set_apn(props, apn);
+-		mm_bearer_properties_set_ip_type(props, ip_family);
+-		if (profile_idx_3gpp != 0xffff)
+-			mm_bearer_properties_set_profile_id(props, profile_idx_3gpp);
+-
+-		g_task_set_task_data(task, conn, NULL);
+-
+-		if (ctx->modem == NULL) {
+-			g_warning("Deferring connection until ModemManager QRTR modem can be detected\n");
+-
+-			pending = g_malloc(sizeof(*pending));
+-			pending->props = props;
+-			pending->task = task;
+-
+-			g_ptr_array_add(ctx->pending_bearers, pending);
+-		} else {
+-			mm_modem_create_bearer(ctx->modem, props, NULL, create_bearer_ready, task);
+-			g_object_unref(props);
+-		}
+-	} else {
+-		conn = g_hash_table_lookup(ctx->bearers, conf);
+-		g_task_return_boolean(task, true);
+-		g_free(conf);
+-	}
+-
++	g_autoptr(GCancellable) local_cancel = cancel ? g_object_ref(cancel) : g_cancellable_new();
++	g_strlcpy(key.apn, apn, sizeof(key.apn));
++	conn = g_hash_table_lookup(ctx->bearers, &key);
++	/* Stop may be followed by a fresh Start before the old Create callback
++	 * or cancellation idle drains. Never hand that request the stopped
++	 * uncreated object: its late callback must remain an orphan cleanup. */
++	if (conn && !qvd_connection_is_requested(conn) && !qvd_connection_has_bearer(conn)) {
++		g_hash_table_remove(ctx->bearers, &key);
++		conn = NULL;
++	}
++	task = g_task_new(ctx, local_cancel, cb, data);
++	g_task_set_check_cancellable(task, FALSE);
++	if (conn) {
++		/* Existing requests/bearers share one object. The server rejects a
++		 * conflicting live request before changing its handles. */
++		g_task_return_boolean(task, TRUE);
++		g_object_unref(task);
++		return g_object_ref(conn);
++	}
++	conn = qvd_connection_new(ip);
++	g_signal_connect_object(conn, "qvd-address-changed", G_CALLBACK(on_address_changed), ctx, 0);
++	g_signal_connect_object(conn, "qvd-connect-error", G_CALLBACK(on_connect_error), ctx, 0);
++	g_signal_connect_object(conn, "qvd-disconnect-error", G_CALLBACK(on_disconnect_error), ctx, 0);
++	g_hash_table_insert(ctx->bearers, g_memdup2(&key, sizeof(key)), conn);
++	op = g_new0(struct creation, 1);
++	op->conn = g_object_ref(conn);
++	op->props = mm_bearer_properties_new();
++	mm_bearer_properties_set_apn(op->props, apn);
++	mm_bearer_properties_set_ip_type(op->props, ip);
++	if (profile != 0xffff) mm_bearer_properties_set_profile_id(op->props, profile);
++	g_task_set_task_data(task, op, (GDestroyNotify)creation_free);
++	g_ptr_array_add(ctx->pending_bearers, task);
++	op->timeout_id = g_timeout_add_seconds(QVD_CREATE_TIMEOUT_SECONDS, creation_timeout, task);
++	op->cancel_id = g_signal_connect(local_cancel, "cancelled", G_CALLBACK(creation_cancelled), task);
++	/* Let the caller assign the IMSD handle and mark the connection requested
++	 * before any creation callback or ready-state processing. */
++	g_idle_add_full(G_PRIORITY_DEFAULT, drive_pending_idle, g_object_ref(ctx), g_object_unref);
+ 	return g_object_ref(conn);
+ }
+--- a/qvd-server.c
++++ b/qvd-server.c
+@@ -38,6 +38,8 @@
+ 	QVDMessage *msg;
+ 	guint32 connection_id;
+ 	guint32 subscription_id;
++	GCancellable *cancel;
++	gboolean accepted;
+ };
+ 
+ struct _QVDServer {
+@@ -47,14 +49,16 @@
+ 	GSource *source;
+ 	GHashTable *clients;
+ 	GPtrArray *conns;
++	GHashTable *requests;
+ 
+ 	QVDModem *modem;
+-	gulong modem_sig;
++	gulong modem_sig, error_sig;
+ 
+ 	struct qrtr_packet outpkt;
+ 	char *outbuf;
+ 
+ 	guint16 ind_txn;
++	guint next_id;
+ };
+ 
+ static void qvd_server_initable_iface_init(GInitableIface *iface);
+@@ -63,6 +67,8 @@
+ 					 GError **out_err);
+ static void qvd_server_dispose(GObject *obj);
+ 
++static void connection_failed(QVDModem *modem, QVDConnection *conn,
++	const GError *error, gpointer data);
+ static gboolean receive_message(GSocket *sock, GIOCondition cond, gpointer data);
+ 
+ static void connection_address_changed(QVDModem *modem,
+@@ -120,7 +126,8 @@
+ 	g_source_set_callback(server->source, G_SOURCE_FUNC(receive_message), server, NULL);
+ 	g_source_attach(server->source, NULL);
+ 
+-	server->conns = g_ptr_array_new_full(0, g_object_unref);
++	server->conns = g_ptr_array_new();
++	server->requests = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
+ 	server->clients = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, NULL);
+ 
+ 	ret = qrtr_new_server(fd, 770, 1, 0);
+@@ -138,6 +145,21 @@
+ 	QVDServer *server = QVD_SERVER(obj);
+ 	GSource *src;
+ 
++	if (server->modem) {
++		g_signal_handlers_disconnect_by_data(server->modem, server);
++	}
++	if (server->requests) {
++		GHashTableIter iter;
++		gpointer cancel;
++		g_hash_table_iter_init(&iter, server->requests);
++		while (g_hash_table_iter_next(&iter, NULL, &cancel)) g_cancellable_cancel(cancel);
++		g_clear_pointer(&server->requests, g_hash_table_unref);
++	}
++	if (server->conns) {
++		guint i;
++		for (i = 0; i < server->conns->len; i++)
++			g_clear_object((GObject **)&server->conns->pdata[i]);
++	}
+ 	if (server->clients != NULL)
+ 		g_hash_table_destroy(g_steal_pointer(&server->clients));
+ 
+@@ -156,6 +178,7 @@
+ 	// Close the socket and decrease the modem reference counter.
+ 	g_clear_object(&server->sock);
+ 	g_clear_object(&server->modem);
++	G_OBJECT_CLASS(qvd_server_parent_class)->dispose(obj);
+ }
+ 
+ QVDServer *qvd_server_new(QVDModem *modem, GError **out_err)
+@@ -174,6 +197,8 @@
+ 	server->modem = g_object_ref(modem);
+ 	server->modem_sig = g_signal_connect(server->modem, "qvd-connection-address-changed",
+ 					     G_CALLBACK(connection_address_changed), server);
++	server->error_sig = g_signal_connect(server->modem, "qvd-connection-connect-error",
++		G_CALLBACK(connection_failed), server);
+ 
+ 	return server;
+ }
+@@ -218,66 +243,75 @@
+ 	g_object_unref(msg);
+ }
+ 
+-static void register_connection(QVDServer *server, QVDConnection *conn,
+-				guint32 connection, guint32 subscription)
+-{
++static void retire_connection(QVDServer *server, QVDConnection *conn)
++{
++	GCancellable *cancel = g_hash_table_lookup(server->requests, conn);
+ 	guint i;
+-
++	if (cancel) g_cancellable_cancel(cancel);
++	g_hash_table_remove(server->requests, conn);
+ 	for (i = 0; i < server->conns->len; i++) {
+-		if (server->conns->pdata[i] == NULL) {
+-			server->conns->pdata[i] = conn;
++		if (server->conns->pdata[i] == conn) {
++			server->conns->pdata[i] = NULL;
++			g_object_unref(conn);
++		}
++	}
++}
++static gboolean register_connection(struct qvd_connect_data *data)
++{
++	QVDServer *server = data->server;
++	guint i, available = G_MAXUINT;
++	for (i = 0; i < server->conns->len; i++) {
++		if (server->conns->pdata[i] == data->conn) {
++			guint32 original, subscription;
++			qvd_connection_get_handles(data->conn, &subscription, &original, NULL);
++			/* Retransmission of the same request uses its existing handle.
++			 * A different request must not overwrite a live session's IDs. */
++			return original == data->connection_id && subscription == data->subscription_id;
++		}
++	}
++	/* Advance handles instead of immediately recycling a stopped handle: a
++	 * delayed Stop must not address the next request's live connection. */
++	for (i = 0; i <= G_MAXUINT8; i++) {
++		guint candidate = (server->next_id + i) & G_MAXUINT8;
++		if (candidate >= server->conns->len || !server->conns->pdata[candidate]) {
++			available = candidate;
+ 			break;
+ 		}
+ 	}
+-
+-	if (i == server->conns->len)
+-		g_ptr_array_add(server->conns, conn);
+-
+-	qvd_connection_set_handles(conn, connection, subscription, i);
+-}
+-
++	if (available == G_MAXUINT) return FALSE;
++	if (available >= server->conns->len) g_ptr_array_set_size(server->conns, available + 1);
++	server->conns->pdata[available] = g_object_ref(data->conn);
++	server->next_id = (available + 1) & G_MAXUINT8;
++	qvd_connection_set_handles(data->conn, data->subscription_id, data->connection_id, available);
++	g_hash_table_insert(server->requests, data->conn, g_object_ref(data->cancel));
++	data->accepted = TRUE;
++	return TRUE;
++}
++static void connection_failed(QVDModem *modem, QVDConnection *conn,
++	const GError *error, gpointer data)
++{
++	QVDServer *server = data;
++	if (!g_hash_table_contains(server->requests, conn)) return;
++	g_message("IMSD connection failed: %s", error->message);
++	/* Match the existing protocol's disconnected indication. The Start
++	 * response acknowledged the handle, not successful network registration. */
++	connection_address_changed(modem, conn, MM_BEARER_IP_FAMILY_IPV6, NULL, server);
++	retire_connection(server, conn);
++}
+ static void on_connection_opened(GObject *obj, GAsyncResult *res, gpointer data)
+ {
+-	GError *err = NULL;
+-	struct qvd_connect_data *connect_data = data;
+-	struct imsd_start_connection_resp resp;
+-	guint8 local_id;
+-	gboolean success;
+-
+-	success = qvd_modem_get_connection_finish(QVD_MODEM(obj), res, &err);
+-	if (!success) {
+-		g_printerr("IMSD Start Connection: failed to create bearer: %s\n", err->message);
+-		encode_error(connect_data->msg, 1);
+-		goto err;
+-	}
+-
+-	qvd_connection_connect(connect_data->conn);
+-
+-	register_connection(connect_data->server,
+-			    connect_data->conn,
+-			    connect_data->connection_id,
+-			    connect_data->subscription_id);
+-
+-	qvd_connection_get_handles(connect_data->conn, NULL, NULL, &local_id);
+-
+-	resp.res.err_status = 0;
+-	resp.res.err_code = 0;
+-	resp.connection = local_id;
+-	resp.orig_conn_id = connect_data->connection_id;
+-	resp.subscription = connect_data->subscription_id;
+-
+-	g_info("Resp: Start Connection, local_id %d, ims conn %d, subscription %d\n", resp.connection, resp.connection, resp.subscription);
+-	qvd_message_respond(connect_data->msg, &resp, imsd_start_connection_resp_ei, &err);
+-	if (err != NULL) {
+-		g_printerr("IMSD Start Connection: failed to send response: %s\n",
+-			   err->message);
+-		g_clear_error(&err);
+-	}
+-
+-err:
+-	g_object_unref(connect_data->server);
+-	g_object_unref(connect_data->msg);
+-	g_free(connect_data);
++	struct qvd_connect_data *request = data;
++	g_autoptr(GError) error = NULL;
++	if (!qvd_modem_get_connection_finish(QVD_MODEM(obj), res, &error) &&
++		request->accepted && !g_cancellable_is_cancelled(request->cancel) &&
++		g_hash_table_lookup(request->server->requests, request->conn) == request->cancel) {
++		connection_failed(QVD_MODEM(obj), request->conn, error, request->server);
++		qvd_connection_disconnect(request->conn);
++	}
++	g_object_unref(request->conn);
++	g_object_unref(request->cancel);
++	g_object_unref(request->server);
++	g_free(request);
+ }
+ 
+ static void process_start_connection(QVDServer *server, QVDMessage *msg)
+@@ -285,8 +319,10 @@
+ 	MMBearerIpFamily ip_family;
+ 	QVDConnection *conn;
+ 	GError *err = NULL;
+-	struct imsd_start_connection_req req;
++	struct imsd_start_connection_req req = {0};
+ 	struct qvd_connect_data *connect_data;
++	struct imsd_start_connection_resp resp = {0};
++	guint8 local_id;
+ 	gint *client;
+ 	guint node, port;
+ 
+@@ -298,6 +334,7 @@
+ 			   err->message);
+ 		g_clear_error(&err);
+ 		encode_error(msg, 1);
++		g_object_unref(msg);
+ 		return;
+ 	}
+ 
+@@ -314,6 +351,7 @@
+ 			   req.conn_params.ip_family);
+ 		g_clear_error(&err);
+ 		encode_error(msg, 1);
++		g_object_unref(msg);
+ 		return;
+ 	}
+ 
+@@ -323,32 +361,48 @@
+ 	*client = (node << 16) | port;
+ 	g_hash_table_add(server->clients, client);
+ 
+-	connect_data = g_malloc(sizeof(*connect_data));
+-	connect_data->msg = msg;
++	connect_data = g_new0(struct qvd_connect_data, 1);
+ 	connect_data->server = g_object_ref(server);
+-
+-	conn = qvd_modem_get_connection(server->modem, req.conn_params.apn, ip_family,
+-					req.conn_params.profile_idx_3gpp,
+-					NULL, on_connection_opened, connect_data);
+-	if (conn == NULL) {
+-		g_printerr("IMSD Start Connection: modem not present\n");
+-		g_clear_error(&err);
+-		encode_error(msg, 1);
+-		g_free(connect_data);
+-		return;
+-	}
+-
+-	connect_data->conn = conn;
++	connect_data->cancel = g_cancellable_new();
+ 	connect_data->connection_id = req.connection;
+ 	connect_data->subscription_id = req.subscription;
++	conn = qvd_modem_get_connection(server->modem, req.conn_params.apn, ip_family,
++		req.conn_params.profile_idx_3gpp, connect_data->cancel, on_connection_opened, connect_data);
++	connect_data->conn = conn;
++	if (!register_connection(connect_data)) {
++		/* Cancellation only belongs to this new request; leave a conflicting
++		 * live connection and its original cancellation token intact. */
++		g_cancellable_cancel(connect_data->cancel);
++		encode_error(msg, 1);
++		g_object_unref(msg);
++		return;
++	}
++	qvd_connection_get_handles(conn, NULL, NULL, &local_id);
++	resp.connection = local_id;
++	resp.orig_conn_id = req.connection;
++	resp.subscription = req.subscription;
++	/* Reply before waiting for MM readiness or bearer creation. Firmware may
++	 * cancel an unanswered Start within milliseconds during resume. */
++	qvd_message_respond(msg, &resp, imsd_start_connection_resp_ei, &err);
++	if (err) {
++		g_message("IMSD Start response failed: %s", err->message);
++		g_clear_error(&err);
++		if (connect_data->accepted) {
++			retire_connection(server, conn);
++			qvd_connection_disconnect(conn);
++		}
++	} else {
++		qvd_connection_connect(conn);
++	}
++	g_object_unref(msg);
+ }
+ 
+ static void process_stop_connection(QVDServer *server, QVDMessage *msg)
+ {
+ 	QVDConnection *conn;
+ 	GError *err = NULL;
+-	struct imsd_stop_connection_req req;
+-	struct imsd_stop_connection_resp resp;
++	struct imsd_stop_connection_req req = {0};
++	struct imsd_stop_connection_resp resp = {0};
+ 	gint *client;
+ 	guint node, port;
+ 
+@@ -362,10 +416,36 @@
+ 		goto err;
+ 	}
+ 
+-	if (req.connection >= server->conns->len
+-	 || server->conns->pdata[req.connection] == NULL) {
+-		g_printerr("IMSD Stop Connection: unknown connection ID %u\n",
+-			   req.connection);
++	conn = NULL;
++	/* After the Start ACK, Stop addresses the returned local handle. Before
++	 * receipt of that response firmware can still address its original ID.
++	 * In either case subscription must match; never stop another session. */
++	if (req.connection < server->conns->len) {
++		QVDConnection *candidate = server->conns->pdata[req.connection];
++		guint32 subscription = 0;
++		if (candidate) qvd_connection_get_handles(candidate, &subscription, NULL, NULL);
++		if (candidate && subscription == req.unkecho_01) conn = candidate;
++	}
++	{
++		guint i;
++		for (i = 0; i < server->conns->len; i++) {
++			QVDConnection *candidate = server->conns->pdata[i];
++			guint32 original, subscription;
++			if (!candidate) continue;
++			qvd_connection_get_handles(candidate, &subscription, &original, NULL);
++			if (original == req.connection && subscription == req.unkecho_01) {
++				if (conn && conn != candidate) {
++					g_message("IMSD Stop Connection: ambiguous local/original ID %u", req.connection);
++					encode_error(msg, 9);
++					goto err;
++				}
++				conn = candidate;
++			}
++		}
++	}
++	if (!conn) {
++		g_message("IMSD Stop Connection: unknown connection %u subscription %u",
++			req.connection, req.unkecho_01);
+ 		encode_error(msg, 9);
+ 		goto err;
+ 	}
+@@ -376,7 +456,8 @@
+ 	*client = (node << 16) | port;
+ 	g_hash_table_add(server->clients, client);
+ 
+-	conn = g_steal_pointer(&server->conns->pdata[req.connection]);
++	g_object_ref(conn);
++	retire_connection(server, conn);
+ 	qvd_connection_disconnect(conn);
+ 	g_object_unref(conn);
+ 
+@@ -472,14 +553,16 @@
+ 				       gpointer data)
+ {
+ 	QVDServer *server = QVD_SERVER(data);
+-	struct imsd_connection_changed_ind ind;
++	struct imsd_connection_changed_ind ind = {0};
+ 	guint32 conn_id, sub_id;
+ 	guint8 local_id;
+ 
++	if (!g_hash_table_contains(server->requests, conn)) return;
++
+ 	g_assert(ip_type == MM_BEARER_IP_FAMILY_IPV4
+ 	      || ip_type == MM_BEARER_IP_FAMILY_IPV6);
+ 
+-	qvd_connection_get_handles(conn, &conn_id, &sub_id, &local_id);
++	qvd_connection_get_handles(conn, &sub_id, &conn_id, &local_id);
+ 
+ 	server->outpkt.data = server->outbuf;
+ 	server->outpkt.data_len = 65536;
+--- a/meson.build
++++ b/meson.build
+@@ -49,3 +49,5 @@
+   install_mode : 'rwxr-xr-x',
+   rename: '81voltd'
+ )
++
++subdir('tests')
+--- /dev/null
++++ b/ims-recovery.md
+@@ -0,0 +1,46 @@
++# IMS bearer lifecycle recovery
++
++This downstream patch addresses the resume sequence observed on google-sargo:
++ModemManager restarts while 81voltd is still running, firmware requests an IMS
++connection before the new modem is registered, and the early bearer Connect is
++cancelled. 81voltd 1.2.0 neither retries that connection nor reports its failure
++to firmware. Firmware can also stop the pending request before bearer creation
++completes.
++
++Start Connection now promptly acknowledges its allocated local handle. Actual
++CreateBearer and Connect wait for ModemManager REGISTERED, CONNECTING or CONNECTED;
++DISCONNECTING is excluded. The eventual ConnectionChanged indication reports the
++connected address or the existing protocol's down result (error status 0, code 13).
++An LTE data connection is not treated as proof of IMS voice registration.
++
++The daemon serializes Connect/Disconnect and tries transient Connect failures at
++most 3 times (1 and 2 second backoffs). Each new request has a 60 second readiness/address
++deadline; creation has a separate 60 second deadline. Permanent failures and exhausted
++budgets produce one terminal down indication. Stop removes the request before any
++late asynchronous completion can publish an address or restart it.
++
++Stop checks subscription as well as the local handle, and accepts the original
++connection ID for firmware that stopped before observing the Start ACK. Ambiguous
++local/original ID matches are rejected without disconnecting either session. Same-request
++retransmissions retain their handle and bearer; a conflicting live request cannot
++overwrite those identifiers. Free local handles are allocated in rotation rather
++than immediately reusing a retired handle. IMSD's 8 bit local handle has no generation
++field: a packet delayed across a complete handle wrap is not distinguishable on the
++wire. The patch does not invent protocol fields.
++
++CreateBearer calls retain their completion after cancellation, since cancelling a
++local D-Bus call does not necessarily cancel the remote operation. A late bearer is
++deleted only on the same modem generation and D-Bus owner. A modem replacement
++invalidates old connections and handlers; stale callbacks never act on a reused
++object path owned by the replacement ModemManager process.
++
++The private-D-Bus regressions compile the production sources and run a fake
++ModemManager; they require no phone, system bus, network or real QRTR modem. Test
++builds shorten retry/deadline delays. Production builds retain the defaults above.
++Run `meson setup build`, `meson compile -C build`, and
++`meson test -C build --print-errorlogs`.
++
++Source audit: upstream v1.2.0 is 7c0cd9442d71b55260c9917c89ebc4bd20e283a8.
++Upstream main a7794dd6c8ac216a97dc5a931edab2dfc46eca2a was inspected on 2026-09-07;
++its two later changes concern QRTR decode errors and debug documentation, not this
++lifecycle problem. The patch keeps the upstream 1.2.0 protocol definitions.
+--- /dev/null
++++ b/tests/meson.build
+@@ -0,0 +1,31 @@
++python = find_program('python3')
++find_program('dbus-daemon')
++test_flags = [
++  '-DQVD_TEST_FAKE_MM="' + meson.current_source_dir() / 'fake-mm.py' + '"',
++  '-DQVD_TEST_PYTHON="' + python.full_path() + '"',
++  '-DQVD_RETRY_MILLISECONDS=100',
++  '-DQVD_CONNECT_TIMEOUT_SECONDS=5',
++  '-DQVD_CREATE_TIMEOUT_SECONDS=5',
++]
++lifecycle = executable('test-lifecycle',
++  'test-lifecycle.c', '../qvd-modem.c', '../qvd-connection.c',
++  include_directories: include_directories('..'),
++  dependencies: [libmm], c_args: test_flags)
++foreach scenario : [
++  'readiness', 'no-modem', 'cancel-ready', 'cancel-create', 'cancel-connect',
++  'cancel-create-newstart', 'cancel-ready-newstart', 'stale-address',
++  'retired-late-connected', 'retry-success', 'retry-exhausted', 'retry-stop', 'remove-create', 'owner-replacement',
++]
++  test('lifecycle-' + scenario, lifecycle, args: [scenario], timeout: 20)
++endforeach
++
++# Compile the production server, message parser and IMSD codec. Only the QRTR
++# socket transport is wrapped; no real QRTR endpoint or phone is used.
++server_test = executable('test-server',
++  'test-server.c', '../qvd-message.c', '../qvd-modem.c', '../qvd-connection.c', qmi,
++  include_directories: include_directories('..'),
++  dependencies: [libmm, libqmi, libqrtr], c_args: test_flags,
++  link_args: ['-Wl,--wrap=qrtr_open', '-Wl,--wrap=qrtr_new_server', '-Wl,--wrap=qrtr_sendto'])
++foreach scenario : ['wire-ack-stop', 'wire-ready-retransmit', 'wire-failure', 'wire-ambiguous-stop']
++  test(scenario, server_test, args: [scenario], timeout: 20)
++endforeach
+--- /dev/null
++++ b/tests/fake-mm.py
+@@ -0,0 +1,199 @@
++#!/usr/bin/python3
++"""Private-bus ModemManager test double; never touches a real modem."""
++import os
++import gi
++gi.require_version('Gio', '2.0')
++from gi.repository import Gio, GLib
++
++NAME = 'org.freedesktop.ModemManager1'
++ROOT = '/org/freedesktop/ModemManager1'
++MODEM = ROOT + '/Modem/0'
++MI = NAME + '.Modem'
++BI = NAME + '.Bearer'
++OM = 'org.freedesktop.DBus.ObjectManager'
++CTRL = 'org.example.TestModem'
++
++XML = '''<node>
++<interface name="org.freedesktop.DBus.ObjectManager">
++ <method name="GetManagedObjects"><arg type="a{oa{sa{sv}}}" direction="out"/></method>
++ <signal name="InterfacesAdded"><arg type="o"/><arg type="a{sa{sv}}"/></signal>
++ <signal name="InterfacesRemoved"><arg type="o"/><arg type="as"/></signal>
++</interface>
++<interface name="org.freedesktop.ModemManager1.Modem">
++ <method name="CreateBearer"><arg type="a{sv}" direction="in"/><arg type="o" direction="out"/></method>
++ <method name="DeleteBearer"><arg type="o" direction="in"/></method>
++ <property name="Ports" type="a(su)" access="read"/>
++ <property name="State" type="i" access="read"/>
++ <property name="Bearers" type="ao" access="read"/>
++</interface>
++<interface name="org.freedesktop.ModemManager1.Bearer">
++ <method name="Connect"/>
++ <method name="Disconnect"/>
++ <property name="Connected" type="b" access="read"/>
++ <property name="Suspended" type="b" access="read"/>
++ <property name="Interface" type="s" access="read"/>
++ <property name="Ip4Config" type="a{sv}" access="read"/>
++ <property name="Ip6Config" type="a{sv}" access="read"/>
++ <property name="Properties" type="a{sv}" access="read"/>
++</interface>
++<interface name="org.example.TestModem">
++ <method name="Configure"><arg type="a{sv}" direction="in"/></method>
++ <method name="SetState"><arg type="i" direction="in"/></method>
++ <method name="CompleteCreate"/>
++ <method name="CompleteConnect"/>
++ <method name="RemoveModem"/>
++ <method name="AddModem"><arg type="i" direction="in"/></method>
++ <method name="Stats"><arg type="a{si}" direction="out"/></method>
++ <method name="StaleAddress"/>
++ <method name="LateConnected"/>
++ <method name="ReleaseName"/>
++ <method name="Quit"/>
++</interface>
++</node>'''
++
++class FakeModem:
++    def __init__(self):
++        self.loop = GLib.MainLoop()
++        self.bus = Gio.DBusConnection.new_for_address_sync(
++            os.environ['DBUS_SYSTEM_BUS_ADDRESS'],
++            Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
++            None, None)
++        self.bus.connect('closed', lambda *args: self.loop.quit())
++        self.infos = {item.name: item for item in Gio.DBusNodeInfo.new_for_xml(XML).interfaces}
++        self.objects = {}
++        self.ids = {}
++        self.state = 3
++        self.next_bearer = 0
++        self.config = {'delay-create': False, 'delay-connect': False, 'fail-connect': 0}
++        self.stats = {'create': 0, 'connect': 0, 'disconnect': 0, 'delete': 0, 'up': 0}
++        self.pending_create = []
++        self.pending_connect = []
++        self.register(ROOT, OM, {})
++        self.register(ROOT, CTRL, {})
++        self.add_modem(3)
++        self.bus.call_sync('org.freedesktop.DBus', '/org/freedesktop/DBus',
++                           'org.freedesktop.DBus', 'RequestName', GLib.Variant('(su)', (NAME, 0)),
++                           GLib.VariantType.new('(u)'), Gio.DBusCallFlags.NONE, 5000, None)
++
++    def register(self, path, iface, props):
++        self.objects.setdefault(path, {})[iface] = props
++        self.ids[path, iface] = self.bus.register_object(path, self.infos[iface], self.call, self.get_prop, None)
++
++    def add_modem(self, state):
++        self.state = state
++        props = {'Ports': GLib.Variant('a(su)', [('qrtr0', 6)]),
++                 'State': GLib.Variant('i', state), 'Bearers': GLib.Variant('ao', [])}
++        self.register(MODEM, MI, props)
++        self.bus.emit_signal(None, ROOT, OM, 'InterfacesAdded', GLib.Variant('(oa{sa{sv}})', (MODEM, {MI: props})))
++
++    def get_prop(self, connection, sender, path, iface, name):
++        return self.objects[path][iface][name]
++
++    def change(self, path, iface, changes):
++        self.objects[path][iface].update(changes)
++        self.bus.emit_signal(None, path, 'org.freedesktop.DBus.Properties', 'PropertiesChanged',
++                             GLib.Variant('(sa{sv}as)', (iface, changes, [])))
++
++    def create(self, invocation, requested):
++        path = ROOT + '/Bearer/' + str(self.next_bearer)
++        self.next_bearer += 1
++        props = {'Connected': GLib.Variant('b', False), 'Suspended': GLib.Variant('b', False),
++                 'Interface': GLib.Variant('s', 'test0'), 'Ip4Config': GLib.Variant('a{sv}', {}),
++                 'Ip6Config': GLib.Variant('a{sv}', {}), 'Properties': GLib.Variant('a{sv}', {})}
++        self.register(path, BI, props)
++        if MODEM in self.objects:
++            paths = self.objects[MODEM][MI]['Bearers'].unpack() + [path]
++            self.change(MODEM, MI, {'Bearers': GLib.Variant('ao', paths)})
++        invocation.return_value(GLib.Variant('(o)', (path,)))
++
++    def connect(self, invocation, path):
++        if self.config['fail-connect'] > 0:
++            self.config['fail-connect'] -= 1
++            invocation.return_dbus_error(NAME + '.Error.Core.Cancelled', 'injected transient cancellation')
++            return
++        if path not in self.objects:
++            invocation.return_dbus_error('org.freedesktop.DBus.Error.UnknownObject', 'removed bearer')
++            return
++        self.stats['up'] += 1
++        self.change(path, BI, {'Connected': GLib.Variant('b', True), 'Ip6Config': GLib.Variant('a{sv}', {
++            'method': GLib.Variant('u', 2), 'address': GLib.Variant('s', '2001:db8::42'), 'prefix': GLib.Variant('u', 64)})})
++        invocation.return_value(None)
++
++    def call(self, connection, sender, path, iface, method, parameters, invocation):
++        args = parameters.unpack()
++        try:
++            if iface == OM:
++                invocation.return_value(GLib.Variant('(a{oa{sa{sv}}})', ({p: i for p, i in self.objects.items() if p != ROOT},)))
++                return
++            if iface == CTRL:
++                if method == 'Configure':
++                    self.config.update(args[0])
++                elif method == 'SetState':
++                    self.state = args[0]
++                    self.change(MODEM, MI, {'State': GLib.Variant('i', self.state)})
++                elif method == 'CompleteCreate':
++                    pending, self.pending_create = self.pending_create, []
++                    for call, props in pending:
++                        self.create(call, props)
++                elif method == 'CompleteConnect':
++                    pending, self.pending_connect = self.pending_connect, []
++                    for call, bearer_path in pending:
++                        self.connect(call, bearer_path)
++                elif method == 'RemoveModem':
++                    self.bus.emit_signal(None, ROOT, OM, 'InterfacesRemoved', GLib.Variant('(oas)', (MODEM, [MI])))
++                    self.bus.unregister_object(self.ids.pop((MODEM, MI)))
++                    self.objects.pop(MODEM)
++                elif method == 'AddModem':
++                    self.add_modem(args[0])
++                elif method == 'Stats':
++                    invocation.return_value(GLib.Variant('(a{si})', (self.stats,)))
++                    return
++                elif method in ('StaleAddress', 'LateConnected'):
++                    for bearer_path in list(self.objects):
++                        if BI in self.objects[bearer_path]:
++                            self.change(bearer_path, BI, {'Connected': GLib.Variant('b', method == 'LateConnected'),
++                                'Ip6Config': GLib.Variant('a{sv}', {'method': GLib.Variant('u', 2),
++                                    'address': GLib.Variant('s', '2001:db8::dead'), 'prefix': GLib.Variant('u', 64)})})
++                elif method == 'ReleaseName':
++                    self.bus.call_sync('org.freedesktop.DBus', '/org/freedesktop/DBus',
++                        'org.freedesktop.DBus', 'ReleaseName', GLib.Variant('(s)', (NAME,)),
++                        GLib.VariantType.new('(u)'), Gio.DBusCallFlags.NONE, 5000, None)
++                elif method == 'Quit':
++                    self.loop.quit()
++                invocation.return_value(None)
++                return
++            if iface == MI and method == 'CreateBearer':
++                self.stats['create'] += 1
++                if self.config['delay-create']:
++                    self.pending_create.append((invocation, args[0]))
++                else:
++                    self.create(invocation, args[0])
++                return
++            if iface == MI and method == 'DeleteBearer':
++                self.stats['delete'] += 1
++                target = args[0]
++                if (target, BI) in self.ids:
++                    self.bus.unregister_object(self.ids.pop((target, BI)))
++                    self.objects.pop(target)
++                if MODEM in self.objects:
++                    paths = [p for p in self.objects[MODEM][MI]['Bearers'].unpack() if p != target]
++                    self.change(MODEM, MI, {'Bearers': GLib.Variant('ao', paths)})
++                invocation.return_value(None)
++                return
++            if iface == BI and method == 'Connect':
++                self.stats['connect'] += 1
++                if self.config['delay-connect']:
++                    self.pending_connect.append((invocation, path))
++                else:
++                    self.connect(invocation, path)
++                return
++            if iface == BI and method == 'Disconnect':
++                self.stats['disconnect'] += 1
++                self.change(path, BI, {'Connected': GLib.Variant('b', False), 'Ip6Config': GLib.Variant('a{sv}', {})})
++                invocation.return_value(None)
++                return
++            invocation.return_dbus_error('org.freedesktop.DBus.Error.UnknownMethod', method)
++        except Exception as error:
++            invocation.return_dbus_error('org.example.TestFailure', str(error))
++
++FakeModem().loop.run()
+--- /dev/null
++++ b/tests/test-lifecycle.c
+@@ -0,0 +1,321 @@
++#include <gio/gio.h>
++#include <libmm-glib.h>
++#include "qvd-modem.h"
++#include "qvd-connection.h"
++
++#ifndef QVD_TEST_FAKE_MM
++#define QVD_TEST_FAKE_MM "/tmp/sargo81-tests/fake-mm.py"
++#endif
++#ifndef QVD_TEST_PYTHON
++#define QVD_TEST_PYTHON "/usr/bin/python3"
++#endif
++
++static GDBusConnection *control;
++static guint up_count, down_count, error_count, create_done;
++static gboolean create_success;
++
++static GVariant *command(const gchar *method, GVariant *args)
++{
++    GError *error = NULL;
++    GVariant *reply = g_dbus_connection_call_sync(control, "org.freedesktop.ModemManager1",
++        "/org/freedesktop/ModemManager1", "org.example.TestModem", method, args,
++        NULL, G_DBUS_CALL_FLAGS_NONE, 3000, NULL, &error);
++    g_assert_no_error(error);
++    return reply;
++}
++static void cmd(const gchar *method, GVariant *args)
++{
++    GVariant *reply = command(method, args);
++    g_variant_unref(reply);
++}
++static gint count(const gchar *name)
++{
++    GVariant *reply = command("Stats", NULL);
++    GVariant *dict = g_variant_get_child_value(reply, 0);
++    gint result = -1;
++    g_variant_lookup(dict, name, "i", &result);
++    g_variant_unref(dict);
++    g_variant_unref(reply);
++    return result;
++}
++static void pump(guint milliseconds)
++{
++    gint64 until = g_get_monotonic_time() + milliseconds * 1000;
++    while (g_get_monotonic_time() < until) {
++        while (g_main_context_iteration(NULL, FALSE));
++        g_usleep(1000);
++    }
++}
++static void wait_count(const gchar *name, gint target)
++{
++    for (guint i = 0; i < 500 && count(name) < target; i++)
++        pump(10);
++    g_assert_cmpint(count(name), >=, target);
++}
++static void configure(const gchar *name, GVariant *value)
++{
++    GVariantBuilder builder;
++    g_variant_builder_init(&builder, G_VARIANT_TYPE_VARDICT);
++    g_variant_builder_add(&builder, "{sv}", name, value);
++    cmd("Configure", g_variant_new("(a{sv})", &builder));
++}
++static void address(QVDConnection *conn, gint family, const gchar *addr, gpointer data)
++{
++    if (addr) up_count++;
++    else down_count++;
++}
++static void connect_error(QVDConnection *conn, const GError *error, gpointer data)
++{
++    g_test_message("terminal connection error: %s", error->message);
++    error_count++;
++}
++static void created(GObject *obj, GAsyncResult *result, gpointer data)
++{
++    GError *error = NULL;
++    create_done++;
++    create_success = qvd_modem_get_connection_finish(QVD_MODEM(obj), result, &error);
++    if (error) {
++        g_test_message("creation finished: %s", error->message);
++        g_error_free(error);
++    }
++}
++static QVDConnection *request(QVDModem *modem, GCancellable *cancel)
++{
++    QVDConnection *conn = qvd_modem_get_connection(modem, "ims", MM_BEARER_IP_FAMILY_IPV6,
++        2, cancel, created, NULL);
++    g_assert_nonnull(conn);
++    g_signal_connect(conn, "qvd-address-changed", G_CALLBACK(address), NULL);
++    g_signal_connect(conn, "qvd-connect-error", G_CALLBACK(connect_error), NULL);
++    qvd_connection_connect(conn);
++    return conn;
++}
++static void stop(QVDConnection *conn, GCancellable *cancel)
++{
++    qvd_connection_disconnect(conn);
++    g_cancellable_cancel(cancel);
++}
++
++int main(int argc, char **argv)
++{
++    GError *error = NULL;
++    GTestDBus *bus;
++    QVDModem *modem;
++    QVDConnection *conn;
++    GCancellable *cancel;
++    GPid child;
++    gchar *child_argv[] = {QVD_TEST_PYTHON, QVD_TEST_FAKE_MM, NULL};
++    const gchar *scenario;
++    g_assert_cmpint(argc, ==, 2);
++    scenario = argv[1];
++    g_test_init(&argc, &argv, NULL);
++    g_log_set_always_fatal(G_LOG_LEVEL_ERROR | G_LOG_LEVEL_CRITICAL);
++    bus = g_test_dbus_new(G_TEST_DBUS_NONE);
++    g_test_dbus_up(bus);
++    g_setenv("DBUS_SYSTEM_BUS_ADDRESS", g_test_dbus_get_bus_address(bus), TRUE);
++    control = g_dbus_connection_new_for_address_sync(g_test_dbus_get_bus_address(bus),
++        G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
++        NULL, NULL, &error);
++    g_assert_no_error(error);
++    g_assert_true(g_spawn_async(NULL, child_argv, NULL, G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, &child, &error));
++    g_assert_no_error(error);
++    gboolean owned = FALSE;
++    for (guint i = 0; i < 200 && !owned; i++) {
++        GVariant *reply = g_dbus_connection_call_sync(control, "org.freedesktop.DBus",
++            "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameHasOwner",
++            g_variant_new("(s)", "org.freedesktop.ModemManager1"), NULL,
++            G_DBUS_CALL_FLAGS_NONE, 3000, NULL, &error);
++        g_assert_no_error(error);
++        g_variant_get(reply, "(b)", &owned);
++        g_variant_unref(reply);
++        if (!owned) pump(10);
++    }
++    g_assert_true(owned);
++    if (g_str_has_prefix(scenario, "cancel-create") || g_str_equal(scenario, "remove-create") || g_str_equal(scenario, "owner-replacement"))
++        configure("delay-create", g_variant_new_boolean(TRUE));
++    if (g_str_equal(scenario, "cancel-connect") || g_str_equal(scenario, "stale-address"))
++        configure("delay-connect", g_variant_new_boolean(TRUE));
++    if (g_str_equal(scenario, "retired-late-connected"))
++        configure("fail-connect", g_variant_new_int32(1));
++    if (g_str_has_prefix(scenario, "retry"))
++        configure("fail-connect", g_variant_new_int32(g_str_equal(scenario, "retry-success") ? 2 : 100));
++    if (!g_str_equal(scenario, "readiness") && !g_str_has_prefix(scenario, "cancel-ready"))
++        cmd("SetState", g_variant_new("(i)", MM_MODEM_STATE_REGISTERED));
++    if (g_str_equal(scenario, "no-modem"))
++        cmd("RemoveModem", NULL);
++    modem = qvd_modem_new(&error);
++    g_assert_no_error(error);
++    cancel = g_cancellable_new();
++    conn = request(modem, cancel);
++
++    if (g_str_equal(scenario, "readiness") || g_str_equal(scenario, "no-modem")) {
++        pump(150);
++        g_assert_cmpint(count("create"), ==, 0);
++        g_assert_cmpint(count("connect"), ==, 0);
++        cmd(g_str_equal(scenario, "no-modem") ? "AddModem" : "SetState",
++            g_variant_new("(i)", MM_MODEM_STATE_REGISTERED));
++        wait_count("up", 1);
++        pump(30);
++        g_assert_cmpuint(up_count, ==, 1);
++        g_assert_cmpuint(create_done, ==, 1);
++        g_assert_true(create_success);
++    } else if (g_str_equal(scenario, "cancel-ready")) {
++        pump(50);
++        stop(conn, cancel);
++        cmd("SetState", g_variant_new("(i)", MM_MODEM_STATE_REGISTERED));
++        pump(200);
++        g_assert_cmpint(count("create"), ==, 0);
++        g_assert_cmpint(count("connect"), ==, 0);
++        g_assert_cmpuint(up_count, ==, 0);
++    } else if (g_str_equal(scenario, "cancel-create-newstart") || g_str_equal(scenario, "cancel-ready-newstart")) {
++        gboolean ready = g_str_equal(scenario, "cancel-ready-newstart");
++        if (!ready) wait_count("create", 1);
++        stop(conn, cancel);
++        GCancellable *next_cancel = g_cancellable_new();
++        QVDConnection *next = request(modem, next_cancel);
++        if (ready) cmd("SetState", g_variant_new("(i)", MM_MODEM_STATE_REGISTERED));
++        pump(100);
++        if (!ready) cmd("CompleteCreate", NULL);
++        wait_count("up", 1);
++        pump(50);
++        g_assert_cmpuint(up_count, ==, 1);
++        stop(next, next_cancel);
++        pump(50);
++        g_object_unref(next);
++        g_object_unref(next_cancel);
++    } else if (g_str_equal(scenario, "cancel-create")) {
++        wait_count("create", 1);
++        stop(conn, cancel);
++        cmd("CompleteCreate", NULL);
++        pump(300);
++        g_assert_cmpint(count("connect"), ==, 0);
++        g_assert_cmpint(count("delete"), ==, 1);
++        g_assert_cmpuint(up_count, ==, 0);
++    } else if (g_str_equal(scenario, "stale-address")) {
++        wait_count("connect", 1);
++        cmd("StaleAddress", NULL);
++        pump(100);
++        g_assert_cmpuint(up_count, ==, 0);
++        cmd("CompleteConnect", NULL);
++        wait_count("up", 1);
++        pump(50);
++        g_assert_cmpuint(up_count, ==, 1);
++    } else if (g_str_equal(scenario, "cancel-connect")) {
++        wait_count("connect", 1);
++        stop(conn, cancel);
++        cmd("CompleteConnect", NULL);
++        pump(300);
++        g_assert_cmpint(count("connect"), ==, 1);
++        g_assert_cmpint(count("disconnect"), >=, 1);
++        g_assert_cmpuint(up_count, ==, 0);
++    } else if (g_str_equal(scenario, "retired-late-connected")) {
++        wait_count("connect", 1);
++        pump(20);
++        stop(conn, cancel);
++        pump(50);
++        gint disconnected = count("disconnect");
++        cmd("LateConnected", NULL);
++        pump(200);
++        g_assert_cmpint(count("disconnect"), >, disconnected);
++        g_assert_cmpint(count("connect"), ==, 1);
++        g_assert_cmpuint(up_count, ==, 0);
++    } else if (g_str_equal(scenario, "retry-success")) {
++        wait_count("up", 1);
++        pump(200);
++        g_assert_cmpint(count("connect"), ==, 3);
++        g_assert_cmpuint(up_count, ==, 1);
++        g_assert_cmpuint(error_count, ==, 0);
++    } else if (g_str_equal(scenario, "retry-exhausted")) {
++        wait_count("connect", 3);
++        pump(500);
++        g_assert_cmpint(count("connect"), ==, 3);
++        g_assert_cmpuint(error_count, ==, 1);
++        g_assert_cmpuint(up_count, ==, 0);
++    } else if (g_str_equal(scenario, "retry-stop")) {
++        wait_count("connect", 1);
++        stop(conn, cancel);
++        pump(500);
++        g_assert_cmpint(count("connect"), ==, 1);
++        g_assert_cmpuint(up_count, ==, 0);
++    } else if (g_str_equal(scenario, "owner-replacement")) {
++        wait_count("create", 1);
++        GVariant *owner_reply = g_dbus_connection_call_sync(control, "org.freedesktop.DBus",
++            "/org/freedesktop/DBus", "org.freedesktop.DBus", "GetNameOwner",
++            g_variant_new("(s)", "org.freedesktop.ModemManager1"), NULL,
++            G_DBUS_CALL_FLAGS_NONE, 3000, NULL, &error);
++        g_assert_no_error(error);
++        gchar *old_owner = NULL;
++        g_variant_get(owner_reply, "(s)", &old_owner);
++        g_variant_unref(owner_reply);
++        cmd("ReleaseName", NULL);
++        pump(100);
++        GPid replacement;
++        g_assert_true(g_spawn_async(NULL, child_argv, NULL, G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, &replacement, &error));
++        g_assert_no_error(error);
++        gboolean appeared = FALSE;
++        for (guint i = 0; i < 200 && !appeared; i++) {
++            GVariant *reply = g_dbus_connection_call_sync(control, "org.freedesktop.DBus",
++                "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameHasOwner",
++                g_variant_new("(s)", "org.freedesktop.ModemManager1"), NULL,
++                G_DBUS_CALL_FLAGS_NONE, 3000, NULL, &error);
++            g_assert_no_error(error);
++            g_variant_get(reply, "(b)", &appeared);
++            g_variant_unref(reply);
++            if (!appeared) pump(10);
++        }
++        g_assert_true(appeared);
++        cmd("SetState", g_variant_new("(i)", MM_MODEM_STATE_REGISTERED));
++        pump(100);
++        GCancellable *next_cancel = g_cancellable_new();
++        QVDConnection *next = request(modem, next_cancel);
++        wait_count("up", 1);
++        pump(50);
++        /* Both instances allocated Bearer/0. Deliver the OLD owner's reply
++         * only after the NEW owner has connected that same public path. */
++        GVariant *late = g_dbus_connection_call_sync(control, old_owner,
++            "/org/freedesktop/ModemManager1", "org.example.TestModem", "CompleteCreate",
++            NULL, NULL, G_DBUS_CALL_FLAGS_NONE, 3000, NULL, &error);
++        g_assert_no_error(error);
++        g_variant_unref(late);
++        pump(200);
++        g_assert_cmpint(count("create"), ==, 1);
++        g_assert_cmpint(count("connect"), ==, 1);
++        g_assert_cmpint(count("delete"), ==, 0);
++        g_assert_cmpint(count("disconnect"), ==, 0);
++        g_assert_cmpuint(up_count, ==, 1);
++        stop(next, next_cancel);
++        pump(50);
++        g_object_unref(next);
++        g_object_unref(next_cancel);
++        late = g_dbus_connection_call_sync(control, old_owner,
++            "/org/freedesktop/ModemManager1", "org.example.TestModem", "Quit",
++            NULL, NULL, G_DBUS_CALL_FLAGS_NONE, 3000, NULL, &error);
++        g_assert_no_error(error);
++        g_variant_unref(late);
++        g_free(old_owner);
++        g_spawn_close_pid(replacement);
++    } else if (g_str_equal(scenario, "remove-create")) {
++        wait_count("create", 1);
++        cmd("RemoveModem", NULL);
++        pump(100);
++        cmd("AddModem", g_variant_new("(i)", MM_MODEM_STATE_REGISTERED));
++        cmd("CompleteCreate", NULL);
++        pump(300);
++        g_assert_cmpint(count("connect"), ==, 0);
++        g_assert_cmpuint(up_count, ==, 0);
++    } else {
++        g_error("unknown scenario: %s", scenario);
++    }
++    stop(conn, cancel);
++    pump(50);
++    g_object_unref(conn);
++    g_object_unref(cancel);
++    g_object_unref(modem);
++    pump(50);
++    cmd("Quit", NULL);
++    g_object_unref(control);
++    g_spawn_close_pid(child);
++    g_test_dbus_down(bus);
++    g_object_unref(bus);
++    g_print("PASS: %s\n", scenario);
++    return 0;
++}
+--- /dev/null
++++ b/tests/test-server.c
+@@ -0,0 +1,229 @@
++/* Compile production server+message+QMI codec; only QRTR socket transport is wrapped. */
++#define main unused_api_main
++#include "test-lifecycle.c"
++#undef main
++#include <unistd.h>
++#include <sys/socket.h>
++#include "qvd-server.c"
++
++static GPtrArray *packets;
++static int transport_peer = -1;
++int __wrap_qrtr_open(int port)
++{
++    int pair[2];
++    g_assert_cmpint(socketpair(AF_UNIX, SOCK_DGRAM, 0, pair), ==, 0);
++    transport_peer = pair[1];
++    return pair[0];
++}
++int __wrap_qrtr_new_server(int fd, uint32_t service, uint16_t version, uint16_t instance)
++{
++    g_assert_cmpuint(service, ==, 770);
++    return 0;
++}
++int __wrap_qrtr_sendto(int fd, uint32_t node, uint32_t port, const void *data, unsigned int len)
++{
++    g_ptr_array_add(packets, g_bytes_new(data, len));
++    return 0;
++}
++static void inject(QVDServer *server, int msgid, const void *input, struct qmi_elem_info *schema)
++{
++    static guint txn;
++    struct qrtr_packet *packet = g_new0(struct qrtr_packet, 1);
++    packet->data_len = 65536;
++    packet->data = g_malloc(packet->data_len);
++    g_assert_cmpint(qmi_encode_message(packet, QMI_REQUEST, msgid, ++txn, input, schema), >=, 0);
++    process_message(server, qvd_message_new(g_object_ref(server->sock), packet, 0, 78));
++}
++static void start_profile(QVDServer *server, guint32 original, guint32 subscription, guint16 profile)
++{
++    struct imsd_start_connection_req input = {0};
++    strcpy(input.conn_params.apn, "ims");
++    input.conn_params.apn_len = 3;
++    input.conn_params.ip_family = IMSD_AF_IPV6;
++    input.conn_params.profiles_select = IMSD_PROFILES_3GPP;
++    input.conn_params.profile_idx_3gpp = profile;
++    input.conn_params.profile_idx_3gpp2 = 0xffff;
++    input.connection = original;
++    input.subscription = subscription;
++    inject(server, IMSD_START_CONNECTION, &input, imsd_start_connection_req_ei);
++}
++static void start(QVDServer *server, guint32 original, guint32 subscription)
++{
++    start_profile(server, original, subscription, 2);
++}
++static void stop_wire(QVDServer *server, guint8 handle, guint32 subscription)
++{
++    struct imsd_stop_connection_req input = {.connection = handle, .unkecho_01 = subscription};
++    inject(server, IMSD_STOP_CONNECTION, &input, imsd_stop_connection_req_ei);
++}
++static guint wire_count(guint type)
++{
++    guint count = 0;
++    for (guint i = 0; i < packets->len; i++) {
++        gsize len;
++        const guint8 *data = g_bytes_get_data(packets->pdata[i], &len);
++        if (len > 0 && data[0] == type) count++;
++    }
++    return count;
++}
++static void decode_last(guint type, guint message, void *output, struct qmi_elem_info *schema)
++{
++    for (gint i = packets->len - 1; i >= 0; i--) {
++        gsize len;
++        const guint8 *data = g_bytes_get_data(packets->pdata[i], &len);
++        struct qrtr_packet packet = {.data = (void *)data, .data_len = len};
++        guint msgid, txn;
++        g_assert_cmpint(qmi_decode_header(&packet, &msgid), >=, 0);
++        if (data[0] == type && msgid == message) {
++            g_assert_cmpint(qmi_decode_message(output, &txn, &packet, type, message, schema), >=, 0);
++            return;
++        }
++    }
++    g_error("No matching output packet");
++}
++int main(int argc, char **argv)
++{
++    GError *error = NULL;
++    GTestDBus *bus;
++    QVDModem *modem;
++    QVDServer *server;
++    GPid child;
++    gchar *child_argv[] = {QVD_TEST_PYTHON, QVD_TEST_FAKE_MM, NULL};
++    const gchar *scenario = argv[1];
++    struct imsd_start_connection_resp ack = {0};
++    struct imsd_no_op_resp stop_ack = {0};
++    struct imsd_connection_changed_ind indication = {0};
++    g_assert_cmpint(argc, ==, 2);
++    g_test_init(&argc, &argv, NULL);
++    g_log_set_always_fatal(G_LOG_LEVEL_ERROR | G_LOG_LEVEL_CRITICAL);
++    bus = g_test_dbus_new(G_TEST_DBUS_NONE);
++    g_test_dbus_up(bus);
++    g_setenv("DBUS_SYSTEM_BUS_ADDRESS", g_test_dbus_get_bus_address(bus), TRUE);
++    control = g_dbus_connection_new_for_address_sync(g_test_dbus_get_bus_address(bus),
++        G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
++        NULL, NULL, &error);
++    g_assert_no_error(error);
++    g_assert_true(g_spawn_async(NULL, child_argv, NULL, G_SPAWN_DO_NOT_REAP_CHILD, NULL, NULL, &child, &error));
++    g_assert_no_error(error);
++    gboolean owned = FALSE;
++    for (guint i = 0; i < 200 && !owned; i++) {
++        GVariant *reply = g_dbus_connection_call_sync(control, "org.freedesktop.DBus",
++            "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameHasOwner",
++            g_variant_new("(s)", "org.freedesktop.ModemManager1"), NULL,
++            G_DBUS_CALL_FLAGS_NONE, 3000, NULL, &error);
++        g_assert_no_error(error);
++        g_variant_get(reply, "(b)", &owned);
++        g_variant_unref(reply);
++        if (!owned) pump(10);
++    }
++    g_assert_true(owned);
++    if (!g_str_equal(scenario, "wire-ack-stop") && !g_str_equal(scenario, "wire-ambiguous-stop"))
++        cmd("SetState", g_variant_new("(i)", MM_MODEM_STATE_REGISTERED));
++    if (g_str_equal(scenario, "wire-failure"))
++        configure("fail-connect", g_variant_new_int32(100));
++    modem = qvd_modem_new(&error);
++    g_assert_no_error(error);
++    packets = g_ptr_array_new_with_free_func((GDestroyNotify)g_bytes_unref);
++    server = qvd_server_new(modem, &error);
++    g_assert_no_error(error);
++    start(server, 101, 7);
++    g_assert_cmpuint(wire_count(QMI_RESPONSE), ==, 1);
++    g_assert_cmpint(count("create"), ==, 0);
++    decode_last(QMI_RESPONSE, IMSD_START_CONNECTION, &ack, imsd_start_connection_resp_ei);
++    g_assert_cmpuint(ack.res.err_status, ==, 0);
++    g_assert_cmpuint(ack.orig_conn_id, ==, 101);
++    g_assert_cmpuint(ack.subscription, ==, 7);
++    guint8 handle = ack.connection;
++
++    if (g_str_equal(scenario, "wire-ack-stop")) {
++        start(server, 101, 7);
++        decode_last(QMI_RESPONSE, IMSD_START_CONNECTION, &ack, imsd_start_connection_resp_ei);
++        g_assert_cmpuint(ack.connection, ==, handle);
++        pump(100);
++        g_assert_cmpint(count("create"), ==, 0);
++        stop_wire(server, 101, 8);
++        decode_last(QMI_RESPONSE, IMSD_STOP_CONNECTION, &stop_ack, imsd_no_op_resp_ei);
++        g_assert_cmpuint(stop_ack.res.err_status, ==, 1);
++        stop_wire(server, 101, 7);
++        decode_last(QMI_RESPONSE, IMSD_STOP_CONNECTION, &stop_ack, imsd_no_op_resp_ei);
++        g_assert_cmpuint(stop_ack.res.err_status, ==, 0);
++        cmd("SetState", g_variant_new("(i)", MM_MODEM_STATE_REGISTERED));
++        pump(200);
++        g_assert_cmpint(count("create"), ==, 0);
++        g_assert_cmpuint(wire_count(QMI_INDICATION), ==, 0);
++    } else if (g_str_equal(scenario, "wire-ambiguous-stop")) {
++        start_profile(server, handle, 7, 3);
++        decode_last(QMI_RESPONSE, IMSD_START_CONNECTION, &ack, imsd_start_connection_resp_ei);
++        guint8 second_handle = ack.connection;
++        g_assert_cmpuint(second_handle, !=, handle);
++        stop_wire(server, handle, 7);
++        decode_last(QMI_RESPONSE, IMSD_STOP_CONNECTION, &stop_ack, imsd_no_op_resp_ei);
++        g_assert_cmpuint(stop_ack.res.err_status, ==, 1);
++        stop_wire(server, second_handle, 7);
++        decode_last(QMI_RESPONSE, IMSD_STOP_CONNECTION, &stop_ack, imsd_no_op_resp_ei);
++        g_assert_cmpuint(stop_ack.res.err_status, ==, 0);
++        stop_wire(server, 101, 7);
++        decode_last(QMI_RESPONSE, IMSD_STOP_CONNECTION, &stop_ack, imsd_no_op_resp_ei);
++        g_assert_cmpuint(stop_ack.res.err_status, ==, 0);
++        cmd("SetState", g_variant_new("(i)", MM_MODEM_STATE_REGISTERED));
++        pump(200);
++        g_assert_cmpint(count("create"), ==, 0);
++    } else if (g_str_equal(scenario, "wire-ready-retransmit")) {
++        wait_count("up", 1);
++        pump(30);
++        g_assert_cmpuint(wire_count(QMI_INDICATION), ==, 1);
++        decode_last(QMI_INDICATION, IMSD_CONNECTION_CHANGED, &indication, imsd_connection_changed_ind_ei);
++        g_assert_cmpuint(indication.connection, ==, handle);
++        g_assert_cmpuint(indication.orig_conn_id, ==, 101);
++        g_assert_cmpuint(indication.subscription, ==, 7);
++        g_assert_true(indication.ip_addr_valid);
++        for (guint i = 0; i < 3; i++) start(server, 101, 7);
++        cmd("SetState", g_variant_new("(i)", MM_MODEM_STATE_CONNECTED));
++        pump(50);
++        cmd("SetState", g_variant_new("(i)", MM_MODEM_STATE_REGISTERED));
++        pump(50);
++        g_assert_cmpint(count("create"), ==, 1);
++        g_assert_cmpint(count("connect"), ==, 1);
++        g_assert_cmpuint(wire_count(QMI_INDICATION), ==, 1);
++        stop_wire(server, handle, 7);
++        pump(100);
++    } else if (g_str_equal(scenario, "wire-failure")) {
++        wait_count("connect", 3);
++        pump(300);
++        g_assert_cmpuint(wire_count(QMI_INDICATION), ==, 1);
++        decode_last(QMI_INDICATION, IMSD_CONNECTION_CHANGED, &indication, imsd_connection_changed_ind_ei);
++        g_assert_cmpuint(indication.res.err_status, ==, 0);
++        g_assert_cmpuint(indication.res.err_code, ==, 13);
++        g_assert_false(indication.ip_addr_valid);
++        g_assert_cmpuint(indication.orig_conn_id, ==, 101);
++        g_assert_cmpuint(indication.subscription, ==, 7);
++        configure("fail-connect", g_variant_new_int32(0));
++        start(server, 100, 7);
++        decode_last(QMI_RESPONSE, IMSD_START_CONNECTION, &ack, imsd_start_connection_resp_ei);
++        g_assert_cmpuint(ack.connection, !=, handle);
++        wait_count("up", 1);
++        pump(30);
++        gint disconnects = count("disconnect");
++        stop_wire(server, handle, 7);
++        decode_last(QMI_RESPONSE, IMSD_STOP_CONNECTION, &stop_ack, imsd_no_op_resp_ei);
++        g_assert_cmpuint(stop_ack.res.err_status, ==, 1);
++        pump(100);
++        g_assert_cmpint(count("disconnect"), ==, disconnects);
++        stop_wire(server, ack.connection, 7);
++        pump(100);
++    } else {
++        g_error("unknown wire scenario: %s", scenario);
++    }
++    pump(100);
++    g_object_unref(server);
++    g_object_unref(modem);
++    g_ptr_array_unref(packets);
++    close(transport_peer);
++    cmd("Quit", NULL);
++    g_object_unref(control);
++    g_spawn_close_pid(child);
++    g_test_dbus_down(bus);
++    g_object_unref(bus);
++    g_print("PASS: %s\n", scenario);
++    return 0;
++}

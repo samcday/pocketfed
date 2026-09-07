@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PocketFed <noreply@pocketfed.invalid>
+Date: Sun, 12 Jul 2026 12:40:00 +1000
+Subject: [PATCH] netlink: avoid transaction use-after-free on completion
+
+The transactions hash table owns Transaction and frees it when an entry is
+removed.  transaction_complete() was reading completion_fn after removing the
+entry, so the callback pointer could already have been overwritten.
+
+Save the callback before removing the transaction, as is already done for the
+task and sequence ID.
+---
+ src/mm-netlink.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/mm-netlink.c b/src/mm-netlink.c
+index d5644e6b..bf3ba646 100644
+--- a/src/mm-netlink.c
++++ b/src/mm-netlink.c
+@@ -229,9 +229,11 @@ transaction_complete (Transaction     *tr,
+ {
+     GTask *task;
+     guint32 sequence_id;
++    MsgFunc completion_fn;
+ 
+     task = g_steal_pointer (&tr->completion_task);
+     sequence_id = tr->sequence_id;
++    completion_fn = tr->completion_fn;
+ 
+     g_hash_table_remove (tr->self->transactions,
+                          GUINT_TO_POINTER (tr->sequence_id));
+@@ -240,7 +241,7 @@ transaction_complete (Transaction     *tr,
+     if (!saved_errno) {
+         GError *error = NULL;
+ 
+-        if (!tr->completion_fn (task, hdr, &error))
++        if (!completion_fn (task, hdr, &error))
+             g_task_return_error (task, error);
+     } else {
+         g_task_return_new_error (task, G_IO_ERROR, g_io_error_from_errno (saved_errno),
+-- 
+2.50.1

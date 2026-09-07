@@ -1,6 +1,6 @@
 Name:           81voltd
 Version:        1.2.0
-Release:        %autorelease
+Release:        1.1.pocketfed%{?dist}
 Summary:        IMS data service for Qualcomm modems using QMI over QRTR
 
 License:        GPL-2.0-or-later
@@ -8,6 +8,7 @@ URL:            https://gitlab.postmarketos.org/modem/81voltd
 # The signed, annotated upstream v1.2.0 tag resolves to commit
 # 7c0cd9442d71b55260c9917c89ebc4bd20e283a8.
 Source0:        %{url}/-/archive/v%{version}/%{name}-v%{version}.tar.gz
+Patch0:         81voltd-1.2.0-harden-ims-lifecycle.patch
 
 BuildRequires:  gcc
 BuildRequires:  meson
@@ -15,6 +16,9 @@ BuildRequires:  pkgconfig(mm-glib)
 BuildRequires:  pkgconfig(qmi-glib)
 BuildRequires:  pkgconfig(qrtr)
 BuildRequires:  systemd-rpm-macros
+BuildRequires:  dbus-daemon
+BuildRequires:  python3
+BuildRequires:  python3-gobject-base
 Requires:       ModemManager
 %{?systemd_requires}
 
@@ -24,7 +28,7 @@ QMI/QRTR. It creates and controls the modem-requested IMS bearer through the
 ModemManager D-Bus API.
 
 %prep
-%autosetup -n %{name}-v%{version}
+%autosetup -n %{name}-v%{version} -p1
 
 %build
 %meson
@@ -52,7 +56,7 @@ grep -Fxq 'ExecStart=%{_bindir}/%{name}' \
 
 %files
 %license LICENSE
-%doc README.md
+%doc README.md ims-recovery.md
 %{_bindir}/%{name}
 %{_mandir}/man1/%{name}.1*
 %{_unitdir}/%{name}.service
