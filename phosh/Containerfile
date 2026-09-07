@@ -5,8 +5,13 @@ FROM ${BASE_IMAGE}
 LABEL org.opencontainers.image.title="PocketFed Phosh"
 LABEL org.opencontainers.image.description="PocketFed Phosh desktop layer"
 
+COPY phosh/samcday-pocketfed.repo /etc/yum.repos.d/
+
 RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=locked \
     set -eux; \
+    dnf install -y --allow-vendor-change \
+        --setopt=install_weak_deps=False --setopt=keepcache=True \
+        phoc-touch-up-lifetime-fix; \
     dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True \
         calls \
         chatty \
