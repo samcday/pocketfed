@@ -42,5 +42,38 @@
     "post_install_reboot_tested": false,
     "live_and_staged_commit": "512809792d284f0d8a60c1a705529b2fa99a668c23109d95d9c6c1c0568f3e61",
     "rpm_integrity": "passed with --nomtime (OSTree-normalized timestamps)"
+  },
+  "fedora_review_candidate": {
+    "nvr": "feedbackd-device-themes-0.8.9-2.fc46",
+    "build_id": 10956064,
+    "url": "https://copr.fedorainfracloud.org/coprs/build/10956064",
+    "state": "succeeded",
+    "project_directory": "pocketfed:custom:feedbackd-review",
+    "chroots": [
+      "fedora-rawhide-aarch64",
+      "fedora-rawhide-x86_64"
+    ],
+    "artifacts": {
+      "feedbackd-device-themes.spec": {
+        "url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed:custom:feedbackd-review/srpm-builds/10956064/feedbackd-device-themes.spec",
+        "sha256": "f64f3d7a9ef7a972d4c07c5bee496d8e77cf0f50d80e280c3f4bf606fce0a8de",
+        "anonymous_download_matches_tested_artifact": true
+      },
+      "feedbackd-device-themes-0.8.9-2.fc46.src.rpm": {
+        "url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed:custom:feedbackd-review/srpm-builds/10956064/feedbackd-device-themes-0.8.9-2.fc46.src.rpm",
+        "sha256": "ff4b765e28d2918eda8dce8d4db91eb10b742ec6e3d3cd062902986790ab07c1",
+        "anonymous_download_matches_tested_artifact": true
+      }
+    },
+    "source_signature": "openpgpverify: 1 of 1 valid before extraction",
+    "validation": {
+      "upstream_theme_tests": "12 passed on both COPR architectures and all three local Mock builds",
+      "rpmlint": "0 errors, 0 warnings for spec, SRPM and binary RPM",
+      "fedora_review": "0.11.0 full local Rawhide rebuild and installation completed; manual source-verifier check explained in review/README.md",
+      "fedora_review_service": "not submitted",
+      "stable_compatibility": "Fedora 43/44 built with only openpgpverify from updates-testing"
+    },
+    "phone_deployment": "This candidate was not installed; device-theme payload matches the physically confirmed 0.8.9-1 package.",
+    "review_request": "draft in review/bugzilla-request.md; not filed"
   }
 }
