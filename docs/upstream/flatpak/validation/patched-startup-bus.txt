@@ -1,0 +1,29 @@
+‣ Type=method_call  Endian=l  Flags=0  Version=1 Cookie=11  Timestamp="Tue 2026-09-08 03:56:53.727430 UTC"
+  Sender=:1.107  Destination=org.freedesktop.portal.Flatpak  Path=/org/freedesktop/portal/Flatpak  Interface=org.freedesktop.portal.Flatpak  Member=Spawn
+  UniqueName=:1.107
+
+‣ Type=method_return  Endian=l  Flags=1  Version=1 Cookie=15  ReplyCookie=11  Timestamp="Tue 2026-09-08 03:56:53.746351 UTC"
+  Sender=:1.100  Destination=:1.107
+  UniqueName=:1.100
+  MESSAGE "u" {
+          UINT32 12098;
+  };
+
+
+‣ Type=signal  Endian=l  Flags=1  Version=1 Cookie=16  Timestamp="Tue 2026-09-08 03:56:54.610725 UTC"
+  Sender=:1.100  Destination=:1.107  Path=/org/freedesktop/portal/Flatpak  Interface=org.freedesktop.portal.Flatpak  Member=SpawnStarted
+  UniqueName=:1.100
+  MESSAGE "uu" {
+          UINT32 12098;
+          UINT32 17;
+  };
+
+
+‣ Type=signal  Endian=l  Flags=1  Version=1 Cookie=17  Timestamp="Tue 2026-09-08 03:56:59.038520 UTC"
+  Sender=:1.100  Destination=:1.107  Path=/org/freedesktop/portal/Flatpak  Interface=org.freedesktop.portal.Flatpak  Member=SpawnExited
+  UniqueName=:1.100
+  MESSAGE "uu" {
+          UINT32 12098;
+          UINT32 0;
+  };
+

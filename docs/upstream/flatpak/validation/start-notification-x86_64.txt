@@ -1,0 +1,43 @@
+patching file portal/flatpak-portal.c
+Testing baseline production callbacks
+PASS ready metadata: SpawnStarted=1, constructors=1, no further retries
+PASS delayed child metadata: SpawnStarted=1, constructors=1, no further retries
+
+** (process:12): WARNING **: 13:56:57.194: Failed to create instance for id 12345: Failed to open file “/tmp/flatpak-portal-test-95G8U3/pid”: No such file or directory
+PASS delayed pid file: SpawnStarted=0, constructors=1, no further retries
+
+** (process:12): WARNING **: 13:56:57.570: Failed to create instance for id 12345: Failed to open file “/tmp/flatpak-portal-test-6WMZU3/pid”: No such file or directory
+PASS exit before ID callback: SpawnStarted=0, constructors=1, no further retries
+
+** (process:12): WARNING **: 13:56:57.945: Failed to create instance for id 12345: Failed to open file “/tmp/flatpak-portal-test-CI7RU3/pid”: No such file or directory
+PASS exit before first retry: SpawnStarted=0, constructors=1, no further retries
+
+** (process:12): WARNING **: 13:56:58.321: Failed to create instance for id 12345: Failed to open file “/tmp/flatpak-portal-test-L7H5U3/pid”: No such file or directory
+PASS exit after first retry: SpawnStarted=0, constructors=1, no further retries
+
+** (process:12): WARNING **: 13:56:58.696: Failed to create instance for id 12345: Invalid pid in '/tmp/flatpak-portal-test-N7QWU3/pid'
+PASS invalid pid rejected: SpawnStarted=0, constructors=1, no further retries
+
+** (process:12): WARNING **: 13:56:59.072: Failed to create instance for id 12345: Error reading file “/tmp/flatpak-portal-test-8Y19U3/pid”: Is a directory
+PASS permanent file error rejected: SpawnStarted=0, constructors=1, no further retries
+PASS negative control: unpatched callback fails the same required-notification assertion
+Testing patched production callbacks
+PASS ready metadata: SpawnStarted=1, constructors=1, no further retries
+PASS delayed child metadata: SpawnStarted=1, constructors=1, no further retries
+PASS delayed pid file: SpawnStarted=1, constructors=3, no further retries
+
+** (process:23): WARNING **: 13:57:01.008: 31337 already exited, skipping SpawnStarted
+PASS exit before ID callback: SpawnStarted=0, constructors=0, no further retries
+
+** (process:23): WARNING **: 13:57:01.408: 31337 already exited, skipping SpawnStarted
+PASS exit before first retry: SpawnStarted=0, constructors=1, no further retries
+
+** (process:23): WARNING **: 13:57:01.834: 31337 already exited, skipping SpawnStarted
+PASS exit after first retry: SpawnStarted=0, constructors=2, no further retries
+
+** (process:23): WARNING **: 13:57:02.134: Failed to create instance for id 12345: Invalid pid in '/tmp/flatpak-portal-test-1JJ8U3/pid'
+PASS invalid pid rejected: SpawnStarted=0, constructors=1, no further retries
+
+** (process:23): WARNING **: 13:57:02.510: Failed to create instance for id 12345: Error reading file “/tmp/flatpak-portal-test-QW30U3/pid”: Is a directory
+PASS permanent file error rejected: SpawnStarted=0, constructors=1, no further retries
+PASS delayed pid file regression oracle: SpawnStarted=1, constructors=3, no further retries
