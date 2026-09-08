@@ -1,16 +1,18 @@
 # Upstream follow-through
 
+Start with the [pinned overview issue #37](https://github.com/samcday/pocketfed/issues/37).
+
 Public evidence for bugs investigated while using PocketFed. Each report keeps
 the observed failure, proposed patch, reproduction instructions, source
 provenance, validation results and remaining work together. These are candidate
 fixes for upstream review; publishing them here does not claim upstream
 acceptance or a fixed distribution release.
 
-| Project | Failure | Evidence and proposal |
-| --- | --- | --- |
-| GTK4 | On-screen keyboard preedit disappears after caret geometry updates | [Report, bisect, patch and integration harness](gtk4/) |
-| Flatpak | Chromium waits indefinitely after a nested sandbox loses its startup notification | [Report, commit boundary, patch and comparison tests](flatpak/) |
-| WirePlumber | Role loopbacks can chain across roles after output removal and leave playback stalled | [Report, two-patch series and isolated reconnect reproducer](wireplumber/) |
+| Project | Failure | Evidence and proposal | Tracker |
+| --- | --- | --- | --- |
+| GTK4 | On-screen keyboard preedit disappears after caret geometry updates | [Report, bisect, patch and integration harness](gtk4/) | [#34](https://github.com/samcday/pocketfed/issues/34) |
+| Flatpak | Chromium waits indefinitely after a nested sandbox loses its startup notification | [Report, commit boundary, patch and comparison tests](flatpak/) | [#35](https://github.com/samcday/pocketfed/issues/35) |
+| WirePlumber | Role loopbacks can chain across roles after output removal and leave playback stalled | [Report, two-patch series and isolated reconnect reproducer](wireplumber/) | [#36](https://github.com/samcday/pocketfed/issues/36) |
 
 GTK4 and Flatpak have identified introducing commits. WirePlumber is a confirmed
 bug at the recorded revision; its first bad commit has not been established.
