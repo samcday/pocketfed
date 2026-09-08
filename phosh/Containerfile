@@ -5,8 +5,23 @@ FROM ${BASE_IMAGE}
 LABEL org.opencontainers.image.title="PocketFed Phosh"
 LABEL org.opencontainers.image.description="PocketFed Phosh desktop layer"
 
+COPY phosh/samcday-pocketfed.repo /etc/yum.repos.d/
+
+# Flatpak 1.19.0 can lose SpawnStarted while nested sandbox PID metadata is
+# still being written. Keep the tested portal fix in the image until Fedora
+# carries it; packaging and regression checks live in packages/flatpak/.
 RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=locked \
     set -eux; \
+    flatpak_version='1.19.0-3.1.pocketfed.fc46'; \
+    dnf install -y \
+        --allow-vendor-change \
+        --refresh \
+        --from-repo='copr:copr.fedorainfracloud.org:samcday:pocketfed' \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        "flatpak-$flatpak_version" \
+        "flatpak-libs-$flatpak_version" \
+        "flatpak-session-helper-$flatpak_version"; \
     dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True \
         calls \
         chatty \
@@ -38,7 +53,13 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
         upower \
         xdg-desktop-portal \
         xdg-desktop-portal-gtk \
-        xdg-user-dirs-gtk
+        xdg-user-dirs-gtk; \
+    for package in flatpak flatpak-libs flatpak-session-helper; do \
+        test "$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' "$package")" = "$flatpak_version"; \
+    done; \
+    test -x /usr/libexec/flatpak-portal; \
+    grep -Fxq 'ExecStart=/usr/libexec/flatpak-portal' \
+        /usr/lib/systemd/user/flatpak-portal.service
 
 COPY phosh/pocketfed-phrog-tmpfiles.conf /usr/lib/tmpfiles.d/
 
