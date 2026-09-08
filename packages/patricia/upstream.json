@@ -1,0 +1,60 @@
+{
+  "repository": "https://gitlab.com/InsanePrawn/android-patricia-dict",
+  "commit": "cdab42d9b93a0b33070804b37098568c3a3227f8",
+  "supersedes_commit": "644366a1e98b8095d754e39c1bfc203d625b3a2c",
+  "crate": "patricia_dict",
+  "crate_version": "0.1.0",
+  "source_url": "https://gitlab.com/InsanePrawn/android-patricia-dict/-/archive/cdab42d9b93a0b33070804b37098568c3a3227f8/android-patricia-dict-cdab42d9b93a0b33070804b37098568c3a3227f8.tar.gz",
+  "rust_license": "GPL-3.0-only, author confirmation relayed by PocketFed maintainer on 2026-09-07; downstream metadata applied",
+  "retained_cpp_license": "Apache-2.0 notices in individual Android C++ source files",
+  "cargo_manifest_sha256": "5833c028f2bcaade140de39444c6f8fb18c11ed682fb9d88ccba35e8d814581f",
+  "cargo_lock_sha256": "f67ee51544db025c52aaa6fd7b5113fe0aced0afaa65ebb09f615cb5ae1ee15a",
+  "fixtures": [
+    {
+      "path": "examples/dicts/heliboard/main_be.dict",
+      "size": 16746960,
+      "sha256": "0d02046c84e14c1a9fd541c9be869c4e558e40ae706c20b7667c2df36fc72b80",
+      "provenance": "README attributes to HeliBoard; exact original source and data license not documented in snapshot"
+    },
+    {
+      "path": "examples/dicts/heliboard/main_de.dict",
+      "size": 1606286,
+      "sha256": "ee5de04b6a93af67d2095a68ac1a8709ecdbf838cc5c98795f0b4ad2d192c2c7",
+      "provenance": "README attributes to HeliBoard; exact original source and data license not documented in snapshot"
+    },
+    {
+      "path": "examples/dicts/heliboard/main_en-US.dict",
+      "size": 2956881,
+      "sha256": "bd950ef4b57655120eee65cee62a5d216a63f721d9a8bb759ce2022437840443",
+      "provenance": "Byte-identical to Helium314/aosp-dictionaries commit 55e6d1c64ad72481d5615113b1c94f0716617016 dictionaries/main_en_us.dict; see packages/keyboard-dictionaries inventory"
+    }
+  ],
+  "source_tests": {
+    "command": "cargo test --locked --offline",
+    "architecture": "x86_64",
+    "unit_tests_passed": 4,
+    "integration_and_benchmark_tests_passed": 68,
+    "doc_tests_passed": 5,
+    "failures": 0
+  },
+  "fedora_rpm_build": "Rawhide x86_64 passed; library source/default metadata, CLI tools, debug RPMs and SRPM built; see validation.json",
+  "source_archive_sha256": "1e9c6fdf0739604a1d54dc25cc9cffea49fa8c3c866278b3987ef3b3382e16f6",
+  "rust_license_upstream_file_verified": false,
+  "curated_source": {
+    "filename": "pocketfed-patricia-rust-gpl3-cdab42d9b93a0b33070804b37098568c3a3227f8.tar.gz",
+    "sha256": "00ef786a15c9462e25bbde2cf6a5cae0e6b8fcc256a82f78436aeb8cb82cd8e2",
+    "root": "patricia_dict/",
+    "regenerate": "packages/patricia/prepare-source --upstream-archive ARCHIVE --output OUTPUT",
+    "downstream_changes": [
+      "Cargo.toml license = GPL-3.0-only",
+      "COPYING",
+      "LICENSE-PROVENANCE.md"
+    ],
+    "excluded": [
+      "cpp",
+      "examples",
+      "tests"
+    ]
+  },
+  "downstream_fork": "downstream-fork.json"
+}

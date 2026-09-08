@@ -1,0 +1,1154 @@
+From: PocketFed contributors
+Subject: [PATCH] Add opt-in asynchronous Verbisage completer
+
+Keep the distro default completer. Query bounded prefix and spelling results
+over the session bus without blocking input or changing the typed spelling.
+Invalidate stale replies on edits, reset, language and focus changes.
+
+diff --git a/data/completers/verbisage.desktop.in b/data/completers/verbisage.desktop.in
+new file mode 100644
+index 0000000..e5b48c2
+--- /dev/null
++++ b/data/completers/verbisage.desktop.in
+@@ -0,0 +1,5 @@
++[Completer]
++Id=verbisage
++Name=Verbisage (experimental)
++Description=Prefix completion and spelling suggestions from the Verbisage service
++Comment=Requires Verbisage and an English US dictionary
+diff --git a/doc/phosh-osk-stevia.rst b/doc/phosh-osk-stevia.rst
+index eb1a6a3..fdbd93b 100644
+--- a/doc/phosh-osk-stevia.rst
++++ b/doc/phosh-osk-stevia.rst
+@@ -133,6 +133,7 @@ built. Available are currently at most
+ 
+   - ``hunspell``: word correction based on the hunspell library
+   - ``presage``: (experimental) word prediction based on the presage library
++  - ``verbisage``: experimental session D-Bus completion and correction (en_US)
+   - ``pipe``: completer using a pipe
+   - ``fzf``: completer based on fzf command line tool. Useful for experiments)
+   - ``varnam``: completer using govarnam for Indic languages
+@@ -170,6 +171,26 @@ there.  Models for more languages can be found in
+ https://gitlab.gnome.org/guidog/phosh-osk-data
+ 
+ 
++TEXT COMPLETION USING VERBISAGE
++******************************
++
++The experimental ``verbisage`` backend queries the session service
++``org.verbisage.Dictionary`` for prefix completions and spelling suggestions.
++It currently supports English US (``en_US``). Install the Verbisage service
++and its English dictionary, then opt in with::
++
++  gsettings set mobi.phosh.osk.Completers default verbisage
++
++To restore the distribution's default backend::
++
++  gsettings reset mobi.phosh.osk.Completers default
++
++The original typed text remains the first candidate. A space commits that
++text; corrections are applied only when selected. Dictionary requests are
++asynchronous and bounded, and service errors retain the literal input.
++This backend adds no swipe recognition, next-word model, or learned history.
++
++
+ TEXT COMPLETION USING PIPE
+ **************************
+ 
+diff --git a/meson.build b/meson.build
+index d8e645b..40ec60a 100644
+--- a/meson.build
++++ b/meson.build
+@@ -159,6 +159,9 @@ if completers.length() == 0
+   error('No usable completer found')
+ endif
+ 
++# Keep a local completer as the default; Verbisage requires explicit selection.
++completers += ['verbisage']
++
+ have_memfd_create = cc.has_function(
+   'memfd_create',
+   prefix: ['#define _GNU_SOURCE', '#include <sys/mman.h>'],
+@@ -224,6 +227,7 @@ summary(
+     'Varnam': varnam_dep.found(),
+     'Uim': uim_dep.found(),
+     'Hunspell': hunspell_dep.found(),
++    'Verbisage (opt-in)': true,
+   },
+   bool_yn: true,
+   section: 'Completers',
+diff --git a/src/completers/meson.build b/src/completers/meson.build
+index 7e0057d..fd138cd 100644
+--- a/src/completers/meson.build
++++ b/src/completers/meson.build
+@@ -149,10 +149,25 @@ else
+   libpos_completer_varnam_dep = declare_dependency()
+ endif
+ 
++# Verbisage is an opt-in session D-Bus backend; it adds no link-time dependency.
++libpos_completer_verbisage_sources = files('pos-completer-verbisage.c', 'pos-completer-verbisage.h')
++libpos_completer_verbisage_lib = static_library(
++  'pos-completer-verbisage',
++  libpos_completer_verbisage_sources,
++  include_directories: pos_includes,
++  install: false,
++  dependencies: [gio_dep, glib_dep],
++)
++libpos_completer_verbisage_dep = declare_dependency(
++  include_directories: libpos_completer_includes,
++  link_with: libpos_completer_verbisage_lib,
++)
++
+ libpos_completers_sources = [
+   libpos_completer_fzf_sources,
+   libpos_completer_hunspell_sources,
+   libpos_completer_pipe_sources,
++  libpos_completer_verbisage_sources,
+   libpos_completer_presage_sources,
+   libpos_completer_uim_sources,
+   libpos_completer_varnam_sources,
+@@ -162,6 +177,7 @@ libpos_completer_libs = [
+   libpos_completer_fzf_lib,
+   libpos_completer_hunspell_lib,
+   libpos_completer_pipe_lib,
++  libpos_completer_verbisage_lib,
+   libpos_completer_presage_lib,
+   libpos_completer_uim_lib,
+   libpos_completer_varnam_lib,
+@@ -172,6 +188,7 @@ libpos_completers_dep = declare_dependency(
+     libpos_completer_fzf_dep,
+     libpos_completer_hunspell_dep,
+     libpos_completer_pipe_dep,
++    libpos_completer_verbisage_dep,
+     libpos_completer_presage_dep,
+     libpos_completer_uim_dep,
+     libpos_completer_varnam_dep,
+diff --git a/src/completers/pos-completer-verbisage.c b/src/completers/pos-completer-verbisage.c
+new file mode 100644
+index 0000000..4ffdef3
+--- /dev/null
++++ b/src/completers/pos-completer-verbisage.c
+@@ -0,0 +1,456 @@
++/*
++ * Copyright (C) 2026 PocketFed contributors
++ * SPDX-License-Identifier: GPL-3.0-or-later
++ */
++
++#define G_LOG_DOMAIN "pos-completer-verbisage"
++
++#include "pos-config.h"
++#include "pos-completer-priv.h"
++#include "pos-completer-verbisage.h"
++
++#include <gio/gio.h>
++
++#define BUS_NAME "org.verbisage.Dictionary"
++#define OBJECT_PATH "/org/verbisage/Dictionary"
++#define INTERFACE "org.verbisage.Dictionary1"
++#define MAX_RESULTS 6
++#define MAX_WORD_CHARS 128
++#define LOOKUP_DELAY_MS 60
++#define LOOKUP_TIMEOUT_MS 1000
++
++enum {
++  PROP_0,
++  PROP_NAME,
++  PROP_PREEDIT,
++  PROP_COMPLETIONS,
++  PROP_MODE_NAME,
++  PROP_MODE_SYMBOL,
++  PROP_MODE_MENU,
++  PROP_MODE_ACTIONS,
++  PROP_LAST_PROP,
++};
++static GParamSpec *props[PROP_LAST_PROP];
++
++struct _PosCompleterVerbisage {
++  PosCompleterBase parent;
++  GString *preedit;
++  GStrv completions;
++  GStrv prefixes;
++  GStrv suggestions;
++  char *language;
++  GDBusConnection *connection;
++  GCancellable *cancellable;
++  guint64 generation;
++  guint lookup_id;
++};
++
++typedef struct {
++  GWeakRef completer;
++  guint64 generation;
++  gboolean suggest;
++} Lookup;
++
++static void pos_completer_verbisage_interface_init (PosCompleterInterface *iface);
++
++G_DEFINE_TYPE_WITH_CODE (PosCompleterVerbisage, pos_completer_verbisage, POS_TYPE_COMPLETER_BASE,
++                         G_IMPLEMENT_INTERFACE (POS_TYPE_COMPLETER,
++                                                pos_completer_verbisage_interface_init))
++
++
++static Lookup *
++lookup_new (PosCompleterVerbisage *self, gboolean suggest)
++{
++  Lookup *lookup = g_new0 (Lookup, 1);
++
++  g_weak_ref_init (&lookup->completer, self);
++  lookup->generation = self->generation;
++  lookup->suggest = suggest;
++  return lookup;
++}
++
++
++static void
++lookup_free (Lookup *lookup)
++{
++  g_weak_ref_clear (&lookup->completer);
++  g_free (lookup);
++}
++
++G_DEFINE_AUTOPTR_CLEANUP_FUNC (Lookup, lookup_free)
++
++
++static void
++cancel_lookup (PosCompleterVerbisage *self)
++{
++  self->generation++;
++  g_clear_handle_id (&self->lookup_id, g_source_remove);
++  if (self->cancellable)
++    g_cancellable_cancel (self->cancellable);
++  g_clear_object (&self->cancellable);
++  g_clear_pointer (&self->prefixes, g_strfreev);
++  g_clear_pointer (&self->suggestions, g_strfreev);
++}
++
++
++static void
++append_unique (GPtrArray *words, const char *word)
++{
++  if (!word || !*word || g_utf8_strlen (word, -1) > MAX_WORD_CHARS || words->len >= MAX_RESULTS)
++    return;
++
++  for (guint i = 0; i < words->len; i++) {
++    if (g_str_equal (word, g_ptr_array_index (words, i)))
++      return;
++  }
++  g_ptr_array_add (words, g_strdup (word));
++}
++
++
++static void
++publish_completions (PosCompleterVerbisage *self)
++{
++  g_autoptr (GPtrArray) words = g_ptr_array_new_with_free_func (g_free);
++  g_auto (GStrv) prefixes = NULL;
++  g_auto (GStrv) suggestions = NULL;
++
++  /* The literal spelling is always available, including during daemon failure.
++   * Asynchronous results never replace or commit the user's preedit. */
++  if (self->preedit->len) {
++    g_ptr_array_add (words, g_strdup (self->preedit->str));
++    if (self->prefixes)
++      prefixes = pos_completer_capitalize_by_template (self->preedit->str, self->prefixes);
++    if (self->suggestions)
++      suggestions = pos_completer_capitalize_by_template (self->preedit->str, self->suggestions);
++
++    /* Interleave completion and correction so either source can be selected. */
++    for (guint i = 0; i < MAX_RESULTS; i++) {
++      if (prefixes && i < g_strv_length (prefixes))
++        append_unique (words, prefixes[i]);
++      if (suggestions && i < g_strv_length (suggestions))
++        append_unique (words, suggestions[i]);
++    }
++  }
++
++  g_clear_pointer (&self->completions, g_strfreev);
++  if (words->len) {
++    g_ptr_array_add (words, NULL);
++    self->completions = (GStrv) g_ptr_array_free (g_steal_pointer (&words), FALSE);
++  }
++  g_object_notify_by_pspec (G_OBJECT (self), props[PROP_COMPLETIONS]);
++}
++
++
++static void
++on_lookup_finished (GObject *source, GAsyncResult *result, gpointer user_data)
++{
++  g_autoptr (Lookup) lookup = user_data;
++  g_autoptr (PosCompleterVerbisage) self = g_weak_ref_get (&lookup->completer);
++  g_autoptr (GError) error = NULL;
++  g_autoptr (GVariant) reply = g_dbus_connection_call_finish (G_DBUS_CONNECTION (source), result, &error);
++  g_autoptr (GPtrArray) words = g_ptr_array_new_with_free_func (g_free);
++
++  if (!self || lookup->generation != self->generation)
++    return;
++
++  if (!reply) {
++    /* Do not log the preedit or daemon error message (which may contain it). */
++    if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
++      g_debug ("Dictionary lookup unavailable; retaining literal input");
++    return;
++  }
++
++  if (lookup->suggest) {
++    g_auto (GStrv) suggestions = NULL;
++
++    g_variant_get (reply, "(^as)", &suggestions);
++    for (guint i = 0; suggestions[i] && words->len < MAX_RESULTS; i++)
++      append_unique (words, suggestions[i]);
++  } else {
++    g_autoptr (GVariantIter) iter = NULL;
++    const char *word;
++    double score;
++
++    g_variant_get (reply, "(a(sd))", &iter);
++    while (words->len < MAX_RESULTS && g_variant_iter_next (iter, "(&sd)", &word, &score))
++      append_unique (words, word);
++  }
++
++  g_ptr_array_add (words, NULL);
++  if (lookup->suggest) {
++    g_strfreev (self->suggestions);
++    self->suggestions = (GStrv) g_ptr_array_free (g_steal_pointer (&words), FALSE);
++  } else {
++    g_strfreev (self->prefixes);
++    self->prefixes = (GStrv) g_ptr_array_free (g_steal_pointer (&words), FALSE);
++  }
++  publish_completions (self);
++}
++
++
++static void
++start_lookup (PosCompleterVerbisage *self)
++{
++  g_autofree char *word = g_utf8_strdown (self->preedit->str, -1);
++  const char *prefixes[] = {word, NULL};
++  const char *suffixes[] = {NULL};
++
++  g_dbus_connection_call (self->connection, BUS_NAME, OBJECT_PATH, INTERFACE, "QueryLimited",
++                           g_variant_new ("(^as^asuusu)", prefixes, suffixes, 0u, 0u,
++                                          self->language, (guint) MAX_RESULTS),
++                           G_VARIANT_TYPE ("(a(sd))"), G_DBUS_CALL_FLAGS_NONE,
++                           LOOKUP_TIMEOUT_MS, self->cancellable, on_lookup_finished,
++                           lookup_new (self, FALSE));
++  g_dbus_connection_call (self->connection, BUS_NAME, OBJECT_PATH, INTERFACE, "Suggest",
++                           g_variant_new ("(sus)", word, (guint) MAX_RESULTS, self->language),
++                           G_VARIANT_TYPE ("(as)"), G_DBUS_CALL_FLAGS_NONE,
++                           LOOKUP_TIMEOUT_MS, self->cancellable, on_lookup_finished,
++                           lookup_new (self, TRUE));
++}
++
++
++static void
++on_bus_ready (GObject *source, GAsyncResult *result, gpointer user_data)
++{
++  g_autoptr (Lookup) lookup = user_data;
++  g_autoptr (PosCompleterVerbisage) self = g_weak_ref_get (&lookup->completer);
++  g_autoptr (GError) error = NULL;
++  g_autoptr (GDBusConnection) connection = g_bus_get_finish (result, &error);
++
++  if (!self || lookup->generation != self->generation)
++    return;
++  if (!connection) {
++    g_debug ("Session bus unavailable; retaining literal input");
++    return;
++  }
++
++  g_set_object (&self->connection, connection);
++  start_lookup (self);
++}
++
++
++static gboolean
++lookup_timeout (gpointer user_data)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (user_data);
++
++  self->lookup_id = 0;
++  self->cancellable = g_cancellable_new ();
++  if (self->connection && g_dbus_connection_is_closed (self->connection))
++    g_clear_object (&self->connection);
++
++  if (self->connection)
++    start_lookup (self);
++  else
++    g_bus_get (G_BUS_TYPE_SESSION, self->cancellable, on_bus_ready, lookup_new (self, FALSE));
++
++  return G_SOURCE_REMOVE;
++}
++
++
++static void
++update_lookup (PosCompleterVerbisage *self)
++{
++  cancel_lookup (self);
++  publish_completions (self);
++  if (self->preedit->len && self->language &&
++      g_utf8_strlen (self->preedit->str, -1) <= MAX_WORD_CHARS)
++    self->lookup_id = g_timeout_add (LOOKUP_DELAY_MS, lookup_timeout, self);
++}
++
++
++static const char *
++pos_completer_verbisage_get_preedit (PosCompleter *iface)
++{
++  return POS_COMPLETER_VERBISAGE (iface)->preedit->str;
++}
++
++
++static void
++pos_completer_verbisage_set_preedit (PosCompleter *iface, const char *preedit)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (iface);
++  gboolean changed = g_strcmp0 (self->preedit->str, preedit ?: "") != 0;
++
++  /* A reset also invalidates outstanding replies when the value is empty. */
++  g_string_assign (self->preedit, preedit ?: "");
++  update_lookup (self);
++  if (changed)
++    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_PREEDIT]);
++}
++
++
++static gboolean
++pos_completer_verbisage_feed_symbol (PosCompleter *iface, const char *symbol)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (iface);
++  g_autofree char *previous = g_strdup (self->preedit->str);
++
++  if (pos_completer_add_preedit (iface, self->preedit, symbol)) {
++    PosCompleterBase *base = POS_COMPLETER_BASE (self);
++    int before = 0;
++
++    if (pos_completer_base_wants_punctuation_swap (base, symbol) && self->preedit->len == 2)
++      before = 1;
++    cancel_lookup (self);
++    g_signal_emit_by_name (self, "commit-string", self->preedit->str, before, 0);
++    pos_completer_verbisage_set_preedit (iface, NULL);
++    return g_strcmp0 (symbol, "KEY_ENTER") != 0;
++  }
++
++  if (g_str_equal (previous, self->preedit->str))
++    return FALSE;
++
++  update_lookup (self);
++  g_object_notify_by_pspec (G_OBJECT (self), props[PROP_PREEDIT]);
++  return TRUE;
++}
++
++
++static void
++pos_completer_verbisage_set_surrounding_text (PosCompleter *iface,
++                                             const char *before,
++                                             const char *after)
++{
++  pos_completer_base_set_surrounding_text (POS_COMPLETER_BASE (iface), before, after);
++}
++
++
++static gboolean
++pos_completer_verbisage_set_language (PosCompleter *iface,
++                                     const char *lang,
++                                     const char *region,
++                                     GError **error)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (iface);
++
++  g_clear_pointer (&self->language, g_free);
++  if (g_ascii_strcasecmp (lang, "en") != 0 ||
++      (region && *region && g_ascii_strcasecmp (region, "us") != 0)) {
++    update_lookup (self);
++    g_set_error_literal (error, POS_COMPLETER_ERROR, POS_COMPLETER_ERROR_LANG_INIT,
++                         "The Verbisage trial supports en_US only");
++    return FALSE;
++  }
++
++  self->language = g_strdup ("en_US");
++  update_lookup (self);
++  return TRUE;
++}
++
++
++static const char *
++pos_completer_verbisage_get_name (PosCompleter *iface)
++{
++  return "verbisage";
++}
++
++
++static void
++pos_completer_verbisage_set_property (GObject *object, guint prop_id,
++                                     const GValue *value, GParamSpec *pspec)
++{
++  if (prop_id == PROP_PREEDIT)
++    pos_completer_verbisage_set_preedit (POS_COMPLETER (object), g_value_get_string (value));
++  else
++    G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
++}
++
++
++static void
++pos_completer_verbisage_get_property (GObject *object, guint prop_id,
++                                     GValue *value, GParamSpec *pspec)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (object);
++
++  switch (prop_id) {
++  case PROP_NAME:
++    g_value_set_string (value, "verbisage");
++    break;
++  case PROP_PREEDIT:
++    g_value_set_string (value, self->preedit->str);
++    break;
++  case PROP_COMPLETIONS:
++    g_value_set_boxed (value, self->completions);
++    break;
++  case PROP_MODE_NAME:
++  case PROP_MODE_SYMBOL:
++    g_value_set_string (value, NULL);
++    break;
++  case PROP_MODE_MENU:
++  case PROP_MODE_ACTIONS:
++    g_value_set_object (value, NULL);
++    break;
++  default:
++    G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
++  }
++}
++
++
++static void
++pos_completer_verbisage_dispose (GObject *object)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (object);
++
++  cancel_lookup (self);
++  g_clear_object (&self->connection);
++  G_OBJECT_CLASS (pos_completer_verbisage_parent_class)->dispose (object);
++}
++
++
++static void
++pos_completer_verbisage_finalize (GObject *object)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (object);
++
++  g_string_free (self->preedit, TRUE);
++  g_strfreev (self->completions);
++  g_free (self->language);
++  G_OBJECT_CLASS (pos_completer_verbisage_parent_class)->finalize (object);
++}
++
++
++static void
++pos_completer_verbisage_class_init (PosCompleterVerbisageClass *klass)
++{
++  GObjectClass *object_class = G_OBJECT_CLASS (klass);
++  const char *names[] = {NULL, "name", "preedit", "completions", "mode-name", "mode-symbol",
++                        "mode-menu", "mode-actions"};
++
++  object_class->set_property = pos_completer_verbisage_set_property;
++  object_class->get_property = pos_completer_verbisage_get_property;
++  object_class->dispose = pos_completer_verbisage_dispose;
++  object_class->finalize = pos_completer_verbisage_finalize;
++  for (guint i = 1; i < PROP_LAST_PROP; i++) {
++    g_object_class_override_property (object_class, i, names[i]);
++    props[i] = g_object_class_find_property (object_class, names[i]);
++  }
++}
++
++
++static void
++pos_completer_verbisage_interface_init (PosCompleterInterface *iface)
++{
++  iface->get_name = pos_completer_verbisage_get_name;
++  iface->feed_symbol = pos_completer_verbisage_feed_symbol;
++  iface->get_preedit = pos_completer_verbisage_get_preedit;
++  iface->set_preedit = pos_completer_verbisage_set_preedit;
++  iface->set_surrounding_text = pos_completer_verbisage_set_surrounding_text;
++  iface->set_language = pos_completer_verbisage_set_language;
++}
++
++
++static void
++pos_completer_verbisage_init (PosCompleterVerbisage *self)
++{
++  self->preedit = g_string_new (NULL);
++  self->language = g_strdup ("en_US");
++}
++
++
++PosCompleter *
++pos_completer_verbisage_new (GError **error)
++{
++  /* Connecting and activating the daemon is deferred until actual input. */
++  return g_object_new (POS_TYPE_COMPLETER_VERBISAGE, NULL);
++}
+diff --git a/src/completers/pos-completer-verbisage.h b/src/completers/pos-completer-verbisage.h
+new file mode 100644
+index 0000000..143f355
+--- /dev/null
++++ b/src/completers/pos-completer-verbisage.h
+@@ -0,0 +1,14 @@
++/* SPDX-License-Identifier: GPL-3.0-or-later */
++#pragma once
++
++#include "pos-completer.h"
++#include "pos-completer-base.h"
++
++G_BEGIN_DECLS
++
++#define POS_TYPE_COMPLETER_VERBISAGE (pos_completer_verbisage_get_type ())
++G_DECLARE_FINAL_TYPE (PosCompleterVerbisage, pos_completer_verbisage, POS, COMPLETER_VERBISAGE, PosCompleterBase)
++
++PosCompleter *pos_completer_verbisage_new (GError **error);
++
++G_END_DECLS
+diff --git a/src/pos-completer-manager.c b/src/pos-completer-manager.c
+index bccccb8..1588db8 100644
+--- a/src/pos-completer-manager.c
++++ b/src/pos-completer-manager.c
+@@ -13,6 +13,7 @@
+ #include "pos-completer-manager.h"
+ #include "completers/pos-completer-presage.h"
+ #include "completers/pos-completer-pipe.h"
++#include "completers/pos-completer-verbisage.h"
+ #ifdef POS_HAVE_FZF
+ # include "completers/pos-completer-fzf.h"
+ #endif
+@@ -89,7 +90,12 @@ init_completer (PosCompleterManager *self, const char *name, GError **err)
+   if (completer)
+     return g_steal_pointer (&completer);
+ 
+-  if (g_strcmp0 (name, "pipe") == 0) {
++  if (g_strcmp0 (name, "verbisage") == 0) {
++    completer = pos_completer_verbisage_new (err);
++    if (completer)
++      goto done;
++    return NULL;
++  } else if (g_strcmp0 (name, "pipe") == 0) {
+     completer = pos_completer_pipe_new (err);
+     if (completer)
+       goto done;
+diff --git a/src/pos-input-surface.c b/src/pos-input-surface.c
+index f691224..8c6d673 100644
+--- a/src/pos-input-surface.c
++++ b/src/pos-input-surface.c
+@@ -18,6 +18,7 @@
+ #include "pos-clipboard-manager.h"
+ #include "pos-completer.h"
+ #include "pos-completer-manager.h"
++#include "completers/pos-completer-verbisage.h"
+ #include "pos-completion-bar.h"
+ #include "pos-input-surface.h"
+ #include "pos-keypad.h"
+@@ -1147,6 +1148,10 @@ pos_input_surface_set_completer (PosInputSurface *self, PosCompleter *completer)
+   g_clear_object (&self->mode_menu_binding);
+   g_clear_object (&self->mode_actions_binding);
+ 
++  if (POS_IS_COMPLETER_VERBISAGE (self->completer)) {
++    pos_input_surface_submit_current_preedit (self);
++    pos_completer_set_preedit (self->completer, NULL);
++  }
+   if (self->completer)
+     g_signal_handlers_disconnect_by_data (self->completer, self);
+ 
+@@ -1559,6 +1564,11 @@ on_im_active_changed (PosInputSurface *self, GParamSpec *pspec, PosInputMethod *
+   active = pos_input_method_get_active (im);
+   g_debug ("IM active: %d", active);
+ 
++  /* Cancel dictionary requests immediately on focus loss. The ordinary
++   * activation reset below still handles the next input field. */
++  if (!active && POS_IS_COMPLETER_VERBISAGE (self->completer))
++    pos_completer_set_preedit (self->completer, NULL);
++
+   if (active) {
+     /* TODO: Reset buffered commit_string, delete_surrounding_text */
+     if (pos_input_surface_is_completer_active (self))
+diff --git a/tests/meson.build b/tests/meson.build
+index 89a8c29..76154d0 100644
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -23,6 +23,7 @@ tests = [
+   'completer',
+   'completer-base',
+   'completer-hunspell',
++  'completer-verbisage',
+   'input-surface',
+   'load-layouts',
+   'osk-widget',
+diff --git a/tests/test-completer-verbisage.c b/tests/test-completer-verbisage.c
+new file mode 100644
+index 0000000..7ac3832
+--- /dev/null
++++ b/tests/test-completer-verbisage.c
+@@ -0,0 +1,468 @@
++/*
++ * Copyright (C) 2026 PocketFed contributors
++ * SPDX-License-Identifier: GPL-3.0-or-later
++ */
++
++#include "pos-config.h"
++#include "pos-completer-verbisage.h"
++
++#include <gio/gio.h>
++
++static const char service_xml[] =
++  "<node><interface name='org.verbisage.Dictionary1'>"
++  "<method name='QueryLimited'>"
++  "<arg type='as' direction='in'/><arg type='as' direction='in'/>"
++  "<arg type='u' direction='in'/><arg type='u' direction='in'/>"
++  "<arg type='s' direction='in'/><arg type='u' direction='in'/>"
++  "<arg type='a(sd)' direction='out'/></method>"
++  "<method name='Suggest'><arg type='s' direction='in'/>"
++  "<arg type='u' direction='in'/><arg type='s' direction='in'/>"
++  "<arg type='as' direction='out'/></method>"
++  "</interface></node>";
++
++typedef struct {
++  PosCompleter *completer;
++  GDBusConnection *service;
++  guint registration;
++  GPtrArray *held;
++  const char *hold_word;
++  gboolean fail;
++  guint queries;
++  guint suggestions;
++  char *committed;
++  int before;
++  int after;
++} Fixture;
++
++static GTestDBus *bus;
++
++
++static gboolean
++stop_loop (gpointer user_data)
++{
++  g_main_loop_quit (user_data);
++  return G_SOURCE_REMOVE;
++}
++
++
++static void
++spin (guint milliseconds)
++{
++  g_autoptr (GMainLoop) loop = g_main_loop_new (NULL, FALSE);
++
++  g_timeout_add (milliseconds, stop_loop, loop);
++  g_main_loop_run (loop);
++}
++
++
++static gboolean
++has_completion (PosCompleter *completer, const char *word)
++{
++  g_auto (GStrv) words = pos_completer_get_completions (completer);
++
++  return words && g_strv_contains ((const char *const *) words, word);
++}
++
++
++static void
++wait_completion (PosCompleter *completer, const char *word)
++{
++  gint64 deadline = g_get_monotonic_time () + 3 * G_TIME_SPAN_SECOND;
++
++  while (!has_completion (completer, word) && g_get_monotonic_time () < deadline)
++    spin (5);
++  g_assert_true (has_completion (completer, word));
++}
++
++
++static void
++wait_held (Fixture *fixture)
++{
++  gint64 deadline = g_get_monotonic_time () + 3 * G_TIME_SPAN_SECOND;
++
++  while (fixture->held->len != 2 && g_get_monotonic_time () < deadline)
++    spin (5);
++  g_assert_cmpuint (fixture->held->len, ==, 2);
++}
++
++
++static void
++answer (GDBusMethodInvocation *invocation)
++{
++  GVariant *parameters = g_dbus_method_invocation_get_parameters (invocation);
++  const char *method = g_dbus_method_invocation_get_method_name (invocation);
++  const char *word;
++  g_auto (GStrv) prefixes = NULL;
++  g_autofree char *generated = NULL;
++
++  if (g_str_equal (method, "Suggest")) {
++    const char *words[] = {NULL, NULL, NULL};
++
++    g_variant_get_child (parameters, 0, "&s", &word);
++    if (g_str_equal (word, "hel")) {
++      words[0] = "help";
++      words[1] = "held";
++    } else if (g_str_equal (word, "teh")) {
++      words[0] = "the";
++    } else if (g_str_equal (word, "wor")) {
++      words[0] = "word";
++    }
++    g_dbus_method_invocation_return_value (invocation, g_variant_new ("(^as)", words));
++  } else {
++    GVariantBuilder builder;
++
++    g_variant_get_child (parameters, 0, "^as", &prefixes);
++    word = prefixes[0];
++    g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(sd)"));
++    if (g_str_equal (word, "hel")) {
++      g_variant_builder_add (&builder, "(sd)", "hello", 0.9);
++      g_variant_builder_add (&builder, "(sd)", "help", 0.8);
++      g_variant_builder_add (&builder, "(sd)", "hello", 0.7);
++    } else if (g_str_equal (word, "wor")) {
++      g_variant_builder_add (&builder, "(sd)", "world", 0.9);
++    } else if (!g_str_equal (word, "teh")) {
++      generated = g_strdup_printf ("%sword", word);
++      g_variant_builder_add (&builder, "(sd)", generated, 0.9);
++    }
++    g_dbus_method_invocation_return_value (invocation, g_variant_new ("(a(sd))", &builder));
++  }
++}
++
++
++static void
++on_call (GDBusConnection *connection, const char *sender, const char *path,
++           const char *interface, const char *method, GVariant *parameters,
++           GDBusMethodInvocation *invocation, gpointer user_data)
++{
++  Fixture *fixture = user_data;
++  const char *language;
++  const char *word;
++  guint max;
++  g_auto (GStrv) prefixes = NULL;
++  g_auto (GStrv) suffixes = NULL;
++
++  if (g_str_equal (method, "QueryLimited")) {
++    guint min_len, max_len;
++
++    fixture->queries++;
++    g_variant_get (parameters, "(^as^asuu&su)", &prefixes, &suffixes,
++                     &min_len, &max_len, &language, &max);
++    g_assert_cmpuint (g_strv_length (prefixes), ==, 1);
++    g_assert_cmpuint (g_strv_length (suffixes), ==, 0);
++    g_assert_cmpuint (min_len, ==, 0);
++    g_assert_cmpuint (max_len, ==, 0);
++    word = prefixes[0];
++  } else {
++    fixture->suggestions++;
++    g_variant_get (parameters, "(&su&s)", &word, &max, &language);
++  }
++  g_assert_cmpstr (language, ==, "en_US");
++  g_assert_cmpuint (max, ==, 6);
++
++  if (fixture->hold_word && g_str_equal (word, fixture->hold_word))
++    g_ptr_array_add (fixture->held, g_object_ref (invocation));
++  else if (fixture->fail)
++    g_dbus_method_invocation_return_dbus_error (invocation, "org.freedesktop.DBus.Error.Failed",
++                                               "Dictionary unavailable for test");
++  else
++    answer (invocation);
++}
++
++static const GDBusInterfaceVTable vtable = {.method_call = on_call};
++
++
++static void
++on_commit (PosCompleter *completer, const char *text, int before, int after, gpointer user_data)
++{
++  Fixture *fixture = user_data;
++
++  g_free (fixture->committed);
++  fixture->committed = g_strdup (text);
++  fixture->before = before;
++  fixture->after = after;
++}
++
++
++static void
++setup (Fixture *fixture, gconstpointer unused)
++{
++  g_autoptr (GError) error = NULL;
++  g_autoptr (GDBusNodeInfo) node = g_dbus_node_info_new_for_xml (service_xml, &error);
++  g_autoptr (GVariant) reply = NULL;
++
++  g_assert_no_error (error);
++  fixture->held = g_ptr_array_new_with_free_func (g_object_unref);
++  fixture->service = g_dbus_connection_new_for_address_sync (
++    g_test_dbus_get_bus_address (bus),
++    G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
++    NULL, NULL, &error);
++  g_assert_no_error (error);
++  fixture->registration = g_dbus_connection_register_object (fixture->service,
++    "/org/verbisage/Dictionary", node->interfaces[0], &vtable, fixture, NULL, &error);
++  g_assert_no_error (error);
++  reply = g_dbus_connection_call_sync (fixture->service, "org.freedesktop.DBus",
++    "/org/freedesktop/DBus", "org.freedesktop.DBus", "RequestName",
++    g_variant_new ("(su)", "org.verbisage.Dictionary", 0u), G_VARIANT_TYPE ("(u)"),
++    G_DBUS_CALL_FLAGS_NONE, 1000, NULL, &error);
++  g_assert_no_error (error);
++  fixture->completer = pos_completer_verbisage_new (&error);
++  g_assert_no_error (error);
++  g_signal_connect (fixture->completer, "commit-string", G_CALLBACK (on_commit), fixture);
++}
++
++
++static void
++release_held (Fixture *fixture)
++{
++  for (guint i = 0; i < fixture->held->len; i++)
++    answer (g_ptr_array_index (fixture->held, i));
++  g_ptr_array_set_size (fixture->held, 0);
++}
++
++
++static void
++teardown (Fixture *fixture, gconstpointer unused)
++{
++  g_clear_object (&fixture->completer);
++  release_held (fixture);
++  g_ptr_array_unref (fixture->held);
++  g_dbus_connection_unregister_object (fixture->service, fixture->registration);
++  g_dbus_connection_close_sync (fixture->service, NULL, NULL);
++  g_clear_object (&fixture->service);
++  g_free (fixture->committed);
++  spin (10);
++}
++
++
++static void
++test_completion (Fixture *fixture, gconstpointer unused)
++{
++  g_auto (GStrv) words = NULL;
++  const char *expected[] = {"Hel", "Hello", "Help", "Held", NULL};
++
++  g_assert_cmpstr (pos_completer_get_name (fixture->completer), ==, "verbisage");
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++  pos_completer_feed_symbol (fixture->completer, "H");
++  pos_completer_feed_symbol (fixture->completer, "e");
++  pos_completer_feed_symbol (fixture->completer, "l");
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "Hel");
++  g_assert_true (has_completion (fixture->completer, "Hel"));
++  wait_completion (fixture->completer, "Held");
++  wait_completion (fixture->completer, "Hello");
++  words = pos_completer_get_completions (fixture->completer);
++  g_assert_cmpstrv (words, expected);
++  g_assert_cmpuint (fixture->queries, ==, 1);
++  g_assert_cmpuint (fixture->suggestions, ==, 1);
++  g_assert_null (fixture->committed);
++}
++
++
++static void
++test_stale (Fixture *fixture, gconstpointer unused)
++{
++  fixture->hold_word = "old";
++  pos_completer_set_preedit (fixture->completer, "old");
++  wait_held (fixture);
++  pos_completer_set_preedit (fixture->completer, "wor");
++  wait_completion (fixture->completer, "world");
++  release_held (fixture);
++  spin (30);
++  g_assert_false (has_completion (fixture->completer, "oldword"));
++  g_assert_true (has_completion (fixture->completer, "world"));
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "wor");
++}
++
++
++static void
++test_reset (Fixture *fixture, gconstpointer unused)
++{
++  fixture->hold_word = "old";
++  pos_completer_set_preedit (fixture->completer, "old");
++  wait_held (fixture);
++  /* Used by focus loss and completion selection in PosInputSurface. */
++  pos_completer_set_preedit (fixture->completer, NULL);
++  release_held (fixture);
++  spin (30);
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "");
++  g_assert_null (fixture->committed);
++}
++
++
++static void
++test_language (Fixture *fixture, gconstpointer unused)
++{
++  g_autoptr (GError) error = NULL;
++
++  fixture->hold_word = "old";
++  pos_completer_set_preedit (fixture->completer, "old");
++  wait_held (fixture);
++  g_assert_false (pos_completer_set_language (fixture->completer, "de", "de", &error));
++  g_assert_error (error, POS_COMPLETER_ERROR, POS_COMPLETER_ERROR_LANG_INIT);
++  g_clear_error (&error);
++  release_held (fixture);
++  spin (30);
++  g_assert_false (has_completion (fixture->completer, "oldword"));
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "old");
++  g_assert_true (pos_completer_set_language (fixture->completer, "en", "US", &error));
++  g_assert_no_error (error);
++  pos_completer_set_preedit (fixture->completer, "hel");
++  wait_completion (fixture->completer, "hello");
++}
++
++
++static void
++test_error_recovery (Fixture *fixture, gconstpointer unused)
++{
++  fixture->fail = TRUE;
++  pos_completer_set_preedit (fixture->completer, "teh");
++  spin (120);
++  g_assert_cmpuint (fixture->suggestions, ==, 1);
++  g_assert_true (has_completion (fixture->completer, "teh"));
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "teh");
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, " "));
++  g_assert_cmpstr (fixture->committed, ==, "teh ");
++  fixture->fail = FALSE;
++  pos_completer_set_preedit (fixture->completer, "teh");
++  wait_completion (fixture->completer, "the");
++}
++
++
++static void
++test_timeout (Fixture *fixture, gconstpointer unused)
++{
++  fixture->hold_word = "slow";
++  pos_completer_set_preedit (fixture->completer, "slow");
++  wait_held (fixture);
++  spin (1100);
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "slow");
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, " "));
++  g_assert_cmpstr (fixture->committed, ==, "slow ");
++  release_held (fixture);
++  pos_completer_set_preedit (fixture->completer, "hel");
++  wait_completion (fixture->completer, "hello");
++}
++
++
++static void
++test_daemon_restart (Fixture *fixture, gconstpointer unused)
++{
++  g_autoptr (GError) error = NULL;
++  g_autoptr (GVariant) reply = NULL;
++
++  reply = g_dbus_connection_call_sync (fixture->service, "org.freedesktop.DBus",
++    "/org/freedesktop/DBus", "org.freedesktop.DBus", "ReleaseName",
++    g_variant_new ("(s)", "org.verbisage.Dictionary"), G_VARIANT_TYPE ("(u)"),
++    G_DBUS_CALL_FLAGS_NONE, 1000, NULL, &error);
++  g_assert_no_error (error);
++  pos_completer_set_preedit (fixture->completer, "hel");
++  spin (120);
++  g_assert_true (has_completion (fixture->completer, "hel"));
++  g_assert_cmpuint (fixture->queries, ==, 0);
++  g_clear_pointer (&reply, g_variant_unref);
++  reply = g_dbus_connection_call_sync (fixture->service, "org.freedesktop.DBus",
++    "/org/freedesktop/DBus", "org.freedesktop.DBus", "RequestName",
++    g_variant_new ("(su)", "org.verbisage.Dictionary", 0u), G_VARIANT_TYPE ("(u)"),
++    G_DBUS_CALL_FLAGS_NONE, 1000, NULL, &error);
++  g_assert_no_error (error);
++  pos_completer_set_preedit (fixture->completer, "wor");
++  wait_completion (fixture->completer, "world");
++}
++
++
++static void
++test_editing (Fixture *fixture, gconstpointer unused)
++{
++  g_assert_false (pos_completer_feed_symbol (fixture->completer, "KEY_BACKSPACE"));
++  pos_completer_set_preedit (fixture->completer, "café");
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, "KEY_BACKSPACE"));
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "caf");
++  g_assert_false (pos_completer_feed_symbol (fixture->completer, "KEY_ENTER"));
++  g_assert_cmpstr (fixture->committed, ==, "caf");
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "");
++  pos_completer_set_surrounding_text (fixture->completer, "hello ", "");
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, "."));
++  g_assert_cmpstr (fixture->committed, ==, ". ");
++  g_assert_cmpint (fixture->before, ==, 1);
++  g_assert_cmpint (fixture->after, ==, 0);
++}
++
++
++static void
++test_dispose_pending (Fixture *fixture, gconstpointer unused)
++{
++  fixture->hold_word = "old";
++  pos_completer_set_preedit (fixture->completer, "old");
++  wait_held (fixture);
++  g_assert_finalize_object (fixture->completer);
++  fixture->completer = NULL;
++  release_held (fixture);
++  spin (30);
++}
++
++
++static void
++test_input_limit (Fixture *fixture, gconstpointer unused)
++{
++  g_autofree char *word = g_strnfill (200, 'a');
++
++  pos_completer_set_preedit (fixture->completer, word);
++  spin (120);
++  g_assert_cmpuint (fixture->queries, ==, 0);
++  g_assert_true (has_completion (fixture->completer, word));
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, " "));
++  g_assert_cmpuint (strlen (fixture->committed), ==, 201);
++}
++
++
++static void
++test_real_service (void)
++{
++  g_autoptr (PosCompleter) completer = pos_completer_verbisage_new (NULL);
++
++  pos_completer_set_preedit (completer, "hell");
++  wait_completion (completer, "hello");
++  pos_completer_set_preedit (completer, "teh");
++  wait_completion (completer, "the");
++  g_assert_cmpstr (pos_completer_get_preedit (completer), ==, "teh");
++  pos_completer_set_preedit (completer, NULL);
++  g_assert_null (pos_completer_get_completions (completer));
++}
++
++
++int
++main (int argc, char **argv)
++{
++  int result;
++  gboolean real_service = argc == 2 && g_str_equal (argv[1], "--real-service");
++
++  if (real_service) {
++    argc = 1;
++    argv[1] = NULL;
++  }
++  g_test_init (&argc, &argv, NULL);
++  if (real_service) {
++    g_test_add_func ("/pos/completer/verbisage/real-service", test_real_service);
++    return g_test_run ();
++  }
++
++  bus = g_test_dbus_new (G_TEST_DBUS_NONE);
++  g_test_dbus_up (bus);
++#define ADD_TEST(name, function) \
++  g_test_add ("/pos/completer/verbisage/" name, Fixture, NULL, setup, function, teardown)
++  ADD_TEST ("completion", test_completion);
++  ADD_TEST ("stale", test_stale);
++  ADD_TEST ("reset", test_reset);
++  ADD_TEST ("language", test_language);
++  ADD_TEST ("error-recovery", test_error_recovery);
++  ADD_TEST ("timeout", test_timeout);
++  ADD_TEST ("daemon-restart", test_daemon_restart);
++  ADD_TEST ("editing", test_editing);
++  ADD_TEST ("dispose-pending", test_dispose_pending);
++  ADD_TEST ("input-limit", test_input_limit);
++#undef ADD_TEST
++  result = g_test_run ();
++  g_test_dbus_down (bus);
++  g_object_unref (bus);
++  return result;
++}

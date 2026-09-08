@@ -1,0 +1,28 @@
+{
+  "repository": "https://codeberg.org/Helium314/aosp-dictionaries",
+  "commit": "55e6d1c64ad72481d5615113b1c94f0716617016",
+  "source_path": "wordlists/main_en_US.combined",
+  "reference_binary_path": "dictionaries/main_en_us.dict",
+  "binary_format": 202,
+  "dictionary_revision": 54,
+  "dictionary_source_date": "2014-10-31",
+  "locale": "en_US",
+  "word_entries": 160715,
+  "bigram_records": 481875,
+  "shortcut_records": 99,
+  "possibly_offensive_records": 1300,
+  "license_basis": "GPL-3.0-only from dictionary repository LICENSE; English .source declares OpenBoard v1.4.5 origin with no separate English license exception; see PROVENANCE.md",
+  "source_sha256": "73308519ff089c73baa35e08f25087bb62ed4a6bf2f96af3efb402187f7c9edb",
+  "binary_sha256": "bd950ef4b57655120eee65cee62a5d216a63f721d9a8bb759ce2022437840443",
+  "build_generator": {
+    "repository": "https://android.googlesource.com/platform/packages/inputmethods/LatinIME",
+    "commit": "a009d2c98da9749bf6ae4d92ef5fb3d3e945530f",
+    "tag": "android-4.3_r3.1",
+    "license": "Apache-2.0",
+    "source_files": "tools/dicttool/src, java/src/com/android/inputmethod/latin/makedict, java/src/com/android/inputmethod/annotations, Constants.java",
+    "downstream_delta": "Preserve v202 possibly_offensive flags/frequency in static v2 writer; set version202/header options; verify exact official output hash",
+    "precompiled_code_included": false
+  },
+  "package": "android-patricia-dictionaries-en-US",
+  "installed_path": "/usr/share/android-patricia-dictionaries/en_US.dict"
+}

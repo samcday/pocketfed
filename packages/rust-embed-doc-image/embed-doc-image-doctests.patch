@@ -1,0 +1,20 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -50,7 +50,7 @@
+ //! macros and so on. Let's consider documenting a function and embedding an image into its
+ //! documentation:
+ //!
+-//! ```rust
++//! ```rust,ignore
+ //! // Import the attribute macro
+ //! use embed_doc_image::embed_doc_image;
+ //!
+@@ -154,7 +154,7 @@
+ //! [reddit comment from 2017][reddit-comment]. In short, Rustdoc allows images to be provided
+ //! inline in the Markdown as `base64` encoded binary blobs in the following way:
+ //!
+-//! ```rust
++//! ```markdown
+ //! ![Alt text][myimagelabel]
+ //!
+ //! [myimagelabel]: data:image/png;base64,BaSe64EnCoDeDdAtA

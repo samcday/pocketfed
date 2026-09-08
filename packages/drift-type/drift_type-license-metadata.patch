@@ -1,0 +1,20 @@
+From: PocketFed packaging <me@samcday.com>
+Subject: [PATCH] Set the SPDX license field for the included Apache-2.0 license
+
+The upstream LICENSE contains Apache-2.0. The license-file key instead names
+"Apache-2.0", which is not a file in the source archive. Correct the metadata
+so cargo package and RPM dependency generation can identify the license.
+
+This is a downstream packaging patch; it does not change licensing terms.
+
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,7 +1,7 @@
+ [package]
+ name = "drift_type"
+ version = "0.0.0"
+-license-file = "Apache-2.0"
++license = "Apache-2.0"
+ edition = "2024"
+ description = "A gesture typing library"
+ repository = "https://codeberg.org/eclexic/drift_type"

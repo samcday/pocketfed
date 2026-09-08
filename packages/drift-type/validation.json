@@ -1,0 +1,47 @@
+{
+  "builder": "Fedora Rawhide x86_64 disposable container",
+  "date": "2026-09-07",
+  "rpm_build": "passed",
+  "rpmlint": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "artifacts": [
+    {
+      "name": "rust-drift_type+default-devel-0.0.0-0.1.20260904gitf63256a.fc46.noarch.rpm",
+      "sha256": "f12a2690492b4360b8e692599d8656211eb88a37316c037304fef46effdb5040",
+      "size": 7245
+    },
+    {
+      "name": "rust-drift_type+doc-images-devel-0.0.0-0.1.20260904gitf63256a.fc46.noarch.rpm",
+      "sha256": "b00de48251b035a3b430b8ae1d509558f3386aaf0546d5558f3d701cb7eeafb5",
+      "size": 7277
+    },
+    {
+      "name": "rust-drift_type-devel-0.0.0-0.1.20260904gitf63256a.fc46.noarch.rpm",
+      "sha256": "e7728e9a80b545a70b50cae3ae6225c3b598e4d360925422d94ef98037b42796",
+      "size": 171967
+    },
+    {
+      "name": "rust-drift_type-0.0.0-0.1.20260904gitf63256a.fc46.src.rpm",
+      "sha256": "e3acc5868dd152cdcc0de3972d23cb8da452c606d7475952552a3baad2f16d56",
+      "size": 189764
+    }
+  ],
+  "source_commit": "f63256a5bb973b10a4e11e190cfbb105fc89da0a",
+  "tests": {
+    "default": {
+      "unit_passed": 59,
+      "doc_passed": 16
+    },
+    "all_features": {
+      "unit_passed": 59,
+      "doc_passed": 16
+    }
+  },
+  "build_warnings": [
+    "Cargo observes the repacked source is outside Git",
+    "RPM notes explicit license/doc entries also included by the crate directory glob; each is packaged once"
+  ],
+  "scope": "Summary of the existing local Fedora Rawhide build; raw workstation/device records are not published here. Artifact hashes refer to those local builds, not newly signed COPR outputs."
+}

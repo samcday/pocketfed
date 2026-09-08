@@ -1,0 +1,25 @@
+{
+  "builder": "Fedora Rawhide 46 x86_64 (noarch output)",
+  "build_passed": true,
+  "check_passed": true,
+  "source_reproduction_identical": true,
+  "dictionary_matches_upstream_sha256": "bd950ef4b57655120eee65cee62a5d216a63f721d9a8bb759ce2022437840443",
+  "rpmlint": {
+    "errors": 0,
+    "warnings": 4,
+    "notes": "Two generated source archives have local Source names, reported once for the spec and once for the SRPM; preparation script records immutable URLs and input hashes."
+  },
+  "artifacts": [
+    {
+      "filename": "android-patricia-dictionaries-en-US-54-0.1.20260907git55e6d1c.fc46.noarch.rpm",
+      "sha256": "d1fa39c070b6ab3cea5763e47d6c1d6121eca4125c820bc260bde7f55b51959e",
+      "size": 1819069
+    },
+    {
+      "filename": "android-patricia-dictionaries-54-0.1.20260907git55e6d1c.fc46.src.rpm",
+      "sha256": "f32c96b7050e0f81f4d7a8684ab304abceb134ae42577d6dd01218ab9862d83a",
+      "size": 1459623
+    }
+  ],
+  "scope": "Summary of the existing local Fedora Rawhide build; raw workstation/device records are not published here. Artifact hashes refer to those local builds, not newly signed COPR outputs."
+}

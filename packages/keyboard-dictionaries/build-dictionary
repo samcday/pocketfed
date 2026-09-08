@@ -1,0 +1,44 @@
+#!/usr/bin/python3
+"""Compile the selected AOSP Java sources and reproduce the upstream v202 data."""
+import argparse
+import hashlib
+from pathlib import Path
+import struct
+import subprocess
+
+EXPECTED = 'bd950ef4b57655120eee65cee62a5d216a63f721d9a8bb759ce2022437840443'
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('tool', type=Path)
+    parser.add_argument('wordlist', type=Path)
+    parser.add_argument('output', type=Path)
+    args = parser.parse_args()
+    tool = args.tool.resolve()
+    classes = tool / 'classes'
+    classes.mkdir(exist_ok=True)
+    sources = sorted((tool / 'tools/dicttool/src').rglob('*.java'))
+    overridden = {source.name for source in sources}
+    sources += sorted(source for source in (tool / 'java/src').rglob('*.java') if source.name not in overridden)
+    subprocess.run(['javac', '--release', '8', '-d', str(classes)] + list(map(str, sources)), check=True)
+    # Upstream logs each low-scoring bigram. Retain logs without flooding RPM output.
+    with Path('dicttool-build.log').open('wb') as log:
+        subprocess.run(['java', '-cp', str(classes), 'com.android.inputmethod.latin.dicttool.Dicttool',
+                        'makedict', '-2', '-s', str(args.wordlist), '-d', str(args.output)],
+                       check=True, stdout=log, stderr=subprocess.STDOUT)
+    data = bytearray(args.output.read_bytes())
+    if data[:8] != bytes.fromhex('9bc13afe00020008'):
+        raise SystemExit('Unexpected AOSP v2 header')
+    # V202 has the same static trie structure. The patch preserves the source
+    # possibly_offensive bit; V202 removes the old header bigram option bit.
+    struct.pack_into('>HH', data, 4, 202, 0)
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != EXPECTED:
+        raise SystemExit('Source rebuild differs from pinned upstream dictionary: ' + actual)
+    args.output.write_bytes(data)
+    print('Reproduced official US English dictionary:', actual)
+
+
+if __name__ == '__main__':
+    main()

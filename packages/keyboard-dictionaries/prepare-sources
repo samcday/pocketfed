@@ -1,0 +1,76 @@
+#!/usr/bin/python3
+"""Fetch checksummed source inputs and create deterministic RPM source archives."""
+import argparse
+import base64
+import gzip
+import hashlib
+import io
+import json
+from pathlib import Path
+import tarfile
+import urllib.request
+
+DATA_COMMIT = '55e6d1c64ad72481d5615113b1c94f0716617016'
+TOOL_COMMIT = 'a009d2c98da9749bf6ae4d92ef5fb3d3e945530f'
+
+
+def archive(path, prefix, files):
+    with path.open('wb') as raw:
+        with gzip.GzipFile(filename='', fileobj=raw, mode='wb', mtime=0) as zipped:
+            with tarfile.open(fileobj=zipped, mode='w', format=tarfile.GNU_FORMAT) as tar:
+                for name, content in sorted(files.items()):
+                    info = tarfile.TarInfo(prefix + '/' + name)
+                    info.size = len(content)
+                    info.mode = 0o644
+                    tar.addfile(info, io.BytesIO(content))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--cache-dir', type=Path, required=True)
+    parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--offline', action='store_true')
+    args = parser.parse_args()
+    here = Path(__file__).resolve().parent
+    inputs = json.loads((here / 'inputs.json').read_text())
+    args.cache_dir.mkdir(parents=True, exist_ok=True)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    fetched = {}
+    for entry in inputs:
+        path = args.cache_dir / entry['filename']
+        if not path.exists():
+            if args.offline:
+                raise SystemExit('Missing cached source: ' + str(path))
+            path.write_bytes(urllib.request.urlopen(entry['url']).read())
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != entry['sha256']:
+            raise SystemExit('Source checksum mismatch: ' + str(path))
+        fetched[entry['filename']] = data
+    data_files = {name: fetched[name] for name in ('main_en_US.combined', 'main_en_US.source', 'COPYING')}
+    tool_files = {}
+    trees = {'dicttool-source.tar.gz': 'tools/dicttool',
+             'makedict-source.tar.gz': 'java/src/com/android/inputmethod/latin/makedict',
+             'annotations-source.tar.gz': 'java/src/com/android/inputmethod/annotations'}
+    for name, dest in trees.items():
+        with tarfile.open(fileobj=io.BytesIO(fetched[name]), mode='r:gz') as source:
+            for member in source.getmembers():
+                if not member.isfile():
+                    continue
+                path = Path(member.name)
+                if path.is_absolute() or '..' in path.parts:
+                    raise SystemExit('Invalid archive member')
+                # Match AOSP Android.mk: tool overrides plus core and annotations.
+                if member.name.endswith('.java') and not member.name.startswith('tests/'):
+                    tool_files[dest + '/' + member.name] = source.extractfile(member).read()
+    tool_files['java/src/com/android/inputmethod/latin/Constants.java'] = base64.b64decode(fetched['Constants.java.base64'])
+    tool_files['COPYING-APACHE-2.0'] = (here / 'COPYING-APACHE-2.0').read_bytes()
+    data_name = f'android-patricia-dictionaries-{DATA_COMMIT}.tar.gz'
+    tool_name = f'aosp-dicttool-{TOOL_COMMIT}.tar.gz'
+    archive(args.output_dir / data_name, 'android-patricia-dictionaries-54', data_files)
+    archive(args.output_dir / tool_name, 'dicttool', tool_files)
+    for name in (data_name, tool_name):
+        print(hashlib.sha256((args.output_dir / name).read_bytes()).hexdigest() + '  ' + name)
+
+
+if __name__ == '__main__':
+    main()

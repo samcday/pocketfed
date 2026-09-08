@@ -1,0 +1,57 @@
+#!/usr/bin/python3
+"""Prepare the pinned Rust-only source plus the authorized license metadata."""
+import argparse
+import gzip
+import hashlib
+import io
+from pathlib import Path
+import tarfile
+import urllib.request
+
+COMMIT = "cdab42d9b93a0b33070804b37098568c3a3227f8"
+UPSTREAM_SHA256 = "1e9c6fdf0739604a1d54dc25cc9cffea49fa8c3c866278b3987ef3b3382e16f6"
+URL = f"https://gitlab.com/InsanePrawn/android-patricia-dict/-/archive/{COMMIT}/android-patricia-dict-{COMMIT}.tar.gz"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--upstream-archive", type=Path)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    data = args.upstream_archive.read_bytes() if args.upstream_archive else urllib.request.urlopen(URL).read()
+    if hashlib.sha256(data).hexdigest() != UPSTREAM_SHA256:
+        raise SystemExit("Upstream archive checksum mismatch")
+    files = {}
+    prefix = f"android-patricia-dict-{COMMIT}/"
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as source:
+        for member in source.getmembers():
+            if not member.isfile() or not member.name.startswith(prefix):
+                continue
+            name = member.name.removeprefix(prefix)
+            if name in ("Cargo.toml", "Cargo.lock", "README.md") or name.startswith("src/"):
+                if ".." in Path(name).parts:
+                    raise SystemExit("Invalid archive path")
+                files[name] = source.extractfile(member).read()
+    manifest = files["Cargo.toml"]
+    needle = b'edition = "2024"\n'
+    if manifest.count(needle) != 1 or b'license =' in manifest:
+        raise SystemExit("Unexpected upstream license metadata")
+    files["Cargo.toml"] = manifest.replace(needle, needle + b'license = "GPL-3.0-only"\n')
+    here = Path(__file__).resolve().parent
+    for name in ("COPYING", "LICENSE-PROVENANCE.md"):
+        files[name] = (here / name).read_bytes()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open("wb") as output:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=output, mtime=0) as zipped:
+            with tarfile.open(fileobj=zipped, mode="w", format=tarfile.GNU_FORMAT) as archive:
+                for name, content in sorted(files.items()):
+                    entry = tarfile.TarInfo("patricia_dict/" + name)
+                    entry.size = len(content)
+                    entry.mode = 0o644
+                    entry.mtime = 0
+                    archive.addfile(entry, io.BytesIO(content))
+    print(hashlib.sha256(args.output.read_bytes()).hexdigest(), args.output)
+
+
+if __name__ == "__main__":
+    main()
