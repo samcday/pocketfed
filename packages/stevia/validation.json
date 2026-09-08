@@ -1,0 +1,74 @@
+{
+  "release": "0.57.0-1.2.pocketfed.fc46",
+  "platform": "Fedora Rawhide x86_64 isolated Podman build container",
+  "rpm_build": {
+    "status": "passed",
+    "checks": "Fedora %check, desktop-file-validate and all 72 Meson tests under headless Mutter",
+    "passed": 72,
+    "failed": 0,
+    "signature": "local rpmbuild artifacts are unsigned"
+  },
+  "rpmlint": {
+    "errors": 0,
+    "warnings": 2,
+    "scope": [
+      "spec",
+      "SRPM",
+      "main binary RPM",
+      "provider subpackage"
+    ],
+    "warnings_detail": [
+      "stevia-phosh-osk-provider: no-documentation (inherited package split)",
+      "stevia-phosh-osk-provider: desktopfile-without-binary (binary is in required main package)"
+    ]
+  },
+  "adapter_fake_service": {
+    "passed": 14,
+    "failed": 0,
+    "scenarios": [
+      "ranked order, six total candidates and one-reply notification",
+      "known-word/exact/duplicate handling and unchanged-result notification suppression",
+      "title case and all-caps preservation",
+      "unsupported Complete method preserves literal input without fallback",
+      "stale: old response cannot replace newer word",
+      "reset: focus/selection reset invalidates response",
+      "language: unsupported locale invalidates work without losing literal text",
+      "error-recovery: dictionary errors preserve commit, next lookup recovers",
+      "timeout: one-second timeout preserves commit and recovery",
+      "daemon-restart: missing service and reacquired bus name",
+      "editing: Unicode backspace, raw Enter, punctuation spacing",
+      "dispose-pending: weak async ownership permits finalization in flight",
+      "input-limit: oversized input remains literal without service request"
+    ]
+  },
+  "real_service": {
+    "status": "passed",
+    "checks": [
+      "helo -> hello is first suggestion (index 1 after literal)",
+      "hell -> hello",
+      "teh -> the",
+      "maximum six candidates total",
+      "literal preedit retained",
+      "reset clears candidates"
+    ],
+    "scope": "Production adapter with pinned English dictionary and paired daemon"
+  },
+  "wayland": {
+    "status": "passed",
+    "cases": [
+      "helo",
+      "helo-literal",
+      "unavailable"
+    ],
+    "scope": "Installed local Stevia RPM, paired debug service, private Phoc and GTK4; later signed native checks also passed. Physical tap acceptance was confirmed separately."
+  },
+  "rpm_artifacts": {
+    "stevia-phosh-osk-provider-0.57.0-1.2.pocketfed.fc46.noarch.rpm": "623d8c84cfe5eaaeecf8258c276503a2357ace91b7f5310f9f1943f3694eb1c2",
+    "stevia-0.57.0-1.2.pocketfed.fc46.x86_64.rpm": "69916a11c547b7157ba47cf31f8a43d12eed6a9dae6a18696cba30aa13f759a7",
+    "stevia-debuginfo-0.57.0-1.2.pocketfed.fc46.x86_64.rpm": "c2696a97c3dc1c26eed4b303543cb30f6175298a2ca47b6f49d8c05cb68044eb",
+    "stevia-debugsource-0.57.0-1.2.pocketfed.fc46.x86_64.rpm": "9d187fcfd8674d26e47e808fa8124aefbaec52877a807348781413025ee9e530",
+    "stevia-0.57.0-1.2.pocketfed.fc46.src.rpm": "6691dd8bda4d118d7c0bc90a16019ffc48c58f7f76c8b6938b88141aaa9faf52"
+  },
+  "reproduction": "validation/README.md",
+  "scope": "Existing validation summary; local hashes identify unsigned outputs. Raw device records, screenshots and logs are excluded."
+}

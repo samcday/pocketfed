@@ -1,0 +1,33 @@
+{
+  "builder": "Fedora Rawhide x86_64 disposable container",
+  "date": "2026-09-07",
+  "rpm_build": "passed",
+  "rpmlint": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "artifacts": [
+    {
+      "name": "rust-embed-doc-image+default-devel-0.1.4-1.1.pocketfed.fc46.noarch.rpm",
+      "sha256": "13bc86ae453cb2514a25a01aca01174da01297a26b5665e77db7ee32df70593d",
+      "size": 7245
+    },
+    {
+      "name": "rust-embed-doc-image-devel-0.1.4-1.1.pocketfed.fc46.noarch.rpm",
+      "sha256": "48b5688379ca83053d4e1b42c933d3414a2b0eb36381797c8bb4419a335f3432",
+      "size": 15706
+    },
+    {
+      "name": "rust-embed-doc-image-0.1.4-1.1.pocketfed.fc46.src.rpm",
+      "sha256": "04e6e36e3a211a680a3b7841112c0b1e05574dcd23da8af73ed5b406092c5571",
+      "size": 22811
+    }
+  ],
+  "tests": {
+    "doc_passed": 1,
+    "doc_ignored": 1,
+    "unit_tests": 0,
+    "explanation": "The ignored upstream example references images absent from the crate archive. A second Markdown example was corrected to a Markdown fence. Drift Type builds and tests exercise actual image embedding."
+  },
+  "scope": "Summary of the existing local Fedora Rawhide build; raw workstation/device records are not published here. Artifact hashes refer to those local builds, not newly signed COPR outputs."
+}

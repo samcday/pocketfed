@@ -36,3 +36,10 @@ Use `--work-dir /path/to/new-directory` to retain the prepared trees and Meson
 logs at a chosen location. Source downloads can happen separately from tests;
 after fetching, the test command also works in a container with networking
 disabled and the repository/source cache mounted read-only.
+
+## Keyboard completion packages
+
+The [keyboard packaging index](keyboard-trial/README.md) covers Stevia,
+Verbisage, the English Patricia data and their development dependencies.
+These packages use the main COPR; runtime image selection is limited to the
+personal sam-sargo image, with shared image allowlists unchanged.

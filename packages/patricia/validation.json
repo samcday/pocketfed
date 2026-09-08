@@ -1,0 +1,57 @@
+{
+  "builder": "Fedora Rawhide 46 x86_64",
+  "build_passed": true,
+  "dependencies": "Fedora /usr/share/cargo/registry, no vendored crates",
+  "tests": {
+    "unit_passed": 4,
+    "doc_passed": 5,
+    "failed": 0,
+    "scope": "curated source excludes corpus integration tests; separate full upstream suite passed 77 tests"
+  },
+  "installed_cli_checks": [
+    "format 202 readable",
+    "word count 160715",
+    "hello probability 120",
+    "alot shortcut a lot:15"
+  ],
+  "source_reproduction_identical": true,
+  "source_archive_sha256": "00ef786a15c9462e25bbde2cf6a5cae0e6b8fcc256a82f78436aeb8cb82cd8e2",
+  "rpmlint": {
+    "errors": 0,
+    "warnings": 2,
+    "notes": "Generated local Source0 name reported once for spec and once for SRPM; prepare-source pins immutable upstream archive and checksums."
+  },
+  "artifacts": [
+    {
+      "filename": "rust-patricia_dict+default-devel-0.1.0-0.1.20260907gitcdab42d.fc46.noarch.rpm",
+      "sha256": "85a690416619f366ea6a110b819b3d77ffeb0038ae18129fc6f36234ffe1e14f",
+      "size": 7297
+    },
+    {
+      "filename": "rust-patricia_dict-devel-0.1.0-0.1.20260907gitcdab42d.fc46.noarch.rpm",
+      "sha256": "9b54bab30554c7a0d7e274e821df783466d223c77ea66e61726e6b7251ec6521",
+      "size": 69285
+    },
+    {
+      "filename": "patricia-dict-tools-0.1.0-0.1.20260907gitcdab42d.fc46.x86_64.rpm",
+      "sha256": "7fd38e2bde98e729d0411540b5bc71865039d2c0b8b54a6e44bf52d44fd564ae",
+      "size": 291928
+    },
+    {
+      "filename": "patricia-dict-tools-debuginfo-0.1.0-0.1.20260907gitcdab42d.fc46.x86_64.rpm",
+      "sha256": "509ffbc5540c900c67ae82aab5ab57838ca331df1e411b0f764cb546ac3df054",
+      "size": 2400739
+    },
+    {
+      "filename": "rust-patricia_dict-debugsource-0.1.0-0.1.20260907gitcdab42d.fc46.x86_64.rpm",
+      "sha256": "a3f4683ca941b33203f16c24e11eba9fb2978ca770fe1bd1eedcef85ca6cec36",
+      "size": 54279
+    },
+    {
+      "filename": "rust-patricia_dict-0.1.0-0.1.20260907gitcdab42d.fc46.src.rpm",
+      "sha256": "c161089f9eceb7c3dd944c0dcd710ec5906572d4a543cb02f1d22bb9545d44a8",
+      "size": 97700
+    }
+  ],
+  "scope": "Summary of the existing local Fedora Rawhide build; raw workstation/device records are not published here. Artifact hashes refer to those local builds, not newly signed COPR outputs."
+}

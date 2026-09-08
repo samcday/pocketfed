@@ -1,0 +1,1630 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index ee5b0f9..a1345f6 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -178,7 +178,7 @@ checksum = "3b43422f69d8ff38f95f1b2bb76517c91589a924d1559a0e935d7c8ce0274c11"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -213,7 +213,7 @@ checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -254,14 +254,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
+ 
+ [[package]]
+-name = "cc"
+-version = "1.2.63"
++name = "byteorder"
++version = "1.5.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "556e016178bb5662a08681bbe0f00f8e17631781a4dfc8c45e466e4b185ec27f"
+-dependencies = [
+- "find-msvc-tools",
+- "shlex",
+-]
++checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+ 
+ [[package]]
+ name = "cfg-if"
+@@ -300,7 +296,7 @@ dependencies = [
+  "heck",
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -381,7 +377,7 @@ checksum = "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -439,12 +435,6 @@ version = "2.4.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
+ 
+-[[package]]
+-name = "find-msvc-tools"
+-version = "0.1.9"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
+-
+ [[package]]
+ name = "foldhash"
+ version = "0.1.5"
+@@ -663,7 +653,6 @@ version = "0.30.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149"
+ dependencies = [
+- "cc",
+  "pkg-config",
+  "vcpkg",
+ ]
+@@ -738,6 +727,15 @@ version = "2.2.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
+ 
++[[package]]
++name = "patricia_dict"
++version = "0.1.0"
++dependencies = [
++ "byteorder",
++ "memmap2",
++ "thiserror 2.0.20",
++]
++
+ [[package]]
+ name = "pin-project-lite"
+ version = "0.2.17"
+@@ -782,7 +780,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
+ dependencies = [
+  "proc-macro2",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -826,7 +824,7 @@ checksum = "ba009ff324d1fc1b900bd1fdb31564febe58a8ccc8a6fdbb93b543d33b13ca43"
+ dependencies = [
+  "getrandom 0.2.17",
+  "libredox",
+- "thiserror",
++ "thiserror 1.0.69",
+ ]
+ 
+ [[package]]
+@@ -934,7 +932,7 @@ checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -958,7 +956,7 @@ checksum = "175ee3e80ae9982737ca543e96133087cbd9a485eecc3bc4de9c1a37b47ea59c"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -970,12 +968,6 @@ dependencies = [
+  "serde",
+ ]
+ 
+-[[package]]
+-name = "shlex"
+-version = "2.0.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+-
+ [[package]]
+ name = "signal-hook-registry"
+ version = "1.4.8"
+@@ -1021,6 +1013,17 @@ dependencies = [
+  "unicode-ident",
+ ]
+ 
++[[package]]
++name = "syn"
++version = "3.0.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "12df2e0110f65b775f769bb17ef989067a1d931b2eb822bd4346631eeada89f9"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "unicode-ident",
++]
++
+ [[package]]
+ name = "sys-locale"
+ version = "0.3.2"
+@@ -1049,7 +1052,16 @@ version = "1.0.69"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+ dependencies = [
+- "thiserror-impl",
++ "thiserror-impl 1.0.69",
++]
++
++[[package]]
++name = "thiserror"
++version = "2.0.20"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
++dependencies = [
++ "thiserror-impl 2.0.20",
+ ]
+ 
+ [[package]]
+@@ -1060,7 +1072,18 @@ checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
++]
++
++[[package]]
++name = "thiserror-impl"
++version = "2.0.20"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 3.0.5",
+ ]
+ 
+ [[package]]
+@@ -1081,7 +1104,7 @@ checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -1174,7 +1197,7 @@ checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -1244,6 +1267,7 @@ name = "verbisage"
+ version = "0.1.0"
+ dependencies = [
+  "clap",
++ "patricia_dict",
+  "rsmarisa",
+  "rusqlite",
+  "serde",
+@@ -1269,7 +1293,7 @@ checksum = "d674d135b4a8c1d7e813e2f8d1c9a58308aee4a680323066025e53132218bd91"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -1328,7 +1352,7 @@ dependencies = [
+  "bumpalo",
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+  "wasm-bindgen-shared",
+ ]
+ 
+@@ -1510,7 +1534,7 @@ dependencies = [
+  "heck",
+  "indexmap",
+  "prettyplease",
+- "syn",
++ "syn 2.0.117",
+  "wasm-metadata",
+  "wit-bindgen-core",
+  "wit-component",
+@@ -1526,7 +1550,7 @@ dependencies = [
+  "prettyplease",
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+  "wit-bindgen-core",
+  "wit-bindgen-rust",
+ ]
+@@ -1618,7 +1642,7 @@ dependencies = [
+  "proc-macro-crate",
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+  "zbus_names",
+  "zvariant",
+  "zvariant_utils",
+@@ -1652,7 +1676,7 @@ checksum = "0b631b19d36a892ab55420c92dbc83ccd79274f25be714855d3074aa71cab639"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -1705,7 +1729,7 @@ dependencies = [
+  "proc-macro-crate",
+  "proc-macro2",
+  "quote",
+- "syn",
++ "syn 2.0.117",
+  "zvariant_utils",
+ ]
+ 
+@@ -1718,6 +1742,6 @@ dependencies = [
+  "proc-macro2",
+  "quote",
+  "serde",
+- "syn",
++ "syn 2.0.117",
+  "winnow 0.7.15",
+ ]
+diff --git a/Cargo.toml b/Cargo.toml
+index 23eb1bc..8f61834 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -17,14 +17,16 @@ sqlite = ["dep:rusqlite"]
+ hunspell = ["dep:zspell"]
+ marisa = ["dep:rsmarisa"]
+ dbus = ["dep:zbus", "dep:tokio"]
++patricia = ["dep:patricia_dict"]
+ 
+ [dependencies]
++patricia_dict = { path = "patricia_dict", optional = true }
+ serde = { version = "1", features = ["derive"] }
+ serde_json = "1"
+ toml = "0.8"
+ clap = { version = "4", features = ["derive", "env"] }
+ 
+-rusqlite = { version = "0.32", features = ["bundled"], optional = true }
++rusqlite = { version = "0.32", optional = true }
+ zspell = { version = "0.5", features = ["unstable-suggestions"], optional = true }
+ rsmarisa = { version = "0.4", optional = true }
+ zbus = { version = "5", features = ["p2p"], optional = true }
+@@ -34,7 +36,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = tr
+ tempfile = "3"
+ 
+ [lib]
+-crate-type = ["rlib", "cdylib"]
++crate-type = ["rlib"]
+ 
+ [[bin]]
+ name = "verbisaged"
+diff --git a/src/backends/build.rs b/src/backends/build.rs
+index a1c06bb..c508fcf 100644
+--- a/src/backends/build.rs
++++ b/src/backends/build.rs
+@@ -46,6 +46,7 @@ pub fn build_backend(
+ ) {
+     match def.backend_type {
+         BackendType::File => build_file(def, lang, lp),
++        BackendType::Patricia => build_patricia(def, lang),
+         BackendType::Sqlite => build_sqlite(def, lang, lp),
+         BackendType::Marisa => build_marisa(def, lang, lp),
+         BackendType::Hunspell => build_hunspell(def, lang, lp),
+@@ -543,7 +544,7 @@ fn resolve_files(def: &ResolvedBackendDef, lang: &str, lp: &LanguagePaths) -> Ve
+         BackendType::File => lp.resolve_dict_files(),
+         BackendType::Sqlite => lp.resolve_sqlite_files(),
+         BackendType::Marisa => lp.resolve_marisa_files(),
+-        BackendType::Hunspell => Vec::new(),
++        BackendType::Hunspell | BackendType::Patricia => Vec::new(),
+     }
+ }
+ 
+@@ -618,7 +619,7 @@ pub fn compose_chain(
+         }
+     }
+ 
+-    let loaded = !dict_backends.is_empty() || !predictors.is_empty();
++    let loaded = dict_backends.iter().any(|dict| !dict.is_empty()) || !predictors.is_empty();
+ 
+     let merged_dict: Box<dyn DictionaryBackend> = if dict_backends.is_empty() {
+         Box::new(FileDictionaryBackend::new())
+@@ -659,3 +660,33 @@ pub fn compose_chain(
+         predictor,
+     }
+ }
++
++
++#[cfg(feature = "patricia")]
++fn build_patricia(
++    def: &ResolvedBackendDef,
++    lang: &str,
++) -> (Box<dyn DictionaryBackend>, Option<Box<dyn SpellChecker>>, Option<Box<dyn Predictor>>) {
++    let path = def.path.as_ref().map(|p| expand_tilde(&p.replace("{lang}", lang)))
++        .unwrap_or_else(|| PathBuf::from(def.system_dir.as_deref()
++            .unwrap_or("/usr/share/android-patricia-dictionaries")).join(format!("{lang}.dict")));
++    match crate::dictionary::patricia::PatriciaDictionaryBackend::open(&path) {
++        Ok(backend) => {
++            let backend = Arc::new(backend);
++            (Box::new(backend.clone()), Some(Box::new(backend.clone())), Some(Box::new(backend)))
++        }
++        Err(error) => {
++            eprintln!("warning: cannot load Patricia dictionary '{}': {error}", path.display());
++            (Box::new(FileDictionaryBackend::new()), None, None)
++        }
++    }
++}
++
++#[cfg(not(feature = "patricia"))]
++fn build_patricia(
++    _def: &ResolvedBackendDef,
++    _lang: &str,
++) -> (Box<dyn DictionaryBackend>, Option<Box<dyn SpellChecker>>, Option<Box<dyn Predictor>>) {
++    eprintln!("warning: patricia feature not enabled");
++    (Box::new(FileDictionaryBackend::new()), None, None)
++}
+diff --git a/src/backends/mod.rs b/src/backends/mod.rs
+index 204ed63..dea163c 100644
+--- a/src/backends/mod.rs
++++ b/src/backends/mod.rs
+@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+ pub enum BackendType {
++    #[serde(rename = "patricia")]
++    Patricia,
+     #[serde(rename = "file")]
+     File,
+     #[serde(rename = "sqlite")]
+@@ -33,6 +35,7 @@ impl BackendType {
+     pub fn from_name(name: &str) -> Option<Self> {
+         match name {
+             "file" => Some(Self::File),
++            "patricia" => Some(Self::Patricia),
+             "sqlite" => Some(Self::Sqlite),
+             "marisa" => Some(Self::Marisa),
+             "hunspell" => Some(Self::Hunspell),
+@@ -44,6 +47,7 @@ impl BackendType {
+     pub fn as_name(&self) -> &'static str {
+         match self {
+             Self::File => "file",
++            Self::Patricia => "patricia",
+             Self::Sqlite => "sqlite",
+             Self::Marisa => "marisa",
+             Self::Hunspell => "hunspell",
+@@ -405,6 +409,13 @@ pub fn resolve_backend_def(
+ ) -> Result<ResolvedBackendDef, BackendConfigError> {
+     match def.backend_type {
+         BackendType::File => resolve_file_backend(name, def),
++        BackendType::Patricia => {
++            let mut resolved = resolve_hunspell_backend(name, def)?;
++            resolved.backend_type = BackendType::Patricia;
++            resolved.capabilities.insert(Capability::Unigrams);
++            resolved.capabilities.insert(Capability::Ngrams);
++            Ok(resolved)
++        },
+         BackendType::Sqlite => resolve_sqlite_backend(name, def),
+         BackendType::Marisa => resolve_marisa_backend(name, def),
+         BackendType::Hunspell => resolve_hunspell_backend(name, def),
+@@ -691,6 +702,11 @@ pub fn resolve_chain_with_backcompat(
+ /// Generate an implicit `BackendDef` for an old-style backend name, or `None`
+ /// if the name is not a recognized shorthand.
+ fn implicit_backend_def(name: &str) -> Option<BackendDef> {
++    if name == "patricia" {
++        let mut def = implicit_backend_def("hunspell")?;
++        def.backend_type = BackendType::Patricia;
++        return Some(def);
++    }
+     match name {
+         "file" => Some(BackendDef {
+             backend_type: BackendType::File,
+diff --git a/src/bin/verbisaged.rs b/src/bin/verbisaged.rs
+index a54ab8f..4d8f1bc 100644
+--- a/src/bin/verbisaged.rs
++++ b/src/bin/verbisaged.rs
+@@ -85,6 +85,7 @@ fn main() {
+                 });
+                 if let Err(e) = rt.block_on(run_dbus(handler)) {
+                     eprintln!("dbus server error: {}", e);
++                    std::process::exit(1);
+                 }
+             }
+             #[cfg(not(feature = "dbus"))]
+diff --git a/src/clients/dbus.rs b/src/clients/dbus.rs
+index 324a2ab..ca3f809 100644
+--- a/src/clients/dbus.rs
++++ b/src/clients/dbus.rs
+@@ -71,6 +71,12 @@ impl DbusClient {
+         msg.body().deserialize()
+     }
+ 
++    /// Rank current-word completions and corrections in one bounded response.
++    pub fn complete(&self, word: &str, max: u32, lang: &str) -> zbus::Result<Vec<(String, f64)>> {
++        let message = self.call("Complete", self.dest(), &(word, max, lang))?;
++        message.body().deserialize()
++    }
++
+     /// Query the dictionary with prefix/suffix/length constraints for `lang`.
+     /// Multiple prefixes and suffixes produce the Cartesian product of queries.
+     pub fn query(
+@@ -89,6 +95,24 @@ impl DbusClient {
+         msg.body().deserialize()
+     }
+ 
++    /// Retrieve a bounded set of completion candidates.
++    pub fn query_limited(
++        &self,
++        prefixes: &[String],
++        suffixes: &[String],
++        min_len: u32,
++        max_len: u32,
++        lang: &str,
++        max: u32,
++    ) -> zbus::Result<Vec<(String, f64)>> {
++        let msg = self.call(
++            "QueryLimited",
++            self.dest(),
++            &(prefixes, suffixes, min_len, max_len, lang, max),
++        )?;
++        msg.body().deserialize()
++    }
++
+     /// Predict next word(s) from `context` for the given `lang`.
+     pub fn predict(
+         &self,
+@@ -232,6 +256,37 @@ mod tests {
+         let results = client.query(hel, o, 0, 0, "en_US").unwrap();
+         assert!(!results.is_empty());
+ 
++        let results = client.query_limited(hel, &[], 0, 0, "en_US", 1).unwrap();
++        assert_eq!(results.len(), 1);
++        assert!(results[0].0.starts_with("hel"));
++        assert!(
++            client
++                .query_limited(hel, &[], 0, 0, "en_US", 0)
++                .unwrap()
++                .is_empty()
++        );
++        assert!(
++            client
++                .query_limited(&vec!["h".into(); 17], &[], 0, 0, "en_US", 1)
++                .is_err()
++        );
++        assert!(
++            client
++                .query_limited(hel, &[], 0, 0, "../../outside", 1)
++                .is_err()
++        );
++        assert!(client.query_limited(hel, &[], 0, 0, "zz_ZZ", 1).is_err());
++
++        let completed = client.complete("helo", 6, "en_US").unwrap();
++        assert_eq!(completed[0].0, "hello");
++        assert_eq!(client.complete("helo", 1, "en_US").unwrap(), completed[..1]);
++        assert!(client.complete("hello", 0, "en_US").unwrap().is_empty());
++        assert!(client.complete("", 6, "en_US").unwrap().is_empty());
++        assert!(client.complete("two words", 6, "en_US").unwrap().is_empty());
++        assert!(client.complete(&"a".repeat(129), 6, "en_US").is_err());
++        assert!(client.complete("hello", 6, "../invalid").is_err());
++        assert!(client.complete("hello", 6, "zz_ZZ").is_err());
++
+         drop(client);
+     }
+ }
+diff --git a/src/clients/stdio.rs b/src/clients/stdio.rs
+index fd2983e..2d82b76 100644
+--- a/src/clients/stdio.rs
++++ b/src/clients/stdio.rs
+@@ -89,8 +89,30 @@ impl StdioClient {
+     pub fn spawn(args: &[&str]) -> Result<Self, ClientError> {
+         let exe = find_binary();
+ 
++        // Accept existing callers that already select stdio, but never let
++        // a contradictory transport turn a pipe client into a D-Bus server.
++        let mut options = Vec::new();
++        let mut remaining = args.iter().copied();
++        while let Some(argument) = remaining.next() {
++            let mode = if argument == "--mode" {
++                Some(remaining.next().unwrap_or(""))
++            } else {
++                argument.strip_prefix("--mode=")
++            };
++            if let Some(mode) = mode {
++                if mode != "stdio" {
++                    return Err(ClientError::Spawn(
++                        "StdioClient requires stdio transport".into(),
++                    ));
++                }
++            } else {
++                options.push(argument);
++            }
++        }
+         let mut cmd = Command::new(&exe);
+-        cmd.args(args)
++        // This client owns its transport even when the system config selects D-Bus.
++        cmd.args(["--mode", "stdio"])
++            .args(options)
+             .stdin(Stdio::piped())
+             .stdout(Stdio::piped())
+             .stderr(Stdio::inherit());
+@@ -301,7 +323,13 @@ mod tests {
+             writeln!(f, "helium").unwrap();
+         }
+ 
++        let config = dir.join("config.toml");
++        std::fs::write(&config, "[daemon]\nmode=\"dbus\"\n").unwrap();
+         let mut client = StdioClient::spawn(&[
++            "--mode",
++            "stdio",
++            "--config",
++            &config.to_string_lossy(),
+             "--backend",
+             "file",
+             "--system-data-dir",
+@@ -376,6 +404,8 @@ mod tests {
+         let exe = find_binary();
+         let mut child = Command::new(&exe)
+             .args([
++                "--mode",
++                "stdio",
+                 "--backend",
+                 "file",
+                 "--system-data-dir",
+@@ -406,6 +436,18 @@ mod tests {
+         let _ = std::fs::remove_dir_all(&dir);
+     }
+ 
++    #[test]
++    fn stdio_client_rejects_contradictory_transport_before_spawn() {
++        assert!(matches!(
++            StdioClient::spawn(&["--mode=dbus"]),
++            Err(ClientError::Spawn(_))
++        ));
++        assert!(matches!(
++            StdioClient::spawn(&["--mode", "standalone"]),
++            Err(ClientError::Spawn(_))
++        ));
++    }
++
+     /// Test word_add method through stdio client.
+     #[test]
+     fn stdio_client_word_add() {
+@@ -418,6 +460,7 @@ mod tests {
+         }
+ 
+         let mut client = StdioClient::spawn(&[
++            "--mode=stdio",
+             "--backend",
+             "file",
+             "--language",
+diff --git a/src/completion.rs b/src/completion.rs
+new file mode 100644
+index 0000000..84d1712
+--- /dev/null
++++ b/src/completion.rs
+@@ -0,0 +1,206 @@
++//! Current-word ranking. Scores are relative heuristics, not probabilities.
++use std::collections::BTreeMap;
++
++use crate::dictionary::{DictionaryBackend, DictionaryQuery, DictionaryResult};
++
++/// Merge intact prefixes with all usable one-edit candidates before truncating.
++/// Intact prefixes share one weight, so max+1 rows suffice before removing
++/// the exact input. The frontend owns that literal choice.
++pub fn complete(backend: &dyn DictionaryBackend, input: &str, max: usize) -> Vec<DictionaryResult> {
++    if max == 0 || input.is_empty() {
++        return Vec::new();
++    }
++    let word = input.to_lowercase();
++    let query = DictionaryQuery {
++        prefix: Some(word.clone()),
++        suffix: None,
++        min_length: None,
++        max_length: None,
++    };
++    // word -> (match weight, dictionary frequency)
++    let mut candidates = BTreeMap::new();
++    for result in backend.query_limited(&[query], max.min(100) + 1) {
++        if result.word.to_lowercase() != word {
++            candidates.insert(result.word, (1.0_f64, result.confidence));
++        }
++    }
++    let chars: Vec<char> = word.chars().collect();
++    // A valid word is deliberate input; very short fragments are too ambiguous
++    // to correct. In both cases retain ordinary prefix completion.
++    let mut letters = word.chars();
++    let title: String = letters
++        .next()
++        .map(|first| first.to_uppercase().chain(letters).collect())
++        .unwrap_or_default();
++    let known = backend.contains(&word)
++        || backend.contains(&title)
++        || backend.contains(&word.to_uppercase());
++    if chars.len() >= 3 && !known {
++        let mut add = |candidate: String, weight: f64| {
++            if candidate == word {
++                return;
++            }
++            if let Some(existing) = candidates.get_mut(&candidate) {
++                existing.0 = existing.0.max(weight);
++            } else if backend.contains(&candidate) {
++                let frequency = backend.get_frequency(&candidate);
++                candidates.insert(candidate, (weight, frequency));
++            }
++        };
++        for i in 0..chars.len() - 1 {
++            let mut edited = chars.clone();
++            edited.swap(i, i + 1);
++            add(edited.into_iter().collect(), 0.9);
++        }
++        for i in 0..chars.len() {
++            let repeated = (i > 0 && chars[i - 1] == chars[i])
++                || (i + 1 < chars.len() && chars[i + 1] == chars[i]);
++            let mut edited = chars.clone();
++            edited.remove(i);
++            add(
++                edited.into_iter().collect(),
++                if repeated { 0.9 } else { 0.65 },
++            );
++        }
++        for i in 0..=chars.len() {
++            for ch in 'a'..='z' {
++                let repeated = (i > 0 && chars[i - 1] == ch) || (i < chars.len() && chars[i] == ch);
++                let mut edited = chars.clone();
++                edited.insert(i, ch);
++                add(
++                    edited.into_iter().collect(),
++                    if repeated { 0.9 } else { 0.65 },
++                );
++            }
++        }
++        for i in 0..chars.len() {
++            for ch in 'a'..='z' {
++                if chars[i] != ch {
++                    let mut edited = chars.clone();
++                    edited[i] = ch;
++                    add(edited.into_iter().collect(), 0.5);
++                }
++            }
++        }
++    }
++    let prior = |frequency: f64| {
++        if frequency.is_finite() && frequency > 0.0 {
++            frequency.ln_1p()
++        } else {
++            0.0
++        }
++    };
++    let largest = candidates
++        .values()
++        .map(|(_, frequency)| prior(*frequency))
++        .fold(0.0_f64, f64::max);
++    let mut results: Vec<_> = candidates
++        .into_iter()
++        .map(|(word, (weight, frequency))| DictionaryResult {
++            word,
++            confidence: weight
++                * if largest > 0.0 {
++                    prior(frequency) / largest
++                } else {
++                    1.0
++                },
++        })
++        .collect();
++    results.sort_by(|a, b| {
++        b.confidence
++            .total_cmp(&a.confidence)
++            .then_with(|| a.word.cmp(&b.word))
++    });
++    results.truncate(max.min(100));
++    results
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::dictionary::FileDictionaryBackend;
++
++    fn dictionary(rows: &[(&str, f64)]) -> FileDictionaryBackend {
++        let mut dictionary = FileDictionaryBackend::new();
++        for (word, frequency) in rows {
++            dictionary.add_word_mut((*word).into(), *frequency);
++        }
++        dictionary
++    }
++
++    #[test]
++    fn typo_and_prefix_candidates_are_ranked_together_before_truncation() {
++        let dictionary = dictionary(&[
++            ("held", 158.0),
++            ("help", 149.0),
++            ("hero", 126.0),
++            ("hello", 120.0),
++            ("helots", 65.0),
++            ("helot", 52.0),
++        ]);
++        let results = complete(&dictionary, "helo", 6);
++        assert_eq!(results[0].word, "hello");
++        assert!(results.iter().any(|r| r.word == "helots"));
++        assert_eq!(complete(&dictionary, "helo", 1), results[..1]);
++        assert_eq!(complete(&dictionary, "helo", 6), results);
++        assert!(
++            results
++                .iter()
++                .all(|r| r.confidence.is_finite() && (0.0..=1.0).contains(&r.confidence))
++        );
++    }
++
++    #[test]
++    fn valid_words_and_short_fragments_keep_prefixes() {
++        let dictionary = dictionary(&[
++            ("test", 100.0),
++            ("testing", 80.0),
++            ("best", 900.0),
++            ("he", 80.0),
++            ("help", 70.0),
++            ("the", 1000.0),
++        ]);
++        assert_eq!(
++            complete(&dictionary, "test", 6)
++                .iter()
++                .map(|r| r.word.as_str())
++                .collect::<Vec<_>>(),
++            ["testing"]
++        );
++        assert_eq!(
++            complete(&dictionary, "he", 6)
++                .iter()
++                .map(|r| r.word.as_str())
++                .collect::<Vec<_>>(),
++            ["help"]
++        );
++        assert!(complete(&dictionary, "", 6).is_empty());
++        assert!(complete(&dictionary, "he", 0).is_empty());
++    }
++
++    #[test]
++    fn invalid_frequency_values_never_escape_as_nan_scores() {
++        let dictionary = dictionary(&[
++            ("test", f64::NAN),
++            ("testing", f64::INFINITY),
++            ("tester", -4.0),
++            ("testable", 1.0),
++        ]);
++        let results = complete(&dictionary, "tes", 6);
++        assert_eq!(results[0].word, "testable");
++        assert!(
++            results
++                .iter()
++                .all(|r| r.confidence.is_finite() && (0.0..=1.0).contains(&r.confidence))
++        );
++        assert_eq!(complete(&dictionary, "tes", 6), results);
++    }
++
++    #[test]
++    fn generic_edits_and_unknown_frequencies_are_deterministic() {
++        let dictionary = dictionary(&[("the", 0.0), ("ten", 0.0), ("letter", 0.0), ("élan", 0.0)]);
++        assert_eq!(complete(&dictionary, "teh", 1)[0].word, "the");
++        assert_eq!(complete(&dictionary, "lettter", 1)[0].word, "letter");
++        assert_eq!(complete(&dictionary, "éllan", 1)[0].word, "élan");
++    }
++}
+diff --git a/src/config.rs b/src/config.rs
+index 04ca75f..3dfdd3c 100644
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -50,7 +50,16 @@ pub struct Config {
+ 
+ pub fn default_config_path() -> PathBuf {
+     let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+-    PathBuf::from(home).join(".config/verbisage/config.toml")
++    let config_dir = std::env::var_os("XDG_CONFIG_HOME")
++        .map(PathBuf::from)
++        .filter(|path| path.is_absolute())
++        .unwrap_or_else(|| PathBuf::from(home).join(".config"));
++    let user_config = config_dir.join("verbisage/config.toml");
++    if user_config.exists() {
++        user_config
++    } else {
++        PathBuf::from("/etc/verbisage/config.toml")
++    }
+ }
+ 
+ pub fn load_config(path: &PathBuf) -> Option<Config> {
+diff --git a/src/daemon/dbus.rs b/src/daemon/dbus.rs
+index 47b2242..69a92da 100644
+--- a/src/daemon/dbus.rs
++++ b/src/daemon/dbus.rs
+@@ -53,6 +53,37 @@ impl VerbisageDbus {
+             .map_err(log_and_err)
+     }
+ 
++    /// Rank current-word prefixes and single-edit corrections together.
++    /// Scores are relative heuristics, not probabilities. The caller keeps
++    /// the exact typed literal as an independent choice. Known words and
++    /// fragments shorter than three characters receive prefix matches only.
++    /// Empty/whitespace input or max=0 returns []; max is capped at 100.
++    #[zbus(out_args("result"))]
++    async fn complete(
++        &self,
++        word: &str,
++        max: u32,
++        lang: &str,
++    ) -> Result<Vec<(String, f64)>, FdoError> {
++        if word.len() > 512 || word.chars().count() > 128 || word.chars().any(char::is_control) {
++            return Err(FdoError::InvalidArgs(
++                "completion word is too large or contains control characters".into(),
++            ));
++        }
++        if max == 0 || word.is_empty() || word.chars().any(char::is_whitespace) {
++            return Ok(Vec::new());
++        }
++        self.handler
++            .complete(word, max.min(100) as usize, lang)
++            .map(|results| {
++                results
++                    .into_iter()
++                    .map(|r| (r.word, r.confidence))
++                    .collect()
++            })
++            .map_err(log_and_err)
++    }
++
+     /// Search the dictionary for words matching prefix and/or suffix
+     /// constraints.  When both `prefixes` and `suffixes` are empty every
+     /// entry is a candidate (subject to length bounds).
+@@ -81,35 +112,7 @@ impl VerbisageDbus {
+             max_len,
+             lang
+         );
+-        let prefix_opts: Vec<Option<String>> = if prefixes.is_empty() {
+-            vec![None]
+-        } else {
+-            prefixes.into_iter().map(Some).collect()
+-        };
+-        let suffix_opts: Vec<Option<String>> = if suffixes.is_empty() {
+-            vec![None]
+-        } else {
+-            suffixes.into_iter().map(Some).collect()
+-        };
+-        let queries: Vec<DictionaryQuery> = prefix_opts
+-            .into_iter()
+-            .flat_map(|p| {
+-                suffix_opts.iter().map(move |s| DictionaryQuery {
+-                    prefix: p.clone(),
+-                    suffix: s.clone(),
+-                    min_length: if min_len == 0 {
+-                        None
+-                    } else {
+-                        Some(min_len as usize)
+-                    },
+-                    max_length: if max_len == 0 {
+-                        None
+-                    } else {
+-                        Some(max_len as usize)
+-                    },
+-                })
+-            })
+-            .collect();
++        let queries = dictionary_queries(prefixes, suffixes, min_len, max_len);
+         self.handler
+             .query(&queries, lang)
+             .map(|results| {
+@@ -121,6 +124,42 @@ impl VerbisageDbus {
+             .map_err(log_and_err)
+     }
+ 
++    /// Query completion candidates with a bounded response. The limit is
++    /// clamped to 100; zero returns no candidates. Query remains available
++    /// for clients that need the complete dictionary result set.
++    #[zbus(out_args("result"))]
++    async fn query_limited(
++        &self,
++        prefixes: Vec<String>,
++        suffixes: Vec<String>,
++        min_len: u32,
++        max_len: u32,
++        lang: &str,
++        max: u32,
++    ) -> Result<Vec<(String, f64)>, FdoError> {
++        if prefixes.len() > 16
++            || suffixes.len() > 16
++            || prefixes.iter().chain(&suffixes).any(|s| s.len() > 256)
++        {
++            return Err(FdoError::InvalidArgs(
++                "completion query is too large".into(),
++            ));
++        }
++        if max == 0 {
++            return Ok(Vec::new());
++        }
++        let queries = dictionary_queries(prefixes, suffixes, min_len, max_len);
++        self.handler
++            .query_limited(&queries, lang, max.min(100) as usize)
++            .map(|results| {
++                results
++                    .into_iter()
++                    .map(|r| (r.word, r.confidence))
++                    .collect()
++            })
++            .map_err(log_and_err)
++    }
++
+     /// Predict the next word(s) given a sequence of context words.
+     ///
+     /// @param context  Preceding words (space-split is the caller's
+@@ -228,3 +267,41 @@ pub async fn run(handler: DaemonHandler) -> zbus::Result<()> {
+     std::future::pending::<()>().await;
+     Ok(())
+ }
++
++fn dictionary_queries(
++    prefixes: Vec<String>,
++    suffixes: Vec<String>,
++    min_len: u32,
++    max_len: u32,
++) -> Vec<DictionaryQuery> {
++    let prefix_opts: Vec<Option<String>> = if prefixes.is_empty() {
++        vec![None]
++    } else {
++        prefixes.into_iter().map(Some).collect()
++    };
++    let suffix_opts: Vec<Option<String>> = if suffixes.is_empty() {
++        vec![None]
++    } else {
++        suffixes.into_iter().map(Some).collect()
++    };
++    let queries: Vec<DictionaryQuery> = prefix_opts
++        .into_iter()
++        .flat_map(|p| {
++            suffix_opts.iter().map(move |s| DictionaryQuery {
++                prefix: p.clone(),
++                suffix: s.clone(),
++                min_length: if min_len == 0 {
++                    None
++                } else {
++                    Some(min_len as usize)
++                },
++                max_length: if max_len == 0 {
++                    None
++                } else {
++                    Some(max_len as usize)
++                },
++            })
++        })
++        .collect();
++    queries
++}
+diff --git a/src/daemon/handlers.rs b/src/daemon/handlers.rs
+index 5c7bc0e..f2243d4 100644
+--- a/src/daemon/handlers.rs
++++ b/src/daemon/handlers.rs
+@@ -71,11 +71,20 @@ impl DaemonHandler {
+         req_lang.unwrap_or(&self.default_lang)
+     }
+ 
+-    fn get_or_load_backend(&self, lang: &str) -> Arc<CachedBackend> {
++    fn get_or_load_backend(&self, lang: &str) -> Result<Arc<CachedBackend>, String> {
++        // Language tags are substituted into dictionary paths.
++        if lang.is_empty()
++            || lang.len() > 64
++            || !lang
++                .bytes()
++                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'@' | b'.'))
++        {
++            return Err("invalid language tag".into());
++        }
+         {
+             let cache = self.cache.lock().unwrap();
+             if let Some(backend) = cache.get(lang) {
+-                return backend.clone();
++                return Ok(backend.clone());
+             }
+         }
+ 
+@@ -83,10 +92,14 @@ impl DaemonHandler {
+         crate::veprintln!("[handler] loaded backend for '{}'", lang);
+ 
+         let mut cache = self.cache.lock().unwrap();
+-        cache
++        // Keep language switching bounded in a long-running session service.
++        if cache.len() >= 8 {
++            cache.clear();
++        }
++        Ok(cache
+             .entry(lang.to_string())
+             .or_insert_with(|| Arc::new(backend))
+-            .clone()
++            .clone())
+     }
+ 
+     fn build_backend(&self, lang: &str) -> CachedBackend {
+@@ -141,7 +154,7 @@ impl DaemonHandler {
+     // ── Typed API ─────────────────────────────────────────────────────────
+ 
+     pub fn is_correct(&self, word: &str, lang: &str) -> Result<bool, String> {
+-        let backend = self.get_or_load_backend(lang);
++        let backend = self.get_or_load_backend(lang)?;
+         if !backend.loaded {
+             return Err(format!("no dictionary loaded for '{}'", lang));
+         }
+@@ -152,7 +165,7 @@ impl DaemonHandler {
+     }
+ 
+     pub fn suggest(&self, word: &str, max: usize, lang: &str) -> Result<Vec<String>, String> {
+-        let backend = self.get_or_load_backend(lang);
++        let backend = self.get_or_load_backend(lang)?;
+         if !backend.loaded {
+             return Err(format!("no dictionary loaded for '{}'", lang));
+         }
+@@ -172,25 +185,55 @@ impl DaemonHandler {
+         Ok(suggestions)
+     }
+ 
++    pub fn complete(
++        &self,
++        word: &str,
++        max: usize,
++        lang: &str,
++    ) -> Result<Vec<DictionaryResult>, String> {
++        let backend = self.get_or_load_backend(lang)?;
++        if !backend.loaded {
++            return Err(format!("no dictionary loaded for '{}'", lang));
++        }
++        Ok(crate::completion::complete(
++            backend.dictionary.as_ref(),
++            word,
++            max,
++        ))
++    }
++
+     pub fn query(
+         &self,
+         queries: &[DictionaryQuery],
+         lang: &str,
+     ) -> Result<Vec<DictionaryResult>, String> {
+-        let backend = self.get_or_load_backend(lang);
++        let backend = self.get_or_load_backend(lang)?;
+         if !backend.loaded {
+             return Err(format!("no dictionary loaded for '{}'", lang));
+         }
+         Ok(backend.dictionary.query_prefixes(queries))
+     }
+ 
++    pub fn query_limited(
++        &self,
++        queries: &[DictionaryQuery],
++        lang: &str,
++        max: usize,
++    ) -> Result<Vec<DictionaryResult>, String> {
++        let backend = self.get_or_load_backend(lang)?;
++        if !backend.loaded {
++            return Err(format!("no dictionary loaded for '{}'", lang));
++        }
++        Ok(backend.dictionary.query_limited(queries, max))
++    }
++
+     pub fn predict(
+         &self,
+         context: &[&str],
+         max: usize,
+         lang: &str,
+     ) -> Result<Vec<Prediction>, String> {
+-        let backend = self.get_or_load_backend(lang);
++        let backend = self.get_or_load_backend(lang)?;
+         if !backend.loaded {
+             return Err(format!("no dictionary loaded for '{}'", lang));
+         }
+@@ -201,7 +244,7 @@ impl DaemonHandler {
+     }
+ 
+     pub fn frequency(&self, word: &str, lang: &str) -> Result<f64, String> {
+-        let backend = self.get_or_load_backend(lang);
++        let backend = self.get_or_load_backend(lang)?;
+         if !backend.loaded {
+             return Err(format!("no dictionary loaded for '{}'", lang));
+         }
+@@ -215,7 +258,7 @@ impl DaemonHandler {
+         allow_existing: bool,
+         lang: &str,
+     ) -> Result<(), String> {
+-        let backend = self.get_or_load_backend(lang);
++        let backend = self.get_or_load_backend(lang)?;
+         if !backend.loaded {
+             return Err(format!("no dictionary loaded for '{}'", lang));
+         }
+@@ -232,7 +275,7 @@ impl DaemonHandler {
+         save_unknown: bool,
+         lang: &str,
+     ) -> Result<(), String> {
+-        let backend = self.get_or_load_backend(lang);
++        let backend = self.get_or_load_backend(lang)?;
+         if !backend.loaded {
+             return Err(format!("no dictionary loaded for '{}'", lang));
+         }
+diff --git a/src/dictionary/file.rs b/src/dictionary/file.rs
+index a37c41d..904a246 100644
+--- a/src/dictionary/file.rs
++++ b/src/dictionary/file.rs
+@@ -340,6 +340,10 @@ fn insert_word(inner: &mut FileDictionaryInner, word: String, frequency: f64) {
+ }
+ 
+ impl DictionaryBackend for FileDictionaryBackend {
++    fn is_empty(&self) -> bool {
++        self.inner.read().unwrap().words.is_empty()
++    }
++
+     fn query_prefixes(&self, queries: &[DictionaryQuery]) -> Vec<DictionaryResult> {
+         let inner = self.inner.read().unwrap();
+         let mut all_results = Vec::new();
+diff --git a/src/dictionary/hunspell.rs b/src/dictionary/hunspell.rs
+index 80ee6fe..0f31034 100644
+--- a/src/dictionary/hunspell.rs
++++ b/src/dictionary/hunspell.rs
+@@ -75,6 +75,10 @@ impl Default for HunspellDictionaryBackend {
+ }
+ 
+ impl DictionaryBackend for HunspellDictionaryBackend {
++    fn is_empty(&self) -> bool {
++        self.words.is_empty()
++    }
++
+     fn query_prefixes(&self, queries: &[DictionaryQuery]) -> Vec<DictionaryResult> {
+         let mut all_results = Vec::new();
+ 
+diff --git a/src/dictionary/mod.rs b/src/dictionary/mod.rs
+index 148b141..62c5a48 100644
+--- a/src/dictionary/mod.rs
++++ b/src/dictionary/mod.rs
+@@ -5,6 +5,9 @@ use std::sync::{
+     atomic::{AtomicUsize, Ordering},
+ };
+ 
++#[cfg(feature = "patricia")]
++pub mod patricia;
++
+ pub mod compact;
+ pub mod file;
+ pub mod paths;
+@@ -64,12 +67,25 @@ pub struct DictionaryResult {
+ /// All implementors must be [`Send`] + [`Sync`] so that a single trait object
+ /// can be shared across threads (e.g. inside an `Arc`).
+ pub trait DictionaryBackend: Send + Sync {
++    /// Whether no words are available. Loading failures return an empty file
++    /// backend, which lets the daemon report unavailable language data.
++    fn is_empty(&self) -> bool {
++        false
++    }
++
+     /// Batch-query the dictionary against one or more constraint sets.
+     ///
+     /// The returned vector is sorted by descending confidence, then
+     /// lexicographically by word.
+     fn query_prefixes(&self, queries: &[DictionaryQuery]) -> Vec<DictionaryResult>;
+ 
++    /// Return the highest ranked candidates, with a bounded output allocation.
++    fn query_limited(&self, queries: &[DictionaryQuery], max: usize) -> Vec<DictionaryResult> {
++        let mut results = self.query_prefixes(queries);
++        results.truncate(max);
++        results
++    }
++
+     /// Retrieve the normalised frequency for a word (0.0–1.0).
+     fn get_frequency(&self, word: &str) -> f64;
+ 
+@@ -100,10 +116,18 @@ pub trait DictionaryBackend: Send + Sync {
+ }
+ 
+ impl<T: DictionaryBackend> DictionaryBackend for Arc<T> {
++    fn is_empty(&self) -> bool {
++        (**self).is_empty()
++    }
++
+     fn query_prefixes(&self, queries: &[DictionaryQuery]) -> Vec<DictionaryResult> {
+         (**self).query_prefixes(queries)
+     }
+ 
++    fn query_limited(&self, queries: &[DictionaryQuery], max: usize) -> Vec<DictionaryResult> {
++        (**self).query_limited(queries, max)
++    }
++
+     fn get_frequency(&self, word: &str) -> f64 {
+         (**self).get_frequency(word)
+     }
+diff --git a/src/dictionary/patricia.rs b/src/dictionary/patricia.rs
+new file mode 100644
+index 0000000..5d274c0
+--- /dev/null
++++ b/src/dictionary/patricia.rs
+@@ -0,0 +1,215 @@
++//! Android Patricia dictionaries: stored word probabilities are ranking scores,
++//! not corpus counts. Context prediction uses Patricia's probability API directly.
++use std::collections::HashMap;
++use std::path::Path;
++use std::sync::Arc;
++
++use patricia_dict::{Dictionary, SearchParams, WordAttributes};
++
++use super::{DictionaryBackend, DictionaryQuery, DictionaryResult};
++use crate::prediction::{Prediction, Predictor};
++use crate::spellcheck::SpellChecker;
++
++pub struct PatriciaDictionaryBackend {
++    dictionary: Dictionary,
++}
++
++fn usable(attributes: &WordAttributes) -> bool {
++    !attributes.is_blacklisted && !attributes.is_not_a_word
++}
++
++fn rank(a: &DictionaryResult, b: &DictionaryResult) -> std::cmp::Ordering {
++    b.confidence
++        .total_cmp(&a.confidence)
++        .then_with(|| a.word.cmp(&b.word))
++}
++
++impl PatriciaDictionaryBackend {
++    pub fn open(path: &Path) -> patricia_dict::Result<Self> {
++        Ok(Self {
++            dictionary: Dictionary::open(path)?,
++        })
++    }
++
++    fn attributes(&self, word: &str) -> Option<WordAttributes> {
++        self.dictionary
++            .query(word)
++            .or_else(|_| self.dictionary.query(&word.to_lowercase()))
++            .ok()
++            .filter(usable)
++    }
++
++    fn search_params(query: &DictionaryQuery) -> SearchParams {
++        let mut params = SearchParams::new()
++            .with_include_not_a_word(false)
++            .with_include_blacklisted(false)
++            .with_length_range(
++                query.min_length.unwrap_or(1),
++                query.max_length.unwrap_or(usize::MAX),
++            );
++        if let Some(prefix) = &query.prefix {
++            params = params
++                .with_prefix(prefix)
++                .with_prefix(prefix.to_lowercase());
++        }
++        if let Some(suffix) = &query.suffix {
++            params = params
++                .with_suffix(suffix)
++                .with_suffix(suffix.to_lowercase());
++        }
++        params
++    }
++}
++
++impl DictionaryBackend for PatriciaDictionaryBackend {
++    fn is_empty(&self) -> bool {
++        self.dictionary
++            .filter(
++                SearchParams::new()
++                    .with_include_not_a_word(false)
++                    .with_include_blacklisted(false)
++                    .with_max_results(1),
++            )
++            .next()
++            .is_none()
++    }
++
++    fn contains(&self, word: &str) -> bool {
++        self.attributes(word).is_some()
++    }
++
++    fn get_frequency(&self, word: &str) -> f64 {
++        self.attributes(word)
++            .map_or(0.0, |a| f64::from(a.probability) / 255.0)
++    }
++
++    fn query_prefixes(&self, queries: &[DictionaryQuery]) -> Vec<DictionaryResult> {
++        let mut words = HashMap::new();
++        for query in queries {
++            for entry in self.dictionary.filter(Self::search_params(query)) {
++                words.insert(entry.word, f64::from(entry.probability) / 255.0);
++            }
++        }
++        let mut results: Vec<_> = words
++            .into_iter()
++            .map(|(word, confidence)| DictionaryResult { word, confidence })
++            .collect();
++        results.sort_by(rank);
++        results
++    }
++
++    fn query_limited(&self, queries: &[DictionaryQuery], max: usize) -> Vec<DictionaryResult> {
++        let mut results: Vec<DictionaryResult> = Vec::new();
++        if max == 0 {
++            return results;
++        }
++        for query in queries {
++            for entry in self.dictionary.filter(Self::search_params(query)) {
++                if results.iter().any(|r| r.word == entry.word) {
++                    continue;
++                }
++                let candidate = DictionaryResult {
++                    word: entry.word,
++                    confidence: f64::from(entry.probability) / 255.0,
++                };
++                let index = results
++                    .binary_search_by(|r| rank(r, &candidate))
++                    .unwrap_or_else(|i| i);
++                if index < max {
++                    results.insert(index, candidate);
++                    if results.len() > max {
++                        results.pop();
++                    }
++                }
++            }
++        }
++        results
++    }
++}
++
++impl SpellChecker for Arc<PatriciaDictionaryBackend> {
++    fn is_correct(&self, word: &str) -> bool {
++        self.contains(word)
++    }
++
++    fn suggest(&self, word: &str, context: &[&str]) -> Vec<String> {
++        // Keep Verbisage's current English single-edit generator; Patricia
++        // supplies membership and frequency instead of Hunspell expansion.
++        let mut suggestions =
++            crate::spellcheck::suggest::suggest_edits(self.as_ref(), None, word, context, 10);
++        if !context.is_empty() {
++            suggestions.sort_by_cached_key(|candidate| {
++                std::cmp::Reverse(
++                    self.dictionary
++                        .query_with_context(candidate, context)
++                        .map_or(0, |a| a.probability),
++                )
++            });
++        }
++        suggestions
++    }
++}
++
++impl Predictor for Arc<PatriciaDictionaryBackend> {
++    fn predict_next(&self, context: &[&str], max_suggestions: usize) -> Vec<Prediction> {
++        if context.is_empty() || max_suggestions == 0 {
++            return Vec::new();
++        }
++        let mut candidates = HashMap::new();
++        for (word, _) in self.dictionary.ngrams_for(context).unwrap_or_default() {
++            if let Ok(attributes) = self.dictionary.query_with_context(&word, context) {
++                if usable(&attributes) {
++                    candidates.insert(word, f64::from(attributes.probability) / 255.0);
++                }
++            }
++        }
++        let mut results: Vec<_> = candidates
++            .into_iter()
++            .map(|(word, confidence)| Prediction { word, confidence })
++            .collect();
++        results.sort_by(|a, b| {
++            b.confidence
++                .total_cmp(&a.confidence)
++                .then_with(|| a.word.cmp(&b.word))
++        });
++        results.truncate(max_suggestions);
++        results
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn patricia_completion_correction_and_context() {
++        let temp = tempfile::tempdir().unwrap();
++        let path = temp.path().join("en_US.dict");
++        let mut dictionary = Dictionary::create_empty_v403(&path, "en_US").unwrap();
++        dictionary.append("hello", 200).unwrap();
++        dictionary.append("help", 100).unwrap();
++        dictionary.append("world", 150).unwrap();
++        dictionary.append("Linux", 150).unwrap();
++        dictionary.append("linum", 100).unwrap();
++        dictionary.add_ngram("world", &["hello"], 230).unwrap();
++        drop(dictionary);
++        let backend = Arc::new(PatriciaDictionaryBackend::open(&path).unwrap());
++        assert!(backend.contains("hello"));
++        assert!(!backend.contains("helo"));
++        assert!((backend.get_frequency("hello") - 200.0 / 255.0).abs() < 0.001);
++        let query = DictionaryQuery {
++            prefix: Some("hel".into()),
++            suffix: None,
++            min_length: None,
++            max_length: None,
++        };
++        assert_eq!(backend.query_limited(&[query.clone()], 1)[0].word, "hello");
++        assert_eq!(backend.query_prefixes(&[query]).len(), 2);
++        assert!(backend.suggest("helo", &[]).contains(&"hello".into()));
++        assert!(crate::completion::complete(backend.as_ref(), "linux", 6).is_empty());
++        assert_eq!(backend.predict_next(&["hello"], 1)[0].word, "world");
++        assert!(backend.predict_next(&["unrecognized"], 3).is_empty());
++        assert!(backend.predict_next(&["hello"], 0).is_empty());
++        assert!(!backend.is_writable());
++    }
++}
+diff --git a/src/dictionary/sqlite.rs b/src/dictionary/sqlite.rs
+index b92d656..9fd857a 100644
+--- a/src/dictionary/sqlite.rs
++++ b/src/dictionary/sqlite.rs
+@@ -192,6 +192,73 @@ impl DictionaryBackend for PresageSqliteBackend {
+         })
+     }
+ 
++    // Bound the database result and treat user prefixes/suffixes as literal
++    // text. The legacy unbounded query API remains unchanged.
++    fn query_limited(&self, queries: &[DictionaryQuery], max: usize) -> Vec<DictionaryResult> {
++        use rusqlite::types::Value;
++        if max == 0 || queries.is_empty() {
++            return Vec::new();
++        }
++        let literal = |text: &str| {
++            text.replace('\\', "\\\\")
++                .replace('%', "\\%")
++                .replace('_', "\\_")
++        };
++        let mut values = Vec::<Value>::new();
++        let mut clauses = Vec::new();
++        for query in queries {
++            let mut terms = Vec::new();
++            if let Some(prefix) = &query.prefix {
++                values.push(Value::Text(format!("{}%", literal(prefix))));
++                terms.push(format!("word LIKE ?{} ESCAPE '\\'", values.len()));
++            }
++            if let Some(suffix) = &query.suffix {
++                values.push(Value::Text(format!("%{}", literal(suffix))));
++                terms.push(format!("word LIKE ?{} ESCAPE '\\'", values.len()));
++            }
++            if let Some(min) = query.min_length {
++                values.push(Value::Integer(min.try_into().unwrap_or(i64::MAX)));
++                terms.push(format!("LENGTH(word) >= ?{}", values.len()));
++            }
++            if let Some(max) = query.max_length {
++                values.push(Value::Integer(max.try_into().unwrap_or(i64::MAX)));
++                terms.push(format!("LENGTH(word) <= ?{}", values.len()));
++            }
++            clauses.push(if terms.is_empty() {
++                "(1)".into()
++            } else {
++                format!("({})", terms.join(" AND "))
++            });
++        }
++        values.push(Value::Integer(max.try_into().unwrap_or(i64::MAX)));
++        let sql = format!(
++            "SELECT word, count FROM _1_gram WHERE {} ORDER BY CASE WHEN count > 0 THEN count ELSE -1 END DESC, word ASC LIMIT ?{}",
++            clauses.join(" OR "),
++            values.len()
++        );
++        let conn = self.conn.lock();
++        let mut statement = match conn.prepare(&sql) {
++            Ok(statement) => statement,
++            Err(error) => {
++                eprintln!("warning: sqlite completion query failed: {error}");
++                return Vec::new();
++            }
++        };
++        match statement.query_map(rusqlite::params_from_iter(values.iter()), |row| {
++            let count: i64 = row.get(1)?;
++            Ok(DictionaryResult {
++                word: row.get(0)?,
++                confidence: if count > 0 { count as f64 } else { -1.0 },
++            })
++        }) {
++            Ok(rows) => rows.filter_map(Result::ok).collect(),
++            Err(error) => {
++                eprintln!("warning: sqlite completion query failed: {error}");
++                Vec::new()
++            }
++        }
++    }
++
+     fn get_frequency(&self, word: &str) -> f64 {
+         let sql = "SELECT count FROM _1_gram WHERE word = ?1 LIMIT 1";
+         let conn = self.conn.lock();
+@@ -519,6 +586,59 @@ mod tests {
+         assert_eq!(results[0].word, "hello");
+     }
+ 
++    #[test]
++    fn bounded_queries_keep_apostrophes_and_wildcards_literal() {
++        let conn = Connection::open(":memory:").unwrap();
++        setup_presage_db(&conn);
++        for word in [
++            "don't",
++            "don'ts",
++            "50%off",
++            "50xoff",
++            "under_score",
++            "underXscore",
++            "back\\slash",
++        ] {
++            conn.execute("INSERT INTO _1_gram VALUES (?1, 10)", [word])
++                .unwrap();
++        }
++        let backend =
++            PresageSqliteBackend::from_shared(SharedSqliteConnection::new(conn), false, false);
++        for (prefix, expected) in [
++            ("don'", "don't"),
++            ("50%", "50%off"),
++            ("under_", "under_score"),
++            ("back\\", "back\\slash"),
++        ] {
++            let query = DictionaryQuery {
++                prefix: Some(prefix.into()),
++                suffix: None,
++                min_length: None,
++                max_length: None,
++            };
++            assert_eq!(backend.query_limited(&[query.clone()], 1)[0].word, expected);
++            assert!(backend.query_limited(&[query], 0).is_empty());
++        }
++        let query = DictionaryQuery {
++            prefix: Some("' OR 1=1 --".into()),
++            suffix: None,
++            min_length: None,
++            max_length: None,
++        };
++        assert!(backend.query_limited(&[query], 10).is_empty());
++        let query = DictionaryQuery {
++            prefix: Some("don'".into()),
++            suffix: Some("'t".into()),
++            min_length: Some(5),
++            max_length: Some(5),
++        };
++        assert_eq!(backend.query_limited(&[query], 10)[0].word, "don't");
++        assert_eq!(
++            crate::completion::complete(&backend, "don'", 1)[0].word,
++            "don't"
++        );
++    }
++
+     #[test]
+     fn dict_add_word() {
+         let dir = tempdir().unwrap();
+diff --git a/src/lib.rs b/src/lib.rs
+index 8bdccd8..96851dc 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -2,6 +2,7 @@ pub mod backends;
+ pub mod cli;
+ pub mod clients;
+ pub mod config;
++pub mod completion;
+ pub mod daemon;
+ pub mod debug;
+ pub mod dictionary;

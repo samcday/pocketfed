@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+virtual-pointer
+virtual-pointer-client.h
+virtual-pointer-protocol.c
+results/

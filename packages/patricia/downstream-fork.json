@@ -1,0 +1,57 @@
+{
+  "published_at": "2026-09-08T05:08:27.056570+00:00",
+  "repository": "https://github.com/samcday/android-patricia-dict",
+  "visibility": "public",
+  "hosting_relationship": "Cross-host downstream import; GitHub isFork=false",
+  "branch": "codex/pocketfed",
+  "commit": "ba460455e692a1ece86ebf990027c3cfb1e413e4",
+  "upstream_repository": "https://gitlab.com/InsanePrawn/android-patricia-dict",
+  "upstream_base_commit": "cdab42d9b93a0b33070804b37098568c3a3227f8",
+  "base_is_ancestor": true,
+  "default_branch_verified": "codex/pocketfed",
+  "remote_branch_verified": "ba460455e692a1ece86ebf990027c3cfb1e413e4",
+  "compare_url": "https://github.com/samcday/android-patricia-dict/compare/cdab42d9b93a0b33070804b37098568c3a3227f8...ba460455e692a1ece86ebf990027c3cfb1e413e4",
+  "downstream_files": [
+    "COPYING",
+    "Cargo.toml",
+    "DOWNSTREAM.md",
+    "LICENSE-PROVENANCE.md"
+  ],
+  "behavior_changes": false,
+  "license": "GPL-3.0-only for the Rust implementation; author confirmation relayed by the PocketFed maintainer on 2026-09-07, recorded honestly in LICENSE-PROVENANCE.md; pinned upstream did not declare it",
+  "curated_source_equivalence": {
+    "archive_sha256": "00ef786a15c9462e25bbde2cf6a5cae0e6b8fcc256a82f78436aeb8cb82cd8e2",
+    "matched_files": [
+      "COPYING",
+      "Cargo.lock",
+      "Cargo.toml",
+      "LICENSE-PROVENANCE.md",
+      "README.md",
+      "src/bin/patricia_dict_cli.rs",
+      "src/common/byte_utils.rs",
+      "src/common/char_utils.rs",
+      "src/common/defines.rs",
+      "src/common/mod.rs",
+      "src/common/ngram.rs",
+      "src/dict.rs",
+      "src/header/mod.rs",
+      "src/lib.rs",
+      "src/search.rs",
+      "src/trie/mod.rs",
+      "src/trie/node.rs",
+      "src/v2/mod.rs",
+      "src/v4/mod.rs",
+      "src/v4/trie_map.rs",
+      "src/v4/v402_reader.rs",
+      "src/v4/v403_reader.rs",
+      "src/v4/writer.rs"
+    ],
+    "file_count": 23,
+    "src_git_tree": "ab9e1b1dd1a3756559abe5164d46d0aaa67cf6a0",
+    "cargo_lock_git_blob": "a09294fbce0f1988902bd2cbd26e1f7f4c03ca44"
+  },
+  "other_sources": {
+    "drift_type": "Keep upstream Codeberg pin f63256a5bb973b10a4e11e190cfbb105fc89da0a with the existing package-only Cargo license metadata patch. No behavior delta or separate downstream fork needed; no upstream submission.",
+    "dictionaries": "Keep existing pinned upstream data/compiler repositories; no behavior changes requiring forks."
+  }
+}

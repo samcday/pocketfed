@@ -1,0 +1,10 @@
+{
+  "filename": "wlr-virtual-pointer-unstable-v1.xml",
+  "local_phoc_commit": "dd6dc3a8af54637344678b83edf6aefefefdbbf1",
+  "license": "MIT",
+  "modified": false,
+  "sha256": "3ff6d540be0bc5228195bf072bde42117ea17945a5c2061add5d3cf97d6bb524",
+  "source_repository": "https://gitlab.gnome.org/Infrastructure/Mirrors/lorry-mirrors/gitlab_freedesktop_org/wlroots/wlroots.git",
+  "source_revision": "0.19.2",
+  "source_path": "protocol/wlr-virtual-pointer-unstable-v1.xml"
+}

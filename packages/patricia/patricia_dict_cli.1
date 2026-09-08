@@ -1,0 +1,78 @@
+.TH PATRICIA_DICT_CLI 1 "September 2026" "patricia_dict 0.1.0" "User Commands"
+.SH NAME
+patricia_dict_cli \- inspect and update Android Patricia dictionaries
+.SH SYNOPSIS
+.B patricia_dict_cli
+.I command dictionary_path
+.RI [ arguments ]
+.SH DESCRIPTION
+Inspect stored words, probabilities, context scores and shortcuts in Android
+Patricia dictionaries. Formats 2, 201, 202 and 402 are read-only.
+Creation and updates require format 403. No dictionary is included in this tool.
+Context arguments are chronological, with the oldest word first.
+.SH COMMANDS
+.TP
+.BI "query " "path word"
+Look up a word.
+.TP
+.BI "prob " "path word [context...]"
+Look up a probability using preceding words.
+.TP
+.BI "ngrams " "path [context...]"
+List stored continuations for preceding words.
+.TP
+.BI "scores " "path word [context...]"
+Show separate probability scores for each available context length.
+.TP
+.BI "filter " "path [options]"
+List entries matching the filter. Options are
+.BR --prefix ,
+.BR --suffix ,
+.BR --min-len ,
+.BR --max-len ,
+and
+.BR --limit ,
+each followed by a value. Prefix and suffix options may repeat.
+The limit applies to traversal results rather than ranking by probability.
+.TP
+.BI "shortcuts " "path word"
+List shortcut targets and their stored probabilities.
+.TP
+.BI "count " path
+Count dictionary words.
+.TP
+.BI "dump " path
+Write all words and frequencies as word:frequency records.
+.TP
+.BI "info " path
+Print dictionary header information.
+.TP
+.BI "create " "path locale"
+Create an empty format 403 dictionary.
+.TP
+.BI "append " "path word frequency"
+Add a word with an explicit stored frequency.
+.TP
+.BI "modify " "path word frequency"
+Change a word's stored frequency.
+.TP
+.BI "delete " "path word"
+Remove a word.
+.TP
+.BI "add-ngram " "path word frequency [context...]"
+Store a context entry. All referenced words must already exist.
+.TP
+.BI "remove-ngram " "path word [context...]"
+Remove a context entry.
+.TP
+.BI "import " path
+Read word:frequency records from standard input.
+.SH EXIT STATUS
+Zero indicates success. One indicates invalid arguments, a missing word or
+another operation error.
+.SH EXAMPLE
+.B patricia_dict_cli query /usr/share/android-patricia-dictionaries/en_US.dict hello
+.SH AUTHORS
+Upstream project: https://gitlab.com/InsanePrawn/android-patricia-dict
+.PP
+This manual page was prepared downstream for PocketFed.

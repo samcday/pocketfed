@@ -1,0 +1,29 @@
+{
+  "version": "0.57.0",
+  "fedora_distgit_commit": "f0581fa27e5b50b302529922baf1c112dde7ff06",
+  "fedora_spec_url": "https://src.fedoraproject.org/rpms/stevia/raw/f0581fa27e5b50b302529922baf1c112dde7ff06/f/stevia.spec",
+  "fedora_spec_sha256": "5b30b1b5677407887b3a4b76669561e26f0fd83ea9bb25492d7e376fbb266c86",
+  "upstream_source": "https://gitlab.gnome.org/World/Phosh/stevia/-/archive/v0.57.0/stevia-v0.57.0.tar.gz",
+  "source_sha256": "72dfbedf5ac7e341639cd9628173baffea84559f40a6453f504eb0f91cdf39ff",
+  "fedora_sha512_verified": true,
+  "protocol": {
+    "bus_name": "org.verbisage.Dictionary",
+    "object_path": "/org/verbisage/Dictionary",
+    "interface": "org.verbisage.Dictionary1",
+    "Complete": "(sus) -> (a(sd))",
+    "maximum_input": "128 Unicode characters / 512 UTF-8 bytes",
+    "candidate_limit": "Request 6; preserve ordered reply, literal first, maximum 6 displayed total"
+  },
+  "trial_default": "unchanged (Hunspell in Fedora); opt in with default=verbisage",
+  "validation": {
+    "upstream_meson_tests": "72/72 passed, including 14 adapter scenarios",
+    "x86_64_rpm": "Full RPM build passed; rpmlint 0 errors, 2 inherited provider-subpackage warnings",
+    "details": "validation.json"
+  },
+  "patch_sha256": "da9daacc66c71d8a07872c8b1944986d57703c49cd301f180d5d2cf90f68fae2",
+  "release": "1.2.pocketfed",
+  "patches_sha256": {
+    "stevia-0.57.0-ranked-completion.patch": "3c8ac11da31fe20d609737944a398b8f329a5b49ff559c4c96db34d301e2b51a",
+    "stevia-0.57.0-verbisage-completer.patch": "da9daacc66c71d8a07872c8b1944986d57703c49cd301f180d5d2cf90f68fae2"
+  }
+}

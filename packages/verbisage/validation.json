@@ -1,0 +1,86 @@
+{
+  "package": "verbisage-0.1.0-1.2.pocketfed.fc46",
+  "architecture": "x86_64",
+  "environment": "Fedora Rawhide disposable builder",
+  "source_commit": "97aabc197c4e08555bb716f910f614c7c6e601aa",
+  "patricia_commit": "cdab42d9b93a0b33070804b37098568c3a3227f8",
+  "dictionary_sha256": "bd950ef4b57655120eee65cee62a5d216a63f721d9a8bb759ce2022437840443",
+  "features": [
+    "sqlite",
+    "dbus",
+    "patricia"
+  ],
+  "default_features": false,
+  "build_exit_code": 0,
+  "tests": {
+    "unit_integration_passed": 73,
+    "doctests_passed": 2,
+    "failed": 0,
+    "rpm_check_private_dbus": "passed unified completion, ranking, caps, invalid language and missing data"
+  },
+  "test_coverage": [
+    "generic typo and prefix ranking before truncation",
+    "valid words and short fragments keep prefix alternatives",
+    "finite deterministic scores including NaN/infinity/negative source frequencies",
+    "transposition and missing/extra doubled letters without word exceptions",
+    "initial-capital proper-name recognition",
+    "SQLite apostrophe/%/_/backslash literal prefixes and SQL bounds",
+    "stdio client preserves explicit stdio options and overrides D-Bus configuration",
+    "contradictory stdio-client transport rejected before process spawn"
+  ],
+  "optimized_runtime_test": {
+    "result": "passed final RPM daemon against pinned English Patricia corpus",
+    "reproduce": "dbus-run-session -- packages/verbisage/test-dbus.py --daemon /usr/bin/verbisaged --patricia-dict /usr/share/android-patricia-dictionaries/en_US.dict"
+  },
+  "source_reproducibility": "Three source/vendor/reader archives regenerated offline and byte-identical to maintained sources.sha256; all13 source RPM payload files match current maintained spec/patch/Sources",
+  "contract": "Complete(s word,u max,s lang)->a(sd); exact case-equivalent input omitted; input128Unicode chars/512UTF-8 bytes; output100max; empty/whitespace/max0 returns[]; oversize/control InvalidArgs",
+  "ranking": {
+    "prefix": 1.0,
+    "transpose_or_repeated_letter": 0.9,
+    "other_insertion_deletion": 0.65,
+    "substitution": 0.5,
+    "prior": "ln(1+positive finite frequency), normalized to largest candidate prior; uniform when all priors unavailable",
+    "ties": "lexical order",
+    "probability_claim": false
+  },
+  "runtime_metadata": {
+    "verbisage-dbus-complete": 1,
+    "bundled(crate(patricia_dict))": "0.1.0",
+    "client_daemon_manpages": "both packaged and linted"
+  },
+  "rpmlint": {
+    "errors": 1,
+    "warnings": 36,
+    "runtime_duplicate_license_error_bytes": 1533925,
+    "explanation": "The existing complete copied notices remain: one duplicated-waste error and30 duplicate-file warnings; six source/spec warnings are local URLs for documented deterministic archives. Previous missing-manpage warnings are resolved."
+  },
+  "artifacts": [
+    {
+      "sha256": "faa8c82b4bf9024d7a6b41e78c5e2deff26a5413a24ab0f3aa51665783c3e2b4",
+      "size": 1964586,
+      "filename": "verbisage-0.1.0-1.2.pocketfed.fc46.x86_64.rpm"
+    },
+    {
+      "sha256": "46945fe8526601db44c65be2440bfcac801012692757e10942ad4c7ad8294d57",
+      "size": 24526524,
+      "filename": "verbisage-debuginfo-0.1.0-1.2.pocketfed.fc46.x86_64.rpm"
+    },
+    {
+      "sha256": "8f6944991121f33214888f16c946dfd61457b3eec5184c6d5809eccd516b0f1e",
+      "size": 1671211,
+      "filename": "verbisage-debugsource-0.1.0-1.2.pocketfed.fc46.x86_64.rpm"
+    },
+    {
+      "sha256": "875c57efd35eb6f316fa1ba3355705f72d474899524a31221ce4cd5a6ebad96c",
+      "size": 21516759,
+      "filename": "verbisage-0.1.0-1.2.pocketfed.fc46.src.rpm"
+    }
+  ],
+  "limitations": [
+    "English a-z insertion/substitution generator",
+    "Heuristic priors; not a fitted error model or calibrated probability",
+    "Case-sensitive dictionary prefix lookup still follows backend behavior",
+    "No next-word UI, swipe recognition, learned words or automatic correction added"
+  ],
+  "scope": "Summary of the existing local Fedora Rawhide build; artifact hashes identify unsigned local outputs. Raw workstation/device records are not included."
+}

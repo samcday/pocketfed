@@ -1,0 +1,101 @@
+#!/usr/bin/python3
+"""Repack pinned code and vendor its locked dependencies for offline RPM builds."""
+import argparse
+import hashlib
+import io
+import json
+import lzma
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tarfile
+import tempfile
+
+COMMIT = "97aabc197c4e08555bb716f910f614c7c6e601aa"
+URL = "https://gitlab.com/InsanePrawn/verbisage.git"
+VERSION = "0.1.0"
+PREFIX = f"verbisage-{VERSION}"
+SOURCE = f"{PREFIX}-{COMMIT[:7]}.tar.xz"
+VENDOR = f"{PREFIX}-{COMMIT[:7]}-vendor.tar.xz"
+PACKAGE = Path(__file__).resolve().parent
+
+
+def run(*args, **kwargs):
+    return subprocess.run(args, check=True, **kwargs)
+
+
+def archive_tree(root, destination):
+    # Stable order and metadata; Cargo checksum files remain verbatim.
+    with tarfile.open(destination, "w:xz", preset=3) as archive:
+        for path in sorted(root.rglob("*")):
+            info = archive.gettarinfo(path, str(Path(root.name) / path.relative_to(root)))
+            info.uid = info.gid = 0
+            info.uname = info.gname = ""
+            info.mtime = 0
+            if path.is_file():
+                with path.open("rb") as source:
+                    archive.addfile(info, source)
+            else:
+                archive.addfile(info)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--checkout", type=Path, help="Existing checkout containing the pinned commit")
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--patricia-archive", type=Path, required=True)
+    parser.add_argument("--cargo", default="cargo")
+    parser.add_argument("--cargo-home", type=Path)
+    args = parser.parse_args()
+    out = args.output.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="verbisage-repack-", dir=out) as temp:
+        scratch = Path(temp)
+        checkout = args.checkout.resolve() if args.checkout else scratch / "upstream"
+        if not args.checkout:
+            run("git", "clone", "--no-checkout", URL, str(checkout))
+        actual = subprocess.check_output(["git", "-C", str(checkout), "rev-parse", COMMIT + "^{commit}"], text=True).strip()
+        if actual != COMMIT:
+            raise SystemExit("Source revision mismatch")
+        # Explicit inclusion excludes the bundled RPM, unlicensed language
+        # models, planning notes and recorded conversations from the SRPM.
+        code = subprocess.check_output([
+            "git", "-C", str(checkout), "archive", "--format=tar",
+            "--prefix=" + PREFIX + "/", COMMIT,
+            "Cargo.toml", "Cargo.lock", "src", "data", "meson.build", "meson_options.txt",
+        ])
+        (out / SOURCE).write_bytes(lzma.compress(code, preset=3))
+        with tarfile.open(fileobj=io.BytesIO(code)) as archive:
+            archive.extractall(scratch, filter="data")
+        source = scratch / PREFIX
+        with (PACKAGE / "verbisage-pocketfed-integration.patch").open("rb") as patch:
+            run("patch", "--batch", "-p1", cwd=source, stdin=patch)
+        reader = args.patricia_archive.resolve()
+        expected = "00ef786a15c9462e25bbde2cf6a5cae0e6b8fcc256a82f78436aeb8cb82cd8e2"
+        if hashlib.sha256(reader.read_bytes()).hexdigest() != expected:
+            raise SystemExit("Patricia source checksum mismatch")
+        with tarfile.open(reader) as archive:
+            archive.extractall(source, filter="data")
+        shutil.copyfile(reader, out / reader.name)
+        env = os.environ.copy()
+        env["CARGO_HOME"] = str((args.cargo_home or out / "cargo-home").resolve())
+        run(args.cargo, "vendor", "--locked", "--versioned-dirs", str(source / "vendor"),
+            cwd=source, env=env, stdout=subprocess.DEVNULL)
+        archive_tree(source / "vendor", out / VENDOR)
+        notices = []
+        import tomllib
+        for manifest in sorted((source / "vendor").glob("*/Cargo.toml")):
+            data = tomllib.loads(manifest.read_text())
+            package = data["package"]
+            notices.append({"name": package["name"], "version": package["version"],
+                            "license": package.get("license"),
+                            "license_file": package.get("license-file")})
+        (out / "vendor-licenses.json").write_text(json.dumps(notices, indent=2) + "\n")
+    lines = [hashlib.sha256((out / name).read_bytes()).hexdigest() + "  " + name for name in (SOURCE, VENDOR, args.patricia_archive.name)]
+    (out / "sources.sha256").write_text("\n".join(lines) + "\n")
+    print((out / "sources.sha256").read_text(), end="")
+
+
+if __name__ == "__main__":
+    main()

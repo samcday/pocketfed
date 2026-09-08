@@ -1,0 +1,67 @@
+--- a/tools/dicttool/src/com/android/inputmethod/latin/dicttool/CombinedInputOutput.java
++++ b/tools/dicttool/src/com/android/inputmethod/latin/dicttool/CombinedInputOutput.java
+@@ -124,6 +124,7 @@
+         String word = null;
+         int freq = 0;
+         boolean isNotAWord = false;
++        boolean isPossiblyOffensive = false;
+         ArrayList<WeightedString> bigrams = new ArrayList<WeightedString>();
+         ArrayList<WeightedString> shortcuts = new ArrayList<WeightedString>();
+         while (null != (line = reader.readLine())) {
+@@ -131,7 +132,8 @@
+             final String args[] = line.trim().split(",");
+             if (args[0].matches(WORD_TAG + "=.*")) {
+                 if (null != word) {
+-                    dict.add(word, freq, shortcuts.isEmpty() ? null : shortcuts, isNotAWord);
++                    dict.addWithV202Flags(word, freq, shortcuts.isEmpty() ? null : shortcuts,
++                            isNotAWord, isPossiblyOffensive);
+                     for (WeightedString s : bigrams) {
+                         dict.setBigram(word, s.mWord, s.mFrequency);
+                     }
+@@ -139,6 +141,7 @@
+                 if (!shortcuts.isEmpty()) shortcuts = new ArrayList<WeightedString>();
+                 if (!bigrams.isEmpty()) bigrams = new ArrayList<WeightedString>();
+                 isNotAWord = false;
++                isPossiblyOffensive = false;
+                 for (String param : args) {
+                     final String params[] = param.split("=", 2);
+                     if (2 != params.length) throw new RuntimeException("Wrong format : " + line);
+@@ -146,6 +149,8 @@
+                         word = params[1];
+                     } else if (FREQUENCY_TAG.equals(params[0])) {
+                         freq = Integer.parseInt(params[1]);
++                    } else if ("possibly_offensive".equals(params[0])) {
++                        isPossiblyOffensive = "true".equals(params[1]);
+                     } else if (NOT_A_WORD_TAG.equals(params[0])) {
+                         isNotAWord = "true".equals(params[1]);
+                     }
+@@ -189,7 +194,8 @@
+             }
+         }
+         if (null != word) {
+-            dict.add(word, freq, shortcuts.isEmpty() ? null : shortcuts, isNotAWord);
++            dict.addWithV202Flags(word, freq, shortcuts.isEmpty() ? null : shortcuts,
++                            isNotAWord, isPossiblyOffensive);
+             for (WeightedString s : bigrams) {
+                 dict.setBigram(word, s.mWord, s.mFrequency);
+             }
+--- a/java/src/com/android/inputmethod/latin/makedict/FusionDictionary.java
++++ b/java/src/com/android/inputmethod/latin/makedict/FusionDictionary.java
+@@ -377,6 +377,17 @@
+             final ArrayList<WeightedString> shortcutTargets, final boolean isNotAWord) {
+         add(getCodePoints(word), frequency, shortcutTargets, isNotAWord,
+                 false /* isBlacklistEntry */);
++    }
++
++    /**
++     * Downstream v202 compiler: bit zero encodes possibly-offensive, while
++     * the static v2 writer calls that bit blacklist. Preserve source frequency.
++     */
++    public void addWithV202Flags(final String word, final int frequency,
++            final ArrayList<WeightedString> shortcutTargets, final boolean isNotAWord,
++            final boolean isPossiblyOffensive) {
++        add(getCodePoints(word), frequency, shortcutTargets, isNotAWord,
++                isPossiblyOffensive);
+     }
+ 
+     /**

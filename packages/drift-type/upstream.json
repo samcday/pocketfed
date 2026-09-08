@@ -1,0 +1,16 @@
+{
+  "repository": "https://codeberg.org/eclexic/drift_type",
+  "commit": "f63256a5bb973b10a4e11e190cfbb105fc89da0a",
+  "crate": "drift_type",
+  "crate_version": "0.0.0",
+  "source_url": "https://codeberg.org/eclexic/drift_type/archive/f63256a5bb973b10a4e11e190cfbb105fc89da0a.tar.gz",
+  "source_sha256": "75b49d0246524bd58304b327a1b1c7e7457b30bc7412e57d13a2026e3fe28d4e",
+  "license": "Apache-2.0",
+  "license_file": "LICENSE",
+  "license_sha256": "3fbfe14b74e4af91f1e9ac9278207bff12ede04068e00306c753dd5e0b34f7ff",
+  "upstream_cargo_lock_sha256": "a8417606d4e6fb4f932c05792b912643c0917fc8a38196d91a8906f7596427fc",
+  "downstream_patch": "drift_type-license-metadata.patch",
+  "patch_sha256": "357c166c426a41dca2bb13ab88801bd2d984681bb37e2f72149075b818abc3f6",
+  "dictionary_data": "No external dictionary or gesture dataset; upstream synthetic unit/doc-test examples only.",
+  "submission_policy": "CONTRIBUTING.md requires human-written upstream submissions; no submission made."
+}

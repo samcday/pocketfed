@@ -1,0 +1,37 @@
+[
+  {
+    "filename": "main_en_US.combined",
+    "url": "https://codeberg.org/Helium314/aosp-dictionaries/raw/commit/55e6d1c64ad72481d5615113b1c94f0716617016/wordlists/main_en_US.combined",
+    "sha256": "73308519ff089c73baa35e08f25087bb62ed4a6bf2f96af3efb402187f7c9edb"
+  },
+  {
+    "filename": "main_en_US.source",
+    "url": "https://codeberg.org/Helium314/aosp-dictionaries/raw/commit/55e6d1c64ad72481d5615113b1c94f0716617016/wordlists/main_en_US.source",
+    "sha256": "40858c209be9a676819c08ebc1126a8aa255ac2a239a75f38bc689f7c96b0efe"
+  },
+  {
+    "filename": "COPYING",
+    "url": "https://codeberg.org/Helium314/aosp-dictionaries/raw/commit/55e6d1c64ad72481d5615113b1c94f0716617016/LICENSE",
+    "sha256": "b6a8bf63ae2c95b0aa256ee774680d7bd18f21f457da75466f7610b3b16acc4e"
+  },
+  {
+    "filename": "dicttool-source.tar.gz",
+    "url": "https://android.googlesource.com/platform/packages/inputmethods/LatinIME/+archive/a009d2c98da9749bf6ae4d92ef5fb3d3e945530f/tools/dicttool.tar.gz",
+    "sha256": "85b95165003aade4cd153e336d030ad09d0c8c8d556ec49b6908f85b660c7608"
+  },
+  {
+    "filename": "makedict-source.tar.gz",
+    "url": "https://android.googlesource.com/platform/packages/inputmethods/LatinIME/+archive/a009d2c98da9749bf6ae4d92ef5fb3d3e945530f/java/src/com/android/inputmethod/latin/makedict.tar.gz",
+    "sha256": "cc85d45e6edf57d8fffc0279796a9d3f10b7732e9fc49f5fe00214910a2362a3"
+  },
+  {
+    "filename": "annotations-source.tar.gz",
+    "url": "https://android.googlesource.com/platform/packages/inputmethods/LatinIME/+archive/a009d2c98da9749bf6ae4d92ef5fb3d3e945530f/java/src/com/android/inputmethod/annotations.tar.gz",
+    "sha256": "233f8bd1c0502b878a4824e3d3a543dd81e258cc5c6d78f4a2b2746a6f674c31"
+  },
+  {
+    "filename": "Constants.java.base64",
+    "url": "https://android.googlesource.com/platform/packages/inputmethods/LatinIME/+/a009d2c98da9749bf6ae4d92ef5fb3d3e945530f/java/src/com/android/inputmethod/latin/Constants.java?format=TEXT",
+    "sha256": "affc25e8138eccfe5b3b8c762815d3b4e1a2bb1d45e809722247c0ab766f8343"
+  }
+]
