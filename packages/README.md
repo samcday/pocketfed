@@ -10,6 +10,15 @@ Kernel packaging is the exception that is not intended for Fedora review: it is
 a temporary transport for the downstream PocketFed kernel branch until the image
 can use Fedora's aarch64 kernel plus external modules and devicetrees.
 
+## Flatpak startup notifications
+
+The [Flatpak packaging fork](flatpak/README.md) carries the nested-sandbox
+startup notification fix tracked in [issue #35](https://github.com/samcday/pocketfed/issues/35).
+Its RPM regression check exercises the prepared production source and requires
+the unchanged negative control to reproduce the lost notification. Phosh images
+select the fixed COPR package explicitly; the earlier temporary portal override
+is not part of the image.
+
 ## Modem package regression tests
 
 `test-modem-packages` downloads the pinned ModemManager and 81voltd source
