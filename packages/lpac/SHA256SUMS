@@ -1,2 +1,4 @@
 f3e92f08d10121cf3633cce66853ba1260eb5daa35c594f903cc2720fc11f9ee  lpac-2.3.0.tar.gz
-56e0d14a0458d963d3c767b8b238c2e9b2e8191196b21f039af5ce7bc652061b  lpac-2.3.0-pocketfed-hardening.patch
+160bd281b402a336c35c934f3870222bf175c646141bd4f1bddbee6d1c048f98  lpac-2.3.0-pocketfed-hardening.patch
+01374ed6bc89ffa446d9dd38d52a8280624c5add811ba9dee7bea0bdc14b26e9  gsma-ci.pem
+d20e000b94db73939f262badd4994a6451c7f61ddd192e13c90f48399af2c9c6  LICENSE.chromiumos

@@ -2,16 +2,21 @@
 
 Name:           lpac
 Version:        2.3.0
-Release:        1.1.pocketfed%{?dist}
+Release:        1.2.pocketfed%{?dist}
 Summary:        Local profile assistant for eSIM and eUICC cards
 
 # libeuicc is used under its LGPL option, not its commercial alternative.
-License:        AGPL-3.0-only AND LGPL-2.1-only AND MIT
+License:        AGPL-3.0-only AND LGPL-2.1-only AND MIT AND BSD-3-Clause
 URL:            https://github.com/estkme-group/lpac
 # Upstream v2.3.0, pinned to its resolved commit rather than a movable tag.
 Source0:        %{url}/archive/%{commit}/%{name}-%{version}.tar.gz
 Source1:        SHA256SUMS
 Source2:        README.pocketfed.md
+# Production GSMA TLS root and repository license from ChromeOS Hermes,
+# platform2 commit 79723e8bbafdd2d3ef711af89692d3cac87b26f6.
+# Certificate provenance and fingerprint are documented in README.pocketfed.md.
+Source3:        gsma-ci.pem
+Source4:        LICENSE.chromiumos
 # System cJSON/reproducible build support, QRTR lifecycle/mapping hardening,
 # HTTPS verification, and hardware-independent regression tests.
 Patch0:         lpac-2.3.0-pocketfed-hardening.patch
@@ -47,6 +52,7 @@ mapping. Operations that change either can interrupt cellular service.
 # Keep lpac's tiny cJSON extension, but never build or include bundled cJSON.
 rm -v cjson/cJSON.c cjson/cJSON.h
 cp -p "%{SOURCE2}" README.pocketfed.md
+cp -p "%{SOURCE4}" LICENSE.chromiumos
 
 %build
 %cmake -G Ninja \
@@ -62,14 +68,23 @@ cp -p "%{SOURCE2}" README.pocketfed.md
     -DLPAC_WITH_APDU_MBIM=ON \
     -DLPAC_WITH_APDU_GBINDER=OFF \
     -DLPAC_WITH_HTTP_CURL=ON \
+    -DLPAC_HTTP_DEFAULT_CAPATH=%{_datadir}/lpac/certs \
     -DCMAKE_SKIP_INSTALL_RPATH=ON
 %cmake_build
 
 %install
 %cmake_install
+install -Dpm0644 "%{SOURCE3}" %{buildroot}%{_datadir}/lpac/certs/gsma-ci.pem
+openssl rehash %{buildroot}%{_datadir}/lpac/certs
 
 %check
 %ctest --no-tests=error
+# Only the pinned production root, privately scoped to this client.
+openssl verify -check_ss_sig -CAfile "%{SOURCE3}" "%{SOURCE3}"
+test "$(openssl x509 -in "%{SOURCE3}" -noout -fingerprint -sha256 | cut -d= -f2 | tr -d :)" = \
+    5E3E91FD454327C3AF5D32A7A73BBC59FE43AA7D85FD32D5DB44423F80A56BB3
+test "$(readlink %{buildroot}%{_datadir}/lpac/certs/dbb5f6cb.0)" = gsma-ci.pem
+strings %{buildroot}%{_bindir}/lpac | grep -Fx '%{_datadir}/lpac/certs'
 # These commands only enumerate compiled-in drivers and report the version;
 # they do not connect to a card, modem, PC/SC daemon, or provisioning server.
 LPAC_APDU=stdio LPAC_HTTP=stdio %{__cmake_builddir}/output/lpac driver list > drivers.json
@@ -81,11 +96,17 @@ readelf -d %{buildroot}%{_bindir}/lpac | grep -F 'libcjson.so.'
 ! readelf -d %{buildroot}%{_bindir}/lpac | grep -E '\((RPATH|RUNPATH)\)'
 
 %files
-%license LICENSES/AGPL-3.0-only.txt LICENSES/LGPL-2.1-only.txt LICENSES/MIT.txt REUSE.toml cjson/LICENSE
+%license LICENSES/AGPL-3.0-only.txt LICENSES/LGPL-2.1-only.txt LICENSES/MIT.txt REUSE.toml cjson/LICENSE LICENSE.chromiumos
 %doc README.md README.pocketfed.md docs/USAGE.md
 %{_bindir}/lpac
+%dir %{_datadir}/lpac
+%{_datadir}/lpac/certs/
 
 %changelog
+* Wed Sep 09 2026 PocketFed maintainers - 2.3.0-1.2.pocketfed
+- Add client-scoped production GSMA TLS trust without changing system anchors
+- Test explicit/default CA-directory trust, override behavior and certificate rejection
+
 * Wed Sep 09 2026 PocketFed maintainers - 2.3.0-1.1.pocketfed
 - Initial Fedora packaging with system cJSON and explicit Qualcomm QRTR support
 - Harden QRTR mapping and cleanup, enable verified HTTPS, add regression tests
