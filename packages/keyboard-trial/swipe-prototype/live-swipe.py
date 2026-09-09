@@ -26,6 +26,15 @@ STABLE = {
     "verbisage": ("4c7c63c2995dfb8f34d8d48c4569071f5d74548c93ea14dd353439a822b70b88", "5a648fdc5cd43e0b762f660d1d34ca2e27c9baf4100522271ef946731df66494"),
     SCHEMA: ("7c0efb72c726538f9a592e133bfa4e6a184a4e438f2cc15e780da06a24f43111",),
 }
+# Audited first swipe bundle, manifest SHA256
+# e2050f3c22a2293efb86de9ce634763b32aff48c33c7578b59663656a373b764.
+# Keep experimental bytes separate from deployed stable package versions.
+PREVIOUS_PROTOTYPE = {
+    "phosh-osk-stevia": ("2813f9639e6a22387b64a6390cbda33a337bbcca064920a10c83c02be16e7fd1",),
+    "verbisaged": ("7e8db21db61f7429de0f14e6cd4a3a86f7626afc4672fe258bbfa5e6c82f9a4b",),
+    "verbisage": ("f19e899b25e4e65567ef9ddf8c81939742ad5f661a12dc8f6083516e23fadaa6",),
+    SCHEMA: ("b1b3a2b2d49787dc9bcd39a561003203a3d9cb70b1eee2d1ab0b05b55e1ba521",),
+}
 TARGETS = {name: Path("/usr/bin") / name for name in STABLE if name != SCHEMA}
 TARGETS[SCHEMA] = SCHEMAS / SCHEMA
 DEPLOYMENT_FIELDS = (
@@ -45,6 +54,20 @@ def run(argv, **kwargs):
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def eligible_hashes(name, payload):
+    return (*STABLE[name], *PREVIOUS_PROTOTYPE[name], sha(payload[name]))
+
+
+def classify(name, actual, payload):
+    if actual == sha(payload[name]):
+        return "prototype (this bundle)"
+    if actual in PREVIOUS_PROTOTYPE[name]:
+        return "previous prototype (v1)"
+    if actual in STABLE[name]:
+        return "stable 1.1/1.2"
+    return "not running" if actual is None else "other bytes"
 
 
 def read_regular(path):
@@ -79,7 +102,7 @@ def load_payload(manifest, expected=None):
 
 def validate_targets(payload):
     for name, target in TARGETS.items():
-        if sha(read_regular(target)) not in (*STABLE[name], sha(payload[name])):
+        if sha(read_regular(target)) not in eligible_hashes(name, payload):
             raise ValueError("Unexpected existing file; preserve the other experiment: " + str(target))
     override = SCHEMAS / OVERRIDE
     if override.exists() or override.is_symlink():
@@ -237,7 +260,7 @@ def service(bus, binary, payload, required=False):
         if required:
             raise ValueError("The keyboard service is not running")
         return None
-    require_process(pid, binary, (*STABLE[binary], sha(payload[binary])))
+    require_process(pid, binary, eligible_hashes(binary, payload))
     unit = OSK if bus == "sm.puri.OSK0" else Path(f"/proc/{pid}/cgroup").read_text().strip().rsplit("/", 1)[-1]
     if (bus != "sm.puri.OSK0" and (not unit.endswith(".service") or DICT not in unit)) or run(["systemctl", "--user", "show", unit, "-p", "MainPID", "--value"]) != str(pid):
         raise ValueError("The bus owner does not match the expected user service")
@@ -295,13 +318,11 @@ def status(manifest):
     print("Unlock: " + unlocked + "; deployment fingerprint: " + fingerprint)
     for name, target in TARGETS.items():
         actual = sha(read_regular(target))
-        label = "prototype" if actual == sha(payload[name]) else "stable 1.1/1.2" if actual in STABLE[name] else "other bytes"
-        print(name + ": " + label)
+        print(name + ": " + classify(name, actual, payload))
     for bus, binary in (("sm.puri.OSK0", "phosh-osk-stevia"), (DICT, "verbisaged")):
         pid = bus_pid(bus)
         actual = sha(Path(f"/proc/{pid}/exe").read_bytes()) if pid else None
-        label = "prototype" if actual == sha(payload[binary]) else "stable 1.1/1.2" if actual in STABLE[binary] else "not running or other bytes"
-        print(binary + " running: " + label)
+        print(binary + " running: " + classify(binary, actual, payload))
     print("No keyboard services activated or settings changed by status.")
 
 

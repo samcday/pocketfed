@@ -17,7 +17,8 @@ cc -O2 -o virtual-drag virtual-drag.c virtual-pointer-protocol.c \
   $(pkg-config --cflags --libs wayland-client)
 ```
 
-The tools directory must contain both helpers and the existing `gtk4-probe.py`.
+The tools directory must contain both helpers. The first prototype uses the
+existing `gtk4-probe.py`; the second uses the adjacent `gtk4-polish-probe.py`.
 Copy the prototype Stevia build's `data/*.xml` schemas to a private schema
 directory and add this override before running `glib-compile-schemas` there:
 
@@ -29,24 +30,37 @@ completion-mode=['hint']
 default='verbisage'
 ```
 
-With the matching prototype binaries and an English dictionary configured for
+With the second prototype binaries and an English dictionary configured for
 the daemon, run:
 
 ```sh
-python3 run-swipe.py --case swipe --output /tmp/swipe-result \
+python3 run-polish.py --case swipe --output /tmp/swipe-result \
   --stevia /path/to/phosh-osk-stevia --tools-dir /path/to/tools \
   --schema-dir /path/to/private-schemas \
   --service-command '["/path/to/verbisaged","--mode","dbus","--config","/path/to/trial.toml"]' \
   --dictionary /path/to/en_US.dict
 ```
 
-Use a fresh output directory for each run. `swipe` checks that no crossed-key
-letters enter preedit or committed text, measures the trail fading to zero,
-then explicitly selects `hello` and checks the exact `hello ` commit.
-`swipe-focus` moves focus away during the drag and checks that no text leaks.
-`literal` verifies ordinary taps still form preedit and Space commits the raw
-word. These are integration checks for a fixed layout and synthetic path,
-not an accuracy benchmark or a physical touchscreen test.
+Use a fresh output directory for each run. The second prototype cases are:
+
+| Case | Checked behavior |
+| --- | --- |
+| `swipe` | Release produces editable `hello`, Space commits `hello `, and the trail fades to zero. |
+| `swipe-tap` | A tapped letter accepts the preceding swipe word and begins the next word. |
+| `swipe-next` | Consecutive swipes preserve `hello ` while composing `world`. |
+| `swipe-undo` | Selecting an alternative, undoing it, and selecting again preserves the original swipe choices. |
+| `swipe-edit` | Backspace edits an unselected swipe guess. |
+| `swipe-focus` | Moving focus during a gesture cancels it without inserting text. |
+| `swipe-shift` | One-shot Shift produces `Hello` and resets. |
+| `typed-undo` | Backspace after a typed completion restores the previous composition. |
+| `typed-reselect` | A restored typed composition can select another candidate. |
+| `undo-focus` | Changing focus invalidates selection undo. |
+| `literal` | Ordinary taps and Space preserve normal typing. |
+
+These are integration checks for a fixed layout and synthetic path, not an
+accuracy benchmark or a physical touchscreen test. `run-swipe.py` retains the
+original first-prototype checks, where release only shows candidates and an
+explicit selection commits the word.
 
 Pillow is needed for pixel comparison. On a test device without it, use
 `--defer-pixel-check`, copy the result directory to a host with Pillow, then run:

@@ -1,4 +1,4 @@
-# Initial whole-word swipe prototype
+# Whole-word swipe prototype
 
 This prototype connects Stevia's real key geometry and touch path to Drift Type
 inside Verbisage, using the English Android Patricia dictionary. It is separate
@@ -8,8 +8,8 @@ not include it.
 The public source branches are:
 
 - [Stevia](https://github.com/samcday/stevia/tree/codex/swipe-prototype):
-  opt-in gesture capture, cancellation, explicit candidate selection and a
-  trail whose segments fade over 1.5 seconds.
+  immediate editable guesses, movement-driven capture, Shift/Caps Lock,
+  selection undo and a trail whose segments fade over 1.5 seconds.
 - [Verbisage](https://github.com/samcday/verbisage/tree/codex/swipe-prototype):
   one bounded `RecognizeSwipe` request per completed gesture, with Drift Type
   scoring and a request-local Patricia candidate snapshot.
@@ -25,11 +25,14 @@ documents.
 
 ## Scope
 
-Start a new word in an English-US normal text field, using the lowercase
-alphabet layout and Verbisage completion. Drag across the letters, lift, then
-select a candidate. The prototype does not automatically insert a result.
-Ordinary tap typing remains available. Other languages, uppercase/symbol layers,
-mixed tap/swipe words and automatic correction are future work.
+Start a new word in an English-US normal text field, using the
+alphabet layout and Verbisage completion. Drag across the letters and lift:
+the top result appears as editable preedit with alternatives still available.
+Continuing accepts it; tapping a candidate commits that choice. An immediate
+Backspace after selection restores the prior word and suggestions when the
+app's text and cursor still match. Shift and Caps Lock work, and ordinary taps
+remain available. Other languages, symbol gestures and mixed typed/swipe words
+remain outside this trial.
 
 The dictionary search is bounded by node count and elapsed time, and the daemon
 permits one gesture worker at a time. A failed or canceled request leaves the
@@ -38,10 +41,13 @@ application text unchanged. No UI gesture traces are recorded or learned.
 ## Temporary device trial
 
 [LIVE-TRIAL.md](LIVE-TRIAL.md) documents the manifest-fed helper. It accepts
-only the known stable 1.1/1.2 runtime bytes or an identical prototype, then uses
+the known stable 1.1/1.2 runtime bytes, the audited first swipe prototype,
+or an identical current payload, then uses
 an ephemeral `/usr` overlay. Its schema default enables swipe for the trial
 without writing saved keyboard preferences. Reboot discards the trial and
 boots the selected deployment normally, including any previously staged image.
+Store the bundle under the user's home so its files survive and the same
+`apply` command can restore the experiment after reboot.
 The prototype binaries are source-built and unsigned, not COPR RPM updates.
 
 `test-live-swipe.py` exercises manifest and file rejection, staging preservation,
@@ -53,8 +59,10 @@ use temporary files and do not modify the host keyboard.
 `validation/run-swipe.py` runs a separate headless Phoc, GTK4 field, Stevia and
 Verbisage on a private bus. Its synthetic pointer drag drives the actual
 keyboard widget; screenshots verify that the trail visibly fades and clears.
-The tests check explicit word commitment, no crossed-key letters, focus loss
-and ordinary taps. The helper sources and protocol are in
+The original harness checks the first prototype. `validation/run-polish.py`
+checks editable guesses, consecutive swipes, tap continuation, typed and swipe
+selection undo, Shift, focus cancellation and ordinary taps for the second
+trial. The helper sources and protocol are in
 `../../stevia/validation/`; `virtual-drag.c` extends that test setup for drags.
 
 On devices without Pillow, `--defer-pixel-check` leaves the swipe case marked

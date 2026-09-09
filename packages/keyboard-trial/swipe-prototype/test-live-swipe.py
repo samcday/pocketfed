@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -96,6 +97,56 @@ class LiveSwipeTests(unittest.TestCase):
         for name, path in targets.items():
             path.write_bytes(self.payload[name])
         live.validate_targets(self.payload)
+
+    def test_previous_prototype_update_preserves_unknown_experiment_guard(self):
+        targets, _ = self.targets()
+        previous = {}
+        for name, path in targets.items():
+            path.write_bytes(b"previous-prototype-" + name.encode())
+            previous[name] = (live.sha(path.read_bytes()),)
+        with patch.object(live, "PREVIOUS_PROTOTYPE", previous):
+            live.validate_targets(self.payload)
+            # A partially completed update may contain both audited versions.
+            targets["phosh-osk-stevia"].write_bytes(self.payload["phosh-osk-stevia"])
+            live.validate_targets(self.payload)
+            targets["verbisaged"].write_bytes(b"another experiment")
+            with self.assertRaisesRegex(ValueError, "preserve the other experiment"):
+                live.validate_targets(self.payload)
+            self.assertEqual(targets["verbisaged"].read_bytes(), b"another experiment")
+
+    def test_previous_running_process_requires_audited_bytes_and_current_owner(self):
+        binary = "phosh-osk-stevia"
+        previous = b"previous-running-prototype"
+        with patch.object(live, "PREVIOUS_PROTOTYPE", {binary: (live.sha(previous),)}), patch.object(live, "bus_pid", return_value=42), patch.object(live, "run", return_value="42"), patch.object(live.Path, "stat", return_value=SimpleNamespace(st_uid=os.getuid())) as process_stat, patch.object(live.Path, "read_bytes", return_value=previous) as process_bytes:
+            self.assertEqual(live.service("sm.puri.OSK0", binary, self.payload, required=True), live.OSK)
+            process_bytes.return_value = b"unrelated-running-experiment"
+            with self.assertRaisesRegex(ValueError, "Unexpected owner or executable"):
+                live.service("sm.puri.OSK0", binary, self.payload, required=True)
+            process_bytes.return_value = previous
+            process_stat.return_value.st_uid = os.getuid() + 1
+            with self.assertRaisesRegex(ValueError, "Unexpected owner or executable"):
+                live.service("sm.puri.OSK0", binary, self.payload, required=True)
+
+    def test_status_distinguishes_previous_current_stable_and_unknown_bytes(self):
+        targets, _ = self.targets()
+        previous = b"previous-running-prototype"
+        targets["phosh-osk-stevia"].write_bytes(previous)
+        targets["verbisaged"].write_bytes(self.payload["verbisaged"])
+        targets[live.SCHEMA].write_bytes(b"unrelated-schema")
+        original_read_bytes = Path.read_bytes
+        def read_bytes(path):
+            return previous if str(path) == "/proc/42/exe" else original_read_bytes(path)
+        output = io.StringIO()
+        previous_map = dict(live.PREVIOUS_PROTOTYPE, **{"phosh-osk-stevia": (live.sha(previous),)})
+        with patch.object(live, "PREVIOUS_PROTOTYPE", previous_map), patch.object(live, "deployment_state", return_value=("unchanged", "development")), patch.object(live, "bus_pid", side_effect=[42, None]), patch.object(live.Path, "read_bytes", read_bytes), contextlib.redirect_stdout(output):
+            live.status(self.manifest)
+        text = output.getvalue()
+        self.assertIn("phosh-osk-stevia: previous prototype (v1)\n", text)
+        self.assertIn("verbisaged: prototype (this bundle)\n", text)
+        self.assertIn("verbisage: stable 1.1/1.2\n", text)
+        self.assertIn(live.SCHEMA + ": other bytes\n", text)
+        self.assertIn("phosh-osk-stevia running: previous prototype (v1)\n", text)
+        self.assertIn("verbisaged running: not running\n", text)
 
     def test_other_experiment_or_override_is_preserved(self):
         targets, schemas = self.targets()
