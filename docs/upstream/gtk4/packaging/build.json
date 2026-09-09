@@ -1,0 +1,32 @@
+{
+  "build_id": 10954389,
+  "url": "https://copr.fedorainfracloud.org/coprs/build/10954389",
+  "source_rpm": "gtk4-4.23.4-1.1.pocketfed.fc46.src.rpm",
+  "source_rpm_sha256": "d05ba95af0f19df7a530452fbac5e1fa70b40847ffabee94fe6dfba30dee16ac",
+  "fedora_distgit_commit": "5f64a17f802215eb67573290fb9066aa662a460e",
+  "chroots": [
+    "fedora-rawhide-aarch64",
+    "fedora-rawhide-x86_64"
+  ],
+  "results": {
+    "aarch64": {
+      "state": "succeeded",
+      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-aarch64/10954389-gtk4/",
+      "rpm": "gtk4-4.23.4-1.1.pocketfed.fc46.aarch64.rpm",
+      "sha256": "3605c807181a69563f836baaad2cdabca7a5d934d5b6df9dbbdbde11bd5f17bf"
+    },
+    "x86_64": {
+      "state": "succeeded",
+      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-x86_64/10954389-gtk4/",
+      "rpm": "gtk4-4.23.4-1.1.pocketfed.fc46.x86_64.rpm",
+      "sha256": "b786206e24055d8427073e22167d26c8f70c418d9f9d130a503341d378303a6b"
+    }
+  },
+  "signatures_verified": true,
+  "validation": {
+    "x86_64": "7/7 passed",
+    "sam-sargo_aarch64": "7/7 passed",
+    "sam-sargo_installed_gtk4_4.23.3": "preedit cleared, empty buffer",
+    "phone_library_sha256": "1d13ab9927d3ffbce166b639e4080185b8f3be1a8d73287af6e81b708665ed78"
+  }
+}

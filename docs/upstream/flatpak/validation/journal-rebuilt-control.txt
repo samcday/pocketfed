@@ -1,0 +1,6 @@
+Sep 08 13:55:51 test-device systemd[3460]: Stopping flatpak-portal.service - flatpak portal...
+Sep 08 13:55:51 test-device systemd[3460]: Stopped flatpak-portal.service - flatpak portal.
+Sep 08 13:55:51 test-device systemd[3460]: flatpak-portal.service: Consumed 2.152s CPU time over 6min 54.829s wall clock time, 309.9M memory peak.
+Sep 08 13:55:51 test-device systemd[3460]: Starting flatpak-portal.service - flatpak portal...
+Sep 08 13:55:51 test-device systemd[3460]: Started flatpak-portal.service - flatpak portal.
+Sep 08 13:55:54 test-device /run/user/1000/flatpak-portal-trial/flatpak-portal-unpatched[11895]: Failed to create instance for id 1741269372: Failed to open file “/run/user/1000/.flatpak/1741269372/pid”: No such file or directory

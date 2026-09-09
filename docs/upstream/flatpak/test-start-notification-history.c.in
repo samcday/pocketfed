@@ -1,0 +1,114 @@
+/* Compare actual constructors and startup callbacks across a git boundary.
+ * Extracted Flatpak code retains its LGPL-2.1-or-later license.
+ * Child metadata parsing and signal delivery are test doubles.
+ */
+#include <glib.h>
+#include <gio/gio.h>
+#include <glib/gstdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#define FLATPAK_COMPILATION 1
+#define FLATPAK_EXTERN extern
+#include "flatpak-instance.h"
+#define INSTANCE_ID_BUFFER_SIZE 64
+#define CHILD_STATUS_CHECK_ATTEMPTS 20
+#define FLATPAK_PORTAL_PATH "/org/freedesktop/portal/Flatpak"
+#define FLATPAK_PORTAL_INTERFACE "org.freedesktop.portal.Flatpak"
+@METADATA_CONSTANTS@
+typedef struct { gboolean expose_or_share_pids; char *client; } PidData;
+static GHashTable *client_pid_data_hash;
+static GDBusConnection *session_bus;
+static char *test_root;
+static char *test_dir;
+static guint signals;
+
+@INSTANCE_TYPE@
+
+static int get_child_pid (const char *dir)
+{
+  g_autofree char *file = g_build_filename(dir, "child-pid", NULL);
+  g_autofree char *contents = NULL;
+  if (!g_file_get_contents(file, &contents, NULL, NULL)) return 0;
+  return atoi(contents);
+}
+static GKeyFile *get_instance_info (const char *dir) { return NULL; }
+static char *flatpak_instance_get_instances_directory (void) { return g_strdup(test_root); }
+
+@INSTANCE_FUNCTIONS@
+
+static gboolean capture_signal (GDBusConnection *connection, const char *destination,
+ const char *path, const char *interface, const char *name, GVariant *parameters, GError **error)
+{
+  guint pid, relative_pid;
+  g_assert_cmpstr(name, ==, "SpawnStarted");
+  g_variant_get(parameters, "(uu)", &pid, &relative_pid);
+  g_assert_cmpuint(pid, ==, 31337);
+  signals++;
+  return TRUE;
+}
+#define g_dbus_connection_emit_signal capture_signal
+
+@PORTAL_CALLBACKS@
+
+static gboolean publish_metadata (gpointer ignored)
+{
+  g_autofree char *pid = g_build_filename(test_dir, "pid", NULL);
+  g_autofree char *child = g_build_filename(test_dir, "child-pid", NULL);
+  g_assert_true(g_file_set_contents(pid, "31337", -1, NULL));
+  g_assert_true(g_file_set_contents(child, "31338", -1, NULL));
+  return G_SOURCE_REMOVE;
+}
+static gboolean stop_loop (gpointer loop)
+{
+  g_main_loop_quit(loop);
+  return G_SOURCE_REMOVE;
+}
+static void begin_delayed_start (GObject *source, GAsyncResult *res, gpointer data)
+{
+  /* Publish only after the production callback observed absent metadata. */
+  instance_id_read_finish(source, res, data);
+  g_timeout_add(60, publish_metadata, NULL);
+}
+static guint run_case (gboolean delayed)
+{
+  g_autoptr(GMainLoop) loop = g_main_loop_new(NULL, FALSE);
+  GInputStream *input;
+  PidData pid_data = { FALSE, ":1.test" };
+  InstanceIdReadData *data = g_new0(InstanceIdReadData, 1);
+  g_autofree char *pid = NULL;
+  g_autofree char *child = NULL;
+  test_root = g_dir_make_tmp("flatpak-history-XXXXXX", NULL);
+  g_assert_nonnull(test_root);
+  test_dir = g_build_filename(test_root, "12345", NULL);
+  g_assert_cmpint(g_mkdir(test_dir, 0700), ==, 0);
+  signals = 0;
+  g_hash_table_insert(client_pid_data_hash, GUINT_TO_POINTER(31337), &pid_data);
+  if (!delayed) publish_metadata(NULL);
+  data->pid = 31337;
+  input = g_memory_input_stream_new_from_data("12345", 5, NULL);
+  g_input_stream_read_async(input, data->buffer, INSTANCE_ID_BUFFER_SIZE - 1,
+                           G_PRIORITY_DEFAULT, NULL,
+                           delayed ? begin_delayed_start : instance_id_read_finish, data);
+  g_timeout_add(250, stop_loop, loop);
+  g_main_loop_run(loop);
+  g_hash_table_remove_all(client_pid_data_hash);
+  pid = g_build_filename(test_dir, "pid", NULL);
+  child = g_build_filename(test_dir, "child-pid", NULL);
+  g_unlink(pid); g_unlink(child); g_rmdir(test_dir); g_rmdir(test_root);
+  g_clear_pointer(&test_dir, g_free);
+  g_clear_pointer(&test_root, g_free);
+  return signals;
+}
+int main (void)
+{
+  guint ready, delayed;
+  client_pid_data_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
+  ready = run_case(FALSE);
+  delayed = run_case(TRUE);
+  g_print("{\"ready_metadata_signals\":%u,\"delayed_metadata_signals\":%u}\n", ready, delayed);
+  g_assert_cmpuint(ready, ==, 1);
+  g_assert_cmpuint(delayed, ==, EXPECTED_DELAYED_SIGNALS);
+  g_hash_table_unref(client_pid_data_hash);
+  return 0;
+}
