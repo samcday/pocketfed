@@ -1,0 +1,51 @@
+{
+  "build_id": 10963449,
+  "url": "https://copr.fedorainfracloud.org/coprs/build/10963449",
+  "project": "samcday/pocketfed",
+  "candidate_commit": "31b7a2be8ba332d6765a42c4ad7bae94106e5aff",
+  "candidate_branch": "codex/lpac-esim-enablement",
+  "uploaded_srpm_sha256": "51114ea9a16e1859d7b1bf6976ef25c9593882e8d912a61a0fb1176bcba4c921",
+  "source_commit": "c2fcf5e4b21c712d54e35a11da2ad9ad134fb821",
+  "patch_sha256": "56e0d14a0458d963d3c767b8b238c2e9b2e8191196b21f039af5ce7bc652061b",
+  "signing_key_fingerprint": "F247F3B726A312E90D74BB76E220B1E0AE59FCB5",
+  "targets": [
+    {
+      "chroot": "fedora-rawhide-aarch64",
+      "state": "succeeded",
+      "ctest_groups_passed": 6,
+      "rpm_sha256": "8ceb4c33634c8f78f1eaa911e2cbc5d367e629e9883b041d9fb3dd6ff606e5ef",
+      "signature": "digests signatures OK"
+    },
+    {
+      "chroot": "fedora-rawhide-x86_64",
+      "state": "succeeded",
+      "ctest_groups_passed": 6,
+      "rpm_sha256": "47a45d5584cc8ae4f6f7c6a646d79767c98574bc00d6cc2fba9a2dee4a587b79",
+      "signature": "digests signatures OK"
+    },
+    {
+      "chroot": "fedora-45-aarch64",
+      "state": "succeeded",
+      "ctest_groups_passed": 6,
+      "rpm_sha256": "18704027307862241bd2a7a4a2eaa2523ccadd5a365d1b87df514418117aa7ce",
+      "signature": "digests signatures OK"
+    }
+  ],
+  "checks_evidence": "Full %check output is in builder-live.log.gz for each chroot; build.log.gz contains only final SRPM rebuild.",
+  "hardware": {
+    "model": "Google Pixel3a (sargo)",
+    "copr_arm_binary_sha256": "ffc50c861864b650889ee5b3430ee455f7661f0d35325b518e42377c20f8f5cf",
+    "read_only_chip_info": "passed",
+    "read_only_profile_list": "passed",
+    "temporary_mapping_restoration": "verified",
+    "carrier_service": "not tested",
+    "installed_in_image": false
+  },
+  "integration_at_copr_validation": {
+    "main_merged": false,
+    "pr_opened": false,
+    "image_recipes_changed": false,
+    "installed_on_phone": false
+  },
+  "notes": "New public package feed candidate only. Existing local-verification.json is the pre-publication snapshot. Hardware tests extracted the signed ARM CLI into a private RAM-backed directory with two Fedora runtime libraries; no package transaction. No real eSIM activation or carrier traffic."
+}
