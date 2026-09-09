@@ -119,11 +119,28 @@ grep -Fxq 'ConditionPathExists=/run/pocketfed-sargo-mcfg-activated' \
     /usr/lib/systemd/system/pocketfed-sargo-network-search.service
 systemctl is-enabled pocketfed-sargo-network-search.service
 test -L /etc/systemd/system/multi-user.target.wants/pocketfed-sargo-network-search.service
-test -s /usr/share/blob-wrangler/configs/google,sargo.toml
-grep -Fq 'destination = "qcom/sdm670/sargo/mcfg"' \
-    /usr/share/blob-wrangler/configs/google,sargo.toml
-grep -Fq 'rename = "telstra-au-commercial.mbn"' \
-    /usr/share/blob-wrangler/configs/google,sargo.toml
+# Match each carrier map entry to its exact packaged stock extraction rule.
+# Android vendor partitions are only available later, on the actual handset.
+python3 -c '
+from pathlib import Path
+import tomllib
+entries = tomllib.loads(Path("/usr/share/blob-wrangler/configs/google,sargo.toml").read_text())["wrangler"]["firmware"]
+mapping = dict(line.split() for line in Path("/usr/lib/pocketfed/sargo-mcfg.tsv").read_text().splitlines() if line.strip() and not line.lstrip().startswith("#"))
+for network, carrier, output in [
+    ("50501", "Telstra/Commercial", "telstra-au-commercial.mbn"),
+    ("50502", "Optus/Commercial/AU", "optus-au-commercial.mbn"),
+]:
+    origin = "rfs/msm/mpss/readonly/vendor/mbn/mcfg_sw/generic/AUNZ/" + carrier
+    matching = [entry for entry in entries if entry.get("partition") == "vendor" and entry.get("origin") == origin]
+    assert len(matching) == 1, "stock carrier extraction missing or ambiguous: " + carrier
+    entry = matching[0]
+    assert entry["destination"] == "qcom/sdm670/sargo/mcfg", "carrier destination mismatch"
+    assert len(entry["files"]) == 1, "unexpected carrier file list"
+    file = entry["files"][0]
+    assert file["name"] == "mcfg_sw.mbn" and file["rename"] == output, "carrier output mismatch"
+    assert file.get("required", False) is False, "carrier-specific firmware must remain optional"
+    assert mapping.get(network) == output, "carrier map/extraction mismatch: " + network
+'
 
 systemctl is-enabled systemd-boot-check-no-failures.service
 systemctl is-enabled qbootctl.service
