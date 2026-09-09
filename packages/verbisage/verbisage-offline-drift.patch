@@ -1,0 +1,21 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -21,7 +21,7 @@
+ swipe = ["patricia", "dbus", "dep:drift_type"]
+ 
+ [dependencies]
+-drift_type = { git = "https://codeberg.org/eclexic/drift_type", rev = "f63256a5bb973b10a4e11e190cfbb105fc89da0a", optional = true }
++drift_type = { path = "drift_type", optional = true }
+ patricia_dict = { path = "patricia_dict", optional = true }
+ serde = { version = "1", features = ["derive"] }
+ serde_json = "1"
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -356,7 +356,6 @@
+ [[package]]
+ name = "drift_type"
+ version = "0.0.0"
+-source = "git+https://codeberg.org/eclexic/drift_type?rev=f63256a5bb973b10a4e11e190cfbb105fc89da0a#f63256a5bb973b10a4e11e190cfbb105fc89da0a"
+ dependencies = [
+  "embed-doc-image",
+  "log",

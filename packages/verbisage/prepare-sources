@@ -12,8 +12,8 @@ import subprocess
 import tarfile
 import tempfile
 
-COMMIT = "97aabc197c4e08555bb716f910f614c7c6e601aa"
-URL = "https://gitlab.com/InsanePrawn/verbisage.git"
+COMMIT = "bef0046a2b75c20f2a6ca202d603fcbddd3d3df0"
+URL = "https://github.com/samcday/verbisage.git"
 VERSION = "0.1.0"
 PREFIX = f"verbisage-{VERSION}"
 SOURCE = f"{PREFIX}-{COMMIT[:7]}.tar.xz"
@@ -45,6 +45,7 @@ def main():
     parser.add_argument("--checkout", type=Path, help="Existing checkout containing the pinned commit")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--patricia-archive", type=Path, required=True)
+    parser.add_argument("--drift-archive", type=Path, required=True)
     parser.add_argument("--cargo", default="cargo")
     parser.add_argument("--cargo-home", type=Path)
     args = parser.parse_args()
@@ -63,21 +64,29 @@ def main():
         code = subprocess.check_output([
             "git", "-C", str(checkout), "archive", "--format=tar",
             "--prefix=" + PREFIX + "/", COMMIT,
-            "Cargo.toml", "Cargo.lock", "src", "data", "meson.build", "meson_options.txt",
+            "Cargo.toml", "Cargo.lock", "src", "data", "meson.build", "meson_options.txt", "DOWNSTREAM.md", "SWIPE.md",
         ])
         (out / SOURCE).write_bytes(lzma.compress(code, preset=3))
         with tarfile.open(fileobj=io.BytesIO(code)) as archive:
             archive.extractall(scratch, filter="data")
         source = scratch / PREFIX
-        with (PACKAGE / "verbisage-pocketfed-integration.patch").open("rb") as patch:
+        with (PACKAGE / "verbisage-offline-drift.patch").open("rb") as patch:
             run("patch", "--batch", "-p1", cwd=source, stdin=patch)
         reader = args.patricia_archive.resolve()
-        expected = "00ef786a15c9462e25bbde2cf6a5cae0e6b8fcc256a82f78436aeb8cb82cd8e2"
+        expected = "e8a0d3e21ea7189bb2ecde9e80e558299bc949424b9a92d88086c21e36a0fabe"
         if hashlib.sha256(reader.read_bytes()).hexdigest() != expected:
             raise SystemExit("Patricia source checksum mismatch")
         with tarfile.open(reader) as archive:
             archive.extractall(source, filter="data")
         shutil.copyfile(reader, out / reader.name)
+        drift = args.drift_archive.resolve()
+        if hashlib.sha256(drift.read_bytes()).hexdigest() != "75b49d0246524bd58304b327a1b1c7e7457b30bc7412e57d13a2026e3fe28d4e":
+            raise SystemExit("Drift source checksum mismatch")
+        with tarfile.open(drift) as archive:
+            archive.extractall(source, filter="data")
+        with (PACKAGE / "drift_type-license-metadata.patch").open("rb") as patch:
+            run("patch", "--batch", "-p1", cwd=source / "drift_type", stdin=patch)
+        shutil.copyfile(drift, out / drift.name)
         env = os.environ.copy()
         env["CARGO_HOME"] = str((args.cargo_home or out / "cargo-home").resolve())
         run(args.cargo, "vendor", "--locked", "--versioned-dirs", str(source / "vendor"),
@@ -92,7 +101,7 @@ def main():
                             "license": package.get("license"),
                             "license_file": package.get("license-file")})
         (out / "vendor-licenses.json").write_text(json.dumps(notices, indent=2) + "\n")
-    lines = [hashlib.sha256((out / name).read_bytes()).hexdigest() + "  " + name for name in (SOURCE, VENDOR, args.patricia_archive.name)]
+    lines = [hashlib.sha256((out / name).read_bytes()).hexdigest() + "  " + name for name in (SOURCE, VENDOR, args.patricia_archive.name, args.drift_archive.name)]
     (out / "sources.sha256").write_text("\n".join(lines) + "\n")
     print((out / "sources.sha256").read_text(), end="")
 

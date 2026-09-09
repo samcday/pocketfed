@@ -1,0 +1,3226 @@
+diff --git a/SWIPE-PROTOTYPE.md b/SWIPE-PROTOTYPE.md
+new file mode 100644
+index 0000000..3578f5b
+--- /dev/null
++++ b/SWIPE-PROTOTYPE.md
+@@ -0,0 +1,102 @@
++# English swipe prototype
++
++This default-off branch sends whole-word gestures to the matching Verbisage
++`codex/swipe-prototype` service, using Drift Type and the English Patricia
++dictionary. The second trial adds immediate editable guesses, more responsive
++gesture capture, Shift/Caps Lock support and undo for a selected completion.
++
++## Interaction
++
++Start at a new word boundary in an English-US text field with Verbisage
++completion enabled. Touch or press a letter and move normally: there is no
++hold requirement. Crossing GTK's normal drag threshold starts the trail and
++cancels the character long-press recognizer. A stationary hold still opens
++alternate characters. Each blue trail segment fades over 1.5 seconds.
++
++Release shows the top recognized word immediately as editable preedit, with
++alternatives in the candidate bar. Space, punctuation and Enter use the normal
++word-ending behavior. Starting a tapped letter accepts the guess with a space
++and begins the next word. Completing another swipe accepts the preceding word,
++waits for the application's text acknowledgement, then recognizes the new one.
++Backspace on an unselected guess edits it as ordinary typed text.
++
++Tapping a candidate commits that choice. An immediate Backspace restores the
++previous preedit and candidates, including the swipe alternatives. This single
++undo belongs to Stevia's direct selection path; engines that handle selections
++themselves retain control. Undo requires an exact acknowledgement of the
++inserted UTF-8 bytes, cursor and surrounding text. Focus changes, cursor moves,
++other input, mode/layout changes and backend changes invalidate it. If the app
++does not report matching surrounding text, Backspace retains its ordinary
++behavior. No guessed suffix deletion is used.
++
++One-shot Shift capitalizes the recognized word's initial and resets after the
++gesture. Caps Lock produces uppercase words and remains enabled. Actual key
++rectangles are sent with lowercase labels; capitalization stays in Stevia.
++
++## Scope and cancellation
++
++One finger or a primary-button drag is supported on English-US alphabet
++layouts. A new gesture requires an empty underlying word boundary, no selection,
++an eligible normal-purpose field and enabled completion. An existing completed
++swipe guess may precede another gesture. Password/PIN, hidden/sensitive hints,
++symbol layouts, cursor mode and mixed typed/swipe words are excluded.
++
++A second touch, focus/context change, leaving the widget, layout/size changes,
++disabling the feature or hiding the keyboard cancels an unfinished gesture and
++stale replies. A failed lookup leaves application text unchanged. A previous
++word already accepted before a subsequent lookup fails remains committed.
++There is no learning, trace persistence or multilingual accuracy claim.
++
++## Protocol and bounds
++
++The existing `org.verbisage.Dictionary1` interface provides:
++
++```
++RecognizeSwipe(a(ddu) trace, a(sdddd) keys, u maximum, s language) -> a(sd)
++```
++
++Trace entries are logical x/y and elapsed milliseconds, starting at zero. Key
++entries are label, left, top, width and height from the allocated layout in the
++same coordinates. Stevia requires 26 ASCII letter keys, keeps at most 512
++samples over ten seconds, and requests six results for `en_US`. Recognition
++and the acknowledgement between consecutive swipes each have a one-second
++limit. Case handling and completion undo do not change the service protocol.
++
++## Opt in
++
++The versioned live trial helper uses an ephemeral `/usr` overlay and a schema
++default override, keeping saved preferences unchanged. Store its bundle under
++the user's home so the files survive reboot; rerun the helper to enable the
++experiment again. Reboot removes the active overlay.
++
++For an independently installed test build, record the prior values first:
++
++```sh
++gsettings get mobi.phosh.osk.Completers default
++gsettings get mobi.phosh.osk swipe-typing
++gsettings set mobi.phosh.osk.Completers default verbisage
++gsettings set mobi.phosh.osk swipe-typing true
++```
++
++Restore the recorded values afterwards. Private tests use a separate schema
++copy and memory settings instead of changing the live keyboard.
++
++## Validation
++
++The integrated x86_64 build passes 73 Meson targets. Tests include real GTK event
++dispatch through long-press and ancestor gesture controllers, rapid touch
++motion, taps and alternate-character holds, Shift/Caps Lock, cancellation,
++trail cleanup, editable recognition, snapshot restoration and bounded exact
++UTF-8 undo acknowledgements. The private Phoc/GTK4 trial harness additionally
++checks the real keyboard and decoder together, including consecutive words,
++selection undo and focus changes. Device logs remain outside this source tree.
++
++```sh
++meson setup _build-swipe -Dgtk_doc=false
++meson compile -C _build-swipe
++LC_ALL=C.UTF-8 xwfb-run -c mutter -- meson test -C _build-swipe --print-errorlogs
++```
++
++Nested containers may need a process-only Glycin accommodation for graphical
++tests; it is not a production keyboard setting. Synthetic checks establish
++integration behavior, not recognition accuracy across people.
+diff --git a/data/mobi.phosh.osk.gschema.xml b/data/mobi.phosh.osk.gschema.xml
+index 9aaa19f..0051839 100644
+--- a/data/mobi.phosh.osk.gschema.xml
++++ b/data/mobi.phosh.osk.gschema.xml
+@@ -1,6 +1,15 @@
+ <schemalist>
+   <schema id="mobi.phosh.osk"
+           path="/mobi/phosh/osk/">
++    <key name="swipe-typing" type="b">
++      <default>false</default>
++      <summary>Experimental English swipe typing</summary>
++      <description>
++        Enable single-finger whole-word gestures on the English (US) alphabet
++        layout with Verbisage. A fading trail follows the pointer and candidates
++        are offered on release. Selecting a candidate commits the word.
++      </description>
++    </key>
+     <key name="completion-mode" flags="mobi.phosh.osk.PhoshOskCompletionModeFlags">
+       <default>['hint']</default>
+       <summary>When to enable the on screen keyboard's text completion</summary>
+diff --git a/src/completers/pos-completer-verbisage.c b/src/completers/pos-completer-verbisage.c
+index ab5d13a..4df3e8f 100644
+--- a/src/completers/pos-completer-verbisage.c
++++ b/src/completers/pos-completer-verbisage.c
+@@ -32,11 +32,21 @@ enum {
+ };
+ static GParamSpec *props[PROP_LAST_PROP];
+ 
++typedef enum {
++  SWIPE_NONE,
++  SWIPE_PENDING,
++  SWIPE_PREEDIT,
++} SwipeState;
++
++
+ struct _PosCompleterVerbisage {
+   PosCompleterBase parent;
+   GString *preedit;
+   GStrv completions;
+   GStrv ranked;
++  SwipeState swipe_state;
++  guint swipe_capitalization;
++  GVariant *swipe_parameters;
+   char *language;
+   GDBusConnection *connection;
+   GCancellable *cancellable;
+@@ -86,6 +96,9 @@ cancel_lookup (PosCompleterVerbisage *self)
+     g_cancellable_cancel (self->cancellable);
+   g_clear_object (&self->cancellable);
+   g_clear_pointer (&self->ranked, g_strfreev);
++  g_clear_pointer (&self->swipe_parameters, g_variant_unref);
++  self->swipe_state = SWIPE_NONE;
++  self->swipe_capitalization = 0;
+ }
+ 
+ 
+@@ -137,12 +150,12 @@ publish_completions (PosCompleterVerbisage *self)
+   g_auto (GStrv) ranked = NULL;
+   g_auto (GStrv) completions = NULL;
+ 
+-  /* Literal input stays first and is committed unchanged by Space or Enter.
+-   * The service ranks completion and correction together; preserve that order
+-   * instead of giving either source a quota that can hide a useful result. */
+-  if (self->preedit->len) {
+-    g_ptr_array_add (words, g_strdup (self->preedit->str));
+-    ranked = capitalize_ranked (self);
++  /* Typed text keeps its literal choice first. A completed swipe keeps the
++   * service ranking while its first candidate is shown as editable preedit. */
++  if (self->preedit->len || self->swipe_state == SWIPE_PENDING) {
++    if (self->swipe_state == SWIPE_NONE)
++      g_ptr_array_add (words, g_strdup (self->preedit->str));
++    ranked = self->swipe_state != SWIPE_NONE ? g_strdupv (self->ranked) : capitalize_ranked (self);
+     for (guint i = 0; ranked && ranked[i]; i++)
+       append_unique (words, ranked[i]);
+     g_ptr_array_add (words, NULL);
+@@ -176,6 +189,7 @@ on_lookup_finished (GObject *source, GAsyncResult *result, gpointer user_data)
+     /* Do not log the preedit or daemon error message (which may contain it). */
+     if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+       g_debug ("Dictionary lookup unavailable; retaining literal input");
++    pos_completer_verbisage_cancel_swipe (self);
+     return;
+   }
+ 
+@@ -192,6 +206,45 @@ on_lookup_finished (GObject *source, GAsyncResult *result, gpointer user_data)
+   g_ptr_array_add (words, NULL);
+   g_strfreev (self->ranked);
+   self->ranked = (GStrv) g_ptr_array_free (g_steal_pointer (&words), FALSE);
++  if (self->swipe_state == SWIPE_PENDING) {
++    g_clear_pointer (&self->swipe_parameters, g_variant_unref);
++    if (self->swipe_capitalization == 1) {
++      GStrv capitalized = pos_completer_capitalize_by_template ("A", self->ranked);
++
++      g_strfreev (self->ranked);
++      self->ranked = capitalized;
++    } else if (self->swipe_capitalization == 2) {
++      for (guint i = 0; self->ranked[i]; i++) {
++        char *upper = g_utf8_strup (self->ranked[i], -1);
++
++        g_free (self->ranked[i]);
++        self->ranked[i] = upper;
++      }
++    }
++    if (self->swipe_capitalization) {
++      g_autoptr (GPtrArray) unique = g_ptr_array_new_with_free_func (g_free);
++
++      /* Case conversion can merge distinct service spellings. Keep the stored
++       * list identical to the visible choices so its snapshot restores too. */
++      for (guint i = 0; self->ranked[i]; i++)
++        append_unique (unique, self->ranked[i]);
++      g_ptr_array_add (unique, NULL);
++      g_strfreev (self->ranked);
++      self->ranked = (GStrv) g_ptr_array_free (g_steal_pointer (&unique), FALSE);
++    }
++    if (self->ranked[0]) {
++      self->swipe_state = SWIPE_PREEDIT;
++      g_string_assign (self->preedit, self->ranked[0]);
++      /* Notify only after both values are consistent. Surface eligibility may
++       * be recalculated synchronously by either notification. */
++      g_object_freeze_notify (G_OBJECT (self));
++      publish_completions (self);
++      g_object_notify_by_pspec (G_OBJECT (self), props[PROP_PREEDIT]);
++      g_object_thaw_notify (G_OBJECT (self));
++      return;
++    }
++    self->swipe_state = SWIPE_NONE;
++  }
+   publish_completions (self);
+ }
+ 
+@@ -201,6 +254,14 @@ start_lookup (PosCompleterVerbisage *self)
+ {
+   g_autofree char *word = g_utf8_strdown (self->preedit->str, -1);
+ 
++  if (self->swipe_state == SWIPE_PENDING) {
++    g_dbus_connection_call (self->connection, BUS_NAME, OBJECT_PATH, INTERFACE, "RecognizeSwipe",
++                             self->swipe_parameters, G_VARIANT_TYPE ("(a(sd))"),
++                             G_DBUS_CALL_FLAGS_NONE, LOOKUP_TIMEOUT_MS, self->cancellable,
++                             on_lookup_finished, lookup_new (self));
++    return;
++  }
++
+   /* One ranked reply prevents the candidate bar changing order as separate
+    * prefix and spelling calls finish. Older daemons fail safely to literal. */
+   g_dbus_connection_call (self->connection, BUS_NAME, OBJECT_PATH, INTERFACE, "Complete",
+@@ -222,6 +283,7 @@ on_bus_ready (GObject *source, GAsyncResult *result, gpointer user_data)
+     return;
+   if (!connection) {
+     g_debug ("Session bus unavailable; retaining literal input");
++    pos_completer_verbisage_cancel_swipe (self);
+     return;
+   }
+ 
+@@ -285,7 +347,21 @@ static gboolean
+ pos_completer_verbisage_feed_symbol (PosCompleter *iface, const char *symbol)
+ {
+   PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (iface);
+-  g_autofree char *previous = g_strdup (self->preedit->str);
++  g_autofree char *previous = NULL;
++
++  if (self->swipe_state == SWIPE_PENDING) {
++    pos_completer_verbisage_cancel_swipe (self);
++    /* Backspace cancels a pending request without deleting application text. */
++    if (g_str_equal (symbol, "KEY_BACKSPACE"))
++      return TRUE;
++  } else if (self->swipe_state == SWIPE_PREEDIT && *symbol &&
++             !g_str_has_prefix (symbol, "KEY_") &&
++             !pos_completer_symbol_is_word_separator (symbol, NULL)) {
++    /* A tap starts the next word. Separators instead commit this guess with
++     * the normal punctuation/Enter behavior; Backspace edits the guess. */
++    pos_completer_verbisage_accept_swipe (self);
++  }
++  previous = g_strdup (self->preedit->str);
+ 
+   if (pos_completer_add_preedit (iface, self->preedit, symbol)) {
+     PosCompleterBase *base = POS_COMPLETER_BASE (self);
+@@ -313,7 +389,12 @@ pos_completer_verbisage_set_surrounding_text (PosCompleter *iface,
+                                              const char *before,
+                                              const char *after)
+ {
+-  pos_completer_base_set_surrounding_text (POS_COMPLETER_BASE (iface), before, after);
++  PosCompleterBase *base = POS_COMPLETER_BASE (iface);
++
++  if (g_strcmp0 (pos_completer_base_get_before_text (base), before) ||
++      g_strcmp0 (pos_completer_base_get_after_text (base), after))
++    pos_completer_verbisage_cancel_swipe (POS_COMPLETER_VERBISAGE (iface));
++  pos_completer_base_set_surrounding_text (base, before, after);
+ }
+ 
+ 
+@@ -455,3 +536,129 @@ pos_completer_verbisage_new (GError **error)
+   /* Connecting and activating the daemon is deferred until actual input. */
+   return g_object_new (POS_TYPE_COMPLETER_VERBISAGE, NULL);
+ }
++
++
++/* A pending request has no preedit. Its first result becomes an editable
++ * composition; accepting it is a separate operation before another gesture. */
++void
++pos_completer_verbisage_recognize_swipe (PosCompleterVerbisage *self,
++                                        GVariant *trace,
++                                        GVariant *keys,
++                                        guint capitalization)
++{
++  g_return_if_fail (POS_IS_COMPLETER_VERBISAGE (self));
++  g_return_if_fail (g_variant_is_of_type (trace, G_VARIANT_TYPE ("a(ddu)")));
++  g_return_if_fail (g_variant_is_of_type (keys, G_VARIANT_TYPE ("a(sdddd)")));
++
++  if (self->preedit->len || !self->language || capitalization > 2 ||
++      g_variant_n_children (trace) < 2 || g_variant_n_children (trace) > 512 ||
++      g_variant_n_children (keys) == 0 || g_variant_n_children (keys) > 64)
++    return;
++
++  cancel_lookup (self);
++  self->swipe_state = SWIPE_PENDING;
++  self->swipe_capitalization = capitalization;
++  self->swipe_parameters = g_variant_ref_sink (
++    g_variant_new ("(@a(ddu)@a(sdddd)us)", g_variant_ref (trace), g_variant_ref (keys),
++                     (guint) MAX_RESULTS, self->language));
++  publish_completions (self);
++  lookup_timeout (self);
++}
++
++
++void
++pos_completer_verbisage_cancel_swipe (PosCompleterVerbisage *self)
++{
++  g_return_if_fail (POS_IS_COMPLETER_VERBISAGE (self));
++
++  /* Widget cancellation concerns only a pending gesture. A completed guess
++   * is ordinary editable text and survives changes to gesture eligibility. */
++  if (self->swipe_state != SWIPE_PENDING)
++    return;
++  cancel_lookup (self);
++  publish_completions (self);
++}
++
++
++/* The surface uses this to allow another whole-word gesture at the same
++ * underlying text boundary while the current guess is still preedit. */
++gboolean
++pos_completer_verbisage_has_swipe_preedit (PosCompleterVerbisage *self)
++{
++  g_return_val_if_fail (POS_IS_COMPLETER_VERBISAGE (self), FALSE);
++
++  return self->swipe_state == SWIPE_PREEDIT;
++}
++
++
++gboolean
++pos_completer_verbisage_accept_swipe (PosCompleterVerbisage *self)
++{
++  g_autofree char *text = NULL;
++
++  g_return_val_if_fail (POS_IS_COMPLETER_VERBISAGE (self), FALSE);
++
++  if (!pos_completer_verbisage_has_swipe_preedit (self))
++    return FALSE;
++
++  text = g_strconcat (self->preedit->str, " ", NULL);
++  /* Clear the composition marker before emitting to prevent a second accept
++   * from a synchronous signal handler. Match the ordinary commit ordering. */
++  cancel_lookup (self);
++  g_signal_emit_by_name (self, "commit-string", text, 0, 0);
++  pos_completer_verbisage_set_preedit (POS_COMPLETER (self), NULL);
++  return TRUE;
++}
++
++
++/* Opaque, owned state for the surface's single completion-selection undo. */
++GVariant *
++pos_completer_verbisage_snapshot_swipe (PosCompleterVerbisage *self)
++{
++  g_return_val_if_fail (POS_IS_COMPLETER_VERBISAGE (self), NULL);
++
++  if (!pos_completer_verbisage_has_swipe_preedit (self))
++    return NULL;
++
++  return g_variant_ref_sink (g_variant_new ("(ss^as)", self->language,
++                                           self->preedit->str, self->ranked));
++}
++
++
++gboolean
++pos_completer_verbisage_restore_swipe (PosCompleterVerbisage *self, GVariant *snapshot)
++{
++  const char *language, *preedit;
++  g_auto (GStrv) ranked = NULL;
++  gboolean changed;
++
++  g_return_val_if_fail (POS_IS_COMPLETER_VERBISAGE (self), FALSE);
++
++  if (!snapshot || !g_variant_is_of_type (snapshot, G_VARIANT_TYPE ("(ssas)")))
++    return FALSE;
++  g_variant_get (snapshot, "(&s&s^as)", &language, &preedit, &ranked);
++  if (g_strcmp0 (language, self->language) || !*preedit || !ranked[0] ||
++      g_strcmp0 (preedit, ranked[0]) || g_strv_length (ranked) > MAX_RESULTS)
++    return FALSE;
++  for (guint i = 0; ranked[i]; i++) {
++    if (!*ranked[i] || g_utf8_strlen (ranked[i], -1) > MAX_WORD_CHARS)
++      return FALSE;
++    for (guint j = 0; j < i; j++) {
++      if (g_str_equal (ranked[i], ranked[j]))
++        return FALSE;
++    }
++  }
++
++  changed = self->swipe_state != SWIPE_PREEDIT ||
++            g_strcmp0 (self->preedit->str, preedit) != 0;
++  cancel_lookup (self);
++  self->swipe_state = SWIPE_PREEDIT;
++  self->ranked = g_steal_pointer (&ranked);
++  g_string_assign (self->preedit, preedit);
++  g_object_freeze_notify (G_OBJECT (self));
++  publish_completions (self);
++  if (changed)
++    g_object_notify_by_pspec (G_OBJECT (self), props[PROP_PREEDIT]);
++  g_object_thaw_notify (G_OBJECT (self));
++  return TRUE;
++}
+diff --git a/src/completers/pos-completer-verbisage.h b/src/completers/pos-completer-verbisage.h
+index 143f355..49e14bb 100644
+--- a/src/completers/pos-completer-verbisage.h
++++ b/src/completers/pos-completer-verbisage.h
+@@ -11,4 +11,20 @@ G_DECLARE_FINAL_TYPE (PosCompleterVerbisage, pos_completer_verbisage, POS, COMPL
+ 
+ PosCompleter *pos_completer_verbisage_new (GError **error);
+ 
++
++/* Capitalization is captured at gesture start: 0 lower, 1 initial, 2 upper. */
++void pos_completer_verbisage_recognize_swipe (PosCompleterVerbisage *self,
++                                             GVariant *trace,
++                                             GVariant *keys,
++                                             guint capitalization);
++void pos_completer_verbisage_cancel_swipe (PosCompleterVerbisage *self);
++
++gboolean      pos_completer_verbisage_has_swipe_preedit (PosCompleterVerbisage *self);
++gboolean      pos_completer_verbisage_accept_swipe (PosCompleterVerbisage *self);
++/* The snapshot is owned by the caller, is opaque, and is only available for
++ * completed swipe compositions. Restore performs no service request. */
++GVariant     *pos_completer_verbisage_snapshot_swipe (PosCompleterVerbisage *self);
++gboolean      pos_completer_verbisage_restore_swipe (PosCompleterVerbisage *self,
++                                                     GVariant *snapshot);
++
+ G_END_DECLS
+diff --git a/src/meson.build b/src/meson.build
+index 20214b4..d24b7ca 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -43,6 +43,8 @@ libpos_sources = files(
+   'pos-completer-manager.h',
+   'pos-completer.c',
+   'pos-completer.h',
++  'pos-completion-undo.c',
++  'pos-completion-undo.h',
+   'pos-completion-bar.c',
+   'pos-completion-bar.h',
+   'pos-completions-box.c',
+diff --git a/src/pos-completion-undo.c b/src/pos-completion-undo.c
+new file mode 100644
+index 0000000..8256098
+--- /dev/null
++++ b/src/pos-completion-undo.c
+@@ -0,0 +1,221 @@
++/*
++ * SPDX-License-Identifier: GPL-3.0-or-later
++ */
++
++#include "pos-completion-undo.h"
++
++#include <string.h>
++
++#define MAX_CONTEXT_BYTES (64 * 1024)
++#define MAX_WORD_BYTES 4000
++#define MAX_CANDIDATES 64
++
++struct _PosCompletionUndo {
++  char *original;
++  char *expected;
++  char *preedit;
++  GStrv candidates;
++  GVariant *swipe_state;
++  guint original_cursor;
++  guint expected_cursor;
++  guint inserted_bytes;
++  guint32 serial;
++  gboolean ready;
++  gboolean valid;
++};
++
++
++static gboolean
++valid_text (const char *text, gsize limit, gsize *length)
++{
++  gsize len;
++
++  if (!text)
++    return FALSE;
++  for (len = 0; len <= limit && text[len]; len++)
++    ;
++  if (len > limit || !g_utf8_validate (text, len, NULL))
++    return FALSE;
++  if (length)
++    *length = len;
++  return TRUE;
++}
++
++
++static gboolean
++valid_context (const char *text, guint cursor, guint anchor, gsize *length)
++{
++  gsize len;
++
++  if (cursor != anchor || !valid_text (text, MAX_CONTEXT_BYTES, &len) ||
++      cursor > len || !g_utf8_validate (text, cursor, NULL))
++    return FALSE;
++  if (length)
++    *length = len;
++  return TRUE;
++}
++
++
++static gboolean
++valid_candidates (GStrv candidates)
++{
++  gsize total = 0;
++
++  if (!candidates)
++    return TRUE;
++  for (guint i = 0; i <= MAX_CANDIDATES; i++) {
++    gsize length;
++
++    if (!candidates[i])
++      return TRUE;
++    if (i == MAX_CANDIDATES ||
++        !valid_text (candidates[i], MAX_WORD_BYTES, &length))
++      return FALSE;
++    total += length;
++    if (total > MAX_CONTEXT_BYTES)
++      return FALSE;
++  }
++  return FALSE;
++}
++
++
++PosCompletionUndo *
++pos_completion_undo_new (const char *surrounding,
++                         guint cursor,
++                         guint anchor,
++                         const char *inserted,
++                         const char *preedit,
++                         GStrv candidates,
++                         GVariant *swipe_state,
++                         guint serial)
++{
++  PosCompletionUndo *self;
++  gsize context_len, inserted_len, preedit_len;
++
++  if (!valid_context (surrounding, cursor, anchor, &context_len) ||
++      !valid_text (inserted, MAX_WORD_BYTES, &inserted_len) || !inserted_len ||
++      !valid_text (preedit, MAX_WORD_BYTES, &preedit_len) || !preedit_len ||
++      context_len + inserted_len > MAX_CONTEXT_BYTES ||
++      !valid_candidates (candidates) ||
++      (swipe_state && g_variant_get_size (swipe_state) > MAX_CONTEXT_BYTES))
++    return NULL;
++
++  self = g_new0 (PosCompletionUndo, 1);
++  self->original = g_strdup (surrounding);
++  self->expected = g_malloc (context_len + inserted_len + 1);
++  memcpy (self->expected, surrounding, cursor);
++  memcpy (self->expected + cursor, inserted, inserted_len);
++  memcpy (self->expected + cursor + inserted_len, surrounding + cursor,
++          context_len - cursor + 1);
++  self->preedit = g_strdup (preedit);
++  self->candidates = g_strdupv (candidates);
++  if (swipe_state)
++    self->swipe_state = g_variant_take_ref (g_variant_ref (swipe_state));
++  self->original_cursor = cursor;
++  self->expected_cursor = cursor + inserted_len;
++  self->inserted_bytes = inserted_len;
++  self->serial = serial;
++  self->valid = TRUE;
++
++  return self;
++}
++
++
++void
++pos_completion_undo_free (PosCompletionUndo *self)
++{
++  if (!self)
++    return;
++  g_free (self->original);
++  g_free (self->expected);
++  g_free (self->preedit);
++  g_strfreev (self->candidates);
++  g_clear_pointer (&self->swipe_state, g_variant_unref);
++  g_free (self);
++}
++
++
++gboolean
++pos_completion_undo_observe (PosCompletionUndo *self,
++                             const char *text,
++                             guint cursor,
++                             guint anchor,
++                             guint serial,
++                             gboolean im_change)
++{
++  guint32 advance;
++
++  if (!self || !self->valid)
++    return FALSE;
++
++  /* Wayland serials wrap at 32 bits; an older serial must never acknowledge a
++   * selection. Half the serial space is far beyond this one-action lifetime. */
++  advance = (guint32) serial - self->serial;
++  if (!im_change || advance > G_MAXINT32 ||
++      !valid_context (text, cursor, anchor, NULL))
++    goto invalid;
++
++  if (!self->ready) {
++    /* A preedit-only acknowledgement already in flight can precede the
++     * insertion acknowledgement. Keep waiting at the exact original context;
++     * this never enables undo and cannot move confirmed state back to pending. */
++    if (cursor == self->original_cursor && strcmp (text, self->original) == 0) {
++      self->serial = serial;
++      return TRUE;
++    }
++    if (advance == 0)
++      goto invalid;
++  }
++
++  if (cursor != self->expected_cursor || strcmp (text, self->expected))
++    goto invalid;
++
++  self->serial = serial;
++  self->ready = TRUE;
++  return TRUE;
++
++invalid:
++  self->valid = FALSE;
++  self->ready = FALSE;
++  return FALSE;
++}
++
++
++gboolean
++pos_completion_undo_matches (PosCompletionUndo *self,
++                             const char *text,
++                             guint cursor,
++                             guint anchor)
++{
++  return self && self->valid && self->ready &&
++         valid_context (text, cursor, anchor, NULL) &&
++         cursor == self->expected_cursor && strcmp (text, self->expected) == 0;
++}
++
++
++const char *
++pos_completion_undo_get_preedit (PosCompletionUndo *self)
++{
++  return self ? self->preedit : NULL;
++}
++
++
++GStrv
++pos_completion_undo_get_candidates (PosCompletionUndo *self)
++{
++  return self ? self->candidates : NULL;
++}
++
++
++GVariant *
++pos_completion_undo_get_swipe_state (PosCompletionUndo *self)
++{
++  return self ? self->swipe_state : NULL;
++}
++
++
++guint
++pos_completion_undo_get_inserted_bytes (PosCompletionUndo *self)
++{
++  return self ? self->inserted_bytes : 0;
++}
+diff --git a/src/pos-completion-undo.h b/src/pos-completion-undo.h
+new file mode 100644
+index 0000000..c19a800
+--- /dev/null
++++ b/src/pos-completion-undo.h
+@@ -0,0 +1,46 @@
++/*
++ * SPDX-License-Identifier: GPL-3.0-or-later
++ */
++
++#pragma once
++
++#include <glib.h>
++
++G_BEGIN_DECLS
++
++typedef struct _PosCompletionUndo PosCompletionUndo;
++
++PosCompletionUndo *pos_completion_undo_new (const char *surrounding,
++                                             guint cursor,
++                                             guint anchor,
++                                             const char *inserted,
++                                             const char *preedit,
++                                             GStrv candidates,
++                                             GVariant *swipe_state,
++                                             guint serial);
++void pos_completion_undo_free (PosCompletionUndo *self);
++
++/* FALSE permanently invalidates the snapshot. Before acknowledgement, the
++ * exact original context is retained without becoming ready, including older
++ * preedit-only acknowledgements that arrive with a newer serial.
++ * The caller must also discard the snapshot on focus or local input changes. */
++gboolean pos_completion_undo_observe (PosCompletionUndo *self,
++                                      const char *text,
++                                      guint cursor,
++                                      guint anchor,
++                                      guint serial,
++                                      gboolean im_change);
++gboolean pos_completion_undo_matches (PosCompletionUndo *self,
++                                      const char *text,
++                                      guint cursor,
++                                      guint anchor);
++
++/* All returned strings, arrays and variants are borrowed, immutable snapshots. */
++const char *pos_completion_undo_get_preedit (PosCompletionUndo *self);
++GStrv pos_completion_undo_get_candidates (PosCompletionUndo *self);
++GVariant *pos_completion_undo_get_swipe_state (PosCompletionUndo *self);
++guint pos_completion_undo_get_inserted_bytes (PosCompletionUndo *self);
++
++G_DEFINE_AUTOPTR_CLEANUP_FUNC (PosCompletionUndo, pos_completion_undo_free)
++
++G_END_DECLS
+diff --git a/src/pos-input-surface.c b/src/pos-input-surface.c
+index 8c6d673..900f495 100644
+--- a/src/pos-input-surface.c
++++ b/src/pos-input-surface.c
+@@ -20,6 +20,7 @@
+ #include "pos-completer-manager.h"
+ #include "completers/pos-completer-verbisage.h"
+ #include "pos-completion-bar.h"
++#include "pos-completion-undo.h"
+ #include "pos-input-surface.h"
+ #include "pos-keypad.h"
+ #include "pos-logind-session.h"
+@@ -161,6 +162,13 @@ struct _PosInputSurface {
+ 
+   /* Swipe gesture */
+   GtkGesture                 *swipe_down;
++  gboolean                    swipe_typing;
++  PosCompletionUndo          *swipe_accept;
++  GVariant                   *next_swipe_trace;
++  GVariant                   *next_swipe_keys;
++  guint                       next_swipe_capitalization;
++  guint                       next_swipe_timeout;
++  PosCompletionUndo          *completion_undo;
+ 
+   /* emission hook for clicks */
+   gulong                      clicked_id;
+@@ -176,6 +184,7 @@ struct _PosInputSurface {
+ 
+ static void pos_input_surface_submit_symbol (PosInputSurface *self, const char *symbol);
+ static void select_layout_by_im_purpose (PosInputSurface *self);
++static void update_swipe_enabled (PosInputSurface *self);
+ 
+ static void pos_input_surface_action_group_iface_init (GActionGroupInterface *iface);
+ static void pos_input_surface_action_map_iface_init (GActionMapInterface *iface);
+@@ -187,6 +196,31 @@ G_DEFINE_TYPE_WITH_CODE (PosInputSurface, pos_input_surface, PHOSH_TYPE_LAYER_SU
+                                                 pos_input_surface_action_map_iface_init)
+   )
+ 
++static void
++clear_completion_undo (PosInputSurface *self)
++{
++  g_clear_pointer (&self->completion_undo, pos_completion_undo_free);
++}
++
++
++static void
++clear_next_swipe (PosInputSurface *self)
++{
++  g_clear_handle_id (&self->next_swipe_timeout, g_source_remove);
++  g_clear_pointer (&self->swipe_accept, pos_completion_undo_free);
++  g_clear_pointer (&self->next_swipe_trace, g_variant_unref);
++  g_clear_pointer (&self->next_swipe_keys, g_variant_unref);
++}
++
++
++static void
++clear_edit_history (PosInputSurface *self)
++{
++  clear_completion_undo (self);
++  clear_next_swipe (self);
++}
++
++
+ /**
+  * pos_input_surface_reset_layout:
+  * @self: The input surface
+@@ -331,9 +365,14 @@ static void
+ on_swipe (GtkGestureSwipe *swipe, double velocity_x, double velocity_y, gpointer data)
+ {
+   PosInputSurface *self = POS_INPUT_SURFACE (data);
++  GtkWidget *child = hdy_deck_get_visible_child (self->deck);
+ 
+   g_return_if_fail (GTK_IS_GESTURE_SWIPE (swipe));
+ 
++  if (POS_IS_OSK_WIDGET (child) &&
++      pos_osk_widget_swipe_in_progress (POS_OSK_WIDGET (child)))
++    return;
++
+   g_debug ("swipe with v_x: %f, v_y: %f", velocity_x, velocity_y);
+ 
+   if (velocity_y > MIN_Y_VELOCITY && velocity_y > 2.0 * ABS (velocity_x)) {
+@@ -358,6 +397,7 @@ on_shortcut_activated (PosInputSurface *self, PosShortcut *shortcut, PosShortcut
+   g_return_if_fail (POS_IS_INPUT_SURFACE (self));
+   g_return_if_fail (POS_IS_SHORTCUTS_BAR (bar));
+ 
++  clear_edit_history (self);
+   pos_vk_driver_key_press_gdk (self->keyboard_driver,
+                                pos_shortcut_get_key (shortcut),
+                                pos_shortcut_get_modifiers (shortcut) | self->latched_modifiers);
+@@ -371,6 +411,7 @@ on_latched_modifiers_changed (PosInputSurface *self, GParamSpec *pspec, PosShort
+   g_return_if_fail (POS_IS_INPUT_SURFACE (self));
+   g_return_if_fail (POS_IS_SHORTCUTS_BAR (bar));
+ 
++  clear_edit_history (self);
+   self->latched_modifiers = pos_shortcuts_bar_get_latched_modifiers (bar);
+ 
+   g_debug ("Modifiers: 0x%x", self->latched_modifiers);
+@@ -432,15 +473,164 @@ pos_input_surface_is_completion_mode (PosInputSurface *self)
+ }
+ 
+ 
++static gboolean
++swipe_at_word_boundary (const char *text, guint anchor, guint cursor)
++{
++  const char *previous;
++
++  if (anchor != cursor)
++    return FALSE;
++  if (!text)
++    return cursor == 0;
++  if (!g_utf8_validate (text, -1, NULL) || cursor > strlen (text) ||
++      !g_utf8_validate (text, cursor, NULL))
++    return FALSE;
++  previous = g_utf8_find_prev_char (text, text + cursor);
++  return (!previous || g_unichar_isspace (g_utf8_get_char (previous))) &&
++         (!text[cursor] || g_unichar_isspace (g_utf8_get_char (text + cursor)));
++}
++
++
++static gboolean
++swipe_purpose_supported (PosInputMethodPurpose purpose, guint hints)
++{
++  /* input-method-v2 carries text-input-v3 wire flags. The existing
++   * PosInputMethodHint enum is sequential, so use the protocol masks here. */
++  const guint private_hints = 0x40 | 0x80; /* hidden_text | sensitive_data */
++
++  return purpose == POS_INPUT_METHOD_PURPOSE_NORMAL && !(hints & private_hints);
++}
++
++
++static gboolean
++swipe_layout_supported (PosOskWidget *osk)
++{
++  return g_strcmp0 (pos_osk_widget_get_lang (osk), "en") == 0 &&
++         g_strcmp0 (pos_osk_widget_get_region (osk), "us") == 0 &&
++         (pos_osk_widget_get_layer (osk) == POS_OSK_WIDGET_LAYER_NORMAL ||
++          pos_osk_widget_get_layer (osk) == POS_OSK_WIDGET_LAYER_CAPS);
++}
++
++
++/* The first prototype only inserts an entire new word. In particular it must
++ * not replace a selection or append a decoded word inside surrounding text. */
++static gboolean
++swipe_eligible (PosInputSurface *self, GtkWidget *widget)
++{
++  const char *text, *preedit;
++  guint anchor, cursor;
++
++  if (!self->swipe_typing || !self->surface_visible || !self->input_method ||
++      !POS_IS_COMPLETER_VERBISAGE (self->completer) ||
++      !POS_INPUT_SURFACE_IS_LANG_LAYOUT (widget) ||
++      widget != hdy_deck_get_visible_child (self->deck) ||
++      !pos_input_surface_is_completion_mode (self) ||
++      !swipe_purpose_supported (pos_input_method_get_purpose (self->input_method),
++                                pos_input_method_get_hint (self->input_method)) ||
++      !swipe_layout_supported (POS_OSK_WIDGET (widget)))
++    return FALSE;
++
++  preedit = pos_completer_get_preedit (self->completer);
++  if (!gm_str_is_null_or_empty (preedit) &&
++      !pos_completer_verbisage_has_swipe_preedit (POS_COMPLETER_VERBISAGE (self->completer)))
++    return FALSE;
++
++  text = pos_input_method_get_surrounding_text (self->input_method, &anchor, &cursor);
++  return swipe_at_word_boundary (text, anchor, cursor);
++}
++
++
++static void
++update_swipe_enabled (PosInputSurface *self)
++{
++  if (!self->osks)
++    return;
++  for (guint i = 0; i < self->osks->len; i++) {
++    GtkWidget *osk = g_ptr_array_index (self->osks, i);
++    pos_osk_widget_set_swipe_enabled (POS_OSK_WIDGET (osk), swipe_eligible (self, osk));
++  }
++}
++
++
++static void
++on_osk_swipe_cancelled (PosInputSurface *self)
++{
++  clear_next_swipe (self);
++  if (POS_IS_COMPLETER_VERBISAGE (self->completer))
++    pos_completer_verbisage_cancel_swipe (POS_COMPLETER_VERBISAGE (self->completer));
++}
++
++
++/* The preceding swipe word is still editable. Commit it only when another
++ * gesture finishes, then wait for the application's exact acknowledgement
++ * before recognizing the new word against that insertion point. */
++static gboolean
++next_swipe_timeout (gpointer data)
++{
++  PosInputSurface *self = data;
++
++  self->next_swipe_timeout = 0;
++  clear_next_swipe (self);
++  return G_SOURCE_REMOVE;
++}
++
++
++static void
++on_osk_swipe (PosInputSurface *self, GVariant *trace, GVariant *keys, GtkWidget *osk)
++{
++  PosCompleterVerbisage *completer;
++  guint capitalization;
++
++  clear_edit_history (self);
++  if (!swipe_eligible (self, osk))
++    return;
++
++  completer = POS_COMPLETER_VERBISAGE (self->completer);
++  capitalization = pos_osk_widget_get_swipe_capitalization (POS_OSK_WIDGET (osk));
++  if (pos_completer_verbisage_has_swipe_preedit (completer)) {
++    const char *text, *preedit = pos_completer_get_preedit (self->completer);
++    g_autofree char *send = g_strdup_printf ("%s ", preedit);
++    guint anchor, cursor;
++
++    text = pos_input_method_get_surrounding_text (self->input_method, &anchor, &cursor);
++    self->swipe_accept = pos_completion_undo_new (text, cursor, anchor, send, preedit,
++                                                 NULL, NULL,
++                                                 pos_input_method_get_serial (self->input_method));
++    if (!self->swipe_accept)
++      return;
++    self->next_swipe_trace = g_variant_ref (trace);
++    self->next_swipe_keys = g_variant_ref (keys);
++    self->next_swipe_capitalization = capitalization;
++    self->next_swipe_timeout = g_timeout_add (1000, next_swipe_timeout, self);
++    if (!pos_completer_verbisage_accept_swipe (completer))
++      clear_next_swipe (self);
++    return;
++  }
++
++  pos_completer_verbisage_recognize_swipe (completer, trace, keys, capitalization);
++}
++
++
++static void
++on_swipe_typing_changed (PosInputSurface *self)
++{
++  clear_edit_history (self);
++  self->swipe_typing = g_settings_get_boolean (self->osk_settings, "swipe-typing");
++  update_swipe_enabled (self);
++}
++
++
+ static void
+ on_completion_selected (PosInputSurface *self, const char *completion)
+ {
+   g_autofree char *send = NULL;
+   const char *lookup;
++  g_autoptr (PosCompletionUndo) undo = NULL;
+ 
+   g_return_if_fail (POS_IS_INPUT_SURFACE (self));
+   g_return_if_fail (completion != NULL);
+ 
++  clear_edit_history (self);
+   lookup = pos_completer_lookup_completion (self->completer, completion);
+   g_debug ("completion: %s -> lookup: %s", completion, lookup);
+ 
+@@ -449,9 +639,29 @@ on_completion_selected (PosInputSurface *self, const char *completion)
+   else
+     send = g_strdup_printf ("%s ", completion);
+ 
+-  /* Some completers like uim need more control than just submitting the selection */
+-  if (pos_completer_set_selected (self->completer, completion) == FALSE)
++  if (pos_input_surface_is_completion_mode (self) &&
++      swipe_purpose_supported (pos_input_method_get_purpose (self->input_method),
++                                pos_input_method_get_hint (self->input_method))) {
++    const char *text;
++    guint anchor, cursor;
++    g_auto (GStrv) candidates = pos_completer_get_completions (self->completer);
++    g_autoptr (GVariant) swipe = NULL;
++
++    text = pos_input_method_get_surrounding_text (self->input_method, &anchor, &cursor);
++    if (POS_IS_COMPLETER_VERBISAGE (self->completer))
++      swipe = pos_completer_verbisage_snapshot_swipe (POS_COMPLETER_VERBISAGE (self->completer));
++    undo = pos_completion_undo_new (text, cursor, anchor, send,
++                                    pos_completer_get_preedit (self->completer),
++                                    candidates, swipe,
++                                    pos_input_method_get_serial (self->input_method));
++  }
++
++  /* UIM and other engines that process selection themselves own their edits. */
++  if (pos_completer_set_selected (self->completer, completion) == FALSE) {
++    self->completion_undo = g_steal_pointer (&undo);
++    pos_input_method_send_preedit (self->input_method, "", 0, 0, FALSE);
+     pos_input_method_send_string (self->input_method, send, TRUE);
++  }
+ 
+   if (pos_input_surface_is_completer_active (self)) {
+     pos_completer_learn_accepted (self->completer, send);
+@@ -465,6 +675,7 @@ on_mode_pressed (PosInputSurface *self)
+ {
+   g_return_if_fail (POS_IS_INPUT_SURFACE (self));
+ 
++  clear_edit_history (self);
+   pos_completer_toggle_mode (self->completer);
+ }
+ 
+@@ -475,6 +686,11 @@ on_completer_preedit_changed (PosInputSurface *self)
+   const char *preedit = NULL;
+   int pos;
+ 
++  preedit = pos_completer_get_preedit (self->completer);
++  if (!gm_str_is_null_or_empty (preedit))
++    clear_completion_undo (self);
++  update_swipe_enabled (self);
++
+   /* Only update preedit when in cursor mode as this updates preedit too */
+   if (pos_input_surface_is_completion_mode (self) == FALSE)
+     return;
+@@ -496,12 +712,56 @@ on_completer_completions_changed (PosInputSurface *self)
+ }
+ 
+ 
++static gboolean
++undo_completion (PosInputSurface *self)
++{
++  g_autoptr (PosCompletionUndo) undo = NULL;
++  GVariant *swipe;
++  const char *text, *preedit;
++  guint anchor, cursor, position;
++  gboolean restored = TRUE;
++
++  if (!self->completion_undo || !pos_input_surface_is_completion_mode (self))
++    return FALSE;
++  text = pos_input_method_get_surrounding_text (self->input_method, &anchor, &cursor);
++  if (!pos_completion_undo_matches (self->completion_undo, text, cursor, anchor))
++    return FALSE;
++
++  undo = g_steal_pointer (&self->completion_undo);
++  preedit = pos_completion_undo_get_preedit (undo);
++  swipe = pos_completion_undo_get_swipe_state (undo);
++  position = strlen (preedit);
++
++  /* Change the completer first with its preedit callback blocked, then submit
++   * deletion and restored preedit together in exactly one Wayland commit. */
++  g_signal_handlers_block_by_func (self->completer, on_completer_preedit_changed, self);
++  if (swipe) {
++    restored = POS_IS_COMPLETER_VERBISAGE (self->completer) &&
++      pos_completer_verbisage_restore_swipe (POS_COMPLETER_VERBISAGE (self->completer), swipe);
++  } else {
++    pos_completer_set_preedit (self->completer, preedit);
++  }
++  g_signal_handlers_unblock_by_func (self->completer, on_completer_preedit_changed, self);
++  if (!restored)
++    return FALSE;
++
++  pos_input_method_delete_surrounding_text (self->input_method,
++                                            pos_completion_undo_get_inserted_bytes (undo), 0, FALSE);
++  pos_input_method_send_preedit (self->input_method, preedit, position, position, TRUE);
++  pos_completion_bar_set_completions (POS_COMPLETION_BAR (self->completion_bar),
++                                      pos_completion_undo_get_candidates (undo));
++  update_swipe_enabled (self);
++  return TRUE;
++}
++
++
+ static void
+ on_completer_commit_string (PosInputSurface *self,
+                             const char      *text,
+                             int              before,
+                             int              after)
+ {
++  clear_completion_undo (self);
+   g_debug ("%s: %s, (%d,%d)", __func__, text, before, after);
+   if (before || after)
+     pos_input_method_delete_surrounding_text (self->input_method, before, after, FALSE);
+@@ -514,6 +774,7 @@ on_completer_update (PosInputSurface *self, const char *preedit, guint before, g
+ {
+   guint pos = strlen (preedit);
+ 
++  clear_edit_history (self);
+   /* In cursor mode we reset preedit, make sure to break the cycle */
+   if (pos_input_surface_is_completion_mode (self) == FALSE)
+     return;
+@@ -528,6 +789,7 @@ pos_input_surface_submit_current_preedit (PosInputSurface *self)
+ {
+   g_autofree char *preedit = NULL;
+ 
++  clear_edit_history (self);
+   if (pos_input_surface_is_completer_active (self) == FALSE)
+     return;
+ 
+@@ -548,6 +810,9 @@ on_osk_key_down (PosInputSurface *self, const char *symbol, GtkWidget *osk_widge
+   g_return_if_fail (POS_IS_INPUT_SURFACE (self));
+   g_return_if_fail (POS_IS_OSK_WIDGET (osk_widget));
+ 
++  if (g_strcmp0 (symbol, "KEY_BACKSPACE") != 0)
++    clear_completion_undo (self);
++  clear_next_swipe (self);
+   pos_input_surface_trigger_feedback (self, KEY_PRESS_EVENT);
+ 
+   pos_input_surface_set_backspace_pressed (self, symbol);
+@@ -589,6 +854,10 @@ pos_input_surface_submit_symbol (PosInputSurface *self, const char *symbol)
+   g_debug ("Key: '%s' symbol", symbol);
+ 
+   is_bs = pos_input_surface_set_backspace_pressed (self, symbol);
++  clear_next_swipe (self);
++  if (is_bs && !self->latched_modifiers && undo_completion (self))
++    return;
++  clear_completion_undo (self);
+ 
+   /* Latched modifiers, send as virtual-keyboard */
+   if (self->latched_modifiers) {
+@@ -633,6 +902,7 @@ set_keymap (PosInputSurface *self)
+   GtkWidget *child;
+   PosOskWidget *osk;
+ 
++  clear_edit_history (self);
+   /* If the object isn't fully constructed */
+   if (self->keyboard_driver == NULL)
+     return;
+@@ -671,6 +941,9 @@ on_osk_mode_changed (PosInputSurface *self, GParamSpec *pspec, GtkWidget *osk_wi
+   g_return_if_fail (POS_IS_INPUT_SURFACE (self));
+   g_return_if_fail (POS_IS_OSK_WIDGET (osk_widget));
+ 
++  clear_edit_history (self);
++  update_swipe_enabled (self);
++
+   /* We only want to clear preedit when entering cursor mode */
+   if (pos_input_surface_is_completion_mode (self) == TRUE)
+     return;
+@@ -1033,6 +1306,7 @@ on_visible_child_changed (PosInputSurface *self)
+   child = hdy_deck_get_visible_child (self->deck);
+ 
+   pos_input_surface_toggle_shortcuts_bar (self);
++  update_swipe_enabled (self);
+ 
+   if (!POS_IS_OSK_WIDGET (child))
+     return;
+@@ -1144,6 +1418,7 @@ pos_input_surface_set_completer (PosInputSurface *self, PosCompleter *completer)
+   if (self->completer == completer)
+     return;
+ 
++  clear_edit_history (self);
+   g_clear_object (&self->mode_symbol_binding);
+   g_clear_object (&self->mode_menu_binding);
+   g_clear_object (&self->mode_actions_binding);
+@@ -1254,6 +1529,7 @@ pos_input_surface_set_completion_enabled (PosInputSurface *self, gboolean enable
+   if (self->completion_enabled == enable)
+     return;
+ 
++  clear_edit_history (self);
+   /* popdown popover right away */
+   gtk_widget_set_visible (GTK_WIDGET  (self->menu_popup), FALSE);
+ 
+@@ -1490,7 +1766,9 @@ on_im_purpose_changed (PosInputSurface *self, GParamSpec *pspec, PosInputMethod
+   g_assert (POS_IS_INPUT_METHOD (im));
+   g_assert (self->input_method == im);
+ 
++  clear_edit_history (self);
+   select_layout_by_im_purpose (self);
++  update_swipe_enabled (self);
+ }
+ 
+ 
+@@ -1516,6 +1794,8 @@ on_im_hint_changed (PosInputSurface *self, GParamSpec *pspec, PosInputMethod *im
+   g_assert (POS_IS_INPUT_SURFACE (self));
+   g_assert (POS_IS_INPUT_METHOD (im));
+ 
++  clear_edit_history (self);
++  update_swipe_enabled (self);
+   g_debug ("Hint changed: 0x%.2x", pos_input_method_get_hint (im));
+   if ((self->completion_mode & PHOSH_OSK_COMPLETION_MODE_HINT) == 0)
+     return;
+@@ -1532,11 +1812,24 @@ on_im_surrounding_text_changed (PosInputSurface *self, GParamSpec *pspec, PosInp
+   const char *text;
+   guint anchor, cursor;
+   g_autofree char *after = NULL;
++  gboolean accepted_previous;
+ 
+   g_assert (POS_IS_INPUT_SURFACE (self));
+   g_assert (POS_IS_INPUT_METHOD (im));
+ 
+   text = pos_input_method_get_surrounding_text (im, &anchor, &cursor);
++  accepted_previous = self->swipe_accept &&
++    pos_completion_undo_matches (self->swipe_accept, text, cursor, anchor);
++
++  /* PosInputMethod only notifies when text, cursor or anchor actually changes.
++   * Moving between two otherwise eligible insertion points still invalidates
++   * both the gesture in progress and any pending recognition result. */
++  if (!accepted_previous) {
++    for (guint i = 0; i < self->osks->len; i++)
++      pos_osk_widget_cancel_swipe (g_ptr_array_index (self->osks, i));
++    on_osk_swipe_cancelled (self);
++  }
++  update_swipe_enabled (self);
+ 
+   if (!pos_input_surface_is_completion_mode (self))
+     return;
+@@ -1550,6 +1843,53 @@ on_im_surrounding_text_changed (PosInputSurface *self, GParamSpec *pspec, PosInp
+   pos_completer_set_surrounding_text (POS_COMPLETER (self->completer),
+                                       self->surround_before,
+                                       after);
++  if (accepted_previous) {
++    g_autoptr (GVariant) trace = g_steal_pointer (&self->next_swipe_trace);
++    g_autoptr (GVariant) keys = g_steal_pointer (&self->next_swipe_keys);
++    guint capitalization = self->next_swipe_capitalization;
++    GtkWidget *osk = hdy_deck_get_visible_child (self->deck);
++
++    clear_next_swipe (self);
++    if (trace && keys && swipe_eligible (self, osk))
++      pos_completer_verbisage_recognize_swipe (POS_COMPLETER_VERBISAGE (self->completer),
++                                             trace, keys, capitalization);
++  }
++}
++
++
++static void
++on_im_done (PosInputSurface *self)
++{
++  const char *text;
++  guint anchor, cursor, serial;
++  gboolean im_change;
++
++  text = pos_input_method_get_surrounding_text (self->input_method, &anchor, &cursor);
++  serial = pos_input_method_get_serial (self->input_method);
++  im_change = pos_input_method_get_active (self->input_method) &&
++    pos_input_method_get_text_change_cause (self->input_method) == POS_INPUT_METHOD_TEXT_CHANGE_CAUSE_IM;
++  if (self->completion_undo &&
++      !pos_completion_undo_observe (self->completion_undo, text, cursor, anchor, serial, im_change))
++    clear_completion_undo (self);
++  if (self->swipe_accept &&
++      !pos_completion_undo_observe (self->swipe_accept, text, cursor, anchor, serial, im_change))
++    clear_next_swipe (self);
++}
++
++
++static void
++on_im_pending_changed (PosInputSurface *self, PosImState *state)
++{
++  /* A deactivate/reactivate pair can be batched into one done event without
++   * changing notify::active. Never carry composition or undo across it. */
++  if (!state->active) {
++    clear_edit_history (self);
++    if (POS_IS_COMPLETER_VERBISAGE (self->completer)) {
++      g_signal_handlers_block_by_func (self->completer, on_completer_preedit_changed, self);
++      pos_completer_set_preedit (self->completer, NULL);
++      g_signal_handlers_unblock_by_func (self->completer, on_completer_preedit_changed, self);
++    }
++  }
+ }
+ 
+ 
+@@ -1561,6 +1901,7 @@ on_im_active_changed (PosInputSurface *self, GParamSpec *pspec, PosInputMethod *
+   g_assert (POS_IS_INPUT_SURFACE (self));
+   g_assert (POS_IS_INPUT_METHOD (im));
+ 
++  clear_edit_history (self);
+   active = pos_input_method_get_active (im);
+   g_debug ("IM active: %d", active);
+ 
+@@ -1614,6 +1955,8 @@ pos_input_surface_constructed (GObject *object)
+ 
+   g_assert (POS_IS_INPUT_METHOD (self->input_method));
+   g_object_connect (self->input_method,
++                    "swapped-object-signal::done", on_im_done, self,
++                    "swapped-object-signal::pending-changed", on_im_pending_changed, self,
+                     "swapped-object-signal::notify::active", on_im_active_changed, self,
+                     "swapped-object-signal::notify::purpose", on_im_purpose_changed, self,
+                     "swapped-object-signal::notify::hint", on_im_hint_changed, self,
+@@ -1639,6 +1982,7 @@ pos_input_surface_destroy (GtkWidget *widget)
+ {
+   PosInputSurface *self = POS_INPUT_SURFACE (widget);
+ 
++  clear_edit_history (self);
+   g_clear_object (&self->action_map);
+   /* Clear array early since this also destroys the osks in the deck */
+   g_clear_pointer (&self->osks, g_ptr_array_unref);
+@@ -2055,6 +2399,9 @@ insert_osk (PosInputSurface   *self,
+   g_debug ("Adding osk for layout '%s'", name);
+   gtk_widget_set_visible (GTK_WIDGET (osk_widget), TRUE);
+   g_object_connect (osk_widget,
++                    "swapped-signal::swipe", G_CALLBACK (on_osk_swipe), self,
++                    "swapped-signal::swipe-cancelled", G_CALLBACK (on_osk_swipe_cancelled), self,
++                    "swapped-signal::notify::layer", G_CALLBACK (update_swipe_enabled), self,
+                     "swapped-signal::key-cancelled", G_CALLBACK (on_osk_key_cancelled), self,
+                     "swapped-signal::key-down", G_CALLBACK (on_osk_key_down), self,
+                     "swapped-signal::key-symbol", G_CALLBACK (on_osk_key_symbol), self,
+@@ -2324,6 +2671,13 @@ pos_input_surface_init (PosInputSurface *self)
+                             G_CALLBACK (on_completion_mode_changed),
+                             self);
+   on_completion_mode_changed (self, NULL, self->osk_settings);
++  g_signal_connect_swapped (self->osk_settings, "changed::swipe-typing",
++                            G_CALLBACK (on_swipe_typing_changed), self);
++  g_signal_connect_swapped (self, "notify::completer-active",
++                            G_CALLBACK (update_swipe_enabled), self);
++  g_signal_connect_swapped (self, "notify::surface-visible",
++                            G_CALLBACK (update_swipe_enabled), self);
++  on_swipe_typing_changed (self);
+   g_settings_bind (self->osk_settings, "osk-features", self, "osk-features", G_SETTINGS_BIND_GET);
+ 
+   if (!pos_osk_widget_set_layout (POS_OSK_WIDGET (self->osk_terminal),
+@@ -2401,6 +2755,7 @@ pos_input_surface_set_visible (PosInputSurface *self, gboolean visible)
+   if (visible == self->surface_visible)
+     return;
+ 
++  clear_edit_history (self);
+   self->surface_visible = visible;
+   g_object_notify_by_pspec (G_OBJECT (self), props[PROP_SURFACE_VISIBLE]);
+ 
+diff --git a/src/pos-osk-widget.c b/src/pos-osk-widget.c
+index 7cd3aa9..3a63bde 100644
+--- a/src/pos-osk-widget.c
++++ b/src/pos-osk-widget.c
+@@ -36,6 +36,9 @@
+ #define MINIMUM_WIDTH 360
+ 
+ #define EVENT_HISTORY_THRESHOLD_MS 150
++#define SWIPE_MAX_POINTS 512
++#define SWIPE_MAX_DURATION_MS 10000
++#define SWIPE_TRAIL_DURATION_US (1500 * G_TIME_SPAN_MILLISECOND)
+ 
+ enum {
+   OSK_KEY_DOWN,
+@@ -44,6 +47,8 @@ enum {
+   OSK_KEY_SYMBOL,
+   OSK_POPOVER_SHOWN,
+   OSK_POPOVER_HIDDEN,
++  OSK_SWIPE,
++  OSK_SWIPE_CANCELLED,
+   N_SIGNALS
+ };
+ static guint signals[N_SIGNALS];
+@@ -119,6 +124,13 @@ typedef struct {
+   double                    width;
+ } PosOskWidgetLayout;
+ 
++typedef struct {
++  double x, y;
++  guint32 millis;
++  gint64 drawn_at;
++} SwipePoint;
++
++
+ /**
+  * PosOskWidget:
+  * @name: The name of the layout, e.g. `de`, `us`, `de+ch`
+@@ -164,6 +176,18 @@ struct _PosOskWidget {
+   GArray              *event_history;
+   cursor_drag_t        drag_type;
+ 
++  /* Single-contact whole-word gesture. Points and key boxes use widget units. */
++  gboolean swipe_enabled;
++  gboolean swipe_pending;
++  gboolean swiping;
++  gboolean swipe_blocked;
++  guint32 swipe_start_time;
++  guint swipe_capitalization;
++  GArray *swipe_points;
++  GVariant *swipe_keys;
++  GHashTable *touches;
++  guint trail_tick;
++
+   /* Key scaling */
+   GtkCssProvider      *css_provider;
+   int key_scale;
+@@ -176,6 +200,12 @@ typedef struct {
+ } EventHistoryRecord;
+ 
+ 
++static void swipe_begin (PosOskWidget *self, double x, double y, guint32 time);
++static gboolean swipe_update (PosOskWidget *self, double x, double y, guint32 time);
++static gboolean swipe_finish (PosOskWidget *self, double x, double y, guint32 time);
++static void pos_osk_widget_cancel_press (PosOskWidget *self);
++
++
+ static void
+ pos_osk_widget_calculate_drag_velocity (PosOskWidget *self, double *v_x, double *v_y)
+ {
+@@ -1032,7 +1062,15 @@ pos_osk_widget_button_press_event (GtkWidget *widget, GdkEventButton *event)
+   if (event->type != GDK_BUTTON_PRESS)
+     return GDK_EVENT_PROPAGATE;
+ 
++  if (event->button != 1) {
++    if (pos_osk_widget_swipe_in_progress (self))
++      pos_osk_widget_cancel_swipe (self);
++    return GDK_EVENT_PROPAGATE;
++  }
++  if (self->swipe_blocked)
++    return GDK_EVENT_STOP;
+   pos_osk_widget_key_press (self, event->x, event->y);
++  swipe_begin (self, event->x, event->y, event->time);
+ 
+   return GDK_EVENT_STOP;
+ }
+@@ -1104,6 +1142,13 @@ pos_osk_widget_button_release_event (GtkWidget *widget, GdkEventButton *event)
+   g_debug ("Button release: %f, %f, button: %d, state: %d",
+            event->x, event->y, event->button, event->state);
+ 
++  if (event->button == 1) {
++    gboolean handled = self->swipe_blocked || swipe_finish (self, event->x, event->y, event->time);
++    self->swipe_blocked = FALSE;
++    if (handled)
++      return GDK_EVENT_STOP;
++  }
++
+   key_repeat_cancel (self);
+   pos_osk_widget_set_mode (self, POS_OSK_WIDGET_MODE_KEYBOARD);
+ 
+@@ -1139,6 +1184,245 @@ pos_osk_widget_cancel_press (PosOskWidget *self)
+ }
+ 
+ 
++static double
++swipe_opacity (const SwipePoint *point, gint64 now)
++{
++  return CLAMP (1.0 - (double) (now - point->drawn_at) / SWIPE_TRAIL_DURATION_US, 0.0, 1.0);
++}
++
++
++static gboolean
++swipe_trail_alive (PosOskWidget *self, gint64 now)
++{
++  if (self->swipe_points->len == 0)
++    return FALSE;
++  return swipe_opacity (&g_array_index (self->swipe_points, SwipePoint,
++                                        self->swipe_points->len - 1), now) > 0.0;
++}
++
++
++static gboolean
++swipe_tick (GtkWidget *widget, GdkFrameClock *clock, gpointer unused)
++{
++  PosOskWidget *self = POS_OSK_WIDGET (widget);
++
++  gtk_widget_queue_draw (widget);
++  if (self->swiping || swipe_trail_alive (self, g_get_monotonic_time ()))
++    return G_SOURCE_CONTINUE;
++
++  self->trail_tick = 0;
++  g_array_set_size (self->swipe_points, 0);
++  return G_SOURCE_REMOVE;
++}
++
++
++static void
++swipe_clear (PosOskWidget *self)
++{
++  self->swipe_pending = self->swiping = FALSE;
++  if (self->trail_tick) {
++    gtk_widget_remove_tick_callback (GTK_WIDGET (self), self->trail_tick);
++    self->trail_tick = 0;
++  }
++  g_array_set_size (self->swipe_points, 0);
++  g_clear_pointer (&self->swipe_keys, g_variant_unref);
++  gtk_widget_queue_draw (GTK_WIDGET (self));
++}
++
++
++void
++pos_osk_widget_cancel_swipe (PosOskWidget *self)
++{
++  g_return_if_fail (POS_IS_OSK_WIDGET (self));
++
++  if (self->swipe_pending || self->swiping) {
++    pos_osk_widget_cancel_press (self);
++    self->swipe_blocked = TRUE;
++  }
++  swipe_clear (self);
++  /* This only cancels gesture results, never ordinary text composition. */
++  g_signal_emit (self, signals[OSK_SWIPE_CANCELLED], 0);
++}
++
++
++void
++pos_osk_widget_set_swipe_enabled (PosOskWidget *self, gboolean enabled)
++{
++  g_return_if_fail (POS_IS_OSK_WIDGET (self));
++
++  if (self->swipe_enabled == enabled)
++    return;
++  self->swipe_enabled = enabled;
++  if (!enabled)
++    pos_osk_widget_cancel_swipe (self);
++}
++
++
++gboolean
++pos_osk_widget_swipe_in_progress (PosOskWidget *self)
++{
++  g_return_val_if_fail (POS_IS_OSK_WIDGET (self), FALSE);
++  return self->swipe_pending || self->swiping || self->swipe_blocked;
++}
++
++
++/**
++ * pos_osk_widget_get_swipe_capitalization:
++ * @self: The keyboard
++ *
++ * Returns the case captured at gesture start: 0 for lowercase, 1 for one-shot
++ * Shift, or 2 for caps lock. Read this when handling the `swipe` signal; the
++ * one-shot Shift layer has already been consumed by then.
++ */
++guint
++pos_osk_widget_get_swipe_capitalization (PosOskWidget *self)
++{
++  g_return_val_if_fail (POS_IS_OSK_WIDGET (self), 0);
++
++  return self->swipe_capitalization;
++}
++
++
++static GVariant *
++swipe_layout (PosOskWidget *self)
++{
++  GVariantBuilder keys;
++  PosOskWidgetKeyboardLayer *layer = pos_osk_widget_get_current_layer (self);
++  guint count = 0;
++
++  g_variant_builder_init (&keys, G_VARIANT_TYPE ("a(sdddd)"));
++  for (guint r = 0; r < layer->n_rows; r++) {
++    PosOskWidgetRow *row = pos_osk_widget_get_row (self, r);
++    for (guint k = 0; k < row->keys->len; k++) {
++      PosOskKey *key = pos_osk_widget_row_get_key (row, k);
++      const char *symbol = pos_osk_key_get_symbol (key);
++      const GdkRectangle *box = pos_osk_key_get_box (key);
++      char label[2] = {0};
++
++      if (!symbol || strlen (symbol) != 1 || !g_ascii_isalpha (symbol[0]))
++        continue;
++      if (box->width <= 0 || box->height <= 0)
++        continue;
++      label[0] = g_ascii_tolower (symbol[0]);
++      g_variant_builder_add (&keys, "(sdddd)", label,
++                               (double) box->x + layer->offset_x, (double) box->y,
++                               (double) box->width, (double) box->height);
++      count++;
++    }
++  }
++  if (count != 26) {
++    g_variant_builder_clear (&keys);
++    return NULL;
++  }
++  return g_variant_ref_sink (g_variant_builder_end (&keys));
++}
++
++
++static void
++swipe_begin (PosOskWidget *self, double x, double y, guint32 time)
++{
++  const char *symbol = self->current ? pos_osk_key_get_symbol (self->current) : NULL;
++  SwipePoint point = {x, y, 0, g_get_monotonic_time ()};
++
++  if (!self->swipe_enabled || self->swipe_blocked ||
++      self->mode != POS_OSK_WIDGET_MODE_KEYBOARD ||
++      (self->layer != POS_OSK_WIDGET_LAYER_NORMAL && self->layer != POS_OSK_WIDGET_LAYER_CAPS) ||
++      !symbol || strlen (symbol) != 1 || !g_ascii_isalpha (symbol[0]) ||
++      !isfinite (x) || !isfinite (y))
++    return;
++
++  swipe_clear (self);
++  self->swipe_keys = swipe_layout (self);
++  if (!self->swipe_keys)
++    return;
++  self->swipe_start_time = time;
++  self->swipe_capitalization = self->layer == POS_OSK_WIDGET_LAYER_CAPS ?
++                              (self->caps_lock ? 2 : 1) : 0;
++  self->swipe_pending = TRUE;
++  g_array_append_val (self->swipe_points, point);
++  /* A new possible gesture invalidates a previous outstanding recognition. */
++  g_signal_emit (self, signals[OSK_SWIPE_CANCELLED], 0);
++}
++
++
++static gboolean
++swipe_update (PosOskWidget *self, double x, double y, guint32 time)
++{
++  SwipePoint point = {x, y, time - self->swipe_start_time, g_get_monotonic_time ()};
++  SwipePoint *first, *last;
++  int threshold;
++
++  if (!self->swipe_pending && !self->swiping)
++    return FALSE;
++  last = &g_array_index (self->swipe_points, SwipePoint, self->swipe_points->len - 1);
++  if (!isfinite (x) || !isfinite (y) || x < 0 || y < 0 ||
++      x > self->width || y > self->height || point.millis > SWIPE_MAX_DURATION_MS ||
++      point.millis < last->millis || self->swipe_points->len >= SWIPE_MAX_POINTS) {
++    pos_osk_widget_cancel_swipe (self);
++    return TRUE;
++  }
++  /* Drop stationary updates; retain event timestamps for the decoder. */
++  if (hypot (x - last->x, y - last->y) >= 1.0)
++    g_array_append_val (self->swipe_points, point);
++
++  first = &g_array_index (self->swipe_points, SwipePoint, 0);
++  /* Match GtkGestureLongPress's axis-aligned tap slop. Once movement cancels
++   * a long press it must also start the trail, without a second, wider dead
++   * zone. Retain four logical pixels of tap tolerance even if GTK has none. */
++  g_object_get (gtk_widget_get_settings (GTK_WIDGET (self)),
++                "gtk-dnd-drag-threshold", &threshold, NULL);
++  threshold = MAX (4, threshold);
++  if (!self->swiping && MAX (fabs (x - first->x), fabs (y - first->y)) > threshold) {
++    self->swipe_pending = FALSE;
++    self->swiping = TRUE;
++    pos_osk_widget_cancel_press (self);
++    gtk_event_controller_reset (GTK_EVENT_CONTROLLER (self->long_press));
++    self->trail_tick = gtk_widget_add_tick_callback (GTK_WIDGET (self), swipe_tick, NULL, NULL);
++  }
++  gtk_widget_queue_draw (GTK_WIDGET (self));
++  return TRUE;
++}
++
++
++static gboolean
++swipe_finish (PosOskWidget *self, double x, double y, guint32 time)
++{
++  GVariantBuilder trace;
++  g_autoptr (GVariant) points = NULL;
++  g_autoptr (GVariant) keys = NULL;
++
++  if (!swipe_update (self, x, y, time))
++    return FALSE;
++  if (self->swipe_blocked)
++    return TRUE;
++  if (!self->swiping) {
++    swipe_clear (self);
++    return FALSE;
++  }
++  self->swiping = FALSE;
++  g_variant_builder_init (&trace, G_VARIANT_TYPE ("a(ddu)"));
++  for (guint i = 0; i < self->swipe_points->len; i++) {
++    const SwipePoint *point = &g_array_index (self->swipe_points, SwipePoint, i);
++    g_variant_builder_add (&trace, "(ddu)", point->x, point->y, point->millis);
++  }
++  points = g_variant_ref_sink (g_variant_builder_end (&trace));
++  keys = g_steal_pointer (&self->swipe_keys);
++  if (self->swipe_capitalization == 1) {
++    g_autoptr (GArray) trail = g_array_copy (self->swipe_points);
++
++    /* Reset Shift before publishing the new request: layer changes cancel
++     * stale recognition. Keep the already released trace fading afterwards. */
++    pos_osk_widget_set_layer (self, POS_OSK_WIDGET_LAYER_NORMAL);
++    if (self->swipe_enabled && gtk_widget_get_mapped (GTK_WIDGET (self))) {
++      g_array_append_vals (self->swipe_points, trail->data, trail->len);
++      self->trail_tick = gtk_widget_add_tick_callback (GTK_WIDGET (self), swipe_tick, NULL, NULL);
++    }
++  }
++  g_signal_emit (self, signals[OSK_SWIPE], 0, points, keys);
++  return TRUE;
++}
++
++
+ static gboolean
+ pos_osk_widget_touch_event (GtkWidget *widget, GdkEventTouch *event)
+ {
+@@ -1150,6 +1434,19 @@ pos_osk_widget_touch_event (GtkWidget *widget, GdkEventTouch *event)
+            event->y,
+            event->type);
+ 
++  if (event->type == GDK_TOUCH_BEGIN)
++    g_hash_table_add (self->touches, event->sequence);
++  if (event->type == GDK_TOUCH_END || event->type == GDK_TOUCH_CANCEL)
++    g_hash_table_remove (self->touches, event->sequence);
++
++  if (g_hash_table_size (self->touches) > 1 && pos_osk_widget_swipe_in_progress (self))
++    pos_osk_widget_cancel_swipe (self);
++  if (self->swipe_blocked) {
++    if (g_hash_table_size (self->touches) == 0)
++      self->swipe_blocked = FALSE;
++    return GDK_EVENT_STOP;
++  }
++
+   if (event->type == GDK_TOUCH_BEGIN) {
+     if (self->current) {
+       key_repeat_cancel (self);
+@@ -1159,12 +1456,26 @@ pos_osk_widget_touch_event (GtkWidget *widget, GdkEventTouch *event)
+ 
+     self->sequence = event->sequence;
+     pos_osk_widget_key_press (self, event->x, event->y);
++    if (g_hash_table_size (self->touches) == 1)
++      swipe_begin (self, event->x, event->y, event->time);
+     return GDK_EVENT_STOP;
+   }
+ 
+   if (event->sequence != self->sequence)
+     return GDK_EVENT_PROPAGATE;
+ 
++  if (event->type == GDK_TOUCH_CANCEL && pos_osk_widget_swipe_in_progress (self)) {
++    pos_osk_widget_cancel_swipe (self);
++    self->swipe_blocked = g_hash_table_size (self->touches) != 0;
++    return GDK_EVENT_STOP;
++  }
++  if (event->type == GDK_TOUCH_END && swipe_finish (self, event->x, event->y, event->time)) {
++    self->swipe_blocked = FALSE;
++    return GDK_EVENT_STOP;
++  }
++  if (event->type == GDK_TOUCH_UPDATE && swipe_update (self, event->x, event->y, event->time))
++    return GDK_EVENT_STOP;
++
+   if (event->type == GDK_TOUCH_END || event->type == GDK_TOUCH_CANCEL) {
+     if (self->current) {
+       key_repeat_cancel (self);
+@@ -1207,6 +1518,8 @@ pos_osk_widget_motion_notify_event (GtkWidget *widget, GdkEventMotion *event)
+ 
+   if ((event->state & GDK_BUTTON1_MASK) == 0)
+     return GDK_EVENT_PROPAGATE;
++  if (self->swipe_blocked || swipe_update (self, event->x, event->y, event->time))
++    return GDK_EVENT_STOP;
+ 
+   key = pos_osk_widget_locate_key (self, event->x, event->y);
+   if (self->current && key != self->current) {
+@@ -1256,6 +1569,10 @@ on_long_pressed (GtkGestureLongPress *gesture, double x, double y, gpointer user
+   GStrv symbols = NULL;
+   GdkRectangle rect = { 0 };
+ 
++  if (self->swiping || self->swipe_blocked || key == NULL)
++    return;
++  swipe_clear (self);
++  g_signal_emit (self, signals[OSK_SWIPE_CANCELLED], 0);
+   g_debug ("Long press '%s'", pos_osk_key_get_label (key) ?: pos_osk_key_get_symbol (key));
+ 
+   if (g_strcmp0 (pos_osk_key_get_symbol (key), POS_OSK_SYMBOL_SPACE) == 0) {
+@@ -1544,6 +1861,8 @@ pos_osk_widget_size_allocate (GtkWidget *widget, GdkRectangle *allocation)
+ {
+   PosOskWidget *self = POS_OSK_WIDGET (widget);
+ 
++  if (self->width != allocation->width || self->height != allocation->height)
++    pos_osk_widget_cancel_swipe (self);
+   self->width = allocation->width;
+   self->height = allocation->height;
+ 
+@@ -1608,10 +1927,52 @@ pos_osk_widget_draw (GtkWidget *widget, cairo_t *cr)
+   }
+ 
+   cairo_restore (cr);
++  if (!self->swipe_pending && self->swipe_points->len > 1) {
++    gint64 now = g_get_monotonic_time ();
++
++    cairo_save (cr);
++    cairo_set_line_cap (cr, CAIRO_LINE_CAP_ROUND);
++    cairo_set_line_width (cr, 5.0);
++    for (guint i = 1; i < self->swipe_points->len; i++) {
++      const SwipePoint *a = &g_array_index (self->swipe_points, SwipePoint, i - 1);
++      const SwipePoint *b = &g_array_index (self->swipe_points, SwipePoint, i);
++      double opacity = swipe_opacity (b, now);
++
++      if (opacity <= 0.0)
++        continue;
++      cairo_set_source_rgba (cr, 0.15, 0.75, 1.0, 0.85 * opacity);
++      cairo_move_to (cr, a->x, a->y);
++      cairo_line_to (cr, b->x, b->y);
++      cairo_stroke (cr);
++    }
++    cairo_restore (cr);
++  }
+   return FALSE;
+ }
+ 
+ 
++static void
++pos_osk_widget_dispose (GObject *object)
++{
++  PosOskWidget *self = POS_OSK_WIDGET (object);
++
++  pos_osk_widget_cancel_swipe (self);
++  G_OBJECT_CLASS (pos_osk_widget_parent_class)->dispose (object);
++}
++
++
++static void
++pos_osk_widget_unmap (GtkWidget *widget)
++{
++  PosOskWidget *self = POS_OSK_WIDGET (widget);
++
++  pos_osk_widget_cancel_swipe (self);
++  g_hash_table_remove_all (self->touches);
++  self->swipe_blocked = FALSE;
++  GTK_WIDGET_CLASS (pos_osk_widget_parent_class)->unmap (widget);
++}
++
++
+ static void
+ pos_osk_widget_finalize (GObject *object)
+ {
+@@ -1627,6 +1988,8 @@ pos_osk_widget_finalize (GObject *object)
+   g_clear_pointer (&self->layout_id, g_free);
+   g_ptr_array_free (self->symbols, TRUE);
+   g_clear_pointer (&self->event_history, g_array_unref);
++  g_clear_pointer (&self->swipe_points, g_array_unref);
++  g_clear_pointer (&self->touches, g_hash_table_unref);
+ 
+   G_OBJECT_CLASS (pos_osk_widget_parent_class)->finalize (object);
+ }
+@@ -1660,9 +2023,11 @@ pos_osk_widget_class_init (PosOskWidgetClass *klass)
+ 
+   object_class->get_property = pos_osk_widget_get_property;
+   object_class->set_property = pos_osk_widget_set_property;
++  object_class->dispose = pos_osk_widget_dispose;
+   object_class->finalize = pos_osk_widget_finalize;
+ 
+   widget_class->draw = pos_osk_widget_draw;
++  widget_class->unmap = pos_osk_widget_unmap;
+   widget_class->size_allocate = pos_osk_widget_size_allocate;
+   widget_class->button_press_event = pos_osk_widget_button_press_event;
+   widget_class->button_release_event = pos_osk_widget_button_release_event;
+@@ -1671,6 +2036,13 @@ pos_osk_widget_class_init (PosOskWidgetClass *klass)
+   widget_class->get_preferred_height = pos_osk_widget_get_preferred_height;
+   widget_class->get_preferred_width = pos_osk_widget_get_preferred_width;
+ 
++  signals[OSK_SWIPE] = g_signal_new ("swipe", G_TYPE_FROM_CLASS (klass),
++                                     G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
++                                     G_TYPE_NONE, 2, G_TYPE_VARIANT, G_TYPE_VARIANT);
++  signals[OSK_SWIPE_CANCELLED] = g_signal_new ("swipe-cancelled", G_TYPE_FROM_CLASS (klass),
++                                               G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
++                                               G_TYPE_NONE, 0);
++
+   /**
+    * PosOskWidget:features
+    *
+@@ -1829,6 +2201,8 @@ pos_osk_widget_init (PosOskWidget *self)
+   GtkStyleContext *key_context;
+   GtkStyleContext *context;
+ 
++  self->swipe_points = g_array_new (FALSE, FALSE, sizeof (SwipePoint));
++  self->touches = g_hash_table_new (g_direct_hash, g_direct_equal);
+   self->key_scale = 100; /* percent */
+   self->mode = POS_OSK_WIDGET_MODE_KEYBOARD;
+   self->layer = POS_OSK_WIDGET_LAYER_NORMAL;
+@@ -1910,6 +2284,7 @@ pos_osk_widget_set_layer (PosOskWidget *self, PosOskWidgetLayer layer)
+   if (layer == self->layer)
+     return;
+ 
++  pos_osk_widget_cancel_swipe (self);
+   self->layer = layer;
+ 
+   g_object_notify_by_pspec (G_OBJECT (self), props[PROP_LAYER]);
+@@ -2000,6 +2375,8 @@ pos_osk_widget_set_layout (PosOskWidget *self,
+   if (g_strcmp0 (self->name, name) == 0)
+     return TRUE;
+ 
++  pos_osk_widget_cancel_swipe (self);
++
+   if (self->layout.name)
+     pos_osk_widget_layout_free (&self->layout);
+   g_free (self->name);
+@@ -2068,6 +2445,7 @@ pos_osk_widget_set_mode (PosOskWidget *self, PosOskWidgetMode mode)
+   if (self->mode == mode)
+     return;
+ 
++  pos_osk_widget_cancel_swipe (self);
+   g_debug ("Switching to mode: %d", mode);
+   self->mode = mode;
+ 
+diff --git a/src/pos-osk-widget.h b/src/pos-osk-widget.h
+index b006eb6..5055338 100644
+--- a/src/pos-osk-widget.h
++++ b/src/pos-osk-widget.h
+@@ -42,4 +42,9 @@ const char *const *pos_osk_widget_get_symbols (PosOskWidget *self);
+ void              pos_osk_widget_set_key_height (PosOskWidget *self, guint key_height);
+ guint             pos_osk_widget_max_rows (PosOskWidget *self);
+ 
++void              pos_osk_widget_set_swipe_enabled (PosOskWidget *self, gboolean enabled);
++void              pos_osk_widget_cancel_swipe (PosOskWidget *self);
++gboolean          pos_osk_widget_swipe_in_progress (PosOskWidget *self);
++guint             pos_osk_widget_get_swipe_capitalization (PosOskWidget *self);
++
+ G_END_DECLS
+diff --git a/tests/meson.build b/tests/meson.build
+index 76154d0..8d248ef 100644
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -20,6 +20,7 @@ test_env.set('ASAN_OPTIONS', 'fast_unwind_on_malloc=0')
+ #test_env.set('ASAN_OPTIONS', 'fast_unwind_on_malloc=0:disable_coredump=0:unmap_shadow_on_exit=1:abort_on_error=1')
+ 
+ tests = [
++  'completion-undo',
+   'completer',
+   'completer-base',
+   'completer-hunspell',
+diff --git a/tests/test-completer-verbisage.c b/tests/test-completer-verbisage.c
+index b245985..7f679cc 100644
+--- a/tests/test-completer-verbisage.c
++++ b/tests/test-completer-verbisage.c
+@@ -13,6 +13,9 @@ static const char service_xml[] =
+   "<method name='Complete'><arg type='s' direction='in'/>"
+   "<arg type='u' direction='in'/><arg type='s' direction='in'/>"
+   "<arg type='a(sd)' direction='out'/></method>"
++  "<method name='RecognizeSwipe'><arg type='a(ddu)' direction='in'/>"
++  "<arg type='a(sdddd)' direction='in'/><arg type='u' direction='in'/>"
++  "<arg type='s' direction='in'/><arg type='a(sd)' direction='out'/></method>"
+   "</interface></node>";
+ 
+ typedef struct {
+@@ -22,7 +25,12 @@ typedef struct {
+   GPtrArray *held;
+   const char *hold_word;
+   gboolean fail;
++  gboolean empty;
++  gboolean case_variants;
++  gboolean accept_again;
++  guint commits;
+   guint requests;
++  guint swipe_requests;
+   guint changes;
+   gboolean unsupported;
+   char *committed;
+@@ -90,9 +98,16 @@ answer (GDBusMethodInvocation *invocation)
+   g_autofree char *generated = NULL;
+   GVariantBuilder builder;
+ 
+-  g_variant_get_child (parameters, 0, "&s", &word);
++  if (g_str_equal (g_dbus_method_invocation_get_method_name (invocation), "RecognizeSwipe"))
++    word = "swipe";
++  else
++    g_variant_get_child (parameters, 0, "&s", &word);
+   g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(sd)"));
+-  if (g_str_equal (word, "hel")) {
++  if (g_str_equal (word, "swipe")) {
++    const char *ranked[] = {"hello", "hello", "help", "held", "world", "word", "work", "extra", NULL};
++    for (guint i = 0; ranked[i]; i++)
++      g_variant_builder_add (&builder, "(sd)", ranked[i], 1.0 - i * 0.1);
++  } else if (g_str_equal (word, "hel")) {
+     g_variant_builder_add (&builder, "(sd)", "hello", 0.9);
+     g_variant_builder_add (&builder, "(sd)", "help", 0.8);
+     g_variant_builder_add (&builder, "(sd)", "hello", 0.7);
+@@ -136,14 +151,36 @@ on_call (GDBusConnection *connection, const char *sender, const char *path,
+   const char *word;
+   guint max;
+ 
+-  g_assert_cmpstr (method, ==, "Complete");
+   fixture->requests++;
+-  g_variant_get (parameters, "(&su&s)", &word, &max, &language);
++  if (g_str_equal (method, "RecognizeSwipe")) {
++    g_autoptr (GVariant) trace = NULL;
++    g_autoptr (GVariant) keys = NULL;
++
++    fixture->swipe_requests++;
++    g_variant_get (parameters, "(@a(ddu)@a(sdddd)u&s)", &trace, &keys, &max, &language);
++    g_assert_cmpuint (g_variant_n_children (trace), ==, 3);
++    g_assert_cmpuint (g_variant_n_children (keys), ==, 26);
++    word = "swipe";
++  } else {
++    g_assert_cmpstr (method, ==, "Complete");
++    g_variant_get (parameters, "(&su&s)", &word, &max, &language);
++  }
+   g_assert_cmpstr (language, ==, "en_US");
+   g_assert_cmpuint (max, ==, 6);
+ 
+   if (fixture->hold_word && g_str_equal (word, fixture->hold_word))
+     g_ptr_array_add (fixture->held, g_object_ref (invocation));
++  else if (fixture->case_variants) {
++    GVariantBuilder builder;
++    const char *words[] = {"hello", "Hello", "help", "HELP", NULL};
++
++    g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(sd)"));
++    for (guint i = 0; words[i]; i++)
++      g_variant_builder_add (&builder, "(sd)", words[i], 1.0 - i * 0.1);
++    g_dbus_method_invocation_return_value (invocation, g_variant_new ("(a(sd))", &builder));
++  } else if (fixture->empty)
++    g_dbus_method_invocation_return_value (invocation,
++      g_variant_new ("(@a(sd))", g_variant_new_array (G_VARIANT_TYPE ("(sd)"), NULL, 0)));
+   else if (fixture->fail)
+     g_dbus_method_invocation_return_dbus_error (invocation,
+                                                fixture->unsupported ? "org.freedesktop.DBus.Error.UnknownMethod" : "org.freedesktop.DBus.Error.Failed",
+@@ -164,6 +201,10 @@ on_commit (PosCompleter *completer, const char *text, int before, int after, gpo
+   fixture->committed = g_strdup (text);
+   fixture->before = before;
+   fixture->after = after;
++  fixture->commits++;
++  if (fixture->accept_again)
++    g_assert_false (pos_completer_verbisage_accept_swipe (
++      POS_COMPLETER_VERBISAGE (completer)));
+ }
+ 
+ 
+@@ -479,6 +520,419 @@ test_input_limit (Fixture *fixture, gconstpointer unused)
+ }
+ 
+ 
++static void
++request_swipe_capitalized (Fixture *fixture, guint capitalization)
++{
++  GVariantBuilder trace, keys;
++  g_autoptr (GVariant) points = NULL;
++  g_autoptr (GVariant) geometry = NULL;
++
++  g_variant_builder_init (&trace, G_VARIANT_TYPE ("a(ddu)"));
++  g_variant_builder_add (&trace, "(ddu)", 10.0, 20.0, 0u);
++  g_variant_builder_add (&trace, "(ddu)", 80.0, 40.0, 70u);
++  g_variant_builder_add (&trace, "(ddu)", 120.0, 20.0, 140u);
++  g_variant_builder_init (&keys, G_VARIANT_TYPE ("a(sdddd)"));
++  for (char c = 'a'; c <= 'z'; c++) {
++    char label[] = {c, 0};
++    g_variant_builder_add (&keys, "(sdddd)", label,
++                           (double) ((c - 'a') % 10 * 30),
++                           (double) ((c - 'a') / 10 * 50), 30.0, 50.0);
++  }
++  points = g_variant_ref_sink (g_variant_builder_end (&trace));
++  geometry = g_variant_ref_sink (g_variant_builder_end (&keys));
++  pos_completer_verbisage_recognize_swipe (POS_COMPLETER_VERBISAGE (fixture->completer),
++                                         points, geometry, capitalization);
++}
++
++
++static void
++request_swipe (Fixture *fixture)
++{
++  request_swipe_capitalized (fixture, 0);
++}
++
++
++static void
++test_swipe_results (Fixture *fixture, gconstpointer unused)
++{
++  g_auto (GStrv) words = NULL;
++
++  request_swipe (fixture);
++  wait_completion (fixture->completer, "hello");
++  words = pos_completer_get_completions (fixture->completer);
++  g_assert_cmpstr (words[0], ==, "hello");
++  g_assert_cmpstr (words[1], ==, "help");
++  g_assert_cmpstr (words[5], ==, "work");
++  g_assert_cmpuint (g_strv_length (words), ==, 6);
++  g_assert_cmpuint (fixture->swipe_requests, ==, 1);
++  g_assert_cmpuint (fixture->requests, ==, 1);
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "hello");
++  g_assert_true (pos_completer_verbisage_has_swipe_preedit (
++    POS_COMPLETER_VERBISAGE (fixture->completer)));
++  g_assert_null (fixture->committed);
++  spin (120);
++  g_assert_cmpuint (fixture->requests, ==, 1);
++  /* Space accepts the editable guess exactly once. */
++  pos_completer_feed_symbol (fixture->completer, " ");
++  g_assert_cmpstr (fixture->committed, ==, "hello ");
++  g_assert_cmpuint (fixture->commits, ==, 1);
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "");
++  g_assert_false (pos_completer_verbisage_has_swipe_preedit (
++    POS_COMPLETER_VERBISAGE (fixture->completer)));
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++}
++
++
++static void
++test_swipe_stale (Fixture *fixture, gconstpointer unused)
++{
++  fixture->hold_word = "swipe";
++  request_swipe (fixture);
++  wait_held (fixture);
++  pos_completer_feed_symbol (fixture->completer, "w");
++  release_held (fixture);
++  wait_completion (fixture->completer, "wword");
++  g_assert_false (has_completion (fixture->completer, "hello"));
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "w");
++  g_assert_null (fixture->committed);
++}
++
++
++static void
++test_swipe_cancel (Fixture *fixture, gconstpointer unused)
++{
++  fixture->hold_word = "swipe";
++  request_swipe (fixture);
++  wait_held (fixture);
++  pos_completer_verbisage_cancel_swipe (POS_COMPLETER_VERBISAGE (fixture->completer));
++  release_held (fixture);
++  spin (50);
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++  g_assert_null (fixture->committed);
++}
++
++
++static void
++test_swipe_context (Fixture *fixture, gconstpointer unused)
++{
++  pos_completer_set_surrounding_text (fixture->completer, "one ", "");
++  fixture->hold_word = "swipe";
++  request_swipe (fixture);
++  wait_held (fixture);
++  /* Repeated context notification preserves an otherwise valid reply. */
++  pos_completer_set_surrounding_text (fixture->completer, "one ", "");
++  release_held (fixture);
++  wait_completion (fixture->completer, "hello");
++  g_ptr_array_set_size (fixture->held, 0);
++  pos_completer_set_preedit (fixture->completer, NULL);
++  request_swipe (fixture);
++  wait_held (fixture);
++  pos_completer_set_surrounding_text (fixture->completer, "one two ", "");
++  release_held (fixture);
++  spin (50);
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++  g_assert_null (fixture->committed);
++}
++
++
++static void
++test_swipe_error (Fixture *fixture, gconstpointer unused)
++{
++  fixture->fail = fixture->unsupported = TRUE;
++  request_swipe (fixture);
++  spin (100);
++  g_assert_false (has_completion (fixture->completer, "hello"));
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "");
++  g_assert_null (fixture->committed);
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++  g_assert_false (pos_completer_feed_symbol (fixture->completer, "KEY_BACKSPACE"));
++  fixture->fail = FALSE;
++  request_swipe (fixture);
++  wait_completion (fixture->completer, "hello");
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, "KEY_BACKSPACE"));
++  g_assert_null (fixture->committed);
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "hell");
++  g_assert_false (pos_completer_verbisage_has_swipe_preedit (
++    POS_COMPLETER_VERBISAGE (fixture->completer)));
++  g_assert_true (has_completion (fixture->completer, "hell"));
++}
++
++
++static void
++test_swipe_reset (Fixture *fixture, gconstpointer unused)
++{
++  fixture->hold_word = "swipe";
++  request_swipe (fixture);
++  wait_held (fixture);
++  pos_completer_set_preedit (fixture->completer, NULL);
++  release_held (fixture);
++  spin (50);
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++  g_assert_null (fixture->committed);
++}
++
++
++static void
++test_swipe_capitalization (Fixture *fixture, gconstpointer unused)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (fixture->completer);
++  g_autoptr (GVariant) snapshot = NULL;
++
++  fixture->case_variants = TRUE;
++  request_swipe_capitalized (fixture, 1);
++  wait_completion (fixture->completer, "Hello");
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "Hello");
++  g_assert_true (has_completion (fixture->completer, "Help"));
++  g_assert_false (has_completion (fixture->completer, "hello"));
++  g_assert_false (has_completion (fixture->completer, "HELLO"));
++  snapshot = pos_completer_verbisage_snapshot_swipe (self);
++  pos_completer_set_preedit (fixture->completer, NULL);
++  g_assert_true (pos_completer_verbisage_restore_swipe (self, snapshot));
++  g_clear_pointer (&snapshot, g_variant_unref);
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, " "));
++  g_assert_cmpstr (fixture->committed, ==, "Hello ");
++
++  request_swipe_capitalized (fixture, 2);
++  wait_completion (fixture->completer, "HELLO");
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "HELLO");
++  g_assert_true (has_completion (fixture->completer, "HELP"));
++  g_assert_false (has_completion (fixture->completer, "Hello"));
++  snapshot = pos_completer_verbisage_snapshot_swipe (self);
++  pos_completer_set_preedit (fixture->completer, NULL);
++  g_assert_true (pos_completer_verbisage_restore_swipe (self, snapshot));
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "HELLO");
++  g_assert_true (has_completion (fixture->completer, "HELP"));
++  g_assert_true (pos_completer_verbisage_accept_swipe (self));
++  g_assert_cmpstr (fixture->committed, ==, "HELLO ");
++  g_assert_cmpuint (fixture->requests, ==, 2);
++  request_swipe_capitalized (fixture, 3);
++  spin (100);
++  g_assert_cmpuint (fixture->requests, ==, 2);
++}
++
++
++static void
++test_swipe_accept (Fixture *fixture, gconstpointer unused)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (fixture->completer);
++
++  g_assert_false (pos_completer_verbisage_accept_swipe (self));
++  fixture->hold_word = "swipe";
++  request_swipe (fixture);
++  wait_held (fixture);
++  g_assert_false (pos_completer_verbisage_has_swipe_preedit (self));
++  g_assert_false (pos_completer_verbisage_accept_swipe (self));
++  g_assert_null (pos_completer_verbisage_snapshot_swipe (self));
++  release_held (fixture);
++  wait_completion (fixture->completer, "hello");
++
++  fixture->accept_again = TRUE;
++  g_assert_true (pos_completer_verbisage_accept_swipe (self));
++  g_assert_false (pos_completer_verbisage_accept_swipe (self));
++  g_assert_cmpstr (fixture->committed, ==, "hello ");
++  g_assert_cmpuint (fixture->commits, ==, 1);
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "");
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++
++  /* The surface waits for this ACK before submitting the next trace. */
++  pos_completer_set_surrounding_text (fixture->completer, "hello ", "");
++  request_swipe (fixture);
++  wait_held (fixture);
++  release_held (fixture);
++  wait_completion (fixture->completer, "hello");
++  g_assert_cmpuint (fixture->swipe_requests, ==, 2);
++  g_assert_true (pos_completer_verbisage_has_swipe_preedit (self));
++  g_assert_cmpuint (fixture->commits, ==, 1);
++}
++
++
++static void
++test_swipe_tap (Fixture *fixture, gconstpointer unused)
++{
++  request_swipe (fixture);
++  wait_completion (fixture->completer, "hello");
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, "w"));
++  g_assert_cmpstr (fixture->committed, ==, "hello ");
++  g_assert_cmpuint (fixture->commits, ==, 1);
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "w");
++  g_assert_false (pos_completer_verbisage_has_swipe_preedit (
++    POS_COMPLETER_VERBISAGE (fixture->completer)));
++  /* The previous commit's context notification cannot cancel this tap. */
++  pos_completer_set_surrounding_text (fixture->completer, "hello ", "");
++  wait_completion (fixture->completer, "wword");
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, " "));
++  g_assert_cmpstr (fixture->committed, ==, "w ");
++  g_assert_cmpuint (fixture->commits, ==, 2);
++}
++
++
++static void
++test_swipe_separators (Fixture *fixture, gconstpointer unused)
++{
++  request_swipe (fixture);
++  wait_completion (fixture->completer, "hello");
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, "."));
++  g_assert_cmpstr (fixture->committed, ==, "hello. ");
++  g_assert_cmpuint (fixture->commits, ==, 1);
++  request_swipe (fixture);
++  wait_completion (fixture->completer, "hello");
++  g_assert_false (pos_completer_feed_symbol (fixture->completer, "KEY_ENTER"));
++  g_assert_cmpstr (fixture->committed, ==, "hello");
++  g_assert_cmpuint (fixture->commits, ==, 2);
++}
++
++
++static void
++test_swipe_pending_backspace (Fixture *fixture, gconstpointer unused)
++{
++  fixture->hold_word = "swipe";
++  request_swipe (fixture);
++  wait_held (fixture);
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, "KEY_BACKSPACE"));
++  release_held (fixture);
++  spin (50);
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "");
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++  g_assert_null (fixture->committed);
++  /* Cancellation consumed only the first Backspace, while the request existed. */
++  g_assert_false (pos_completer_feed_symbol (fixture->completer, "KEY_BACKSPACE"));
++}
++
++
++static void
++test_swipe_timeout (Fixture *fixture, gconstpointer unused)
++{
++  fixture->hold_word = "swipe";
++  request_swipe (fixture);
++  wait_held (fixture);
++  spin (1100);
++  g_assert_false (pos_completer_feed_symbol (fixture->completer, "KEY_BACKSPACE"));
++  release_held (fixture);
++  spin (50);
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "");
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++  g_assert_null (fixture->committed);
++  fixture->hold_word = NULL;
++  request_swipe (fixture);
++  wait_completion (fixture->completer, "hello");
++}
++
++
++static void
++test_swipe_empty (Fixture *fixture, gconstpointer unused)
++{
++  fixture->empty = TRUE;
++  request_swipe (fixture);
++  spin (100);
++  g_assert_cmpuint (fixture->swipe_requests, ==, 1);
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "");
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++  g_assert_false (pos_completer_feed_symbol (fixture->completer, "KEY_BACKSPACE"));
++  g_assert_null (fixture->committed);
++  fixture->empty = FALSE;
++  request_swipe (fixture);
++  wait_completion (fixture->completer, "hello");
++}
++
++
++static void
++on_swipe_preedit (PosCompleter *completer, GParamSpec *pspec, guint *notifications)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (completer);
++
++  (*notifications)++;
++  g_assert_true (pos_completer_verbisage_has_swipe_preedit (self));
++  g_assert_cmpstr (pos_completer_get_preedit (completer), ==, "hello");
++  g_assert_true (has_completion (completer, "help"));
++  /* Disabling/cancelling widget capture must not erase the just-published text. */
++  pos_completer_verbisage_cancel_swipe (self);
++  g_assert_true (pos_completer_verbisage_has_swipe_preedit (self));
++}
++
++
++static void
++test_swipe_composition_cancel (Fixture *fixture, gconstpointer unused)
++{
++  guint notifications = 0;
++  gulong handler = g_signal_connect (fixture->completer, "notify::preedit",
++                                     G_CALLBACK (on_swipe_preedit), &notifications);
++
++  request_swipe (fixture);
++  wait_completion (fixture->completer, "hello");
++  g_assert_cmpuint (notifications, ==, 1);
++  g_signal_handler_disconnect (fixture->completer, handler);
++  pos_completer_verbisage_cancel_swipe (POS_COMPLETER_VERBISAGE (fixture->completer));
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "hello");
++  g_assert_true (has_completion (fixture->completer, "help"));
++  /* Focus/reset explicitly discards the completed composition. */
++  pos_completer_set_preedit (fixture->completer, NULL);
++  g_assert_false (pos_completer_verbisage_has_swipe_preedit (
++    POS_COMPLETER_VERBISAGE (fixture->completer)));
++  g_assert_null (pos_completer_get_completions (fixture->completer));
++}
++
++
++static void
++test_swipe_snapshot (Fixture *fixture, gconstpointer unused)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (fixture->completer);
++  g_autoptr (GVariant) snapshot = NULL;
++  g_auto (GStrv) before = NULL;
++  g_auto (GStrv) after = NULL;
++
++  request_swipe (fixture);
++  wait_completion (fixture->completer, "hello");
++  snapshot = pos_completer_verbisage_snapshot_swipe (self);
++  before = pos_completer_get_completions (fixture->completer);
++  g_assert_nonnull (snapshot);
++  /* The surface captures this before selection, then removes the selected
++   * committed word before asking the adapter to restore this composition. */
++  pos_completer_set_preedit (fixture->completer, NULL);
++  g_assert_true (pos_completer_verbisage_restore_swipe (self, snapshot));
++  after = pos_completer_get_completions (fixture->completer);
++  g_assert_cmpstrv (before, after);
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "hello");
++  g_assert_true (pos_completer_verbisage_has_swipe_preedit (self));
++  spin (120);
++  g_assert_cmpuint (fixture->requests, ==, 1);
++  g_assert_null (fixture->committed);
++
++  fixture->hold_word = "old";
++  pos_completer_set_preedit (fixture->completer, "old");
++  wait_held (fixture);
++  g_assert_true (pos_completer_verbisage_restore_swipe (self, snapshot));
++  release_held (fixture);
++  spin (50);
++  g_assert_false (has_completion (fixture->completer, "oldword"));
++  g_assert_true (has_completion (fixture->completer, "help"));
++  g_assert_true (pos_completer_feed_symbol (fixture->completer, "KEY_BACKSPACE"));
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "hell");
++  g_assert_null (pos_completer_verbisage_snapshot_swipe (self));
++}
++
++
++static void
++test_swipe_snapshot_invalid (Fixture *fixture, gconstpointer unused)
++{
++  PosCompleterVerbisage *self = POS_COMPLETER_VERBISAGE (fixture->completer);
++  g_autoptr (GVariant) snapshot = NULL;
++  g_autoptr (GVariant) wrong_type = g_variant_ref_sink (g_variant_new_string ("hello"));
++  g_autoptr (GError) error = NULL;
++
++  request_swipe (fixture);
++  wait_completion (fixture->completer, "hello");
++  snapshot = pos_completer_verbisage_snapshot_swipe (self);
++  g_assert_false (pos_completer_verbisage_restore_swipe (self, NULL));
++  g_assert_false (pos_completer_verbisage_restore_swipe (self, wrong_type));
++  g_assert_true (pos_completer_verbisage_has_swipe_preedit (self));
++  g_assert_false (pos_completer_set_language (fixture->completer, "de", "DE", &error));
++  g_assert_error (error, POS_COMPLETER_ERROR, POS_COMPLETER_ERROR_LANG_INIT);
++  g_assert_false (pos_completer_verbisage_restore_swipe (self, snapshot));
++  g_assert_false (pos_completer_verbisage_has_swipe_preedit (self));
++  g_assert_cmpstr (pos_completer_get_preedit (fixture->completer), ==, "hello");
++}
++
++
+ static void
+ test_real_service (void)
+ {
+@@ -537,6 +991,22 @@ main (int argc, char **argv)
+   ADD_TEST ("editing", test_editing);
+   ADD_TEST ("dispose-pending", test_dispose_pending);
+   ADD_TEST ("input-limit", test_input_limit);
++  ADD_TEST ("swipe-results", test_swipe_results);
++  ADD_TEST ("swipe-stale", test_swipe_stale);
++  ADD_TEST ("swipe-cancel", test_swipe_cancel);
++  ADD_TEST ("swipe-context", test_swipe_context);
++  ADD_TEST ("swipe-error", test_swipe_error);
++  ADD_TEST ("swipe-reset", test_swipe_reset);
++  ADD_TEST ("swipe-capitalization", test_swipe_capitalization);
++  ADD_TEST ("swipe-accept", test_swipe_accept);
++  ADD_TEST ("swipe-tap", test_swipe_tap);
++  ADD_TEST ("swipe-separators", test_swipe_separators);
++  ADD_TEST ("swipe-pending-backspace", test_swipe_pending_backspace);
++  ADD_TEST ("swipe-empty", test_swipe_empty);
++  ADD_TEST ("swipe-timeout", test_swipe_timeout);
++  ADD_TEST ("swipe-composition-cancel", test_swipe_composition_cancel);
++  ADD_TEST ("swipe-snapshot", test_swipe_snapshot);
++  ADD_TEST ("swipe-snapshot-invalid", test_swipe_snapshot_invalid);
+ #undef ADD_TEST
+   result = g_test_run ();
+   g_test_dbus_down (bus);
+diff --git a/tests/test-completion-undo.c b/tests/test-completion-undo.c
+new file mode 100644
+index 0000000..ce3dae3
+--- /dev/null
++++ b/tests/test-completion-undo.c
+@@ -0,0 +1,180 @@
++/*
++ * SPDX-License-Identifier: GPL-3.0-or-later
++ */
++
++#include "pos-completion-undo.h"
++
++#include <string.h>
++
++
++static void
++test_utf8_and_suffix (void)
++{
++  g_autoptr (PosCompletionUndo) undo = NULL;
++  g_auto (GStrv) candidates = g_strsplit ("café|caffè", "|", -1);
++  g_autoptr (GVariant) swipe = g_variant_ref_sink (g_variant_new_string ("gesture"));
++
++  undo = pos_completion_undo_new ("é suffix", 3, 3, "café ", "cáf",
++                                   candidates, swipe, 7);
++  g_assert_nonnull (undo);
++  g_assert_cmpuint (pos_completion_undo_get_inserted_bytes (undo), ==, 6);
++  g_assert_cmpstr (pos_completion_undo_get_preedit (undo), ==, "cáf");
++  g_clear_pointer (&candidates, g_strfreev);
++  g_clear_pointer (&swipe, g_variant_unref);
++  g_assert_cmpstr (pos_completion_undo_get_candidates (undo)[0], ==, "café");
++  g_assert_cmpstr (g_variant_get_string (pos_completion_undo_get_swipe_state (undo), NULL),
++                   ==, "gesture");
++  g_assert_false (pos_completion_undo_matches (undo, "é café suffix", 9, 9));
++  g_assert_true (pos_completion_undo_observe (undo, "é café suffix", 9, 9, 8, TRUE));
++  g_assert_true (pos_completion_undo_matches (undo, "é café suffix", 9, 9));
++  g_assert_false (pos_completion_undo_matches (undo, "é café suffix", 8, 8));
++  g_assert_false (pos_completion_undo_matches (undo, "é café other", 9, 9));
++  g_assert_false (pos_completion_undo_matches (undo, "x café suffix", 8, 8));
++}
++
++
++static void
++test_acknowledgement (void)
++{
++  g_autoptr (PosCompletionUndo) undo =
++    pos_completion_undo_new ("", 0, 0, "hello ", "helo", NULL, NULL, 10);
++
++  g_assert_true (pos_completion_undo_observe (undo, "", 0, 0, 10, TRUE));
++  g_assert_false (pos_completion_undo_matches (undo, "hello ", 6, 6));
++  g_assert_true (pos_completion_undo_observe (undo, "hello ", 6, 6, 11, TRUE));
++  g_assert_true (pos_completion_undo_observe (undo, "hello ", 6, 6, 11, TRUE));
++  g_assert_true (pos_completion_undo_observe (undo, "hello ", 6, 6, 12, TRUE));
++  g_assert_true (pos_completion_undo_matches (undo, "hello ", 6, 6));
++  g_assert_false (pos_completion_undo_observe (undo, "hello ", 6, 6, 11, TRUE));
++  g_assert_false (pos_completion_undo_matches (undo, "hello ", 6, 6));
++  g_assert_false (pos_completion_undo_observe (undo, "hello ", 6, 6, 13, TRUE));
++}
++
++
++static void
++test_preedit_ack_in_flight (void)
++{
++  g_autoptr (PosCompletionUndo) undo =
++    pos_completion_undo_new ("", 0, 0, "hello ", "hello", NULL, NULL, 10);
++
++  g_assert_true (pos_completion_undo_observe (undo, "", 0, 0, 11, TRUE));
++  g_assert_false (pos_completion_undo_matches (undo, "hello ", 6, 6));
++  g_assert_true (pos_completion_undo_observe (undo, "", 0, 0, 12, TRUE));
++  g_assert_false (pos_completion_undo_matches (undo, "", 0, 0));
++  g_assert_true (pos_completion_undo_observe (undo, "hello ", 6, 6, 13, TRUE));
++  g_assert_true (pos_completion_undo_matches (undo, "hello ", 6, 6));
++  g_assert_false (pos_completion_undo_observe (undo, "", 0, 0, 14, TRUE));
++
++  g_clear_pointer (&undo, pos_completion_undo_free);
++  undo = pos_completion_undo_new ("", 0, 0, "hello ", "hello", NULL, NULL, 10);
++  g_assert_true (pos_completion_undo_observe (undo, "", 0, 0, 12, TRUE));
++  g_assert_false (pos_completion_undo_observe (undo, "hello ", 6, 6, 11, TRUE));
++}
++
++
++static void
++test_serial_wrap (void)
++{
++  g_autoptr (PosCompletionUndo) undo =
++    pos_completion_undo_new ("", 0, 0, "a ", "a", NULL, NULL, G_MAXUINT32);
++
++  g_assert_true (pos_completion_undo_observe (undo, "a ", 2, 2, 0, TRUE));
++  g_assert_true (pos_completion_undo_matches (undo, "a ", 2, 2));
++  g_assert_false (pos_completion_undo_observe (undo, "a ", 2, 2, G_MAXUINT32, TRUE));
++}
++
++
++static void
++test_invalid_changes (void)
++{
++  struct {
++    const char *text;
++    guint cursor, anchor, serial;
++    gboolean im_change;
++  } cases[] = {
++    { "hello ", 6, 6, 11, FALSE }, /* External edit, even with identical bytes. */
++    { "hello ", 5, 5, 11, TRUE }, /* Cursor movement. */
++    { "hello ", 6, 0, 11, TRUE }, /* Selection. */
++    { "Hello ", 6, 6, 11, TRUE }, /* Application normalization. */
++    { "hello\302\240", 7, 7, 11, TRUE }, /* Changed separator. */
++    { "x", 1, 1, 11, TRUE }, /* Unrelated insertion. */
++    { "hello ", 6, 6, 10, TRUE }, /* Expected bytes without a newer serial. */
++    { "hello ", 6, 6, 9, TRUE }, /* Stale event. */
++    { NULL, 0, 0, 11, TRUE }, /* No surrounding-text support. */
++    { "\xff", 1, 1, 11, TRUE },
++    { "hello ", 7, 7, 11, TRUE },
++  };
++
++  for (guint i = 0; i < G_N_ELEMENTS (cases); i++) {
++    g_autoptr (PosCompletionUndo) undo =
++      pos_completion_undo_new ("", 0, 0, "hello ", "helo", NULL, NULL, 10);
++
++    g_assert_false (pos_completion_undo_observe (undo, cases[i].text, cases[i].cursor,
++                                                 cases[i].anchor, cases[i].serial,
++                                                 cases[i].im_change));
++    g_assert_false (pos_completion_undo_matches (undo, "hello ", 6, 6));
++    g_assert_false (pos_completion_undo_observe (undo, "hello ", 6, 6, 12, TRUE));
++  }
++}
++
++
++static void
++test_constructor_rejections (void)
++{
++  const char *invalid[] = { NULL, "\xff" };
++  g_autofree char *large = g_strnfill (64 * 1024 + 1, 'a');
++  char *many[66] = { NULL };
++  char *bad_candidates[] = { "\xff", NULL };
++  g_autoptr (GVariant) large_swipe =
++    g_variant_ref_sink (g_variant_new_string (large));
++
++  for (guint i = 0; i < G_N_ELEMENTS (invalid); i++) {
++    g_assert_null (pos_completion_undo_new (invalid[i], 0, 0, "a", "a", NULL, NULL, 0));
++    g_assert_null (pos_completion_undo_new ("", 0, 0, invalid[i], "a", NULL, NULL, 0));
++    g_assert_null (pos_completion_undo_new ("", 0, 0, "a", invalid[i], NULL, NULL, 0));
++  }
++  g_assert_null (pos_completion_undo_new ("", 0, 0, "", "a", NULL, NULL, 0));
++  g_assert_null (pos_completion_undo_new ("", 0, 0, "a", "", NULL, NULL, 0));
++  g_assert_null (pos_completion_undo_new ("abc", 1, 2, "a", "a", NULL, NULL, 0));
++  g_assert_null (pos_completion_undo_new ("é", 1, 1, "a", "a", NULL, NULL, 0));
++  g_assert_null (pos_completion_undo_new ("é", 3, 3, "a", "a", NULL, NULL, 0));
++  g_assert_null (pos_completion_undo_new (large, 0, 0, "a", "a", NULL, NULL, 0));
++  g_assert_null (pos_completion_undo_new ("", 0, 0, large, "a", NULL, NULL, 0));
++  g_assert_null (pos_completion_undo_new ("", 0, 0, "a", large, NULL, NULL, 0));
++  g_assert_null (pos_completion_undo_new ("", 0, 0, "a", "a", bad_candidates, NULL, 0));
++  for (guint i = 0; i < 65; i++)
++    many[i] = "a";
++  g_assert_null (pos_completion_undo_new ("", 0, 0, "a", "a", many, NULL, 0));
++  g_assert_null (pos_completion_undo_new ("", 0, 0, "a", "a", NULL, large_swipe, 0));
++}
++
++
++static void
++test_focus_discard (void)
++{
++  g_autoptr (PosCompletionUndo) undo =
++    pos_completion_undo_new ("", 0, 0, "hello ", "helo", NULL, NULL, 1);
++
++  g_assert_true (pos_completion_undo_observe (undo, "hello ", 6, 6, 2, TRUE));
++  /* The caller owns focus identity: discarding the snapshot means an identical
++   * field in another application cannot reuse the previous selection. */
++  g_clear_pointer (&undo, pos_completion_undo_free);
++  g_assert_false (pos_completion_undo_matches (undo, "hello ", 6, 6));
++  g_assert_false (pos_completion_undo_observe (undo, "hello ", 6, 6, 3, TRUE));
++}
++
++
++int
++main (int argc, char *argv[])
++{
++  g_test_init (&argc, &argv, NULL);
++  g_test_add_func ("/pos/completion-undo/utf8-suffix-snapshot", test_utf8_and_suffix);
++  g_test_add_func ("/pos/completion-undo/acknowledgement", test_acknowledgement);
++  g_test_add_func ("/pos/completion-undo/preedit-ack-in-flight", test_preedit_ack_in_flight);
++  g_test_add_func ("/pos/completion-undo/serial-wrap", test_serial_wrap);
++  g_test_add_func ("/pos/completion-undo/invalid-changes", test_invalid_changes);
++  g_test_add_func ("/pos/completion-undo/constructor-rejections", test_constructor_rejections);
++  g_test_add_func ("/pos/completion-undo/focus-discard", test_focus_discard);
++
++  return g_test_run ();
++}
+diff --git a/tests/test-input-surface.c b/tests/test-input-surface.c
+index fb7e709..c374c45 100644
+--- a/tests/test-input-surface.c
++++ b/tests/test-input-surface.c
+@@ -20,6 +20,55 @@ test_build_layout_name (void)
+ }
+ 
+ 
++static void
++test_swipe_boundary (void)
++{
++  g_assert_true (swipe_at_word_boundary ("", 0, 0));
++  g_assert_true (swipe_at_word_boundary (NULL, 0, 0));
++  g_assert_true (swipe_at_word_boundary ("one ", 4, 4));
++  g_assert_true (swipe_at_word_boundary ("one  two", 4, 4));
++  g_assert_true (swipe_at_word_boundary ("é\n", 3, 3));
++  g_assert_false (swipe_at_word_boundary ("one", 3, 3));
++  g_assert_false (swipe_at_word_boundary ("word", 0, 0));
++  g_assert_false (swipe_at_word_boundary ("one two", 4, 4));
++  g_assert_false (swipe_at_word_boundary ("one ", 0, 4));
++  g_assert_false (swipe_at_word_boundary ("é\n", 1, 1));
++  g_assert_false (swipe_at_word_boundary ("", 5, 5));
++}
++
++
++static void
++test_swipe_layout (void)
++{
++  PosOskWidget *osk = pos_osk_widget_new (PHOSH_OSK_FEATURE_DEFAULT);
++
++  g_object_ref_sink (osk);
++  g_assert_true (pos_osk_widget_set_layout (osk, "us", "us", "English US", "us", NULL, NULL));
++  g_assert_true (swipe_layout_supported (osk));
++  pos_osk_widget_set_layer (osk, POS_OSK_WIDGET_LAYER_CAPS);
++  g_assert_true (swipe_layout_supported (osk));
++  pos_osk_widget_set_layer (osk, POS_OSK_WIDGET_LAYER_SYMBOLS);
++  g_assert_false (swipe_layout_supported (osk));
++  pos_osk_widget_set_layer (osk, POS_OSK_WIDGET_LAYER_NORMAL);
++  g_assert_true (pos_osk_widget_set_layout (osk, "de", "de", "German", "de", NULL, NULL));
++  g_assert_false (swipe_layout_supported (osk));
++  gtk_widget_destroy (GTK_WIDGET (osk));
++  g_object_unref (osk);
++}
++
++
++static void
++test_swipe_purpose (void)
++{
++  g_assert_true (swipe_purpose_supported (POS_INPUT_METHOD_PURPOSE_NORMAL, 0x1 | 0x2));
++  g_assert_false (swipe_purpose_supported (POS_INPUT_METHOD_PURPOSE_PASSWORD, 0x1));
++  g_assert_false (swipe_purpose_supported (POS_INPUT_METHOD_PURPOSE_PIN, 0x1));
++  g_assert_false (swipe_purpose_supported (POS_INPUT_METHOD_PURPOSE_TERMINAL, 0x1));
++  g_assert_false (swipe_purpose_supported (POS_INPUT_METHOD_PURPOSE_NORMAL, 0x1 | 0x40));
++  g_assert_false (swipe_purpose_supported (POS_INPUT_METHOD_PURPOSE_NORMAL, 0x1 | 0x80));
++}
++
++
+ int
+ main (int argc, char *argv[])
+ {
+@@ -31,6 +80,11 @@ main (int argc, char *argv[])
+ 
+   g_test_add_func ("/pos/osk-input-surface/build-layout-name", test_build_layout_name);
+ 
++  g_test_add_func ("/pos/osk-input-surface/swipe-boundary", test_swipe_boundary);
++  g_test_add_func ("/pos/osk-input-surface/swipe-layout", test_swipe_layout);
++
++  g_test_add_func ("/pos/osk-input-surface/swipe-purpose", test_swipe_purpose);
++
+   ret = g_test_run ();
+ 
+   pos_uninit ();
+diff --git a/tests/test-osk-widget.c b/tests/test-osk-widget.c
+index a585985..3c1c3a3 100644
+--- a/tests/test-osk-widget.c
++++ b/tests/test-osk-widget.c
+@@ -148,6 +148,478 @@ test_switch_layer (void)
+ }
+ 
+ 
++typedef struct {
++  GtkWidget *window;
++  PosOskWidget *osk;
++  GString *typed;
++  guint swipes;
++  guint capitalization;
++  PosOskWidgetLayer layer_on_swipe;
++  GVariant *trace;
++  GVariant *keys;
++} SwipeFixture;
++
++
++static void
++record_key (PosOskWidget *osk, const char *symbol, SwipeFixture *fixture)
++{
++  g_string_append (fixture->typed, symbol);
++}
++
++
++static void
++record_swipe (PosOskWidget *osk, GVariant *trace, GVariant *keys, SwipeFixture *fixture)
++{
++  fixture->swipes++;
++  fixture->capitalization = pos_osk_widget_get_swipe_capitalization (osk);
++  fixture->layer_on_swipe = pos_osk_widget_get_layer (osk);
++  g_clear_pointer (&fixture->trace, g_variant_unref);
++  g_clear_pointer (&fixture->keys, g_variant_unref);
++  fixture->trace = g_variant_ref (trace);
++  fixture->keys = g_variant_ref (keys);
++}
++
++
++static void
++swipe_setup (SwipeFixture *fixture, gconstpointer unused)
++{
++  GdkRectangle allocation = {0, 0, 360, 208};
++
++  fixture->window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
++  fixture->osk = pos_osk_widget_new (PHOSH_OSK_FEATURE_KEY_DRAG);
++  g_object_set (gtk_widget_get_settings (GTK_WIDGET (fixture->osk)),
++                "gtk-dnd-drag-threshold", 8, "gtk-long-press-time", 500, NULL);
++  fixture->typed = g_string_new (NULL);
++  g_assert_true (pos_osk_widget_set_layout (fixture->osk, "us", "us", "English (US)", "us", NULL, NULL));
++  gtk_container_add (GTK_CONTAINER (fixture->window), GTK_WIDGET (fixture->osk));
++  gtk_widget_show_all (fixture->window);
++  pos_osk_widget_size_allocate (GTK_WIDGET (fixture->osk), &allocation);
++  pos_osk_widget_set_swipe_enabled (fixture->osk, TRUE);
++  g_signal_connect (fixture->osk, "key-symbol", G_CALLBACK (record_key), fixture);
++  g_signal_connect (fixture->osk, "swipe", G_CALLBACK (record_swipe), fixture);
++}
++
++
++static void
++swipe_teardown (SwipeFixture *fixture, gconstpointer unused)
++{
++  gtk_widget_destroy (fixture->window);
++  g_clear_pointer (&fixture->trace, g_variant_unref);
++  g_clear_pointer (&fixture->keys, g_variant_unref);
++  g_string_free (fixture->typed, TRUE);
++}
++
++
++static void
++key_center (SwipeFixture *fixture, const char *symbol, double *x, double *y)
++{
++  PosOskWidget *osk = fixture->osk;
++  PosOskWidgetKeyboardLayer *layer = pos_osk_widget_get_current_layer (osk);
++
++  for (guint r = 0; r < layer->n_rows; r++) {
++    PosOskWidgetRow *row = pos_osk_widget_get_row (osk, r);
++    for (guint k = 0; k < row->keys->len; k++) {
++      PosOskKey *key = pos_osk_widget_row_get_key (row, k);
++      const GdkRectangle *box = pos_osk_key_get_box (key);
++
++      if (g_strcmp0 (symbol, pos_osk_key_get_symbol (key)))
++        continue;
++      *x = box->x + layer->offset_x + box->width / 2.0;
++      *y = box->y + box->height / 2.0;
++      return;
++    }
++  }
++  g_assert_not_reached ();
++}
++
++
++static void
++pointer_event (SwipeFixture *fixture, GdkEventType type, const char *symbol, guint32 time)
++{
++  double x, y;
++
++  key_center (fixture, symbol, &x, &y);
++  if (type == GDK_MOTION_NOTIFY) {
++    GdkEventMotion event = {.type = type, .x = x, .y = y, .time = time, .state = GDK_BUTTON1_MASK};
++    pos_osk_widget_motion_notify_event (GTK_WIDGET (fixture->osk), &event);
++  } else {
++    GdkEventButton event = {.type = type, .x = x, .y = y, .time = time, .button = 1};
++    if (type == GDK_BUTTON_PRESS)
++      pos_osk_widget_button_press_event (GTK_WIDGET (fixture->osk), &event);
++    else
++      pos_osk_widget_button_release_event (GTK_WIDGET (fixture->osk), &event);
++  }
++}
++
++
++static void
++touch_event (SwipeFixture *fixture, GdkEventType type, guint contact, const char *symbol, guint32 time)
++{
++  GdkEventTouch event = {.type = type, .time = time, .sequence = GUINT_TO_POINTER (contact)};
++
++  key_center (fixture, symbol, &event.x, &event.y);
++  pos_osk_widget_touch_event (GTK_WIDGET (fixture->osk), &event);
++}
++
++
++static void
++test_swipe_pointer (SwipeFixture *fixture, gconstpointer unused)
++{
++  double x, y;
++  guint32 time;
++
++  pointer_event (fixture, GDK_BUTTON_PRESS, "h", 100);
++  pointer_event (fixture, GDK_BUTTON_RELEASE, "h", 150);
++  g_assert_cmpstr (fixture->typed->str, ==, "h");
++  g_assert_cmpuint (fixture->swipes, ==, 0);
++  pointer_event (fixture, GDK_BUTTON_PRESS, "h", 200);
++  pointer_event (fixture, GDK_MOTION_NOTIFY, "e", 250);
++  pointer_event (fixture, GDK_MOTION_NOTIFY, "l", 300);
++  pointer_event (fixture, GDK_BUTTON_RELEASE, "o", 350);
++  g_assert_cmpuint (fixture->swipes, ==, 1);
++  g_assert_cmpstr (fixture->typed->str, ==, "h");
++  g_assert_cmpuint (g_variant_n_children (fixture->trace), ==, 4);
++  g_assert_cmpuint (g_variant_n_children (fixture->keys), ==, 26);
++  g_variant_get_child (fixture->trace, 0, "(ddu)", &x, &y, &time);
++  g_assert_cmpuint (time, ==, 0);
++  g_assert_cmpstr (pos_osk_key_get_symbol (pos_osk_widget_locate_key (fixture->osk, x, y)), ==, "h");
++  g_variant_get_child (fixture->trace, 3, "(ddu)", &x, &y, &time);
++  g_assert_cmpuint (time, ==, 150);
++  g_assert_nonnull (fixture->osk->swipe_points);
++  g_assert_cmpuint (fixture->osk->trail_tick, !=, 0);
++}
++
++
++static void
++test_swipe_touch (SwipeFixture *fixture, gconstpointer unused)
++{
++  touch_event (fixture, GDK_TOUCH_BEGIN, 1, "h", 100);
++  touch_event (fixture, GDK_TOUCH_UPDATE, 1, "e", 150);
++  touch_event (fixture, GDK_TOUCH_END, 1, "l", 200);
++  g_assert_cmpuint (fixture->swipes, ==, 1);
++  g_assert_cmpstr (fixture->typed->str, ==, "");
++  touch_event (fixture, GDK_TOUCH_BEGIN, 1, "h", 300);
++  touch_event (fixture, GDK_TOUCH_UPDATE, 1, "e", 350);
++  touch_event (fixture, GDK_TOUCH_BEGIN, 2, "l", 375);
++  g_assert_true (fixture->osk->swipe_blocked);
++  g_assert_cmpuint (fixture->osk->trail_tick, ==, 0);
++  touch_event (fixture, GDK_TOUCH_END, 1, "e", 400);
++  touch_event (fixture, GDK_TOUCH_END, 2, "l", 450);
++  g_assert_false (fixture->osk->swipe_blocked);
++  g_assert_cmpuint (fixture->swipes, ==, 1);
++  g_assert_cmpstr (fixture->typed->str, ==, "");
++  touch_event (fixture, GDK_TOUCH_BEGIN, 1, "h", 500);
++  touch_event (fixture, GDK_TOUCH_END, 1, "h", 550);
++  g_assert_cmpstr (fixture->typed->str, ==, "h");
++}
++
++
++static void
++test_swipe_cancel_event (SwipeFixture *fixture, gconstpointer unused)
++{
++  touch_event (fixture, GDK_TOUCH_BEGIN, 1, "h", 100);
++  touch_event (fixture, GDK_TOUCH_UPDATE, 1, "e", 150);
++  touch_event (fixture, GDK_TOUCH_CANCEL, 1, "e", 200);
++  g_assert_cmpuint (fixture->swipes, ==, 0);
++  g_assert_cmpstr (fixture->typed->str, ==, "");
++  g_assert_false (pos_osk_widget_swipe_in_progress (fixture->osk));
++  g_assert_cmpuint (fixture->osk->swipe_points->len, ==, 0);
++  g_assert_cmpuint (fixture->osk->trail_tick, ==, 0);
++}
++
++
++static void
++test_swipe_lifecycle (SwipeFixture *fixture, gconstpointer unused)
++{
++  GdkRectangle allocation = {0, 0, 400, 208};
++
++  pointer_event (fixture, GDK_BUTTON_PRESS, "h", 100);
++  pointer_event (fixture, GDK_MOTION_NOTIFY, "e", 150);
++  pos_osk_widget_set_swipe_enabled (fixture->osk, FALSE);
++  pointer_event (fixture, GDK_BUTTON_RELEASE, "e", 200);
++  g_assert_cmpuint (fixture->osk->trail_tick, ==, 0);
++  pos_osk_widget_set_swipe_enabled (fixture->osk, TRUE);
++  pointer_event (fixture, GDK_BUTTON_PRESS, "h", 300);
++  pointer_event (fixture, GDK_MOTION_NOTIFY, "e", 350);
++  pos_osk_widget_size_allocate (GTK_WIDGET (fixture->osk), &allocation);
++  pointer_event (fixture, GDK_BUTTON_RELEASE, "e", 400);
++  g_assert_cmpuint (fixture->osk->swipe_points->len, ==, 0);
++  pointer_event (fixture, GDK_BUTTON_PRESS, "h", 500);
++  pointer_event (fixture, GDK_MOTION_NOTIFY, "e", 550);
++  pos_osk_widget_set_layer (fixture->osk, POS_OSK_WIDGET_LAYER_CAPS);
++  pos_osk_widget_set_layer (fixture->osk, POS_OSK_WIDGET_LAYER_NORMAL);
++  pointer_event (fixture, GDK_BUTTON_RELEASE, "e", 600);
++  pointer_event (fixture, GDK_BUTTON_PRESS, "h", 700);
++  pointer_event (fixture, GDK_MOTION_NOTIFY, "e", 750);
++  gtk_widget_hide (GTK_WIDGET (fixture->osk));
++  g_assert_cmpuint (fixture->osk->trail_tick, ==, 0);
++  g_assert_cmpuint (fixture->osk->swipe_points->len, ==, 0);
++  g_assert_cmpuint (fixture->swipes, ==, 0);
++  g_assert_cmpstr (fixture->typed->str, ==, "");
++}
++
++
++static void
++test_swipe_fade (SwipeFixture *fixture, gconstpointer unused)
++{
++  gint64 now = g_get_monotonic_time ();
++  SwipePoint point = {.drawn_at = now};
++
++  g_assert_cmpfloat_with_epsilon (swipe_opacity (&point, now), 1.0, 0.0001);
++  g_assert_cmpfloat_with_epsilon (swipe_opacity (&point, now + 750000), 0.5, 0.0001);
++  g_assert_cmpfloat_with_epsilon (swipe_opacity (&point, now + 1500000), 0.0, 0.0001);
++  pointer_event (fixture, GDK_BUTTON_PRESS, "h", 100);
++  pointer_event (fixture, GDK_MOTION_NOTIFY, "e", 150);
++  pointer_event (fixture, GDK_BUTTON_RELEASE, "l", 200);
++  g_assert_true (swipe_trail_alive (fixture->osk, g_get_monotonic_time ()));
++  for (guint i = 0; i < fixture->osk->swipe_points->len; i++)
++    g_array_index (fixture->osk->swipe_points, SwipePoint, i).drawn_at = now - 1600000;
++  g_assert_false (swipe_trail_alive (fixture->osk, g_get_monotonic_time ()));
++  gtk_widget_remove_tick_callback (GTK_WIDGET (fixture->osk), fixture->osk->trail_tick);
++  g_assert_false (swipe_tick (GTK_WIDGET (fixture->osk), NULL, NULL));
++  g_assert_cmpuint (fixture->osk->trail_tick, ==, 0);
++  g_assert_cmpuint (fixture->osk->swipe_points->len, ==, 0);
++}
++
++
++static void
++test_swipe_limits (SwipeFixture *fixture, gconstpointer unused)
++{
++  pointer_event (fixture, GDK_BUTTON_PRESS, "h", 100);
++  pointer_event (fixture, GDK_MOTION_NOTIFY, "e", 10200);
++  pointer_event (fixture, GDK_BUTTON_RELEASE, "l", 10250);
++  g_assert_cmpuint (fixture->swipes, ==, 0);
++  g_assert_cmpstr (fixture->typed->str, ==, "");
++  pointer_event (fixture, GDK_BUTTON_PRESS, "h", 11000);
++  for (guint i = 1; i <= SWIPE_MAX_POINTS + 1; i++)
++    pointer_event (fixture, GDK_MOTION_NOTIFY, i % 2 ? "e" : "l", 11000 + i);
++  pointer_event (fixture, GDK_BUTTON_RELEASE, "l", 12000);
++  g_assert_cmpuint (fixture->swipes, ==, 0);
++  g_assert_cmpuint (fixture->osk->swipe_points->len, ==, 0);
++  g_assert_cmpstr (fixture->typed->str, ==, "");
++}
++
++
++static void
++test_swipe_long_press (SwipeFixture *fixture, gconstpointer unused)
++{
++  double x, y;
++
++  pointer_event (fixture, GDK_BUTTON_PRESS, POS_OSK_SYMBOL_SPACE, 100);
++  key_center (fixture, POS_OSK_SYMBOL_SPACE, &x, &y);
++  on_long_pressed (GTK_GESTURE_LONG_PRESS (fixture->osk->long_press), x, y, fixture->osk);
++  g_assert_cmpint (pos_osk_widget_get_mode (fixture->osk), ==, POS_OSK_WIDGET_MODE_CURSOR);
++  g_assert_false (pos_osk_widget_swipe_in_progress (fixture->osk));
++  pointer_event (fixture, GDK_BUTTON_RELEASE, POS_OSK_SYMBOL_SPACE, 500);
++  g_assert_cmpint (pos_osk_widget_get_mode (fixture->osk), ==, POS_OSK_WIDGET_MODE_KEYBOARD);
++  pointer_event (fixture, GDK_BUTTON_PRESS, "e", 600);
++  key_center (fixture, "e", &x, &y);
++  on_long_pressed (GTK_GESTURE_LONG_PRESS (fixture->osk->long_press), x, y, fixture->osk);
++  g_assert_false (pos_osk_widget_swipe_in_progress (fixture->osk));
++  g_assert_nonnull (fixture->osk->char_popup);
++  g_assert_cmpuint (fixture->swipes, ==, 0);
++  g_assert_cmpstr (fixture->typed->str, ==, "");
++}
++
++
++/* Feed the public GTK dispatch entry point so capture-phase controllers,
++ * pointer-emulating contacts, event coordinates and real timeout callbacks
++ * participate. Calling the widget vfunc directly cannot exercise those. */
++static void
++dispatch_touch (SwipeFixture *fixture, GdkEventType type, guint contact,
++                double x, double y, guint32 time, gboolean emulating_pointer)
++{
++  g_autoptr (GdkEvent) event = gdk_event_new (type);
++  GdkDevice *pointer = gdk_seat_get_pointer (gdk_display_get_default_seat (gdk_display_get_default ()));
++  GdkWindow *window = gtk_widget_get_window (GTK_WIDGET (fixture->osk));
++  int root_x, root_y;
++
++  gdk_window_get_origin (window, &root_x, &root_y);
++  event->touch.window = g_object_ref (window);
++  event->touch.sequence = GUINT_TO_POINTER (contact);
++  event->touch.time = time;
++  event->touch.x = x;
++  event->touch.y = y;
++  event->touch.x_root = root_x + x;
++  event->touch.y_root = root_y + y;
++  event->touch.emulating_pointer = emulating_pointer;
++  gdk_event_set_device (event, pointer);
++  gdk_event_set_source_device (event, pointer);
++  gtk_main_do_event (event);
++}
++
++
++static void
++spin_main (guint milliseconds)
++{
++  gint64 deadline = g_get_monotonic_time () + milliseconds * G_TIME_SPAN_MILLISECOND;
++
++  do {
++    while (g_main_context_iteration (NULL, FALSE))
++      ;
++    g_usleep (1000);
++  } while (g_get_monotonic_time () < deadline);
++}
++
++
++static void
++test_swipe_dispatch_quick (SwipeFixture *fixture, gconstpointer unused)
++{
++  double x, y, end_x, end_y;
++  g_autoptr (GtkGesture) ancestor_swipe = gtk_gesture_swipe_new (fixture->window);
++
++  gtk_gesture_single_set_touch_only (GTK_GESTURE_SINGLE (ancestor_swipe), TRUE);
++  gtk_event_controller_set_propagation_phase (GTK_EVENT_CONTROLLER (ancestor_swipe), GTK_PHASE_CAPTURE);
++  g_object_set (fixture->osk, "features", PHOSH_OSK_FEATURE_KEY_DRAG | PHOSH_OSK_FEATURE_KEY_INDICATOR, NULL);
++  spin_main (30);
++  key_center (fixture, "e", &x, &y);
++  key_center (fixture, "h", &end_x, &end_y);
++  dispatch_touch (fixture, GDK_TOUCH_BEGIN, 1, x, y, 100, TRUE);
++  g_assert_true (fixture->osk->swipe_pending);
++  g_assert_true (gtk_gesture_is_active (GTK_GESTURE (fixture->osk->long_press)));
++  g_assert_true (gtk_gesture_is_active (ancestor_swipe));
++  dispatch_touch (fixture, GDK_TOUCH_UPDATE, 1, x + 8, y, 104, TRUE);
++  g_assert_true (fixture->osk->swipe_pending);
++  dispatch_touch (fixture, GDK_TOUCH_UPDATE, 1, x + 9, y, 108, TRUE);
++  g_assert_true (fixture->osk->swiping);
++  g_assert_null (fixture->osk->current);
++  spin_main (350);
++  g_assert_null (fixture->osk->char_popup);
++  dispatch_touch (fixture, GDK_TOUCH_END, 1, end_x, end_y, 460, TRUE);
++  g_assert_cmpuint (fixture->swipes, ==, 1);
++  g_assert_cmpstr (fixture->typed->str, ==, "");
++  g_assert_null (fixture->osk->char_popup);
++}
++
++
++static void
++test_swipe_dispatch_hold (SwipeFixture *fixture, gconstpointer unused)
++{
++  double x, y;
++
++  spin_main (30);
++  key_center (fixture, "e", &x, &y);
++  dispatch_touch (fixture, GDK_TOUCH_BEGIN, 1, x, y, 100, TRUE);
++  g_assert_true (fixture->osk->swipe_pending);
++  dispatch_touch (fixture, GDK_TOUCH_UPDATE, 1, x + 3, y + 3, 108, TRUE);
++  g_assert_false (fixture->osk->swiping);
++  spin_main (350);
++  g_assert_nonnull (fixture->osk->char_popup);
++  dispatch_touch (fixture, GDK_TOUCH_END, 1, x, y, 500, TRUE);
++  g_assert_cmpuint (fixture->swipes, ==, 0);
++  g_assert_cmpstr (fixture->typed->str, ==, "");
++}
++
++
++static void
++test_swipe_dispatch_tap (SwipeFixture *fixture, gconstpointer unused)
++{
++  double x, y;
++
++  spin_main (30);
++  key_center (fixture, "e", &x, &y);
++  /* Exercise both primary pointer-emulating and other touch sequences. */
++  for (guint i = 0; i < 2; i++) {
++    dispatch_touch (fixture, GDK_TOUCH_BEGIN, i + 1, x, y, 100 + i * 30, i == 0);
++    dispatch_touch (fixture, GDK_TOUCH_UPDATE, i + 1, x + 3, y + 3, 108 + i * 30, i == 0);
++    dispatch_touch (fixture, GDK_TOUCH_END, i + 1, x + 3, y + 3, 116 + i * 30, i == 0);
++  }
++  g_assert_cmpuint (fixture->swipes, ==, 0);
++  g_assert_cmpstr (fixture->typed->str, ==, "ee");
++  g_assert_false (pos_osk_widget_swipe_in_progress (fixture->osk));
++  spin_main (350);
++  g_assert_null (fixture->osk->char_popup);
++}
++
++
++static void
++test_swipe_dispatch_caps (SwipeFixture *fixture, gconstpointer unused)
++{
++  double x, y, end_x, end_y;
++
++  for (guint capitalization = 1; capitalization <= 2; capitalization++) {
++    if (capitalization == 1)
++      pos_osk_widget_set_layer (fixture->osk, POS_OSK_WIDGET_LAYER_CAPS);
++    else
++      set_caps_lock (fixture->osk, TRUE);
++    spin_main (30);
++    key_center (fixture, "E", &x, &y);
++    key_center (fixture, "H", &end_x, &end_y);
++    dispatch_touch (fixture, GDK_TOUCH_BEGIN, capitalization, x, y, 100, TRUE);
++    g_assert_true (fixture->osk->swipe_pending);
++    dispatch_touch (fixture, GDK_TOUCH_UPDATE, capitalization, x + 9, y, 108, TRUE);
++    g_assert_true (fixture->osk->swiping);
++    dispatch_touch (fixture, GDK_TOUCH_END, capitalization, end_x, end_y, 116, TRUE);
++    g_assert_cmpuint (fixture->swipes, ==, capitalization);
++    g_assert_cmpuint (fixture->capitalization, ==, capitalization);
++    g_assert_cmpint (fixture->layer_on_swipe, ==, capitalization == 1 ?
++                    POS_OSK_WIDGET_LAYER_NORMAL : POS_OSK_WIDGET_LAYER_CAPS);
++    g_assert_cmpint (fixture->osk->caps_lock, ==, capitalization == 2);
++    g_assert_cmpstr (fixture->typed->str, ==, "");
++    g_assert_cmpuint (fixture->osk->trail_tick, >, 0);
++    g_assert_cmpuint (fixture->osk->swipe_points->len, >, 1);
++    g_assert_false (pos_osk_widget_swipe_in_progress (fixture->osk));
++    g_assert_cmpuint (g_variant_n_children (fixture->keys), ==, 26);
++    for (guint i = 0; i < 26; i++) {
++      const char *label;
++      double left, top, width, height;
++
++      g_variant_get_child (fixture->keys, i, "(&sdddd)", &label, &left, &top, &width, &height);
++      g_assert_cmpuint (strlen (label), ==, 1);
++      g_assert_true (g_ascii_islower (label[0]));
++    }
++  }
++}
++
++
++static void
++test_swipe_dispatch_cancel (SwipeFixture *fixture, gconstpointer unused)
++{
++  double x, y;
++
++  spin_main (30);
++  key_center (fixture, "e", &x, &y);
++  dispatch_touch (fixture, GDK_TOUCH_BEGIN, 1, x, y, 100, TRUE);
++  dispatch_touch (fixture, GDK_TOUCH_UPDATE, 1, x + 9, y, 108, TRUE);
++  dispatch_touch (fixture, GDK_TOUCH_BEGIN, 2, x + 30, y, 116, FALSE);
++  g_assert_true (fixture->osk->swipe_blocked);
++  g_assert_cmpuint (fixture->osk->trail_tick, ==, 0);
++  dispatch_touch (fixture, GDK_TOUCH_END, 1, x + 9, y, 124, TRUE);
++  dispatch_touch (fixture, GDK_TOUCH_END, 2, x + 30, y, 132, FALSE);
++  g_assert_false (pos_osk_widget_swipe_in_progress (fixture->osk));
++  dispatch_touch (fixture, GDK_TOUCH_BEGIN, 3, x, y, 140, TRUE);
++  dispatch_touch (fixture, GDK_TOUCH_CANCEL, 3, x, y, 148, TRUE);
++  g_assert_cmpuint (fixture->swipes, ==, 0);
++  g_assert_cmpstr (fixture->typed->str, ==, "");
++  g_assert_false (pos_osk_widget_swipe_in_progress (fixture->osk));
++  spin_main (350);
++  g_assert_null (fixture->osk->char_popup);
++  dispatch_touch (fixture, GDK_TOUCH_BEGIN, 4, x, y, 600, TRUE);
++  dispatch_touch (fixture, GDK_TOUCH_END, 4, x, y, 608, TRUE);
++  g_assert_cmpstr (fixture->typed->str, ==, "e");
++}
++
++
++static void
++test_swipe_dispatch_space (SwipeFixture *fixture, gconstpointer unused)
++{
++  double x, y;
++
++  spin_main (30);
++  key_center (fixture, POS_OSK_SYMBOL_SPACE, &x, &y);
++  dispatch_touch (fixture, GDK_TOUCH_BEGIN, 1, x, y, 100, TRUE);
++  g_assert_false (fixture->osk->swipe_pending);
++  spin_main (350);
++  g_assert_cmpint (fixture->osk->mode, ==, POS_OSK_WIDGET_MODE_CURSOR);
++  dispatch_touch (fixture, GDK_TOUCH_UPDATE, 1, x + 20, y, 500, TRUE);
++  dispatch_touch (fixture, GDK_TOUCH_END, 1, x + 20, y, 508, TRUE);
++  g_assert_cmpint (fixture->osk->mode, ==, POS_OSK_WIDGET_MODE_KEYBOARD);
++  g_assert_cmpuint (fixture->swipes, ==, 0);
++  g_assert_cmpstr (fixture->typed->str, ==, "KEY_RIGHT");
++  g_assert_null (fixture->osk->char_popup);
++}
++
++
+ int
+ main (int argc, char *argv[])
+ {
+@@ -156,9 +628,27 @@ main (int argc, char *argv[])
+   gtk_test_init (&argc, &argv, NULL);
+ 
+   pos_init ();
++  gtk_icon_theme_add_resource_path (gtk_icon_theme_get_default (), "/mobi/phosh/stevia/icons");
+ 
+   g_test_add_func ("/pos/osk-widget/switch_layer", test_switch_layer);
+ 
++#define SWIPE_TEST(name, function) \
++  g_test_add ("/pos/osk-widget/swipe/" name, SwipeFixture, NULL, swipe_setup, function, swipe_teardown)
++  SWIPE_TEST ("pointer-tap", test_swipe_pointer);
++  SWIPE_TEST ("touch-multitouch", test_swipe_touch);
++  SWIPE_TEST ("touch-cancel", test_swipe_cancel_event);
++  SWIPE_TEST ("lifecycle", test_swipe_lifecycle);
++  SWIPE_TEST ("fade", test_swipe_fade);
++  SWIPE_TEST ("limits", test_swipe_limits);
++  SWIPE_TEST ("long-press", test_swipe_long_press);
++  SWIPE_TEST ("dispatch-quick", test_swipe_dispatch_quick);
++  SWIPE_TEST ("dispatch-hold", test_swipe_dispatch_hold);
++  SWIPE_TEST ("dispatch-tap", test_swipe_dispatch_tap);
++  SWIPE_TEST ("dispatch-caps", test_swipe_dispatch_caps);
++  SWIPE_TEST ("dispatch-cancel", test_swipe_dispatch_cancel);
++  SWIPE_TEST ("dispatch-space", test_swipe_dispatch_space);
++#undef SWIPE_TEST
++
+   ret = g_test_run ();
+ 
+   pos_uninit ();
