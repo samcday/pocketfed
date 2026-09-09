@@ -1,0 +1,58 @@
+{
+  "status": "local-candidate-not-published",
+  "date": "2026-09-09",
+  "source": {
+    "version": "2.3.0",
+    "commit": "c2fcf5e4b21c712d54e35a11da2ad9ad134fb821",
+    "archive_sha256": "f3e92f08d10121cf3633cce66853ba1260eb5daa35c594f903cc2720fc11f9ee",
+    "patch_sha256": "56e0d14a0458d963d3c767b8b238c2e9b2e8191196b21f039af5ce7bc652061b"
+  },
+  "pocketfed_baseline": "01c0b7cfc0242148e67bcb3a1363decadbeef75e",
+  "version_release": "2.3.0-1.1.pocketfed.fc46",
+  "local_builds": {
+    "x86_64": {
+      "container": "fefb40c0d880bb32f739669c6d4ddcb7eae7142b0aeaa1819aa216558c189a31",
+      "rpm_sha256": "445258ff4e296e5bcbc5df17a892a40e310b29bcf8c64878b31a46e27c18ba01",
+      "srpm_sha256": "51114ea9a16e1859d7b1bf6976ef25c9593882e8d912a61a0fb1176bcba4c921",
+      "rpmbuild_exit": 0,
+      "ctest_groups_passed": 6
+    },
+    "aarch64": {
+      "container": "1065cc1b593b4b62d300b24a7a5c0915118050ab98109b0001a46a8cc5addf34",
+      "execution": "emulated ARM64 container on x86_64 host",
+      "rpm_sha256": "9c33a60144cba2760245ceb87eae5b91576f3f85cdf7ce31fb4745ac8b80c98c",
+      "srpm_sha256": "bf897b94a1f8a84fac844cab03db18dc34d77e2f11eb48f21e1ada2778f71776",
+      "rpmbuild_exit": 0,
+      "ctest_groups_passed": 6
+    }
+  },
+  "regression_cases": {
+    "qmi": 15,
+    "tls": 8,
+    "inventory_cleanup": 3,
+    "http_status": 1
+  },
+  "sanitizers": "QMI, TLS, ES9+ status and inventory cleanup passed native ASan/UBSan checks",
+  "packaging_checks": [
+    "archive and patch hashes",
+    "zero-fuzz patch application",
+    "bundled cJSON removed",
+    "all requested backends present",
+    "exact version",
+    "system cJSON linked",
+    "installed CLI has no RPATH/RUNPATH"
+  ],
+  "copr": null,
+  "hardware": {
+    "installed": false,
+    "profile_inventory": "not run",
+    "carrier_operations": false,
+    "version_only_smoke_test": "passed using private temporary CLI and libraries"
+  },
+  "limitations": [
+    "ModemManager coordination is external to lpac",
+    "Existing void teardown cannot propagate restoration failure to CLI exit status; independent readback required",
+    "SIGKILL/power loss cannot execute cleanup",
+    "No profile, carrier, LTE, VoLTE, SMS, reboot or suspend acceptance yet"
+  ]
+}
