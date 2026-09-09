@@ -1,0 +1,69 @@
+{
+  "build_id": 10964090,
+  "url": "https://copr.fedorainfracloud.org/coprs/build/10964090",
+  "project": "samcday/pocketfed",
+  "candidate_commit": "c6a46a367d4c6aac65dcf85483c97363c13ab2d1",
+  "candidate_branch": "codex/lpac-esim-enablement",
+  "uploaded_srpm_sha256": "455690aaed90ad946de7f901c53fb183d93a3163e4177d0a65cdf5f9c48e39f7",
+  "source_commit": "c2fcf5e4b21c712d54e35a11da2ad9ad134fb821",
+  "patch_sha256": "160bd281b402a336c35c934f3870222bf175c646141bd4f1bddbee6d1c048f98",
+  "signing_key_fingerprint": "F247F3B726A312E90D74BB76E220B1E0AE59FCB5",
+  "scope": "Version 1.2: privately scoped production GSMA TLS root and default/explicit CAPATH tests; no global trust-store or SIM-policy change",
+  "root": {
+    "source_commit": "79723e8bbafdd2d3ef711af89692d3cac87b26f6",
+    "source_path": "hermes/certs/prod/gsma-ci.pem",
+    "pem_sha256": "01374ed6bc89ffa446d9dd38d52a8280624c5add811ba9dee7bea0bdc14b26e9",
+    "certificate_sha256": "5E3E91FD454327C3AF5D32A7A73BBC59FE43AA7D85FD32D5DB44423F80A56BB3",
+    "installed_path": "/usr/share/lpac/certs/gsma-ci.pem",
+    "hash_link": "dbb5f6cb.0 -> gsma-ci.pem",
+    "automatic_revocation_enforcement": false
+  },
+  "targets": [
+    {
+      "chroot": "fedora-rawhide-aarch64",
+      "state": "succeeded",
+      "nevra": "lpac-2.3.0-1.2.pocketfed.fc46.aarch64",
+      "ctest_groups_passed": 6,
+      "rpm_sha256": "a59a299da537a0e010eb589eaef04bee9039b475f3e4207bd65fa200b40013cc",
+      "builder_live_log_gz_sha256": "b2ca0fe4dd05bd491c19b4fe9eac75fd301a4b16a91e0abbdff267aa38fdd903",
+      "signature": "digests signatures OK"
+    },
+    {
+      "chroot": "fedora-rawhide-x86_64",
+      "state": "succeeded",
+      "nevra": "lpac-2.3.0-1.2.pocketfed.fc46.x86_64",
+      "ctest_groups_passed": 6,
+      "rpm_sha256": "109a3ebfa2b2495e25c4e9daa77ee734f6a342b288c3be0565f553c80aa5194d",
+      "builder_live_log_gz_sha256": "07c4fc335a99768dd5c1e9e3c0cf7000614cde7d0ea893b3ae0ed34fdc6bf04e",
+      "signature": "digests signatures OK"
+    },
+    {
+      "chroot": "fedora-45-aarch64",
+      "state": "succeeded",
+      "nevra": "lpac-2.3.0-1.2.pocketfed.fc45.aarch64",
+      "ctest_groups_passed": 6,
+      "rpm_sha256": "7280d6f82013c92c469bf03695cb840ca04e5dd2ecb421326a16416366ed8311",
+      "builder_live_log_gz_sha256": "f6d80a196de4b833ee4289ce64f558e04dd045ebe930c0fc9070c461406ef80c",
+      "signature": "digests signatures OK"
+    }
+  ],
+  "regression_cases": {
+    "qmi": 15,
+    "tls": 19,
+    "inventory_cleanup": 3,
+    "http_status": 1
+  },
+  "local_verification": {
+    "native_and_emulated_arm_source_builds": "six CTest groups passed on both",
+    "native_and_emulated_arm_rpm_builds": "six CTest groups and packaging checks passed on both",
+    "tls_negative_control": "Probe without the compiled test CA directory fails exactly the two default-directory acceptance cases; other 17 pass",
+    "signed_arm_image_verifier": "Exact 1.2 ARM RPM installed in an offline disposable ARM container passes the candidate image verifier block; wrong version, missing backend, wrong root hash and wrong hash-link negative controls all reject",
+    "sanitizers": "Not rerun for the 1.2 delta; previous 1.1 evidence is historical"
+  },
+  "checks_evidence": "All three full builder-live.log.gz files show six passing CTest groups and certificate fingerprint/self-signature/hash-link checks. Individual successful TLS cases are suppressed by CTest; the pinned suite contains 19 cases.",
+  "hardware": {
+    "version_1_2_installed_on_phone": false,
+    "profile_download": "Earlier signed 1.1 payload plus this separately scoped root downloaded and enabled a real test profile; this is not installed-image acceptance of 1.2"
+  },
+  "historical_evidence": "build.json and local-verification.json describe 1.1 and are retained unchanged"
+}

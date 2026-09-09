@@ -34,17 +34,21 @@ rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager |
 # Enumerate compiled capabilities with stdio backends: no card, modem, D-Bus,
 # PC/SC daemon or provisioning server is contacted during image verification.
 test "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' lpac)" = \
-    lpac-2.3.0-1.1.pocketfed.fc46.aarch64
+    lpac-2.3.0-1.2.pocketfed.fc46.aarch64
 python3 -c '
-import json, os, subprocess
+import hashlib, json, os, subprocess
+from pathlib import Path
 env = dict(os.environ, LPAC_APDU="stdio", LPAC_HTTP="stdio")
 def query(*args):
     return json.loads(subprocess.check_output(
         ["/usr/bin/lpac", *args], env=env, timeout=10))["payload"]
-assert query("version")["data"] == "v2.3.0-1.1.pocketfed.fc46", "lpac version mismatch"
+assert query("version")["data"] == "v2.3.0-1.2.pocketfed.fc46", "lpac version mismatch"
 drivers = query("driver", "list")
 assert {"qmi_qrtr", "qmi", "mbim", "at", "pcsc"} <= set(drivers["LPAC_APDU"]), "lpac APDU backend missing"
 assert "curl" in drivers["LPAC_HTTP"], "lpac curl backend missing"
+certs = Path("/usr/share/lpac/certs")
+assert hashlib.sha256((certs / "gsma-ci.pem").read_bytes()).hexdigest() == "01374ed6bc89ffa446d9dd38d52a8280624c5add811ba9dee7bea0bdc14b26e9", "lpac production root mismatch"
+assert os.readlink(certs / "dbb5f6cb.0") == "gsma-ci.pem", "lpac hashed trust link mismatch"
 '
 
 test "$(rpm -q --qf '%{VERSION}\n' 81voltd)" = 1.2.0
