@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Run on a systemd host, or inside the image to verify its installed policy.
+set -euo pipefail
+
+policy=${1:-$(dirname "${BASH_SOURCE[0]:-}")/mkosi.extra/usr/lib/systemd/system/systemd-firstboot.service.d/50-pocketfed-noninteractive.conf}
+if [[ $# == 0 && ! -f "$policy" ]]; then
+    policy=/usr/lib/systemd/system/systemd-firstboot.service.d/50-pocketfed-noninteractive.conf
+fi
+
+fail() {
+    printf 'test-firstboot: %s\n' "$*" >&2
+    exit 1
+}
+
+[[ -f "$policy" ]] || fail "missing firstboot policy: $policy"
+command -v timeout >/dev/null || fail 'timeout is required'
+
+# Execute the command from the shipped drop-in so a reintroduced prompt or
+# changed executable is exercised against the fresh configuration fixtures.
+mapfile -t commands < <(sed -n 's/^ExecStart=//p' "$policy")
+[[ ${#commands[@]} == 2 && -z ${commands[0]} ]] ||
+    fail 'drop-in must clear the vendor ExecStart and supply one command'
+read -r -a firstboot_command <<<"${commands[1]}"
+[[ ${firstboot_command[0]} == /usr/bin/systemd-firstboot ]] ||
+    fail 'drop-in must retain systemd-firstboot for credential import'
+[[ -x ${firstboot_command[0]} ]] || fail 'systemd-firstboot is required'
+
+work=$(mktemp -d /tmp/pocketfed-firstboot.XXXXXX)
+trap 'rm -rf -- "$work"' EXIT
+mkdir "$work/empty-credentials" "$work/credentials"
+
+run_firstboot() {
+    local root=$1 credentials=$2 label=$3
+    if ! CREDENTIALS_DIRECTORY="$credentials" \
+        timeout --foreground 10 "${firstboot_command[@]}" --root="$root" \
+            </dev/null >"$work/$label.stdout" 2>"$work/$label.stderr"; then
+        cat "$work/$label.stdout" "$work/$label.stderr" >&2
+        fail "$label failed or waited for console input"
+    fi
+    if [[ -s "$work/$label.stdout" ]]; then
+        cat "$work/$label.stdout" >&2
+        fail "$label unexpectedly wrote to the console"
+    fi
+}
+
+assert_absent() {
+    [[ ! -e "$1" && ! -L "$1" ]] || fail "unexpected configuration: $1"
+}
+
+# A factory image has no personal settings and no terminal. It must get to the
+# greeter without creating credentials or preempting later touch setup.
+fresh=$work/fresh
+mkdir -p "$fresh/etc"
+printf 'uninitialized\n' >"$fresh/etc/machine-id"
+run_firstboot "$fresh" "$work/empty-credentials" fresh
+for file in locale.conf localtime vconsole.conf hostname passwd shadow; do
+    assert_absent "$fresh/etc/$file"
+done
+[[ $(<"$fresh/etc/machine-id") == uninitialized ]] ||
+    fail 'firstboot changed the machine-id lifecycle'
+
+# Match fastboop's four personalization credentials. Credentials are read by
+# the real systemd-firstboot binary even though no --prompt-* flags are set.
+printf %s en_US.UTF-8 >"$work/credentials/firstboot.locale"
+printf %s en_AU.UTF-8 >"$work/credentials/firstboot.locale-messages"
+printf %s us >"$work/credentials/firstboot.keymap"
+printf %s Australia/Sydney >"$work/credentials/firstboot.timezone"
+run_firstboot "$fresh" "$work/credentials" personalized
+grep -Fxq 'LANG=en_US.UTF-8' "$fresh/etc/locale.conf" || fail 'locale credential was lost'
+grep -Fxq 'LC_MESSAGES=en_AU.UTF-8' "$fresh/etc/locale.conf" || fail 'message locale credential was lost'
+grep -Fxq 'KEYMAP=us' "$fresh/etc/vconsole.conf" || fail 'keymap credential was lost'
+[[ $(readlink "$fresh/etc/localtime") == ../usr/share/zoneinfo/Australia/Sydney ]] ||
+    fail 'timezone credential was lost'
+assert_absent "$fresh/etc/passwd"
+assert_absent "$fresh/etc/shadow"
+
+# Later boots/provisioning must preserve settings selected by the owner,
+# including a locked root account, despite different incoming credentials.
+printf 'LANG=en_GB.UTF-8\n' >"$fresh/etc/locale.conf"
+printf 'KEYMAP=gb\n' >"$fresh/etc/vconsole.conf"
+ln -snf ../usr/share/zoneinfo/Europe/London "$fresh/etc/localtime"
+printf 'pocketfed-owner\n' >"$fresh/etc/hostname"
+printf 'root:x:0:0:root:/root:/bin/bash\n' >"$fresh/etc/passwd"
+printf 'root:!*:1:0:99999:7:::\n' >"$fresh/etc/shadow"
+sha256sum "$fresh/etc/"{locale.conf,vconsole.conf,hostname,passwd,shadow,machine-id} \
+    >"$work/configured-before.sha256"
+run_firstboot "$fresh" "$work/credentials" configured
+sha256sum --check --status "$work/configured-before.sha256" ||
+    fail 'existing owner configuration was changed'
+[[ $(readlink "$fresh/etc/localtime") == ../usr/share/zoneinfo/Europe/London ]] ||
+    fail 'existing timezone was changed'
+
+# Partial personalization must also finish without prompting for missing keys.
+partial=$work/partial
+mkdir -p "$partial/etc" "$work/partial-credentials"
+cp "$work/credentials/firstboot.locale" "$work/partial-credentials/"
+run_firstboot "$partial" "$work/partial-credentials" partial
+grep -Fxq 'LANG=en_US.UTF-8' "$partial/etc/locale.conf" || fail 'partial locale credential was lost'
+assert_absent "$partial/etc/localtime"
+assert_absent "$partial/etc/vconsole.conf"
+
+printf 'PocketFed noninteractive firstboot and credential preservation verified\n'

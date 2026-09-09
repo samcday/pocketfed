@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Run inside a composed Phosh image; this does not create an account.
+set -euo pipefail
+
+rpm -q phosh-first-boot phrog systemd-udev systemd-pam
+test -x /usr/bin/phosh-first-boot
+test -x /usr/libexec/phosh-first-boot-importer
+test -x /usr/lib/systemd/systemd-homed
+test -x /usr/libexec/pocketfed-first-boot
+authselect check
+authselect is-feature-enabled with-systemd-homed
+test "$(systemctl is-enabled phrog.service)" = enabled
+test "$(systemctl is-enabled systemd-homed.service)" = enabled
+test "$(systemctl is-enabled systemd-homed-firstboot.service)" = disabled
+test "$(systemctl --global is-enabled phosh-first-boot-importer.service)" = enabled
+test "$(XDG_CURRENT_DESKTOP=Phrog:Phosh:GNOME GSETTINGS_BACKEND=memory \
+    gsettings get mobi.phosh.phrog first-run)" = "'/usr/libexec/pocketfed-first-boot'"
+
+# The persistent handoff must be writable by the greeter, including when /var
+# starts empty in a freshly installed OSTree deployment.
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/pocketfed-phrog-tmpfiles.conf \
+    /usr/lib/tmpfiles.d/phosh-first-boot.conf
+test "$(stat -c '%U:%G:%a' /var/lib/greetd/.config/dconf)" = greetd:greetd:700
+test "$(stat -c '%U:%G:%a' /var/lib/phosh-first-boot)" = greetd:greetd:755
+test -f /usr/share/polkit-1/rules.d/20-phosh-first-boot.rules
+test -f /usr/lib/systemd/system/phrog.service.d/50-pocketfed-first-boot.conf
+printf 'PocketFed graphical firstboot image integration verified\n'

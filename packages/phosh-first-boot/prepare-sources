@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Download the pinned release and vendor its locked Rust dependencies for an SRPM.
+set -euo pipefail
+umask 022
+
+if [[ $# != 1 ]]; then
+    echo "Usage: $0 OUTPUT_DIRECTORY (set CARGO to select a cargo executable)" >&2
+    exit 2
+fi
+
+package_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+mkdir -p -- "$1"
+output_dir=$(cd -- "$1" && pwd)
+source_name=phosh-first-boot-v0.1.1.tar.gz
+vendor_name=vendor-0.1.1.tar.xz
+source_url=https://gitlab.gnome.org/World/Phosh/phosh-first-boot/-/archive/v0.1.1/$source_name
+
+if [[ ! -f "$output_dir/$source_name" ]]; then
+    curl --fail --location --retry 3 "$source_url" -o "$output_dir/$source_name"
+fi
+(
+    cd -- "$output_dir"
+    awk -v name="$source_name" '$2 == name' "$package_dir/sources.sha256" | sha256sum --check -
+)
+
+work_dir=$(mktemp -d)
+trap 'rm -rf -- "$work_dir"' EXIT
+tar -xzf "$output_dir/$source_name" -C "$work_dir"
+(
+    cd -- "$work_dir/phosh-first-boot-v0.1.1"
+    patch -p1 < "$package_dir/0001-update-rust-dependencies.patch"
+    "${CARGO:-cargo}" vendor --locked --versioned-dirs "$work_dir/vendor"
+)
+tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+    -cJf "$output_dir/$vendor_name" -C "$work_dir" vendor
+(
+    cd -- "$output_dir"
+    sha256sum --check "$package_dir/sources.sha256"
+)
+cp "$package_dir"/*.spec "$package_dir"/*.patch "$package_dir/defaults.conf" \
+    "$package_dir/collect-notices.py" "$output_dir/"
+echo "Verified SRPM sources are in $output_dir"

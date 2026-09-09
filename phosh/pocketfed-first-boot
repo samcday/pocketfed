@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Account records include systemd-homed users, even before their first login.
+set -euo pipefail
+
+if ! systemctl is-active --quiet systemd-homed.service; then
+    echo 'pocketfed-first-boot: homed is unavailable; ownership cannot be checked safely' >&2
+    exit 1
+fi
+
+if ! users=$(userdbctl user --disposition=regular --json=short); then
+    echo 'pocketfed-first-boot: cannot determine whether this device has an owner' >&2
+    exit 1
+fi
+
+# Preserve pre-provisioned devices and recover if setup was interrupted after
+# creating the owner but before disabling Phrog's first-run command.
+if [[ -n "$users" ]]; then
+    # AccountsService does not discover homed records from /etc/passwd. Repair
+    # the handoff if power was lost between CreateHome and CacheUser, so Phrog
+    # can offer the existing account instead of an empty login screen.
+    names=$(jq -er '.userName | select(type == "string" and length > 0)' <<<"$users")
+    while IFS= read -r name; do
+        gdbus call --system --dest org.freedesktop.Accounts \
+            --object-path /org/freedesktop/Accounts \
+            --method org.freedesktop.Accounts.CacheUser "$name" >/dev/null
+    done <<<"$names"
+    exit 0
+fi
+
+exec /usr/bin/phosh-first-boot
