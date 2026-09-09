@@ -1,0 +1,2362 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index aca9838..06b11bf 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -7,6 +7,7 @@ project (lpac
+     LANGUAGES C)
+ set(CMAKE_C_STANDARD 99)
+ set(CMAKE_C_STANDARD_REQUIRED ON)
++include(CTest)
+ 
+ set(LPAC_CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+ list(APPEND CMAKE_MODULE_PATH ${LPAC_CMAKE_MODULE_PATH})
+@@ -65,8 +66,56 @@ if(CPACK_GENERATOR)
+     include(CPack)
+ endif()
+ 
++option(LPAC_WITH_SYSTEM_CJSON "Use the system cJSON library instead of the bundled copy" OFF)
++set(LPAC_VERSION_OVERRIDE "" CACHE STRING "Reproducible package version, overriding git describe")
++
+ add_subdirectory(cjson)
+ add_subdirectory(euicc)
+ add_subdirectory(utils)
+ add_subdirectory(driver)
+ add_subdirectory(src)
++
++if(BUILD_TESTING)
++    if(LPAC_WITH_APDU_QMI_QRTR)
++        find_package(PkgConfig REQUIRED)
++        pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
++        add_executable(qmi-test tests/qmi_test.c)
++        target_include_directories(qmi-test BEFORE PRIVATE
++            ${CMAKE_CURRENT_SOURCE_DIR}/tests/qmi_mocks
++            ${CMAKE_CURRENT_SOURCE_DIR}
++            ${CMAKE_CURRENT_SOURCE_DIR}/driver
++            ${CMAKE_CURRENT_SOURCE_DIR}/utils)
++        target_compile_definitions(qmi-test PRIVATE LPAC_WITH_APDU_QMI_QRTR)
++        target_link_libraries(qmi-test PRIVATE PkgConfig::GIO)
++        add_test(NAME qmi-lifecycle-mapping COMMAND qmi-test)
++    endif()
++
++    add_executable(http-status-test tests/http_status.c)
++    target_link_libraries(http-status-test PRIVATE euicc)
++    add_test(NAME http-status COMMAND http-status-test)
++
++    add_executable(inventory-cleanup-test
++        tests/inventory_cleanup.c
++        src/applet/chip/info.c
++        src/applet/profile/list.c)
++    target_include_directories(inventory-cleanup-test PRIVATE
++        ${CMAKE_CURRENT_SOURCE_DIR}/src
++        ${CMAKE_CURRENT_SOURCE_DIR}/utils)
++    target_compile_options(inventory-cleanup-test PRIVATE -ftrivial-auto-var-init=pattern)
++    target_link_options(inventory-cleanup-test PRIVATE
++        -Wl,--wrap=malloc,--wrap=calloc,--wrap=free)
++    target_link_libraries(inventory-cleanup-test PRIVATE euicc cjson-static)
++    add_test(NAME inventory-eid-failure COMMAND inventory-cleanup-test eid-failure)
++    add_test(NAME inventory-profile-partial-failure COMMAND inventory-cleanup-test profile-partial-failure)
++    add_test(NAME inventory-chip-success COMMAND inventory-cleanup-test chip-success)
++
++    if(LPAC_WITH_HTTP_CURL)
++        find_package(Python3 REQUIRED COMPONENTS Interpreter)
++        add_executable(http-driver-probe tests/http_driver_probe.c)
++        target_link_libraries(http-driver-probe PRIVATE euicc-drivers)
++        add_test(NAME http-tls
++            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/http_tls.py
++                    $<TARGET_FILE:http-driver-probe> -v)
++        set_tests_properties(http-tls PROPERTIES TIMEOUT 60)
++    endif()
++endif()
+diff --git a/REUSE.toml b/REUSE.toml
+index db74a67..2da9926 100644
+--- a/REUSE.toml
++++ b/REUSE.toml
+@@ -1,5 +1,10 @@
+ version = 1
+ 
++[[annotations]]
++path = ["tests/**"]
++SPDX-FileCopyrightText = "2026 PocketFed contributors"
++SPDX-License-Identifier = "MIT"
++
+ [[annotations]]
+ path = [
+     "src/**",
+diff --git a/cjson/CMakeLists.txt b/cjson/CMakeLists.txt
+index 29e3531..a7e6ca1 100644
+--- a/cjson/CMakeLists.txt
++++ b/cjson/CMakeLists.txt
+@@ -1,3 +1,12 @@
+-aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} LIB_CJSON_SRCS)
+-add_library(cjson-static STATIC ${LIB_CJSON_SRCS})
++if(LPAC_WITH_SYSTEM_CJSON)
++    find_package(PkgConfig REQUIRED)
++    pkg_check_modules(CJSON REQUIRED IMPORTED_TARGET libcjson>=1.7.15)
++    # This small lpac extension is not part of upstream cJSON.
++    add_library(cjson-static STATIC cJSON_ex.c)
++    target_link_libraries(cjson-static PUBLIC PkgConfig::CJSON)
++    target_compile_definitions(cjson-static PUBLIC LPAC_WITH_SYSTEM_CJSON)
++else()
++    aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} LIB_CJSON_SRCS)
++    add_library(cjson-static STATIC ${LIB_CJSON_SRCS})
++endif()
+ target_include_directories(cjson-static PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
+diff --git a/cjson/cJSON_ex.h b/cjson/cJSON_ex.h
+index ca9277d..0a147ae 100644
+--- a/cjson/cJSON_ex.h
++++ b/cjson/cJSON_ex.h
+@@ -1,5 +1,9 @@
+ #pragma once
+ 
++#ifdef LPAC_WITH_SYSTEM_CJSON
++#include <cJSON.h>
++#else
+ #include "cJSON.h"
++#endif
+ 
+ CJSON_PUBLIC(cJSON *) cJSON_AddStringOrNullToObject(cJSON *const object, const char *const name, const char *const string);
+diff --git a/cmake/git-version.cmake b/cmake/git-version.cmake
+index be226fd..b7f0fee 100644
+--- a/cmake/git-version.cmake
++++ b/cmake/git-version.cmake
+@@ -1,6 +1,8 @@
+ # from https://github.com/nocnokneo/cmake-git-versioning-example
+ 
+-if(GIT_EXECUTABLE)
++if(LPAC_VERSION_OVERRIDE)
++  set(LPAC_VERSION "${LPAC_VERSION_OVERRIDE}")
++elseif(GIT_EXECUTABLE)
+   get_filename_component(SRC_DIR ${SRC} DIRECTORY)
+   # Generate a git-describe version string from Git repository tags
+   execute_process(
+@@ -15,11 +17,14 @@ if(GIT_EXECUTABLE)
+   endif()
+ endif()
+ 
+-# Final fallback: Just use a bogus version string that is semantically older
+-# than anything else and spit out a warning to the developer.
++# Release archives do not contain Git metadata. Preserve their project version.
+ if(NOT DEFINED LPAC_VERSION)
+-  set(LPAC_VERSION v0.0.0-unknown)
+-  message(WARNING "Failed to determine LPAC_VERSION from Git tags. Using default version \"${LPAC_VERSION}\".")
++  if(RELEASE_VERSION)
++    set(LPAC_VERSION "${RELEASE_VERSION}")
++  else()
++    set(LPAC_VERSION v0.0.0-unknown)
++    message(WARNING "Failed to determine LPAC_VERSION from Git tags or release metadata.")
++  endif()
+ endif()
+ 
+ configure_file(${SRC} ${DST} @ONLY)
+diff --git a/driver/apdu/qmi.c b/driver/apdu/qmi.c
+index 0f87023..cc585d0 100644
+--- a/driver/apdu/qmi.c
++++ b/driver/apdu/qmi.c
+@@ -88,7 +88,7 @@ static gboolean select_sim_slot(struct qmi_data *qmi_priv) {
+     // Check if the operation was successful
+     if (!qmi_message_uim_get_slot_status_output_get_result(slot_status_output, &error)) {
+         // Some older devices do not support the GetSlotStatusRequest QMI command
+-        if (error->code == QMI_PROTOCOL_ERROR_NOT_SUPPORTED) {
++        if (g_error_matches(error, QMI_PROTOCOL_ERROR, QMI_PROTOCOL_ERROR_NOT_SUPPORTED)) {
+             return TRUE;
+         }
+         fprintf(stderr, "error: get slot status operation failed: %s\n", error->message);
+@@ -162,10 +162,12 @@ static gboolean select_sim_slot(struct qmi_data *qmi_priv) {
+ static int apdu_interface_connect(struct euicc_ctx *ctx) {
+     struct qmi_data *qmi_priv = ctx->apdu.interface->userdata;
+     g_autoptr(GError) error = NULL;
+-    QmiDevice *device = NULL;
+     QmiClient *client = NULL;
+     const char *device_path = getenv(ENV_DEVICE);
+-    GFile *file;
++    g_autoptr(GFile) file = NULL;
++
++    if (qmi_priv->context)
++        return -1;
+ 
+     if (device_path == NULL) {
+         fprintf(stderr, "No QMI device path specified!\n");
+@@ -175,34 +177,37 @@ static int apdu_interface_connect(struct euicc_ctx *ctx) {
+ 
+     qmi_priv->context = g_main_context_new();
+ 
+-    device = qmi_device_new_from_path(file, qmi_priv->context, &error);
+-    if (!device) {
++    qmi_priv->device = qmi_device_new_from_path(file, qmi_priv->context, &error);
++    if (!qmi_priv->device) {
+         fprintf(stderr, "error: create QMI device from path failed: %s\n", error->message);
+-        return -1;
++        goto fail;
+     }
+ 
+-    qmi_device_open_sync(device, QMI_DEVICE_OPEN_FLAGS_PROXY, qmi_priv->context, &error);
+-    if (error) {
++    if (!qmi_device_open_sync(qmi_priv->device, QMI_DEVICE_OPEN_FLAGS_PROXY, qmi_priv->context, &error)) {
+         fprintf(stderr, "error: open QMI device failed: %s\n", error->message);
+-        return -1;
++        goto fail;
+     }
+ 
+-    client = qmi_device_allocate_client_sync(device, qmi_priv->context, &error);
++    client = qmi_device_allocate_client_sync(qmi_priv->device, qmi_priv->context, &error);
+     if (!client) {
+         fprintf(stderr, "error: allocate QMI client failed: %s\n", error->message);
+-        return -1;
++        goto fail;
+     }
+ 
+     qmi_priv->uimClient = QMI_CLIENT_UIM(client);
+-    if (select_sim_slot(qmi_priv) < 0) {
++    if (!select_sim_slot(qmi_priv)) {
+         fprintf(stderr, "error: select SIM slot failed\n");
+-        return -1;
++        goto fail;
+     }
+ 
+     // In QMI mode, we need to keep the SIM slot set to 1, because once the
+     // configured slot becomes active, it will be assigned as slot 1.
+     qmi_priv->uimSlot = 1;
+     return 0;
++
++fail:
++    qmi_cleanup(qmi_priv);
++    return -1;
+ }
+ 
+ static int libapduinterface_init(struct euicc_apdu_interface *ifstruct) {
+@@ -211,13 +216,18 @@ static int libapduinterface_init(struct euicc_apdu_interface *ifstruct) {
+ 
+     struct qmi_data *qmi_priv;
+ 
++    memset(ifstruct, 0, sizeof(struct euicc_apdu_interface));
+     qmi_priv = calloc(1, sizeof(struct qmi_data));
+     if (!qmi_priv) {
+         fprintf(stderr, "Failed allocating memory\n");
+         return -1;
+     }
+ 
+-    memset(ifstruct, 0, sizeof(struct euicc_apdu_interface));
++    qmi_priv->lastChannelId = -1;
++    if (!qmi_parse_slot(ENV_UIM_SLOT, 1, &qmi_priv->uimSlot)) {
++        free(qmi_priv);
++        return -1;
++    }
+     ifstruct->connect = apdu_interface_connect;
+     ifstruct->disconnect = qmi_apdu_interface_disconnect;
+     ifstruct->logic_channel_open = qmi_apdu_interface_logic_channel_open;
+@@ -228,7 +238,6 @@ static int libapduinterface_init(struct euicc_apdu_interface *ifstruct) {
+      * Allow the user to select the SIM card slot via environment variable.
+      * Use the primary SIM slot if not set.
+      */
+-    qmi_priv->uimSlot = getenv_or_default(ENV_UIM_SLOT, (int)1);
+ 
+     ifstruct->userdata = qmi_priv;
+ 
+@@ -243,6 +252,7 @@ static void libapduinterface_fini(struct euicc_apdu_interface *ifstruct) {
+     qmi_cleanup(qmi_priv);
+ 
+     free(qmi_priv);
++    ifstruct->userdata = NULL;
+ }
+ 
+ const struct euicc_driver driver_apdu_qmi = {
+diff --git a/driver/apdu/qmi_common.c b/driver/apdu/qmi_common.c
+index eb39c7d..ba902b2 100644
+--- a/driver/apdu/qmi_common.c
++++ b/driver/apdu/qmi_common.c
+@@ -5,147 +5,334 @@
+ 
+ #include "qmi_common.h"
+ 
++#include <errno.h>
+ #include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
+ 
+-int qmi_apdu_interface_transmit(struct euicc_ctx *ctx, uint8_t **rx, uint32_t *rx_len, const uint8_t *tx,
+-                                uint32_t tx_len) {
+-    struct qmi_data *qmi_priv = ctx->apdu.interface->userdata;
++static const char *error_message(const GError *error) {
++    return error ? error->message : "no error details provided";
++}
++
++gboolean qmi_parse_slot(const char *name, int default_slot, int *slot) {
++    const char *value = getenv(name);
++    char *end;
++    long number;
++
++    if (!value) {
++        *slot = default_slot;
++        return TRUE;
++    }
++    /* Do not silently interpret a typo as slot 0 or truncate to guint8. */
++    if (!*value || *value < '0' || *value > '9')
++        goto invalid;
++    errno = 0;
++    number = strtol(value, &end, 10);
++    if (errno || *end || number < 1 || number > 255)
++        goto invalid;
++    *slot = (int)number;
++    return TRUE;
++
++invalid:
++    fprintf(stderr, "error: %s must be a slot number between 1 and 255\n", name);
++    return FALSE;
++}
++
++/* Only keep routing state, never subscriber identifiers or undefined logical
++ * slot values from inactive slots. Reject ambiguous mappings before mutation. */
++static GArray *read_mapping(struct qmi_data *priv, int target, gboolean *present) {
+     g_autoptr(GError) error = NULL;
+-    g_autoptr(GArray) apdu_data = NULL;
++    g_autoptr(QmiMessageUimGetSlotStatusOutput) output = NULL;
++    g_autoptr(GArray) mapping = NULL;
++    GArray *slots = NULL;
++    gboolean used[256] = {FALSE};
++
++    output = qmi_client_uim_get_slot_status_sync(priv->uimClient, priv->context, &error);
++    if (!output || !qmi_message_uim_get_slot_status_output_get_result(output, &error)
++        || !qmi_message_uim_get_slot_status_output_get_physical_slot_status(output, &slots, &error)) {
++        fprintf(stderr, "error: read complete SIM slot mapping failed: %s\n", error_message(error));
++        return NULL;
++    }
++    if (!slots || !slots->len || slots->len > 255 || target > (int)slots->len) {
++        fprintf(stderr, "error: physical slot is missing from SIM slot status\n");
++        return NULL;
++    }
++    mapping = g_array_sized_new(FALSE, FALSE, sizeof(guint8), slots->len);
++    for (guint i = 0; i < slots->len; i++) {
++        QmiPhysicalSlotStatusSlot *slot = &g_array_index(slots, QmiPhysicalSlotStatusSlot, i);
++        guint8 logical = 0;
++
++        if (slot->physical_slot_status == QMI_UIM_SLOT_STATE_ACTIVE) {
++            logical = slot->logical_slot;
++            if (!logical || used[logical]) {
++                fprintf(stderr, "error: ambiguous SIM slot mapping; refusing to switch\n");
++                return NULL;
++            }
++            used[logical] = TRUE;
++        } else if (slot->physical_slot_status != QMI_UIM_SLOT_STATE_INACTIVE) {
++            fprintf(stderr, "error: unknown SIM slot state; refusing to switch\n");
++            return NULL;
++        }
++        if (present && i + 1 == (guint)target)
++            *present = slot->physical_card_status == QMI_UIM_PHYSICAL_CARD_STATE_PRESENT;
++        g_array_append_val(mapping, logical);
++    }
++    return g_steal_pointer(&mapping);
++}
+ 
+-    /* Convert tx into request GArray */
+-    apdu_data = g_array_new(FALSE, FALSE, sizeof(guint8));
+-    for (uint32_t i = 0; i < tx_len; i++)
+-        g_array_append_val(apdu_data, tx[i]);
++static gboolean mapping_equal(const GArray *a, const GArray *b) {
++    return a && b && a->len == b->len && memcmp(a->data, b->data, a->len) == 0;
++}
+ 
+-    QmiMessageUimSendApduInput *input;
+-    input = qmi_message_uim_send_apdu_input_new();
+-    qmi_message_uim_send_apdu_input_set_slot(input, qmi_priv->uimSlot, NULL);
+-    qmi_message_uim_send_apdu_input_set_channel_id(input, qmi_priv->lastChannelId, NULL);
+-    qmi_message_uim_send_apdu_input_set_apdu(input, apdu_data, NULL);
++static GArray *read_mapping_retry(struct qmi_data *priv) {
++    for (int attempt = 0; attempt < 3; attempt++) {
++        GArray *mapping = read_mapping(priv, 0, NULL);
++        if (mapping)
++            return mapping;
++        if (attempt < 2)
++            g_usleep(500000);
++    }
++    return NULL;
++}
+ 
+-    QmiMessageUimSendApduOutput *output;
+-    output = qmi_client_uim_send_apdu_sync(qmi_priv->uimClient, input, qmi_priv->context, &error);
++/* A reply, including NoEffect, is not proof of the resulting mapping. A lost
++ * reply likewise is not proof of failure. Always settle and read back, without
++ * blindly retrying a state-changing command. */
++static gboolean switch_mapping(struct qmi_data *priv, guint8 physical, const GArray *expected) {
++    g_autoptr(GError) error = NULL;
++    g_autoptr(QmiMessageUimSwitchSlotInput) input = qmi_message_uim_switch_slot_input_new();
++    g_autoptr(QmiMessageUimSwitchSlotOutput) output = NULL;
++    g_autoptr(GArray) actual = NULL;
++
++    if (!qmi_message_uim_switch_slot_input_set_logical_slot(input, priv->uimSlot, &error)
++        || !qmi_message_uim_switch_slot_input_set_physical_slot(input, physical, &error)) {
++        fprintf(stderr, "error: construct SIM slot switch failed: %s\n", error_message(error));
++        return FALSE;
++    }
++    output = qmi_client_uim_switch_slot_sync(priv->uimClient, input, priv->context, &error);
++    if (!output || !qmi_message_uim_switch_slot_output_get_result(output, &error))
++        fprintf(stderr, "warning: SIM slot switch response: %s; checking actual mapping\n", error_message(error));
++
++    /* Qualcomm UIM needs time to rediscover the card after a mapping change.
++     * Do not wait for a READY USIM application: an empty eUICC has none. */
++    g_usleep(6 * G_USEC_PER_SEC);
++    actual = read_mapping_retry(priv);
++    if (!mapping_equal(actual, expected)) {
++        fprintf(stderr, "error: SIM slot switch did not yield the complete expected mapping\n");
++        return FALSE;
++    }
++    return TRUE;
++}
+ 
+-    qmi_message_uim_send_apdu_input_unref(input);
++gboolean qmi_prepare_physical_slot(struct qmi_data *priv) {
++    g_autoptr(GArray) current = NULL;
++    gboolean present = FALSE;
++    guint original_physical = 0;
++    guint8 logical;
++
++    if (!priv->physicalSlot)
++        return TRUE;
++    if (!priv->uimClient || !priv->context || priv->original_mapping)
++        return FALSE;
++    current = read_mapping(priv, priv->physicalSlot, &present);
++    if (!current || !present) {
++        fprintf(stderr, "error: requested physical SIM card is not present\n");
++        return FALSE;
++    }
++    logical = g_array_index(current, guint8, priv->physicalSlot - 1);
++    if (logical == priv->uimSlot)
++        return TRUE; /* Already mapped: no switch and no restoration needed. */
++    if (logical) {
++        fprintf(stderr, "error: target physical SIM is active on another logical slot; refusing to remap\n");
++        return FALSE;
++    }
++    for (guint i = 0; i < current->len; i++) {
++        if (g_array_index(current, guint8, i) == priv->uimSlot)
++            original_physical = i + 1;
++    }
++    if (!original_physical) {
++        fprintf(stderr, "error: selected logical SIM slot has no existing mapping to restore\n");
++        return FALSE;
++    }
+ 
+-    if (!qmi_message_uim_send_apdu_output_get_result(output, &error)) {
+-        fprintf(stderr, "error: send apdu operation failed: %s\n", error->message);
+-        return -1;
++    priv->original_mapping = g_steal_pointer(&current);
++    priv->session_mapping = g_array_sized_new(FALSE, FALSE, sizeof(guint8), priv->original_mapping->len);
++    g_array_append_vals(priv->session_mapping, priv->original_mapping->data, priv->original_mapping->len);
++    g_array_index(priv->session_mapping, guint8, original_physical - 1) = 0;
++    g_array_index(priv->session_mapping, guint8, priv->physicalSlot - 1) = priv->uimSlot;
++    /* Mark before issuing the request: a timeout can hide an applied change. */
++    priv->mapping_attempted = TRUE;
++    return switch_mapping(priv, priv->physicalSlot, priv->session_mapping);
++}
++
++gboolean qmi_restore_physical_slot(struct qmi_data *priv) {
++    g_autoptr(GArray) current = NULL;
++    guint original_physical = 0;
++
++    if (!priv->mapping_attempted)
++        return TRUE;
++    if (!priv->uimClient || !priv->context)
++        return FALSE;
++    current = read_mapping_retry(priv);
++    if (mapping_equal(current, priv->original_mapping)) {
++        priv->mapping_attempted = FALSE;
++        return TRUE;
++    }
++    if (!mapping_equal(current, priv->session_mapping)) {
++        fprintf(stderr, "error: SIM mapping changed externally or cannot be read; refusing to overwrite it\n");
++        return FALSE;
+     }
++    for (guint i = 0; i < priv->original_mapping->len; i++) {
++        if (g_array_index(priv->original_mapping, guint8, i) == priv->uimSlot)
++            original_physical = i + 1;
++    }
++    if (!original_physical || !switch_mapping(priv, original_physical, priv->original_mapping))
++        return FALSE;
++    priv->mapping_attempted = FALSE;
++    return TRUE;
++}
++
++int qmi_apdu_interface_transmit(struct euicc_ctx *ctx, uint8_t **rx, uint32_t *rx_len,
++                                const uint8_t *tx, uint32_t tx_len) {
++    struct qmi_data *priv = ctx->apdu.interface->userdata;
++    g_autoptr(GError) error = NULL;
++    g_autoptr(GArray) apdu_data = NULL;
++    g_autoptr(QmiMessageUimSendApduInput) input = NULL;
++    g_autoptr(QmiMessageUimSendApduOutput) output = NULL;
++    GArray *response = NULL;
+ 
+-    GArray *apdu_res = NULL;
+-    if (!qmi_message_uim_send_apdu_output_get_apdu_response(output, &apdu_res, &error)) {
+-        fprintf(stderr, "error: get apdu response operation failed: %s\n", error->message);
++    *rx = NULL;
++    *rx_len = 0;
++    if (!priv || !priv->uimClient || !priv->context || priv->lastChannelId <= 0)
++        return -1;
++    apdu_data = g_array_sized_new(FALSE, FALSE, sizeof(guint8), tx_len);
++    g_array_append_vals(apdu_data, tx, tx_len);
++    input = qmi_message_uim_send_apdu_input_new();
++    if (!qmi_message_uim_send_apdu_input_set_slot(input, priv->uimSlot, &error)
++        || !qmi_message_uim_send_apdu_input_set_channel_id(input, priv->lastChannelId, &error)
++        || !qmi_message_uim_send_apdu_input_set_apdu(input, apdu_data, &error)) {
++        fprintf(stderr, "error: construct APDU request failed: %s\n", error_message(error));
+         return -1;
+     }
+-
+-    /* Convert response GArray into rx */
+-    *rx_len = apdu_res->len;
+-    *rx = malloc(*rx_len);
++    output = qmi_client_uim_send_apdu_sync(priv->uimClient, input, priv->context, &error);
++    if (!output || !qmi_message_uim_send_apdu_output_get_result(output, &error)
++        || !qmi_message_uim_send_apdu_output_get_apdu_response(output, &response, &error)) {
++        fprintf(stderr, "error: send APDU failed: %s\n", error_message(error));
++        return -1;
++    }
++    if (!response || !response->len)
++        return -1;
++    *rx = malloc(response->len);
+     if (!*rx)
+         return -1;
+-    for (guint i = 0; i < apdu_res->len; i++)
+-        (*rx)[i] = apdu_res->data[i];
+-
+-    qmi_message_uim_send_apdu_output_unref(output);
+-
++    memcpy(*rx, response->data, response->len);
++    *rx_len = response->len;
+     return 0;
+ }
+ 
+ int qmi_apdu_interface_logic_channel_open(struct euicc_ctx *ctx, const uint8_t *aid, uint8_t aid_len) {
+-    struct qmi_data *qmi_priv = ctx->apdu.interface->userdata;
++    struct qmi_data *priv = ctx->apdu.interface->userdata;
+     g_autoptr(GError) error = NULL;
+-    guint8 channel_id;
++    g_autoptr(GArray) aid_data = NULL;
++    g_autoptr(QmiMessageUimOpenLogicalChannelInput) input = NULL;
++    g_autoptr(QmiMessageUimOpenLogicalChannelOutput) output = NULL;
++    guint8 channel = 0;
+ 
+-    GArray *aid_data = g_array_new(FALSE, FALSE, sizeof(guint8));
+-    for (int i = 0; i < aid_len; i++)
+-        g_array_append_val(aid_data, aid[i]);
+-
+-    QmiMessageUimOpenLogicalChannelInput *input;
++    if (!priv || !priv->uimClient || !priv->context || priv->lastChannelId > 0)
++        return -1;
++    aid_data = g_array_sized_new(FALSE, FALSE, sizeof(guint8), aid_len);
++    g_array_append_vals(aid_data, aid, aid_len);
+     input = qmi_message_uim_open_logical_channel_input_new();
+-    qmi_message_uim_open_logical_channel_input_set_slot(input, qmi_priv->uimSlot, NULL);
+-    qmi_message_uim_open_logical_channel_input_set_aid(input, aid_data, NULL);
+-
+-    QmiMessageUimOpenLogicalChannelOutput *output;
+-    output = qmi_client_uim_open_logical_channel_sync(qmi_priv->uimClient, input, qmi_priv->context, &error);
+-
+-    qmi_message_uim_open_logical_channel_input_unref(input);
+-    g_array_unref(aid_data);
+-
+-    if (!output) {
+-        fprintf(stderr, "error: send Open Logical Channel command failed: %s\n", error->message);
++    if (!qmi_message_uim_open_logical_channel_input_set_slot(input, priv->uimSlot, &error)
++        || !qmi_message_uim_open_logical_channel_input_set_aid(input, aid_data, &error)) {
++        fprintf(stderr, "error: construct channel open failed: %s\n", error_message(error));
+         return -1;
+     }
+-
+-    if (!qmi_message_uim_open_logical_channel_output_get_result(output, &error)) {
+-        fprintf(stderr, "error: open logical channel operation failed: %s\n", error->message);
++    output = qmi_client_uim_open_logical_channel_sync(priv->uimClient, input, priv->context, &error);
++    if (!output || !qmi_message_uim_open_logical_channel_output_get_result(output, &error)
++        || !qmi_message_uim_open_logical_channel_output_get_channel_id(output, &channel, &error)) {
++        fprintf(stderr, "error: open logical channel failed: %s\n", error_message(error));
+         return -1;
+     }
+-
+-    if (!qmi_message_uim_open_logical_channel_output_get_channel_id(output, &channel_id, &error)) {
+-        fprintf(stderr, "error: get channel id operation failed: %s\n", error->message);
++    if (!channel || channel > 19) {
++        fprintf(stderr, "error: modem returned invalid ISO 7816 logical channel %u\n", channel);
+         return -1;
+     }
+-    qmi_priv->lastChannelId = channel_id;
+-
+-    g_debug("Opened logical channel with id %d", channel_id);
+-
+-    qmi_message_uim_open_logical_channel_output_unref(output);
+-
+-    return channel_id;
++    priv->lastChannelId = channel;
++    g_debug("Opened logical channel with id %d", channel);
++    return channel;
+ }
+ 
+-void qmi_apdu_interface_logic_channel_close(struct euicc_ctx *ctx, uint8_t channel) {
+-    struct qmi_data *qmi_priv = ctx->apdu.interface->userdata;
++static void close_channel(struct qmi_data *priv, uint8_t channel) {
+     g_autoptr(GError) error = NULL;
++    g_autoptr(QmiMessageUimLogicalChannelInput) input = NULL;
++    g_autoptr(QmiMessageUimLogicalChannelOutput) output = NULL;
+ 
+-    QmiMessageUimLogicalChannelInput *input;
++    /* One close attempt only. Its reply can be lost after the modem applied it;
++     * retrying in fini after client release must never happen. */
++    if (!priv || channel == 0 || priv->lastChannelId != channel)
++        return;
++    priv->lastChannelId = -1;
++    if (!priv->uimClient || !priv->context)
++        return;
+     input = qmi_message_uim_logical_channel_input_new();
+-    qmi_message_uim_logical_channel_input_set_slot(input, qmi_priv->uimSlot, NULL);
+-    qmi_message_uim_logical_channel_input_set_channel_id(input, channel, NULL);
+-
+-    QmiMessageUimLogicalChannelOutput *output;
+-    output = qmi_client_uim_logical_channel_sync(qmi_priv->uimClient, input, qmi_priv->context, &error);
+-
+-    qmi_message_uim_logical_channel_input_unref(input);
+-
+-    if (error) {
+-        fprintf(stderr, "error: send Close Logical Channel command failed: %s\n", error->message);
++    if (!qmi_message_uim_logical_channel_input_set_slot(input, priv->uimSlot, &error)
++        || !qmi_message_uim_logical_channel_input_set_channel_id(input, channel, &error)
++        || !qmi_message_uim_logical_channel_input_set_terminate_application(input, FALSE, &error)) {
++        fprintf(stderr, "error: construct channel close failed: %s\n", error_message(error));
++        priv->cleanup_failed = TRUE;
+         return;
+     }
+-
+-    if (!qmi_message_uim_logical_channel_output_get_result(output, &error)) {
+-        fprintf(stderr, "error: logical channel operation failed: %s\n", error->message);
++    output = qmi_client_uim_logical_channel_sync(priv->uimClient, input, priv->context, &error);
++    if (!output || !qmi_message_uim_logical_channel_output_get_result(output, &error)) {
++        fprintf(stderr, "error: close logical channel failed: %s\n", error_message(error));
++        priv->cleanup_failed = TRUE;
+         return;
+     }
+-
+-    /* Mark channel as having been cleaned up */
+-    if (channel == qmi_priv->lastChannelId)
+-        qmi_priv->lastChannelId = -1;
+-
+     g_debug("Closed logical channel with id %d", channel);
++}
+ 
+-    qmi_message_uim_logical_channel_output_unref(output);
++void qmi_apdu_interface_logic_channel_close(struct euicc_ctx *ctx, uint8_t channel) {
++    if (ctx && ctx->apdu.interface)
++        close_channel(ctx->apdu.interface->userdata, channel);
+ }
+ 
+ void qmi_apdu_interface_disconnect(struct euicc_ctx *ctx) {
+-    struct qmi_data *qmi_priv = ctx->apdu.interface->userdata;
+-    g_autoptr(GError) error = NULL;
+-    QmiClient *client = QMI_CLIENT(qmi_priv->uimClient);
+-    QmiDevice *device = QMI_DEVICE(qmi_client_get_device(client));
+-
+-    qmi_device_release_client_sync(device, client, qmi_priv->context, &error);
+-    qmi_priv->uimClient = NULL;
+-
+-    g_main_context_unref(qmi_priv->context);
+-    qmi_priv->context = NULL;
++    if (ctx && ctx->apdu.interface)
++        qmi_cleanup(ctx->apdu.interface->userdata);
+ }
+ 
+-void qmi_cleanup(struct qmi_data *qmi_priv) {
+-    if (qmi_priv->lastChannelId > 0) {
+-        fprintf(stderr, "Cleaning up leaked APDU channel %d\n", qmi_priv->lastChannelId);
+-        qmi_apdu_interface_logic_channel_close(NULL, qmi_priv->lastChannelId);
+-        qmi_priv->lastChannelId = -1;
++void qmi_cleanup(struct qmi_data *priv) {
++    g_autoptr(GError) error = NULL;
++
++    if (!priv)
++        return;
++    if (priv->lastChannelId > 0)
++        close_channel(priv, priv->lastChannelId);
++    priv->lastChannelId = -1;
++    if (!qmi_restore_physical_slot(priv)) {
++        fprintf(stderr, "error: ORIGINAL SIM MAPPING NOT RESTORED; check modem routing before further use\n");
++        priv->cleanup_failed = TRUE;
++    }
++    /* release_client invalidates the client even when its completion fails. */
++    if (priv->uimClient && priv->device && priv->context) {
++        if (!qmi_device_release_client_sync(priv->device, QMI_CLIENT(priv->uimClient), priv->context, &error)) {
++            fprintf(stderr, "warning: release QMI client failed: %s\n", error_message(error));
++            priv->cleanup_failed = TRUE;
++        }
++        g_clear_error(&error);
++    }
++    g_clear_object(&priv->uimClient);
++    if (priv->device && priv->context) {
++        if (!qmi_device_close_sync(priv->device, priv->context, &error)) {
++            fprintf(stderr, "warning: close QMI device failed: %s\n", error_message(error));
++            priv->cleanup_failed = TRUE;
++        }
+     }
++    g_clear_object(&priv->device);
++    g_clear_object(&priv->transport);
++    g_clear_pointer(&priv->context, g_main_context_unref);
++    g_clear_pointer(&priv->original_mapping, g_array_unref);
++    g_clear_pointer(&priv->session_mapping, g_array_unref);
++    priv->mapping_attempted = FALSE;
+ }
+diff --git a/driver/apdu/qmi_common.h b/driver/apdu/qmi_common.h
+index a06acaa..7480b3b 100644
+--- a/driver/apdu/qmi_common.h
++++ b/driver/apdu/qmi_common.h
+@@ -12,8 +12,16 @@
+ struct qmi_data {
+     int lastChannelId;
+     int uimSlot;
++    int physicalSlot;
+     GMainContext *context;
++    QmiDevice *device;
+     QmiClientUim *uimClient;
++    GObject *transport;
++    /* Physical-slot order, each element is its logical slot (0 = inactive). */
++    GArray *original_mapping;
++    GArray *session_mapping;
++    gboolean mapping_attempted;
++    gboolean cleanup_failed;
+ };
+ 
+ int qmi_apdu_interface_transmit(struct euicc_ctx *ctx, uint8_t **rx, uint32_t *rx_len, const uint8_t *tx,
+@@ -22,3 +30,6 @@ int qmi_apdu_interface_logic_channel_open(struct euicc_ctx *ctx, const uint8_t *
+ void qmi_apdu_interface_logic_channel_close(struct euicc_ctx *ctx, uint8_t channel);
+ void qmi_apdu_interface_disconnect(struct euicc_ctx *ctx);
+ void qmi_cleanup(struct qmi_data *qmi_priv);
++gboolean qmi_parse_slot(const char *name, int default_slot, int *slot);
++gboolean qmi_prepare_physical_slot(struct qmi_data *qmi_priv);
++gboolean qmi_restore_physical_slot(struct qmi_data *qmi_priv);
+diff --git a/driver/apdu/qmi_helpers.c b/driver/apdu/qmi_helpers.c
+index 528b200..c7c30d7 100644
+--- a/driver/apdu/qmi_helpers.c
++++ b/driver/apdu/qmi_helpers.c
+@@ -52,8 +52,11 @@ QmiDevice *qmi_device_new_from_path(GFile *file, GMainContext *context, GError *
+     pusher = g_main_context_pusher_new(context);
+ 
+     id = g_file_get_path(file);
+-    if (id)
+-        qmi_device_new(file, NULL, async_result_ready, &result);
++    if (!id) {
++        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "QMI device must be a local path");
++        return NULL;
++    }
++    qmi_device_new(file, NULL, async_result_ready, &result);
+ 
+     while (result == NULL)
+         g_main_context_iteration(context, TRUE);
+@@ -76,6 +79,17 @@ gboolean qmi_device_open_sync(QmiDevice *device, QmiDeviceOpenFlags flags, GMain
+     return qmi_device_open_finish(device, result, error);
+ }
+ 
++gboolean qmi_device_close_sync(QmiDevice *device, GMainContext *context, GError **error) {
++    g_autoptr(GMainContextPusher) pusher = g_main_context_pusher_new(context);
++    g_autoptr(GAsyncResult) result = NULL;
++
++    qmi_device_close_async(device, 10, NULL, async_result_ready, &result);
++    while (result == NULL)
++        g_main_context_iteration(context, TRUE);
++
++    return qmi_device_close_finish(device, result, error);
++}
++
+ QmiClient *qmi_device_allocate_client_sync(QmiDevice *device, GMainContext *context, GError **error) {
+     g_autoptr(GMainContextPusher) pusher = NULL;
+     g_autoptr(GAsyncResult) result = NULL;
+diff --git a/driver/apdu/qmi_helpers.h b/driver/apdu/qmi_helpers.h
+index 1f0a63d..e334bf6 100644
+--- a/driver/apdu/qmi_helpers.h
++++ b/driver/apdu/qmi_helpers.h
+@@ -9,6 +9,7 @@
+ #include <libqmi-glib.h>
+ 
+ #define ENV_UIM_SLOT APDU_ENV_NAME(QMI, UIM_SLOT)
++#define ENV_PHYSICAL_SLOT APDU_ENV_NAME(QMI, PHYSICAL_SLOT)
+ #define ENV_DEVICE APDU_ENV_NAME(QMI, DEVICE)
+ 
+ #ifdef LPAC_WITH_APDU_QMI_QRTR
+@@ -25,6 +26,8 @@ QmiDevice *qmi_device_new_from_path(GFile *file, GMainContext *context, GError *
+ 
+ gboolean qmi_device_open_sync(QmiDevice *device, QmiDeviceOpenFlags flags, GMainContext *context, GError **error);
+ 
++gboolean qmi_device_close_sync(QmiDevice *device, GMainContext *context, GError **error);
++
+ QmiClient *qmi_device_allocate_client_sync(QmiDevice *device, GMainContext *context, GError **error);
+ 
+ gboolean qmi_device_release_client_sync(QmiDevice *device, QmiClient *client, GMainContext *context, GError **error);
+diff --git a/driver/apdu/qmi_qrtr.c b/driver/apdu/qmi_qrtr.c
+index 8b91d0e..b19aa63 100644
+--- a/driver/apdu/qmi_qrtr.c
++++ b/driver/apdu/qmi_qrtr.c
+@@ -15,60 +15,67 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
+-static QrtrBus *bus = NULL;
+-
+ static int apdu_interface_connect(struct euicc_ctx *ctx) {
+     struct qmi_data *qmi_priv = ctx->apdu.interface->userdata;
+     g_autoptr(GError) error = NULL;
+     QrtrNode *node = NULL;
+-    QmiDevice *device = NULL;
+     QmiClient *client = NULL;
+-    bool found = false;
++    QrtrBus *bus;
++
++    if (qmi_priv->context)
++        return -1;
+ 
+     qmi_priv->context = g_main_context_new();
+ 
+     bus = qrtr_bus_new_sync(qmi_priv->context, &error);
++    qmi_priv->transport = G_OBJECT(bus);
+     if (bus == NULL) {
+-        fprintf(stderr, "error: connect to QRTR bus failed: %s\n", error->message);
+-        return -1;
++        fprintf(stderr, "error: connect to QRTR bus failed: %s\n", error ? error->message : "unknown error");
++        goto fail;
+     }
+ 
+     /* Find QRTR node for UIM service */
+     for (GList *l = qrtr_bus_peek_nodes(bus); l != NULL; l = l->next) {
+-        node = l->data;
+-
+-        if (node && qrtr_node_lookup_port(node, QMI_SERVICE_UIM) >= 0) {
+-            found = true;
+-            break;
++        QrtrNode *candidate = l->data;
++        if (candidate && qrtr_node_lookup_port(candidate, QMI_SERVICE_UIM) >= 0) {
++            if (node) {
++                fprintf(stderr, "error: multiple QRTR UIM nodes found; refusing to choose a modem arbitrarily\n");
++                goto fail;
++            }
++            node = candidate;
+         }
+     }
+ 
+-    if (!found) {
++    if (!node) {
+         fprintf(stderr, "error: find QRTR node with UIM service failed\n");
+-        return -1;
++        goto fail;
+     }
+ 
+-    device = qmi_device_new_from_node_sync(node, qmi_priv->context, &error);
+-    if (!device) {
+-        fprintf(stderr, "error: create QMI device from QRTR node failed: %s\n", error->message);
+-        return -1;
++    qmi_priv->device = qmi_device_new_from_node_sync(node, qmi_priv->context, &error);
++    if (!qmi_priv->device) {
++        fprintf(stderr, "error: create QMI device from QRTR node failed: %s\n", error ? error->message : "unknown error");
++        goto fail;
+     }
+ 
+-    qmi_device_open_sync(device, QMI_DEVICE_OPEN_FLAGS_NONE, qmi_priv->context, &error);
+-    if (error) {
+-        fprintf(stderr, "error: open QMI device failed: %s\n", error->message);
+-        return -1;
++    if (!qmi_device_open_sync(qmi_priv->device, QMI_DEVICE_OPEN_FLAGS_NONE, qmi_priv->context, &error)) {
++        fprintf(stderr, "error: open QMI device failed: %s\n", error ? error->message : "unknown error");
++        goto fail;
+     }
+ 
+-    client = qmi_device_allocate_client_sync(device, qmi_priv->context, &error);
++    client = qmi_device_allocate_client_sync(qmi_priv->device, qmi_priv->context, &error);
+     if (!client) {
+-        fprintf(stderr, "error: allocate QMI client failed: %s\n", error->message);
+-        return -1;
++        fprintf(stderr, "error: allocate QMI client failed: %s\n", error ? error->message : "unknown error");
++        goto fail;
+     }
+ 
+     qmi_priv->uimClient = QMI_CLIENT_UIM(client);
+-
++    if (!qmi_prepare_physical_slot(qmi_priv))
++        goto fail;
+     return 0;
++
++fail:
++    qmi_cleanup(qmi_priv);
++    return -1;
+ }
+ 
+ static int libapduinterface_init(struct euicc_apdu_interface *ifstruct) {
+@@ -76,25 +83,28 @@ static int libapduinterface_init(struct euicc_apdu_interface *ifstruct) {
+ 
+     struct qmi_data *qmi_priv;
+ 
+-    qmi_priv = malloc(sizeof(struct qmi_data));
++    memset(ifstruct, 0, sizeof(struct euicc_apdu_interface));
++    qmi_priv = calloc(1, sizeof(struct qmi_data));
+     if (!qmi_priv) {
+         fprintf(stderr, "Failed allocating memory\n");
+         return -1;
+     }
+ 
+-    memset(ifstruct, 0, sizeof(struct euicc_apdu_interface));
+-
++    qmi_priv->lastChannelId = -1;
++    if (!qmi_parse_slot(ENV_UIM_SLOT, 1, &qmi_priv->uimSlot)
++        || !qmi_parse_slot(ENV_PHYSICAL_SLOT, 0, &qmi_priv->physicalSlot)) {
++        free(qmi_priv);
++        return -1;
++    }
+     ifstruct->connect = apdu_interface_connect;
+     ifstruct->disconnect = qmi_apdu_interface_disconnect;
+     ifstruct->logic_channel_open = qmi_apdu_interface_logic_channel_open;
+     ifstruct->logic_channel_close = qmi_apdu_interface_logic_channel_close;
+     ifstruct->transmit = qmi_apdu_interface_transmit;
+ 
+-    /*
+-     * Allow the user to select the SIM card slot via environment variable.
+-     * Use the primary SIM slot if not set.
+-     */
+-    qmi_priv->uimSlot = getenv_or_default(ENV_UIM_SLOT, (int)1);
++    /* UIM_SLOT is a logical slot. PHYSICAL_SLOT explicitly opts into a
++     * temporary mapping transaction, restored on disconnect (also for profile
++     * mutations). Persistent modem routing is separate system policy. */
+ 
+     ifstruct->userdata = qmi_priv;
+ 
+@@ -109,6 +119,7 @@ static void libapduinterface_fini(struct euicc_apdu_interface *ifstruct) {
+     qmi_cleanup(qmi_priv);
+ 
+     free(qmi_priv);
++    ifstruct->userdata = NULL;
+ }
+ 
+ const struct euicc_driver driver_apdu_qmi_qrtr = {
+diff --git a/driver/http/curl.c b/driver/http/curl.c
+index b15b3ff..62dc1ee 100644
+--- a/driver/http/curl.c
++++ b/driver/http/curl.c
+@@ -18,6 +18,7 @@
+ #    define CURLOPT_WRITEDATA 10001
+ #    define CURLOPT_SSL_VERIFYPEER 64
+ #    define CURLOPT_SSL_VERIFYHOST 81
++#    define CURLOPT_CAINFO 10065
+ #    define CURLOPT_HTTPHEADER 10023
+ #    define CURLOPT_POSTFIELDS 10015
+ #    define CURLOPT_POSTFIELDSIZE 60
+@@ -50,15 +51,24 @@ static struct libcurl_interface {
+ } libcurl;
+ 
+ static size_t http_trans_write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
+-    size_t realsize = size * nmemb;
+     struct http_trans_response_data *mem = (struct http_trans_response_data *)userp;
++    size_t realsize;
++    uint8_t *data;
++
++    if (size != 0 && nmemb > SIZE_MAX / size)
++        return 0;
++    realsize = size * nmemb;
++    /* The interface returns a uint32_t length, and allocation needs a NUL. */
++    if (realsize > UINT32_MAX - mem->size || realsize >= SIZE_MAX - mem->size)
++        return 0;
+ 
+-    mem->data = realloc(mem->data, mem->size + realsize + 1);
+-    if (mem->data == NULL) {
++    data = realloc(mem->data, mem->size + realsize + 1);
++    if (data == NULL) {
+         /* out of memory! */
+-        printf("not enough memory (realloc returned NULL)\n");
++        fprintf(stderr, "not enough memory (realloc returned NULL)\n");
+         return 0;
+     }
++    mem->data = data;
+ 
+     memcpy(&(mem->data[mem->size]), contents, realsize);
+     mem->size += realsize;
+@@ -75,20 +85,30 @@ static int http_interface_transmit(struct euicc_ctx *ctx, const char *url, uint3
+     struct http_trans_response_data responseData = {0};
+     struct curl_slist *headers = NULL, *nheaders = NULL;
+     long response_code;
++    const char *ca_file = getenv("LPAC_HTTP_CAINFO");
+ 
+     (*rx) = NULL;
+     (*rcode) = 0;
++    (*rx_len) = 0;
+ 
+     curl = libcurl._curl_easy_init();
+     if (!curl) {
+         goto err;
+     }
+ 
+-    libcurl._curl_easy_setopt(curl, CURLOPT_URL, url);
+-    libcurl._curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_trans_write_callback);
+-    libcurl._curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&responseData);
+-    libcurl._curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+-    libcurl._curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
++    /* Always authenticate the HTTPS peer. No downgrade or insecure fallback. */
++    if ((res = libcurl._curl_easy_setopt(curl, CURLOPT_URL, url)) != CURLE_OK
++        || (res = libcurl._curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_trans_write_callback)) != CURLE_OK
++        || (res = libcurl._curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&responseData)) != CURLE_OK
++        || (res = libcurl._curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L)) != CURLE_OK
++        || (res = libcurl._curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L)) != CURLE_OK) {
++        goto curl_err;
++    }
++    /* curl copies this string. Unset/empty keeps its system trust defaults. */
++    if (ca_file != NULL && ca_file[0] != '\0'
++        && (res = libcurl._curl_easy_setopt(curl, CURLOPT_CAINFO, ca_file)) != CURLE_OK) {
++        goto curl_err;
++    }
+     for (int i = 0; h[i] != NULL; i++) {
+         nheaders = libcurl._curl_slist_append(headers, h[i]);
+         if (nheaders == NULL) {
+@@ -96,21 +116,22 @@ static int http_interface_transmit(struct euicc_ctx *ctx, const char *url, uint3
+         }
+         headers = nheaders;
+     }
+-    libcurl._curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
++    if ((res = libcurl._curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers)) != CURLE_OK)
++        goto curl_err;
+ 
+     if (tx != NULL) {
+-        libcurl._curl_easy_setopt(curl, CURLOPT_POSTFIELDS, tx);
+-        libcurl._curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, tx_len);
++        if ((res = libcurl._curl_easy_setopt(curl, CURLOPT_POSTFIELDS, tx)) != CURLE_OK
++            || (res = libcurl._curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)tx_len)) != CURLE_OK)
++            goto curl_err;
+     }
+ 
+     res = libcurl._curl_easy_perform(curl);
+ 
+-    if (res != CURLE_OK) {
+-        fprintf(stderr, "curl_easy_perform() failed: %s\n", libcurl._curl_easy_strerror(res));
+-        goto err;
+-    }
++    if (res != CURLE_OK)
++        goto curl_err;
+ 
+-    libcurl._curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
++    if ((res = libcurl._curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code)) != CURLE_OK)
++        goto curl_err;
+     *rcode = response_code;
+     *rx = responseData.data;
+     *rx_len = responseData.size;
+@@ -118,6 +139,8 @@ static int http_interface_transmit(struct euicc_ctx *ctx, const char *url, uint3
+     fret = 0;
+     goto exit;
+ 
++curl_err:
++    fprintf(stderr, "curl request failed: %s\n", libcurl._curl_easy_strerror(res));
+ err:
+     fret = -1;
+     free(responseData.data);
+diff --git a/euicc/es10c.c b/euicc/es10c.c
+index d763f01..3e577cc 100644
+--- a/euicc/es10c.c
++++ b/euicc/es10c.c
+@@ -170,6 +170,7 @@ int es10c_get_profiles_info(struct euicc_ctx *ctx, struct es10c_profile_info_lis
+ err:
+     fret = -1;
+     es10c_profile_info_list_free_all(*profileInfoList);
++    *profileInfoList = NULL;
+ exit:
+     free(respbuf);
+     respbuf = NULL;
+diff --git a/euicc/es9p.c b/euicc/es9p.c
+index 6508522..2c14116 100644
+--- a/euicc/es9p.c
++++ b/euicc/es9p.c
+@@ -184,28 +184,27 @@ static int es9p_trans_json(struct euicc_ctx *ctx, const char *smdp, const char *
+ 
+         if (cJSON_HasObjectItem(statusCodeData, "reasonCode")
+             && cJSON_IsString(cJSON_GetObjectItem(statusCodeData, "reasonCode"))) {
+-            strncpy(ctx->http.status.reasonCode, cJSON_GetObjectItem(statusCodeData, "reasonCode")->valuestring,
+-                    sizeof(ctx->http.status.reasonCode));
++            snprintf(ctx->http.status.reasonCode, sizeof(ctx->http.status.reasonCode), "%s",
++                     cJSON_GetObjectItem(statusCodeData, "reasonCode")->valuestring);
+         }
+         if (cJSON_HasObjectItem(statusCodeData, "subjectCode")
+             && cJSON_IsString(cJSON_GetObjectItem(statusCodeData, "subjectCode"))) {
+-            strncpy(ctx->http.status.subjectCode, cJSON_GetObjectItem(statusCodeData, "subjectCode")->valuestring,
+-                    sizeof(ctx->http.status.subjectCode));
++            snprintf(ctx->http.status.subjectCode, sizeof(ctx->http.status.subjectCode), "%s",
++                     cJSON_GetObjectItem(statusCodeData, "subjectCode")->valuestring);
+         }
+         if (cJSON_HasObjectItem(statusCodeData, "subjectIdentifier")
+             && cJSON_IsString(cJSON_GetObjectItem(statusCodeData, "subjectIdentifier"))) {
+-            strncpy(ctx->http.status.subjectIdentifier,
+-                    cJSON_GetObjectItem(statusCodeData, "subjectIdentifier")->valuestring,
+-                    sizeof(ctx->http.status.subjectIdentifier));
++            snprintf(ctx->http.status.subjectIdentifier, sizeof(ctx->http.status.subjectIdentifier), "%s",
++                     cJSON_GetObjectItem(statusCodeData, "subjectIdentifier")->valuestring);
+         }
+         if (cJSON_HasObjectItem(statusCodeData, "message")
+             && cJSON_IsString(cJSON_GetObjectItem(statusCodeData, "message"))) {
+-            strncpy(ctx->http.status.message, cJSON_GetObjectItem(statusCodeData, "message")->valuestring,
+-                    sizeof(ctx->http.status.message));
++            snprintf(ctx->http.status.message, sizeof(ctx->http.status.message), "%s",
++                     cJSON_GetObjectItem(statusCodeData, "message")->valuestring);
+         } else {
+             const char *message = es9p_error_message(ctx->http.status.subjectCode, ctx->http.status.reasonCode);
+             if (message != NULL) {
+-                strncpy(ctx->http.status.message, message, sizeof(ctx->http.status.message));
++                snprintf(ctx->http.status.message, sizeof(ctx->http.status.message), "%s", message);
+             } else {
+                 snprintf(ctx->http.status.message, sizeof(ctx->http.status.message),
+                          "subject-code: %s, reason-code: %s", ctx->http.status.subjectCode,
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 9e22577..72f86c8 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -21,6 +21,8 @@ add_custom_target(version
+     -D SRC=${CMAKE_CURRENT_SOURCE_DIR}/version.h.in
+     -D DST=${CMAKE_CURRENT_SOURCE_DIR}/version.h
+     -D GIT_EXECUTABLE=${GIT_EXECUTABLE}
++    -D RELEASE_VERSION=v${PROJECT_VERSION}
++    -D LPAC_VERSION_OVERRIDE=${LPAC_VERSION_OVERRIDE}
+     -P ${LPAC_CMAKE_MODULE_PATH}/git-version.cmake
+ )
+ add_dependencies(lpac version)
+diff --git a/src/applet/chip/info.c b/src/applet/chip/info.c
+index 8dd42f9..d0a82b6 100644
+--- a/src/applet/chip/info.c
++++ b/src/applet/chip/info.c
+@@ -14,9 +14,9 @@
+ 
+ static int applet_main(int argc, char **argv) {
+     _cleanup_free_ char *eid = NULL;
+-    _cleanup_(es10a_euicc_configured_addresses_free) struct es10a_euicc_configured_addresses addresses;
+-    _cleanup_es10b_rat_list_ struct es10b_rat *ratList;
+-    _cleanup_(es10c_ex_euiccinfo2_free) struct es10c_ex_euiccinfo2 euiccinfo2;
++    _cleanup_(es10a_euicc_configured_addresses_free) struct es10a_euicc_configured_addresses addresses = {0};
++    _cleanup_es10b_rat_list_ struct es10b_rat *ratList = NULL;
++    _cleanup_(es10c_ex_euiccinfo2_free) struct es10c_ex_euiccinfo2 euiccinfo2 = {0};
+     cJSON *jaddresses = NULL, *jratList = NULL, *jeuiccinfo2 = NULL, *jdata = NULL;
+ 
+     if (es10c_get_eid(&euicc_ctx, &eid)) {
+@@ -117,18 +117,19 @@ static int applet_main(int argc, char **argv) {
+     cJSON_AddItemToObject(jdata, "EUICCInfo2", jeuiccinfo2);
+ 
+     if (jratList) {
+-        while (ratList) {
++        const struct es10b_rat *rat = ratList;
++        while (rat) {
+             struct cJSON *jrat = cJSON_CreateObject();
+-            if (ratList->pprIds) {
++            if (rat->pprIds) {
+                 cJSON *jPPR = cJSON_CreateArray();
+-                for (int i = 0; ratList->pprIds[i] != NULL; i++) {
+-                    cJSON_AddItemToArray(jPPR, cJSON_CreateString(ratList->pprIds[i]));
++                for (int i = 0; rat->pprIds[i] != NULL; i++) {
++                    cJSON_AddItemToArray(jPPR, cJSON_CreateString(rat->pprIds[i]));
+                 }
+                 cJSON_AddItemToObject(jrat, "pprIds", jPPR);
+             }
+-            if (ratList->allowedOperators) {
++            if (rat->allowedOperators) {
+                 cJSON *jAllowedOperators = cJSON_CreateArray();
+-                const struct es10b_operation_id *rptr = ratList->allowedOperators;
++                const struct es10b_operation_id *rptr = rat->allowedOperators;
+                 while (rptr) {
+                     cJSON *joperator = cJSON_CreateObject();
+                     cJSON_AddStringOrNullToObject(joperator, "plmn", rptr->plmn);
+@@ -139,15 +140,15 @@ static int applet_main(int argc, char **argv) {
+                 }
+                 cJSON_AddItemToObject(jrat, "allowedOperators", jAllowedOperators);
+             }
+-            if (ratList->pprFlags) {
++            if (rat->pprFlags) {
+                 cJSON *jFlags = cJSON_CreateArray();
+-                for (int i = 0; ratList->pprFlags[i] != NULL; i++) {
+-                    cJSON_AddItemToArray(jFlags, cJSON_CreateString(ratList->pprFlags[i]));
++                for (int i = 0; rat->pprFlags[i] != NULL; i++) {
++                    cJSON_AddItemToArray(jFlags, cJSON_CreateString(rat->pprFlags[i]));
+                 }
+                 cJSON_AddItemToObject(jrat, "pprFlags", jFlags);
+             }
+             cJSON_AddItemToArray(jratList, jrat);
+-            ratList = ratList->next;
++            rat = rat->next;
+         }
+         cJSON_AddItemToObject(jdata, "rulesAuthorisationTable", jratList);
+     }
+diff --git a/src/applet/profile/list.c b/src/applet/profile/list.c
+index b01a7e8..4caefe6 100644
+--- a/src/applet/profile/list.c
++++ b/src/applet/profile/list.c
+@@ -11,7 +11,7 @@
+ #include <unistd.h>
+ 
+ static int applet_main(int argc, char **argv) {
+-    _cleanup_es10c_profile_info_list_ struct es10c_profile_info_list *profiles;
++    _cleanup_es10c_profile_info_list_ struct es10c_profile_info_list *profiles = NULL;
+     struct es10c_profile_info_list *rptr;
+     cJSON *jdata = NULL;
+ 
+diff --git a/src/applet/version.h b/src/applet/version.h
+index a558323..aa96910 100644
+--- a/src/applet/version.h
++++ b/src/applet/version.h
+@@ -1,6 +1,6 @@
+ #pragma once
+ 
+-#include "version.h"
++#include <version.h>
+ 
+ #include <applet.h>
+ 
+diff --git a/tests/http_driver_probe.c b/tests/http_driver_probe.c
+new file mode 100644
+index 0000000..1a62157
+--- /dev/null
++++ b/tests/http_driver_probe.c
+@@ -0,0 +1,41 @@
++/* Exercise the production driver through its public driver interface. */
++#include <http/curl.h>
++#include <euicc/interface.h>
++
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++int main(int argc, char **argv) {
++    struct euicc_http_interface interface;
++    const char *headers[] = {"Content-Type: application/json", NULL};
++    const uint8_t request[] = "{\"test\":true}";
++    uint8_t *response = NULL;
++    uint32_t status = UINT32_MAX, length = UINT32_MAX;
++    int result;
++
++    if (argc != 2)
++        return 2;
++    if (driver_http_curl.init(&interface) != 0)
++        return 2;
++    result = interface.transmit(NULL, argv[1], &status, &response, &length,
++                                request, sizeof(request) - 1, headers);
++    driver_http_curl.fini(&interface);
++    if (result < 0) {
++        if (response != NULL || length != 0 || status != 0) {
++            fprintf(stderr, "transport failure did not clear response outputs\n");
++            free(response);
++            return 2;
++        }
++        return 1;
++    }
++    if (status != 200 || length != strlen("{\"test\":\"ok\"}") || response == NULL
++        || memcmp(response, "{\"test\":\"ok\"}", length) != 0) {
++        fprintf(stderr, "unexpected response: status=%u length=%u\n", status, length);
++        free(response);
++        return 2;
++    }
++    free(response);
++    return 0;
++}
+diff --git a/tests/http_status.c b/tests/http_status.c
+new file mode 100644
+index 0000000..c1a6381
+--- /dev/null
++++ b/tests/http_status.c
+@@ -0,0 +1,82 @@
++/* Production ES9+ parser regression for upstream #444 / 3ff35594ec1506.
++ * Fake HTTP transport only; no network and no APDU operations.
++ */
++#include <euicc/es9p.h>
++
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++static int include_message;
++
++static int fake_transmit(struct euicc_ctx *ctx, const char *url, uint32_t *status,
++                         uint8_t **response, uint32_t *length, const uint8_t *request,
++                         uint32_t request_length, const char **headers) {
++    char value[4096];
++    char json[sizeof(value) * 4 + 512];
++    int size;
++
++    (void)ctx;
++    (void)url;
++    (void)request;
++    (void)request_length;
++    (void)headers;
++    memset(value, 'X', sizeof(value) - 1);
++    value[sizeof(value) - 1] = '\0';
++    size = snprintf(json, sizeof(json),
++                    "{\"header\":{\"functionExecutionStatus\":{\"statusCodeData\":{"
++                    "\"reasonCode\":\"%s\",\"subjectCode\":\"%s\",\"subjectIdentifier\":\"%s\"%s%s%s"
++                    "}}}}", value, value, value,
++                    include_message ? ",\"message\":\"" : "", include_message ? value : "",
++                    include_message ? "\"" : "");
++    if (size < 0 || (size_t)size >= sizeof(json))
++        return -1;
++    *response = malloc(size + 1);
++    if (*response == NULL)
++        return -1;
++    memcpy(*response, json, size + 1);
++    *length = size;
++    *status = 200;
++    return 0;
++}
++
++static int terminated(const char *name, const char *value, size_t size) {
++    if (memchr(value, '\0', size) != NULL)
++        return 1;
++    fprintf(stderr, "%s is not NUL-terminated\n", name);
++    return 0;
++}
++
++int main(void) {
++    struct euicc_http_interface interface = {.transmit = fake_transmit};
++
++    for (include_message = 0; include_message <= 1; ++include_message) {
++        struct euicc_ctx ctx = {0};
++        char *profile = NULL;
++        int result;
++
++        ctx.http.interface = &interface;
++        ctx.http.server_address = "invalid.example";
++        result = es9p_get_bound_profile_package_r(&ctx, &profile, ctx.http.server_address, "test", "test");
++        free(profile);
++        if (result != -1) {
++            fprintf(stderr, "server error unexpectedly succeeded\n");
++            return 1;
++        }
++        if (!terminated("reasonCode", ctx.http.status.reasonCode, sizeof(ctx.http.status.reasonCode))
++            || !terminated("subjectCode", ctx.http.status.subjectCode, sizeof(ctx.http.status.subjectCode))
++            || !terminated("subjectIdentifier", ctx.http.status.subjectIdentifier,
++                           sizeof(ctx.http.status.subjectIdentifier))
++            || !terminated("message", ctx.http.status.message, sizeof(ctx.http.status.message)))
++            return 1;
++        if (strlen(ctx.http.status.reasonCode) != sizeof(ctx.http.status.reasonCode) - 1
++            || strlen(ctx.http.status.subjectCode) != sizeof(ctx.http.status.subjectCode) - 1
++            || strlen(ctx.http.status.subjectIdentifier) != sizeof(ctx.http.status.subjectIdentifier) - 1
++            || (include_message && strlen(ctx.http.status.message) != sizeof(ctx.http.status.message) - 1)) {
++            fprintf(stderr, "server error was not correctly truncated\n");
++            return 1;
++        }
++    }
++    return 0;
++}
+diff --git a/tests/http_tls.py b/tests/http_tls.py
+new file mode 100644
+index 0000000..2586ffd
+--- /dev/null
++++ b/tests/http_tls.py
+@@ -0,0 +1,165 @@
++#!/usr/bin/env python3
++"""Real curl-driver TLS regressions; ephemeral certificates and loopback only.
++
++Usage: python3 tests/http_tls.py /path/to/http_driver_probe
++Requires only the Python standard library and the OpenSSL CLI. No modem,
++carrier, Internet server, system trust modification, or real activation code.
++"""
++
++import datetime
++import http.server
++import os
++from pathlib import Path
++import ssl
++import subprocess
++import sys
++import tempfile
++import threading
++import unittest
++
++
++PROBE = str(Path(sys.argv.pop(1)).resolve())
++
++
++class TLSRegression(unittest.TestCase):
++    @classmethod
++    def openssl(cls, *arguments):
++        subprocess.run(
++            ["openssl", *map(str, arguments)],
++            cwd=cls.directory,
++            check=True,
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++        )
++
++    @classmethod
++    def setUpClass(cls):
++        cls.temporary = tempfile.TemporaryDirectory(prefix="lpac-tls-test-")
++        cls.directory = Path(cls.temporary.name)
++        cls.addClassCleanup(cls.temporary.cleanup)
++        for name in ("trusted", "unknown"):
++            cls.openssl(
++                "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
++                "-subj", f"/CN=lpac-test-{name}-CA", "-keyout", f"{name}.key",
++                "-out", f"{name}.pem", "-addext", "basicConstraints=critical,CA:TRUE",
++                "-addext", "keyUsage=critical,keyCertSign,cRLSign",
++            )
++            (cls.directory / f"{name}.index").touch()
++            (cls.directory / f"{name}.serial").write_text("01\n")
++            (cls.directory / f"{name}.cnf").write_text(
++                "[ca]\ndefault_ca=local\n[local]\n"
++                f"database={name}.index\nserial={name}.serial\n"
++                f"certificate={name}.pem\nprivate_key={name}.key\n"
++                "new_certs_dir=.\ndefault_md=sha256\npolicy=policy\n"
++                "unique_subject=no\n[policy]\ncommonName=supplied\n"
++                "[extensions]\nbasicConstraints=critical,CA:FALSE\n"
++                "keyUsage=critical,digitalSignature,keyEncipherment\n"
++                "extendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1\n"
++                "[mismatch]\nbasicConstraints=critical,CA:FALSE\n"
++                "keyUsage=critical,digitalSignature,keyEncipherment\n"
++                "extendedKeyUsage=serverAuth\nsubjectAltName=DNS:not-localhost.invalid\n"
++            )
++        now = datetime.datetime.now(datetime.timezone.utc)
++        for name, issuer, extensions, expired in (
++            ("valid", "trusted", "extensions", False),
++            ("untrusted", "unknown", "extensions", False),
++            ("wrong-host", "trusted", "mismatch", False),
++            ("expired", "trusted", "extensions", True),
++        ):
++            cls.openssl(
++                "req", "-new", "-newkey", "rsa:2048", "-nodes",
++                "-subj", f"/CN=lpac-test-{name}", "-keyout", f"{name}.key",
++                "-out", f"{name}.csr",
++            )
++            start = now - datetime.timedelta(days=2)
++            end = now + datetime.timedelta(days=-1 if expired else 1)
++            cls.openssl(
++                "ca", "-batch", "-notext", "-config", f"{issuer}.cnf",
++                "-extensions", extensions, "-in", f"{name}.csr", "-out", f"{name}.pem",
++                "-startdate", start.strftime("%Y%m%d%H%M%SZ"),
++                "-enddate", end.strftime("%Y%m%d%H%M%SZ"),
++            )
++
++    def request(self, certificate, *, expected, ca="trusted.pem", extra_environment=None):
++        requests = []
++
++        class Handler(http.server.BaseHTTPRequestHandler):
++            def do_POST(self):
++                body = self.rfile.read(int(self.headers["Content-Length"]))
++                requests.append(body)
++                response = b'{"test":"ok"}'
++                self.send_response(200)
++                self.send_header("Content-Type", "application/json")
++                self.send_header("Content-Length", str(len(response)))
++                self.end_headers()
++                self.wfile.write(response)
++
++            def log_message(self, *args):
++                pass
++
++        class Server(http.server.ThreadingHTTPServer):
++            def handle_error(self, request, client_address):
++                # A rejected certificate can close TLS before the HTTP handler
++                # receives anything. This is expected in the negative cases.
++                if isinstance(sys.exc_info()[1], (ssl.SSLError, ConnectionError)):
++                    return
++                super().handle_error(request, client_address)
++
++        server = Server(("127.0.0.1", 0), Handler)
++        self.addCleanup(server.server_close)
++        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
++        context.load_cert_chain(
++            self.directory / f"{certificate}.pem", self.directory / f"{certificate}.key"
++        )
++        server.socket = context.wrap_socket(server.socket, server_side=True)
++        worker = threading.Thread(target=server.serve_forever, daemon=True)
++        worker.start()
++        environment = os.environ.copy()
++        for name in list(environment):
++            if name.lower().endswith("_proxy") or name in (
++                "LPAC_HTTP_CAINFO", "LPAC_HTTP_SSL_VERIFY", "CURL_CA_BUNDLE",
++                "SSL_CERT_FILE", "SSL_CERT_DIR",
++            ):
++                del environment[name]
++        environment["NO_PROXY"] = "*"
++        if ca is not None:
++            environment["LPAC_HTTP_CAINFO"] = str(self.directory / ca) if ca else ""
++        environment.update(extra_environment or {})
++        try:
++            result = subprocess.run(
++                [PROBE, f"https://127.0.0.1:{server.server_port}/test"],
++                env=environment, capture_output=True, text=True, timeout=15,
++            )
++        finally:
++            server.shutdown()
++            worker.join(timeout=5)
++        self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
++        self.assertEqual(requests, [b'{"test":true}'] if expected == 0 else [])
++
++    def test_trusted_ca_and_matching_host_succeeds(self):
++        self.request("valid", expected=0)
++
++    def test_unknown_ca_rejected(self):
++        self.request("untrusted", expected=1)
++
++    def test_hostname_mismatch_rejected(self):
++        self.request("wrong-host", expected=1)
++
++    def test_expired_certificate_rejected(self):
++        self.request("expired", expected=1)
++
++    def test_missing_ca_file_rejected_without_fallback(self):
++        self.request("valid", expected=1, ca="does-not-exist.pem")
++
++    def test_unset_ca_uses_system_trust_and_rejects_test_ca(self):
++        self.request("valid", expected=1, ca=None)
++
++    def test_empty_ca_uses_system_trust_and_rejects_test_ca(self):
++        self.request("valid", expected=1, ca="")
++
++    def test_upstream_insecure_env_cannot_disable_verification(self):
++        self.request("untrusted", expected=1, extra_environment={"LPAC_HTTP_SSL_VERIFY": "0"})
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/inventory_cleanup.c b/tests/inventory_cleanup.c
+new file mode 100644
+index 0000000..1fac1db
+--- /dev/null
++++ b/tests/inventory_cleanup.c
+@@ -0,0 +1,198 @@
++/* Actual inventory applets + production ES10 parsers, with a fake APDU card.
++ * Link --wrap=malloc,--wrap=calloc,--wrap=free for allocation fault injection.
++ * No modem, network, profile write, or real identifier is used.
++ */
++#include <applet/chip/info.h>
++#include <applet/profile/list.h>
++#include <euicc/es10b.h>
++#include <euicc/es10c.h>
++#include <main.h>
++
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++struct euicc_ctx euicc_ctx;
++
++enum scenario { EID_FAILURE, PROFILE_PARTIAL_FAILURE, CHIP_SUCCESS };
++static enum scenario scenario;
++static unsigned command, profile_allocations, profile_frees, rat_frees;
++static unsigned connects, opens, closes, disconnects, transmits, errors, successes;
++static void *profile_node, *rat_node;
++
++void *__real_malloc(size_t size);
++void *__real_calloc(size_t count, size_t size);
++void __real_free(void *pointer);
++
++static int fail_allocation(size_t size) {
++    if (scenario == PROFILE_PARTIAL_FAILURE && command == 0x2D
++        && size == sizeof(struct es10c_profile_info_list)) {
++        ++profile_allocations;
++        return profile_allocations == 2;
++    }
++    return 0;
++}
++
++static void record_allocation(void *pointer, size_t size) {
++    if (scenario == PROFILE_PARTIAL_FAILURE && command == 0x2D
++        && size == sizeof(struct es10c_profile_info_list) && profile_allocations == 1)
++        profile_node = pointer;
++    if (scenario == CHIP_SUCCESS && command == 0x43 && size == sizeof(struct es10b_rat))
++        rat_node = pointer;
++}
++
++void *__wrap_malloc(size_t size) {
++    void *pointer;
++    if (fail_allocation(size))
++        return NULL;
++    pointer = __real_malloc(size);
++    record_allocation(pointer, size);
++    return pointer;
++}
++
++void *__wrap_calloc(size_t count, size_t size) {
++    void *pointer;
++    if (size != 0 && count > SIZE_MAX / size)
++        return NULL;
++    if (fail_allocation(count * size))
++        return NULL;
++    pointer = __real_calloc(count, size);
++    record_allocation(pointer, count * size);
++    return pointer;
++}
++
++void __wrap_free(void *pointer) {
++    if (pointer != NULL && pointer == profile_node) {
++        ++profile_frees;
++        profile_node = NULL;
++    }
++    if (pointer != NULL && pointer == rat_node) {
++        ++rat_frees;
++        rat_node = NULL;
++    }
++    __real_free(pointer);
++}
++
++void jprint_error(const char *function_name, const char *detail) {
++    (void)function_name;
++    (void)detail;
++    ++errors;
++}
++
++void jprint_success(cJSON *data) {
++    ++successes;
++    cJSON_Delete(data);
++}
++
++static int fake_connect(struct euicc_ctx *ctx) {
++    (void)ctx;
++    ++connects;
++    return 0;
++}
++
++static int fake_open(struct euicc_ctx *ctx, const uint8_t *aid, uint8_t aid_length) {
++    (void)ctx;
++    (void)aid;
++    (void)aid_length;
++    ++opens;
++    return 1;
++}
++
++static void fake_close(struct euicc_ctx *ctx, uint8_t channel) {
++    (void)ctx;
++    if (channel == 1)
++        ++closes;
++}
++
++static void fake_disconnect(struct euicc_ctx *ctx) {
++    (void)ctx;
++    ++disconnects;
++}
++
++static int fake_transmit(struct euicc_ctx *ctx, uint8_t **response, uint32_t *response_length,
++                         const uint8_t *request, uint32_t request_length) {
++    static const uint8_t eid[] = {0xBF, 0x3E, 0x12, 0x5A, 0x10,
++                                  0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
++                                  0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x90, 0x00};
++    static const uint8_t addresses[] = {0xBF, 0x3C, 0x00, 0x90, 0x00};
++    static const uint8_t rat[] = {0xBF, 0x43, 0x04, 0xA0, 0x02, 0x30, 0x00, 0x90, 0x00};
++    static const uint8_t info[] = {0xBF, 0x22, 0x00, 0x90, 0x00};
++    static const uint8_t profiles[] = {0xBF, 0x2D, 0x06, 0xA0, 0x04, 0xE3, 0x00, 0xE3, 0x00, 0x90, 0x00};
++    const uint8_t *data = NULL;
++    size_t length = 0;
++
++    (void)ctx;
++    ++transmits;
++    *response = NULL;
++    *response_length = 0;
++    if (request_length < 8 || request[1] != 0xE2 || request[5] != 0xBF)
++        return -1;
++    command = request[6];
++    if (scenario == EID_FAILURE)
++        return -1;
++    switch (command) {
++    case 0x3E: data = eid; length = sizeof(eid); break;
++    case 0x3C: data = addresses; length = sizeof(addresses); break;
++    case 0x43: data = rat; length = sizeof(rat); break;
++    case 0x22: data = info; length = sizeof(info); break;
++    case 0x2D: data = profiles; length = sizeof(profiles); break;
++    default: return -1;
++    }
++    *response = malloc(length);
++    if (*response == NULL)
++        return -1;
++    memcpy(*response, data, length);
++    *response_length = length;
++    return 0;
++}
++
++int main(int argc, char **argv) {
++    struct euicc_apdu_interface interface = {
++        .connect = fake_connect, .disconnect = fake_disconnect,
++        .logic_channel_open = fake_open, .logic_channel_close = fake_close,
++        .transmit = fake_transmit,
++    };
++    struct applet_entry *applet = &applet_chip_info;
++    int result;
++
++    if (argc != 2)
++        return 2;
++    if (strcmp(argv[1], "eid-failure") == 0)
++        scenario = EID_FAILURE;
++    else if (strcmp(argv[1], "profile-partial-failure") == 0) {
++        scenario = PROFILE_PARTIAL_FAILURE;
++        applet = &applet_profile_list;
++    } else if (strcmp(argv[1], "chip-success") == 0)
++        scenario = CHIP_SUCCESS;
++    else
++        return 2;
++
++    euicc_ctx.apdu.interface = &interface;
++    if (euicc_init(&euicc_ctx) != 0)
++        return 2;
++    result = applet->main(1, argv);
++    euicc_fini(&euicc_ctx);
++    if (connects != 1 || opens != 1 || closes != 1 || disconnects != 1) {
++        fprintf(stderr, "incorrect channel lifecycle\n");
++        return 1;
++    }
++    if (scenario == CHIP_SUCCESS) {
++        if (result != 0 || errors != 0 || successes != 1 || transmits != 4 || rat_frees != 1) {
++            fprintf(stderr, "chip success cleanup mismatch: result=%d errors=%u successes=%u APDUs=%u RAT frees=%u\n",
++                    result, errors, successes, transmits, rat_frees);
++            return 1;
++        }
++    } else {
++        if (result != -1 || errors != 1 || successes != 0 || transmits != 1) {
++            fprintf(stderr, "inventory failure did not cleanly exit\n");
++            return 1;
++        }
++        if (scenario == PROFILE_PARTIAL_FAILURE && (profile_allocations != 2 || profile_frees != 1)) {
++            fprintf(stderr, "profile fault not exercised: allocations=%u frees=%u\n",
++                    profile_allocations, profile_frees);
++            return 1;
++        }
++    }
++    return 0;
++}
+diff --git a/tests/qmi_mocks/libqmi-glib.h b/tests/qmi_mocks/libqmi-glib.h
+new file mode 100644
+index 0000000..9b6c75c
+--- /dev/null
++++ b/tests/qmi_mocks/libqmi-glib.h
+@@ -0,0 +1,121 @@
++// SPDX-License-Identifier: MIT
++/* Minimal libqmi test double. The implementation under test is not copied. */
++#pragma once
++#include <gio/gio.h>
++
++typedef GObject QmiDevice;
++typedef GObject QmiClient;
++typedef GObject QmiClientUim;
++#define QMI_CLIENT(p) ((QmiClient *)(p))
++#define QMI_CLIENT_UIM(p) ((QmiClientUim *)(p))
++#define QMI_SERVICE_UIM 11
++#define QMI_PROTOCOL_ERROR (g_quark_from_static_string("mock-qmi-protocol"))
++#define QMI_PROTOCOL_ERROR_NOT_SUPPORTED 94
++#define QMI_PROTOCOL_ERROR_NO_EFFECT 26
++typedef enum { QMI_DEVICE_OPEN_FLAGS_NONE, QMI_DEVICE_OPEN_FLAGS_PROXY } QmiDeviceOpenFlags;
++typedef enum { QMI_UIM_SLOT_STATE_INACTIVE, QMI_UIM_SLOT_STATE_ACTIVE } QmiUimSlotState;
++typedef enum { QMI_UIM_PHYSICAL_CARD_STATE_ABSENT, QMI_UIM_PHYSICAL_CARD_STATE_PRESENT } QmiUimPhysicalCardState;
++typedef struct {
++    QmiUimPhysicalCardState physical_card_status;
++    QmiUimSlotState physical_slot_status;
++    guint8 logical_slot;
++} QmiPhysicalSlotStatusSlot;
++
++typedef struct {
++    int result;
++    guint8 slot, logical, physical, channel;
++    gboolean missing_channel, missing_array;
++    gboolean terminate_set, terminate;
++    GArray *array;
++} MockQmiMessage;
++
++extern unsigned qmi_mock_live_messages;
++static inline MockQmiMessage *mock_message_new(void) {
++    qmi_mock_live_messages++;
++    return g_new0(MockQmiMessage, 1);
++}
++static inline void mock_message_unref(MockQmiMessage *message) {
++    g_assert_nonnull(message);
++    g_assert_cmpuint(qmi_mock_live_messages, >, 0);
++    qmi_mock_live_messages--;
++    g_clear_pointer(&message->array, g_array_unref);
++    g_free(message);
++}
++static inline gboolean mock_result(MockQmiMessage *message, GError **error) {
++    g_assert_nonnull(message);
++    if (message->result) {
++        g_set_error_literal(error, QMI_PROTOCOL_ERROR, message->result, "mock protocol rejection");
++        return FALSE;
++    }
++    return TRUE;
++}
++static inline gboolean mock_get_array(MockQmiMessage *message, GArray **array, GError **error) {
++    g_assert_nonnull(message);
++    if (message->missing_array) {
++        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "missing array");
++        return FALSE;
++    }
++    *array = message->array;
++    return TRUE;
++}
++static inline gboolean mock_get_channel(MockQmiMessage *message, guint8 *channel, GError **error) {
++    g_assert_nonnull(message);
++    if (message->missing_channel) {
++        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "missing channel");
++        return FALSE;
++    }
++    *channel = message->channel;
++    return TRUE;
++}
++#define MOCK_TYPE(Type) typedef MockQmiMessage Type; G_DEFINE_AUTOPTR_CLEANUP_FUNC(Type, mock_message_unref)
++MOCK_TYPE(QmiMessageUimGetSlotStatusOutput)
++MOCK_TYPE(QmiMessageUimGetCardStatusOutput)
++MOCK_TYPE(QmiMessageUimSwitchSlotInput)
++MOCK_TYPE(QmiMessageUimSwitchSlotOutput)
++MOCK_TYPE(QmiMessageUimOpenLogicalChannelInput)
++MOCK_TYPE(QmiMessageUimOpenLogicalChannelOutput)
++MOCK_TYPE(QmiMessageUimLogicalChannelInput)
++MOCK_TYPE(QmiMessageUimLogicalChannelOutput)
++MOCK_TYPE(QmiMessageUimSendApduInput)
++MOCK_TYPE(QmiMessageUimSendApduOutput)
++#undef MOCK_TYPE
++
++#define MOCK_SET_BYTE(name, field) \
++    static inline gboolean name(MockQmiMessage *message, guint8 value, GError **error) { \
++        (void)error; message->field = value; return TRUE; \
++    }
++#define MOCK_SET_ARRAY(name) \
++    static inline gboolean name(MockQmiMessage *message, GArray *array, GError **error) { \
++        (void)error; message->array = g_array_ref(array); return TRUE; \
++    }
++MOCK_SET_BYTE(qmi_message_uim_switch_slot_input_set_logical_slot, logical)
++MOCK_SET_BYTE(qmi_message_uim_switch_slot_input_set_physical_slot, physical)
++MOCK_SET_BYTE(qmi_message_uim_open_logical_channel_input_set_slot, slot)
++MOCK_SET_BYTE(qmi_message_uim_logical_channel_input_set_slot, slot)
++MOCK_SET_BYTE(qmi_message_uim_logical_channel_input_set_channel_id, channel)
++static inline gboolean qmi_message_uim_logical_channel_input_set_terminate_application(MockQmiMessage *message,
++                                                                                     gboolean value, GError **error) {
++    (void)error;
++    message->terminate_set = TRUE;
++    message->terminate = value;
++    return TRUE;
++}
++MOCK_SET_BYTE(qmi_message_uim_send_apdu_input_set_slot, slot)
++MOCK_SET_BYTE(qmi_message_uim_send_apdu_input_set_channel_id, channel)
++MOCK_SET_ARRAY(qmi_message_uim_open_logical_channel_input_set_aid)
++MOCK_SET_ARRAY(qmi_message_uim_send_apdu_input_set_apdu)
++#undef MOCK_SET_BYTE
++#undef MOCK_SET_ARRAY
++
++#define qmi_message_uim_switch_slot_input_new mock_message_new
++#define qmi_message_uim_open_logical_channel_input_new mock_message_new
++#define qmi_message_uim_logical_channel_input_new mock_message_new
++#define qmi_message_uim_send_apdu_input_new mock_message_new
++#define qmi_message_uim_get_slot_status_output_get_result mock_result
++#define qmi_message_uim_switch_slot_output_get_result mock_result
++#define qmi_message_uim_open_logical_channel_output_get_result mock_result
++#define qmi_message_uim_logical_channel_output_get_result mock_result
++#define qmi_message_uim_send_apdu_output_get_result mock_result
++#define qmi_message_uim_get_slot_status_output_get_physical_slot_status mock_get_array
++#define qmi_message_uim_send_apdu_output_get_apdu_response mock_get_array
++#define qmi_message_uim_open_logical_channel_output_get_channel_id mock_get_channel
+diff --git a/tests/qmi_mocks/libqrtr-glib.h b/tests/qmi_mocks/libqrtr-glib.h
+new file mode 100644
+index 0000000..37cb769
+--- /dev/null
++++ b/tests/qmi_mocks/libqrtr-glib.h
+@@ -0,0 +1,7 @@
++// SPDX-License-Identifier: MIT
++#pragma once
++#include <gio/gio.h>
++typedef GObject QrtrBus;
++typedef GObject QrtrNode;
++GList *qrtr_bus_peek_nodes(QrtrBus *bus);
++gint qrtr_node_lookup_port(QrtrNode *node, guint32 service);
+diff --git a/tests/qmi_test.c b/tests/qmi_test.c
+new file mode 100644
+index 0000000..2ac225a
+--- /dev/null
++++ b/tests/qmi_test.c
+@@ -0,0 +1,506 @@
++// SPDX-License-Identifier: MIT
++/* Compile the production driver directly against protocol/transport doubles.
++ * No modem, network, subscriber identifiers or privileged operations are used. */
++#include <gio/gio.h>
++#include <string.h>
++#include "../driver/apdu/qmi_common.h"
++#include "../driver/apdu/qmi_qrtr.h"
++
++unsigned qmi_mock_live_messages;
++
++enum ConnectFailure { CONNECT_OK, FAIL_BUS, FAIL_NO_NODE, FAIL_MANY_NODES, FAIL_DEVICE, FAIL_OPEN, FAIL_CLIENT };
++enum Reply { REPLY_OK, REPLY_REJECT, REPLY_NO_EFFECT, REPLY_TIMEOUT, REPLY_MISSING, REPLY_ZERO, REPLY_HIGH_CHANNEL };
++static struct {
++    enum ConnectFailure fail_connect;
++    enum Reply open_reply, close_reply, transmit_reply, switch_reply;
++    gboolean apply_switch, release_failure, close_device_failure, missing_slots;
++    unsigned live_objects, releases, device_closes, channel_opens, channel_closes;
++    unsigned reads, switches, fail_reads, settle_delays, retry_delays;
++    guint8 last_apdu_slot, last_switch_logical;
++    QmiPhysicalSlotStatusSlot slots[3];
++    guint n_slots;
++    GString *events;
++} mock;
++
++static void object_gone(gpointer unused, GObject *object) {
++    (void)unused;
++    (void)object;
++    g_assert_cmpuint(mock.live_objects, >, 0);
++    mock.live_objects--;
++}
++static GObject *new_object(void) {
++    GObject *object = g_object_new(G_TYPE_OBJECT, NULL);
++    mock.live_objects++;
++    g_object_weak_ref(object, object_gone, NULL);
++    return object;
++}
++static void mock_error(GError **error) {
++    g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED, "injected transport failure");
++}
++static void check_client(QmiClientUim *client, GMainContext *context) {
++    g_assert_true(G_IS_OBJECT(client));
++    g_assert_null(g_object_get_data(client, "released"));
++    g_assert_nonnull(context);
++}
++static void free_nodes(gpointer nodes) {
++    g_list_free_full(nodes, g_object_unref);
++}
++QrtrBus *qrtr_bus_new_sync(GMainContext *context, GError **error) {
++    g_assert_nonnull(context);
++    if (mock.fail_connect == FAIL_BUS) {
++        mock_error(error);
++        return NULL;
++    }
++    GObject *bus = new_object();
++    GList *nodes = NULL;
++    if (mock.fail_connect != FAIL_NO_NODE)
++        nodes = g_list_append(nodes, new_object());
++    if (mock.fail_connect == FAIL_MANY_NODES)
++        nodes = g_list_append(nodes, new_object());
++    g_object_set_data_full(bus, "nodes", nodes, free_nodes);
++    return bus;
++}
++GList *qrtr_bus_peek_nodes(QrtrBus *bus) { return g_object_get_data(bus, "nodes"); }
++gint qrtr_node_lookup_port(QrtrNode *node, guint32 service) {
++    g_assert_true(G_IS_OBJECT(node));
++    g_assert_cmpuint(service, ==, QMI_SERVICE_UIM);
++    return 7;
++}
++QmiDevice *qmi_device_new_from_node_sync(QrtrNode *node, GMainContext *context, GError **error) {
++    g_assert_true(G_IS_OBJECT(node));
++    g_assert_nonnull(context);
++    if (mock.fail_connect == FAIL_DEVICE) {
++        mock_error(error);
++        return NULL;
++    }
++    return new_object();
++}
++gboolean qmi_device_open_sync(QmiDevice *device, QmiDeviceOpenFlags flags, GMainContext *context, GError **error) {
++    g_assert_true(G_IS_OBJECT(device));
++    g_assert_nonnull(context);
++    g_assert_cmpint(flags, ==, QMI_DEVICE_OPEN_FLAGS_NONE);
++    if (mock.fail_connect == FAIL_OPEN) {
++        mock_error(error);
++        return FALSE;
++    }
++    return TRUE;
++}
++QmiClient *qmi_device_allocate_client_sync(QmiDevice *device, GMainContext *context, GError **error) {
++    g_assert_true(G_IS_OBJECT(device));
++    g_assert_nonnull(context);
++    if (mock.fail_connect == FAIL_CLIENT) {
++        mock_error(error);
++        return NULL;
++    }
++    return new_object();
++}
++gboolean qmi_device_release_client_sync(QmiDevice *device, QmiClient *client, GMainContext *context, GError **error) {
++    g_assert_true(G_IS_OBJECT(device));
++    check_client(client, context);
++    g_object_set_data(client, "released", GINT_TO_POINTER(1));
++    mock.releases++;
++    g_string_append_c(mock.events, 'R');
++    if (mock.release_failure) {
++        mock_error(error);
++        return FALSE;
++    }
++    return TRUE;
++}
++gboolean qmi_device_close_sync(QmiDevice *device, GMainContext *context, GError **error) {
++    g_assert_true(G_IS_OBJECT(device));
++    g_assert_nonnull(context);
++    mock.device_closes++;
++    g_string_append_c(mock.events, 'D');
++    if (mock.close_device_failure) {
++        mock_error(error);
++        return FALSE;
++    }
++    return TRUE;
++}
++
++static MockQmiMessage *reply(enum Reply mode, GError **error) {
++    if (mode == REPLY_TIMEOUT) {
++        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "injected lost reply");
++        return NULL;
++    }
++    MockQmiMessage *message = mock_message_new();
++    if (mode == REPLY_REJECT)
++        message->result = QMI_PROTOCOL_ERROR_NOT_SUPPORTED;
++    if (mode == REPLY_NO_EFFECT)
++        message->result = QMI_PROTOCOL_ERROR_NO_EFFECT;
++    return message;
++}
++QmiMessageUimGetSlotStatusOutput *qmi_client_uim_get_slot_status_sync(QmiClientUim *client,
++                                                                  GMainContext *context, GError **error) {
++    check_client(client, context);
++    mock.reads++;
++    if (mock.fail_reads) {
++        mock.fail_reads--;
++        mock_error(error);
++        return NULL;
++    }
++    MockQmiMessage *output = mock_message_new();
++    output->missing_array = mock.missing_slots;
++    output->array = g_array_sized_new(FALSE, FALSE, sizeof(QmiPhysicalSlotStatusSlot), mock.n_slots);
++    g_array_append_vals(output->array, mock.slots, mock.n_slots);
++    return output;
++}
++QmiMessageUimSwitchSlotOutput *qmi_client_uim_switch_slot_sync(QmiClientUim *client,
++                                                           QmiMessageUimSwitchSlotInput *input,
++                                                           GMainContext *context, GError **error) {
++    check_client(client, context);
++    mock.switches++;
++    mock.last_switch_logical = input->logical;
++    g_assert_cmpuint(input->physical, >, 0);
++    g_assert_cmpuint(input->physical, <=, mock.n_slots);
++    if (mock.apply_switch) {
++        for (guint i = 0; i < mock.n_slots; i++) {
++            if (mock.slots[i].logical_slot == input->logical)
++                mock.slots[i].physical_slot_status = QMI_UIM_SLOT_STATE_INACTIVE;
++        }
++        mock.slots[input->physical - 1].physical_slot_status = QMI_UIM_SLOT_STATE_ACTIVE;
++        mock.slots[input->physical - 1].logical_slot = input->logical;
++    }
++    g_string_append_c(mock.events, 'S');
++    return reply(mock.switch_reply, error);
++}
++QmiMessageUimOpenLogicalChannelOutput *qmi_client_uim_open_logical_channel_sync(QmiClientUim *client,
++                                                                             QmiMessageUimOpenLogicalChannelInput *input,
++                                                                             GMainContext *context, GError **error) {
++    check_client(client, context);
++    mock.channel_opens++;
++    mock.last_apdu_slot = input->slot;
++    MockQmiMessage *output = reply(mock.open_reply, error);
++    if (output) {
++        output->channel = mock.open_reply == REPLY_ZERO ? 0 : 7;
++        if (mock.open_reply == REPLY_HIGH_CHANNEL)
++            output->channel = 20;
++        output->missing_channel = mock.open_reply == REPLY_MISSING;
++    }
++    return output;
++}
++QmiMessageUimLogicalChannelOutput *qmi_client_uim_logical_channel_sync(QmiClientUim *client,
++                                                                   QmiMessageUimLogicalChannelInput *input,
++                                                                   GMainContext *context, GError **error) {
++    check_client(client, context);
++    g_assert_cmpuint(input->channel, ==, 7);
++    g_assert_true(input->terminate_set);
++    g_assert_false(input->terminate);
++    mock.last_apdu_slot = input->slot;
++    mock.channel_closes++;
++    g_string_append_c(mock.events, 'C');
++    return reply(mock.close_reply, error);
++}
++QmiMessageUimSendApduOutput *qmi_client_uim_send_apdu_sync(QmiClientUim *client, QmiMessageUimSendApduInput *input,
++                                                       GMainContext *context, GError **error) {
++    check_client(client, context);
++    g_assert_cmpuint(input->channel, ==, 7);
++    mock.last_apdu_slot = input->slot;
++    MockQmiMessage *output = reply(mock.transmit_reply, error);
++    if (output) {
++        const guint8 data[] = {0x90, 0};
++        output->missing_array = mock.transmit_reply == REPLY_MISSING;
++        output->array = g_array_new(FALSE, FALSE, sizeof(guint8));
++        if (mock.transmit_reply != REPLY_ZERO)
++            g_array_append_vals(output->array, data, sizeof(data));
++    }
++    return output;
++}
++void set_deprecated_env_name(const char *name, const char *old) {
++    if (!getenv(name) && getenv(old))
++        g_setenv(name, getenv(old), TRUE);
++}
++static void mock_usleep(gulong delay) {
++    if (delay == 6 * G_USEC_PER_SEC)
++        mock.settle_delays++;
++    else if (delay == 500000)
++        mock.retry_delays++;
++    else
++        g_assert_not_reached();
++}
++
++/* Keep these includes last: all helper doubles above are typed against the
++ * production declarations; only synchronous wire I/O and delays are replaced. */
++#define g_usleep mock_usleep
++#include "../driver/apdu/qmi_common.c"
++#include "../driver/apdu/qmi_qrtr.c"
++#undef g_usleep
++
++static void reset(void) {
++    g_assert_cmpuint(mock.live_objects, ==, 0);
++    g_assert_cmpuint(qmi_mock_live_messages, ==, 0);
++    if (mock.events)
++        g_string_free(mock.events, TRUE);
++    memset(&mock, 0, sizeof(mock));
++    mock.events = g_string_new(NULL);
++    mock.apply_switch = TRUE;
++    mock.n_slots = 2;
++    mock.slots[0] = (QmiPhysicalSlotStatusSlot){QMI_UIM_PHYSICAL_CARD_STATE_ABSENT, QMI_UIM_SLOT_STATE_ACTIVE, 1};
++    mock.slots[1] = (QmiPhysicalSlotStatusSlot){QMI_UIM_PHYSICAL_CARD_STATE_PRESENT, QMI_UIM_SLOT_STATE_INACTIVE, 255};
++    g_unsetenv(ENV_UIM_SLOT);
++    g_unsetenv(ENV_PHYSICAL_SLOT);
++    g_unsetenv("UIM_SLOT");
++}
++static void start(struct euicc_ctx *ctx, struct euicc_apdu_interface *interface, gboolean mapped) {
++    memset(ctx, 0, sizeof(*ctx));
++    if (mapped)
++        g_setenv(ENV_PHYSICAL_SLOT, "2", TRUE);
++    g_assert_cmpint(driver_apdu_qmi_qrtr.init(interface), ==, 0);
++    ctx->apdu.interface = interface;
++}
++static void finish(struct euicc_ctx *ctx) {
++    /* The fixture owns a mutable interface; euicc exposes it as const. */
++    struct euicc_apdu_interface *interface = (struct euicc_apdu_interface *)ctx->apdu.interface;
++    interface->disconnect(ctx);
++    /* Both disconnect and fini must be idempotent. */
++    interface->disconnect(ctx);
++    driver_apdu_qmi_qrtr.fini(interface);
++    driver_apdu_qmi_qrtr.fini(interface);
++    g_assert_cmpuint(mock.live_objects, ==, 0);
++    g_assert_cmpuint(qmi_mock_live_messages, ==, 0);
++}
++static void test_never_connect(void) {
++    struct euicc_ctx ctx;
++    struct euicc_apdu_interface interface;
++    reset(); start(&ctx, &interface, FALSE); finish(&ctx);
++    g_assert_cmpuint(mock.channel_closes, ==, 0);
++    g_assert_cmpuint(mock.releases, ==, 0);
++}
++static void test_connect_failures(void) {
++    for (int failure = FAIL_BUS; failure <= FAIL_CLIENT; failure++) {
++        struct euicc_ctx ctx;
++        struct euicc_apdu_interface interface;
++        reset(); start(&ctx, &interface, FALSE);
++        mock.fail_connect = failure;
++        g_assert_cmpint(interface.connect(&ctx), ==, -1);
++        finish(&ctx);
++        g_assert_cmpuint(mock.channel_closes, ==, 0);
++        g_assert_cmpuint(mock.releases, ==, 0);
++    }
++}
++static void test_open_failures(void) {
++    const enum Reply failures[] = {REPLY_REJECT, REPLY_TIMEOUT, REPLY_MISSING, REPLY_ZERO, REPLY_HIGH_CHANNEL};
++    for (guint i = 0; i < G_N_ELEMENTS(failures); i++) {
++        struct euicc_ctx ctx;
++        struct euicc_apdu_interface interface;
++        reset(); start(&ctx, &interface, TRUE);
++        mock.open_reply = failures[i];
++        g_assert_cmpint(interface.connect(&ctx), ==, 0);
++        g_assert_cmpint(interface.logic_channel_open(&ctx, (const guint8 *)"aid", 3), ==, -1);
++        finish(&ctx);
++        g_assert_cmpuint(mock.channel_closes, ==, 0);
++        g_assert_cmpuint(mock.switches, ==, 2);
++        g_assert_cmpint(mock.slots[0].physical_slot_status, ==, QMI_UIM_SLOT_STATE_ACTIVE);
++    }
++}
++static void test_close_failures(void) {
++    const enum Reply modes[] = {REPLY_OK, REPLY_REJECT, REPLY_TIMEOUT};
++    for (guint i = 0; i < G_N_ELEMENTS(modes); i++) {
++        struct euicc_ctx ctx;
++        struct euicc_apdu_interface interface;
++        reset(); start(&ctx, &interface, TRUE);
++        mock.close_reply = modes[i];
++        mock.release_failure = TRUE;
++        mock.close_device_failure = TRUE;
++        g_assert_cmpint(interface.connect(&ctx), ==, 0);
++        g_assert_cmpint(interface.logic_channel_open(&ctx, (const guint8 *)"aid", 3), ==, 7);
++        interface.logic_channel_close(&ctx, 7);
++        finish(&ctx);
++        g_assert_cmpuint(mock.channel_closes, ==, 1);
++        g_assert_cmpuint(mock.releases, ==, 1);
++        g_assert_cmpstr(mock.events->str, ==, "SCSRD");
++    }
++}
++static void test_disconnect_closes_channel(void) {
++    struct euicc_ctx ctx;
++    struct euicc_apdu_interface interface;
++    reset(); start(&ctx, &interface, FALSE);
++    g_assert_cmpint(interface.connect(&ctx), ==, 0);
++    g_assert_cmpint(interface.logic_channel_open(&ctx, (const guint8 *)"aid", 3), ==, 7);
++    finish(&ctx);
++    g_assert_cmpstr(mock.events->str, ==, "CRD");
++}
++static void test_transmit(void) {
++    const enum Reply modes[] = {REPLY_OK, REPLY_REJECT, REPLY_TIMEOUT, REPLY_MISSING, REPLY_ZERO};
++    for (guint i = 0; i < G_N_ELEMENTS(modes); i++) {
++        struct euicc_ctx ctx;
++        struct euicc_apdu_interface interface;
++        guint8 *rx = NULL;
++        guint32 rx_len = 999;
++        reset(); start(&ctx, &interface, FALSE);
++        g_assert_cmpint(interface.connect(&ctx), ==, 0);
++        g_assert_cmpint(interface.transmit(&ctx, &rx, &rx_len, (const guint8 *)"apdu", 4), ==, -1);
++        g_assert_null(rx); g_assert_cmpuint(rx_len, ==, 0);
++        g_assert_cmpint(interface.logic_channel_open(&ctx, (const guint8 *)"aid", 3), ==, 7);
++        mock.transmit_reply = modes[i];
++        int result = interface.transmit(&ctx, &rx, &rx_len, (const guint8 *)"apdu", 4);
++        if (modes[i] == REPLY_OK) {
++            g_assert_cmpint(result, ==, 0);
++            g_assert_cmpuint(rx_len, ==, 2);
++            g_assert_cmpuint(rx[0], ==, 0x90);
++            free(rx);
++        } else {
++            g_assert_cmpint(result, ==, -1);
++            g_assert_null(rx); g_assert_cmpuint(rx_len, ==, 0);
++        }
++        finish(&ctx);
++    }
++}
++static void test_mapping_replies(void) {
++    const enum Reply modes[] = {REPLY_OK, REPLY_NO_EFFECT, REPLY_TIMEOUT};
++    for (guint i = 0; i < G_N_ELEMENTS(modes); i++) {
++        struct euicc_ctx ctx;
++        struct euicc_apdu_interface interface;
++        reset(); start(&ctx, &interface, TRUE);
++        mock.switch_reply = modes[i];
++        g_assert_cmpint(interface.connect(&ctx), ==, 0);
++        g_assert_cmpint(interface.logic_channel_open(&ctx, (const guint8 *)"aid", 3), ==, 7);
++        g_assert_cmpuint(mock.last_apdu_slot, ==, 1);
++        finish(&ctx);
++        g_assert_cmpuint(mock.switches, ==, 2);
++        g_assert_cmpuint(mock.settle_delays, ==, 2);
++        g_assert_cmpint(mock.slots[0].physical_slot_status, ==, QMI_UIM_SLOT_STATE_ACTIVE);
++        g_assert_cmpint(mock.slots[1].physical_slot_status, ==, QMI_UIM_SLOT_STATE_INACTIVE);
++    }
++}
++static void test_mapping_no_change(void) {
++    const enum Reply modes[] = {REPLY_OK, REPLY_NO_EFFECT, REPLY_TIMEOUT, REPLY_REJECT};
++    for (guint i = 0; i < G_N_ELEMENTS(modes); i++) {
++        struct euicc_ctx ctx;
++        struct euicc_apdu_interface interface;
++        reset(); start(&ctx, &interface, TRUE);
++        mock.switch_reply = modes[i]; mock.apply_switch = FALSE;
++        g_assert_cmpint(interface.connect(&ctx), ==, -1);
++        finish(&ctx);
++        g_assert_cmpuint(mock.switches, ==, 1);
++        g_assert_cmpint(mock.slots[0].physical_slot_status, ==, QMI_UIM_SLOT_STATE_ACTIVE);
++    }
++}
++static void test_mapping_already_active(void) {
++    struct euicc_ctx ctx;
++    struct euicc_apdu_interface interface;
++    reset(); start(&ctx, &interface, TRUE);
++    mock.slots[0].physical_slot_status = QMI_UIM_SLOT_STATE_INACTIVE;
++    mock.slots[1].physical_slot_status = QMI_UIM_SLOT_STATE_ACTIVE;
++    mock.slots[1].logical_slot = 1;
++    g_assert_cmpint(interface.connect(&ctx), ==, 0);
++    finish(&ctx);
++    g_assert_cmpuint(mock.switches, ==, 0);
++    g_assert_cmpuint(mock.settle_delays, ==, 0);
++}
++static void test_mapping_ambiguous(void) {
++    for (unsigned mode = 0; mode < 7; mode++) {
++        struct euicc_ctx ctx;
++        struct euicc_apdu_interface interface;
++        reset(); start(&ctx, &interface, TRUE);
++        switch (mode) {
++        case 0: mock.n_slots = 1; break;
++        case 1: mock.slots[1].physical_card_status = QMI_UIM_PHYSICAL_CARD_STATE_ABSENT; break;
++        case 2: mock.slots[0].logical_slot = 0; break;
++        case 3: mock.slots[1].physical_slot_status = QMI_UIM_SLOT_STATE_ACTIVE; mock.slots[1].logical_slot = 1; break;
++        case 4: mock.slots[1].physical_slot_status = QMI_UIM_SLOT_STATE_ACTIVE; mock.slots[1].logical_slot = 2; break;
++        case 5: mock.slots[0].logical_slot = 2; break;
++        case 6: mock.missing_slots = TRUE; break;
++        }
++        g_assert_cmpint(interface.connect(&ctx), ==, -1);
++        finish(&ctx);
++        g_assert_cmpuint(mock.switches, ==, 0);
++    }
++}
++static void test_mapping_preserve_other_logical(void) {
++    struct euicc_ctx ctx;
++    struct euicc_apdu_interface interface;
++    reset();
++    g_setenv(ENV_UIM_SLOT, "2", TRUE);
++    start(&ctx, &interface, TRUE);
++    mock.slots[0].logical_slot = 2;
++    mock.n_slots = 3;
++    mock.slots[2] = (QmiPhysicalSlotStatusSlot){QMI_UIM_PHYSICAL_CARD_STATE_PRESENT, QMI_UIM_SLOT_STATE_ACTIVE, 1};
++    g_assert_cmpint(interface.connect(&ctx), ==, 0);
++    g_assert_cmpuint(mock.last_switch_logical, ==, 2);
++    g_assert_cmpint(interface.logic_channel_open(&ctx, (const guint8 *)"aid", 3), ==, 7);
++    g_assert_cmpuint(mock.last_apdu_slot, ==, 2);
++    finish(&ctx);
++    g_assert_cmpuint(mock.slots[0].logical_slot, ==, 2);
++    g_assert_cmpint(mock.slots[2].physical_slot_status, ==, QMI_UIM_SLOT_STATE_ACTIVE);
++    g_assert_cmpuint(mock.slots[2].logical_slot, ==, 1);
++}
++static void test_mapping_external_change(void) {
++    struct euicc_ctx ctx;
++    struct euicc_apdu_interface interface;
++    reset(); start(&ctx, &interface, TRUE);
++    g_assert_cmpint(interface.connect(&ctx), ==, 0);
++    mock.slots[1].logical_slot = 2;
++    interface.disconnect(&ctx);
++    g_assert_true(((struct qmi_data *)interface.userdata)->cleanup_failed);
++    finish(&ctx);
++    g_assert_cmpuint(mock.switches, ==, 1);
++    g_assert_cmpuint(mock.slots[1].logical_slot, ==, 2);
++}
++static void test_mapping_restore_failure(void) {
++    struct euicc_ctx ctx;
++    struct euicc_apdu_interface interface;
++    reset(); start(&ctx, &interface, TRUE);
++    g_assert_cmpint(interface.connect(&ctx), ==, 0);
++    mock.apply_switch = FALSE;
++    interface.disconnect(&ctx);
++    g_assert_true(((struct qmi_data *)interface.userdata)->cleanup_failed);
++    finish(&ctx);
++    g_assert_cmpuint(mock.switches, ==, 2);
++    g_assert_cmpint(mock.slots[1].physical_slot_status, ==, QMI_UIM_SLOT_STATE_ACTIVE);
++}
++static void test_mapping_restore_read_failure(void) {
++    struct euicc_ctx ctx;
++    struct euicc_apdu_interface interface;
++    reset(); start(&ctx, &interface, TRUE);
++    g_assert_cmpint(interface.connect(&ctx), ==, 0);
++    mock.fail_reads = 3;
++    interface.disconnect(&ctx);
++    g_assert_true(((struct qmi_data *)interface.userdata)->cleanup_failed);
++    finish(&ctx);
++    g_assert_cmpuint(mock.switches, ==, 1);
++    g_assert_cmpuint(mock.retry_delays, ==, 2);
++}
++static void test_slot_environment(void) {
++    const char *invalid[] = {"", "0", "256", "-1", "+1", " 1", "1x", "9999999999999999999999999999999"};
++    for (guint i = 0; i < G_N_ELEMENTS(invalid); i++) {
++        struct euicc_apdu_interface interface;
++        reset(); g_setenv(ENV_PHYSICAL_SLOT, invalid[i], TRUE);
++        g_assert_cmpint(driver_apdu_qmi_qrtr.init(&interface), ==, -1);
++        driver_apdu_qmi_qrtr.fini(&interface);
++        reset(); g_setenv(ENV_UIM_SLOT, invalid[i], TRUE);
++        g_assert_cmpint(driver_apdu_qmi_qrtr.init(&interface), ==, -1);
++        driver_apdu_qmi_qrtr.fini(&interface);
++    }
++    struct euicc_ctx ctx;
++    struct euicc_apdu_interface interface;
++    reset(); g_setenv(ENV_UIM_SLOT, "2", TRUE); start(&ctx, &interface, FALSE);
++    g_assert_cmpint(interface.connect(&ctx), ==, 0);
++    g_assert_cmpint(interface.logic_channel_open(&ctx, (const guint8 *)"aid", 3), ==, 7);
++    g_assert_cmpuint(mock.last_apdu_slot, ==, 2);
++    finish(&ctx);
++    g_assert_cmpuint(mock.reads, ==, 0);
++    g_assert_cmpuint(mock.switches, ==, 0);
++}
++int main(int argc, char **argv) {
++    g_test_init(&argc, &argv, NULL);
++    g_test_add_func("/qmi/lifecycle/never-connect", test_never_connect);
++    g_test_add_func("/qmi/lifecycle/connect-failures", test_connect_failures);
++    g_test_add_func("/qmi/lifecycle/open-failures", test_open_failures);
++    g_test_add_func("/qmi/lifecycle/close-failures", test_close_failures);
++    g_test_add_func("/qmi/lifecycle/disconnect-closes-channel", test_disconnect_closes_channel);
++    g_test_add_func("/qmi/lifecycle/transmit", test_transmit);
++    g_test_add_func("/qmi/mapping/replies", test_mapping_replies);
++    g_test_add_func("/qmi/mapping/no-change", test_mapping_no_change);
++    g_test_add_func("/qmi/mapping/already-active", test_mapping_already_active);
++    g_test_add_func("/qmi/mapping/ambiguous", test_mapping_ambiguous);
++    g_test_add_func("/qmi/mapping/preserve-other-logical", test_mapping_preserve_other_logical);
++    g_test_add_func("/qmi/mapping/external-change", test_mapping_external_change);
++    g_test_add_func("/qmi/mapping/restore-failure", test_mapping_restore_failure);
++    g_test_add_func("/qmi/mapping/restore-read-failure", test_mapping_restore_read_failure);
++    g_test_add_func("/qmi/config/environment", test_slot_environment);
++    int result = g_test_run();
++    reset();
++    g_string_free(mock.events, TRUE);
++    return result;
++}
+
