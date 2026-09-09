@@ -1,6 +1,6 @@
 Name:     stevia
 Version:  0.57.0
-Release:  1.2.pocketfed%{?dist}
+Release:  1.3.pocketfed%{?dist}
 Summary:  On screen keyboard (OSK) Phosh
 License:  GPL-3.0-or-later
 URL:      https://gitlab.gnome.org/World/Phosh/stevia
@@ -8,9 +8,12 @@ Source:   %{url}/-/archive/v%{version_no_tilde _}/%{name}-v%{version_no_tilde _}
 
 Patch0:   stevia-0.57.0-verbisage-completer.patch
 Patch1:   stevia-0.57.0-ranked-completion.patch
+Patch2:   stevia-0.57.0-swipe-and-undo.patch
 
 Provides: stevia-completer-verbisage = 1
 Provides: stevia-completer-verbisage-ranked = 1
+Provides: stevia-swipe-typing = 1
+Provides: stevia-completion-undo = 1
 
 ExcludeArch:  %{ix86}
 # Tests fail on s390x. Nobody's asking to run an OSK on their mainframe.
@@ -92,7 +95,7 @@ LC_ALL=C.UTF-8 xwfb-run -c mutter -- sh <<'SH'
 SH
 
 %files -f phosh-osk-%{name}.lang
-%doc README.md
+%doc README.md SWIPE-PROTOTYPE.md
 %license COPYING
 %{_bindir}/phosh-osk-stevia
 %{_datadir}/glib-2.0/schemas/mobi.phosh.osk.enums.xml
@@ -106,6 +109,11 @@ SH
 %{_userunitdir}/mobi.phosh.OSK.service
 
 %changelog
+* Wed Sep 09 2026 Sam Day <me@samcday.com> - 0.57.0-1.3.pocketfed
+- Add tested whole-word swipes, fading trail, editable guesses and selection undo
+- Preserve stationary alternate-character holds and support Shift/Caps Lock
+- Keep swipe disabled by default; personal images opt in separately
+
 * Mon Sep 07 2026 PocketFed contributors <pocketfed@localhost> - 0.57.0-1.2.pocketfed
 - Use one ranked Verbisage Complete reply and retain the original typed spelling
 - Improve all-caps candidates and cover ranking, caps, and unsupported daemons

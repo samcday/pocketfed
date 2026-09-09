@@ -1,1 +1,4 @@
 72dfbedf5ac7e341639cd9628173baffea84559f40a6453f504eb0f91cdf39ff  stevia-v0.57.0.tar.gz
+3c8ac11da31fe20d609737944a398b8f329a5b49ff559c4c96db34d301e2b51a  stevia-0.57.0-ranked-completion.patch
+75682506590a55e8e44a6a5e354705c0ea2add7d5b613835ee37e91d92a7854c  stevia-0.57.0-swipe-and-undo.patch
+da9daacc66c71d8a07872c8b1944986d57703c49cd301f180d5d2cf90f68fae2  stevia-0.57.0-verbisage-completer.patch

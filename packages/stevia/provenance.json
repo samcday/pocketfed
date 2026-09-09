@@ -12,18 +12,23 @@
     "interface": "org.verbisage.Dictionary1",
     "Complete": "(sus) -> (a(sd))",
     "maximum_input": "128 Unicode characters / 512 UTF-8 bytes",
-    "candidate_limit": "Request 6; preserve ordered reply, literal first, maximum 6 displayed total"
+    "candidate_limit": "Request 6; preserve ordered reply, literal first, maximum 6 displayed total",
+    "RecognizeSwipe": "(a(ddu)a(sdddd)us) -> (a(sd))"
   },
-  "trial_default": "unchanged (Hunspell in Fedora); opt in with default=verbisage",
+  "trial_default": "Package swipe-typing=false; personal sam-sargo image opts in",
   "validation": {
-    "upstream_meson_tests": "72/72 passed, including 14 adapter scenarios",
-    "x86_64_rpm": "Full RPM build passed; rpmlint 0 errors, 2 inherited provider-subpackage warnings",
-    "details": "validation.json"
+    "source_equivalence_files": 201,
+    "prior_source_meson_targets": 73,
+    "prior_private_host_cases": 11,
+    "prior_native_phone_cases": 7,
+    "rpm_checks": "Run by each COPR build; previous validation.json is release1.2 history"
   },
   "patch_sha256": "da9daacc66c71d8a07872c8b1944986d57703c49cd301f180d5d2cf90f68fae2",
-  "release": "1.2.pocketfed",
+  "release": "1.3.pocketfed",
   "patches_sha256": {
     "stevia-0.57.0-ranked-completion.patch": "3c8ac11da31fe20d609737944a398b8f329a5b49ff559c4c96db34d301e2b51a",
+    "stevia-0.57.0-swipe-and-undo.patch": "75682506590a55e8e44a6a5e354705c0ea2add7d5b613835ee37e91d92a7854c",
     "stevia-0.57.0-verbisage-completer.patch": "da9daacc66c71d8a07872c8b1944986d57703c49cd301f180d5d2cf90f68fae2"
-  }
+  },
+  "tested_source_commit": "95db18fa9f90ea63f157f8fb11a2b6ac70971332"
 }
