@@ -1,0 +1,61 @@
+{
+  "build_id": 10964201,
+  "url": "https://copr.fedorainfracloud.org/coprs/build/10964201",
+  "project": "samcday/blob-wrangler-nightly",
+  "source_commit": "d9419870fec8e7ff213252a5b487117690082f56",
+  "source_pr": "https://github.com/samcday/blob-wrangler/pull/16",
+  "source_pr_build": 10964170,
+  "uploaded_srpm_sha256": "eb4f32c53e4ef1b78e676296edcca09a584137e541a28aee7eb615eee3e12085",
+  "source_preparation": "Exact signed source RPM from the successful Packit PR build; embedded .cargo_vcs_info.json matches source_commit. No source/spec rewrite for the normal-feed rebuild.",
+  "build_network": "disabled explicitly for the normal-feed rebuild",
+  "signing_key_source": "https://download.copr.fedorainfracloud.org/results/samcday/blob-wrangler-nightly/pubkey.gpg",
+  "signing_key_fingerprint": "A48C46BCA6A89DFC13F74DFAD131E33B65D6AEF9",
+  "verification_key_database": "Private temporary database; host trust unchanged",
+  "targets": [
+    {
+      "chroot": "fedora-45-aarch64",
+      "state": "succeeded",
+      "nevra": "blob-wrangler-v0.0.1-1.20260909081322171050.pr16.6.gd941987.fc45.aarch64",
+      "rpm_sha256": "daa9be8547f8667d961ef81f4ca9ce80acd49835840ccf8ce9a6101a45f3acb5",
+      "builder_live_log_gz_sha256": "af1d7e598be14b115088468d2df8341c3ba8ef755f3d585e79a3468bf509699d",
+      "tests_passed": 26,
+      "signature": "digests signatures OK"
+    },
+    {
+      "chroot": "fedora-rawhide-aarch64",
+      "state": "succeeded",
+      "nevra": "blob-wrangler-v0.0.1-1.20260909081322171050.pr16.6.gd941987.fc46.aarch64",
+      "rpm_sha256": "44023245ec6a1f46489b2867a99b84f37c144f1f3e5da389ece13c3b97a0182f",
+      "builder_live_log_gz_sha256": "ee04249069353f11f3935bea2d7f95c0c6b00523913c02ba84d73278caa3558f",
+      "tests_passed": 26,
+      "signature": "digests signatures OK"
+    },
+    {
+      "chroot": "fedora-rawhide-x86_64",
+      "state": "succeeded",
+      "nevra": "blob-wrangler-v0.0.1-1.20260909081322171050.pr16.6.gd941987.fc46.x86_64",
+      "rpm_sha256": "9c2913b2727f4cd4483304abe2d58e61452519cabd07daecb95416f5c616e8da",
+      "builder_live_log_gz_sha256": "da4778781e599cd815a9d73067dbd09a7463b5c2f65148a70bb82ab9f3339952",
+      "tests_passed": 26,
+      "signature": "digests signatures OK"
+    }
+  ],
+  "packaged_sargo_config_sha256": "8cb3d5b9a3d6f6b5e4841a528eaaaf8e6211e4b247c608c116c82d4c28032bb9",
+  "packaged_sargo_config": "Fedora 45 ARM RPM config matches the committed source byte for byte",
+  "carrier_extraction": {
+    "partition": "vendor",
+    "origin": "rfs/msm/mpss/readonly/vendor/mbn/mcfg_sw/generic/AUNZ/Optus/Commercial/AU",
+    "destination": "qcom/sdm670/sargo/mcfg",
+    "source_name": "mcfg_sw.mbn",
+    "output_name": "optus-au-commercial.mbn",
+    "required": false,
+    "mapped_network": "50502"
+  },
+  "local_checks": [
+    "blob-wrangler all-features formatting, Clippy with warnings denied and 26 tests pass",
+    "PocketFed UIM, MCFG and preset tests pass, including mapped eUICC USIM with an ISIM present",
+    "Actual image carrier-verifier block passes signed ARM RPM config; wrong stock path, wrong output, required carrier blob, wrong network map and missing network map negative controls reject"
+  ],
+  "scope": "No firmware binary redistribution, new firmware, kernel changes, global SIM-routing policy, repository/key change, or automatic profile operation",
+  "acceptance_boundary": "Live stock-Optus activation and LTE/IMS readiness were proven separately before packaging. An installed image containing this exact package and map still requires device acceptance."
+}

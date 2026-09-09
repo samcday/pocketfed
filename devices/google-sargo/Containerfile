@@ -1,7 +1,7 @@
 ARG BASE_IMAGE=ghcr.io/samcday/pocketfed-phosh:rawhide
 ARG FEDORA_IMAGE=quay.io/fedora/fedora:rawhide
 ARG RUST_IMAGE=docker.io/library/rust:1.96-bookworm
-ARG BLOB_WRANGLER_NEVRA=blob-wrangler-v0.0.1-1.20260904090801321088.main.5.g4ba8407.fc45.aarch64
+ARG BLOB_WRANGLER_NEVRA=blob-wrangler-v0.0.1-1.20260909081322171050.pr16.6.gd941987.fc45.aarch64
 ARG Q6VOICED_NEVRA=q6voiced-0.3.1-1788567722.fc46.aarch64
 
 FROM ${BASE_IMAGE} AS device-root
@@ -41,9 +41,10 @@ COPY devices/google-sargo/80-pocketfed-google-sargo.preset /usr/lib/systemd/syst
 # Packaging and regression check: packages/ModemManager/.
 # usb-signaller is pinned to COPR build 10712403 from source commit bf2f2d6;
 # the aarch64 RPM SHA-256 is 1d575c3f1e6f06beac4e9e0410f8c327f232445d68e94d7a1f97b894fe02e84a.
-# blob-wrangler is pinned to COPR build 10949855 from source commit 4ba8407;
-# that build was published only for Fedora 45, and the aarch64 RPM SHA-256 is
-# 44f4e4b0699ddfc55931a59dd4a4d2619d477b7add816867284d4c12f9c4dc8b.
+# blob-wrangler is pinned to COPR build 10964201 from source commit d941987;
+# the existing Fedora 45 feed is retained. The aarch64 RPM SHA-256 is
+# daa9be8547f8667d961ef81f4ca9ce80acd49835840ccf8ce9a6101a45f3acb5.
+# Source, signature and stock Optus extraction checks: packages/blob-wrangler/optus-build.json.
 # q6voiced is pinned to COPR build 10951987; the Rawhide aarch64 RPM SHA-256
 # is 319674d425c241f91cfbe1e19a1de6cb1078cee625f44d711fe45cef2a6f1bbc.
 # lpac is pinned to COPR build 10964090; source, test and signature evidence
