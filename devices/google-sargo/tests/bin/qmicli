@@ -15,6 +15,12 @@ for arg in "$@"; do
 		--uim-get-card-status)
 			action=status
 			;;
+		--uim-get-slot-status)
+			action=route-status
+			;;
+		--uim-switch-slot=*)
+			action=route-switch
+			;;
 		--uim-change-provisioning-session=*)
 			action=change
 			;;
@@ -22,6 +28,62 @@ for arg in "$@"; do
 done
 
 case "$action" in
+	route-status)
+		: "${QMI_ROUTE_SCENARIO:?QMI_ROUTE_SCENARIO is required}"
+		: "${QMI_STATE:?QMI_STATE is required}"
+		if [ "$QMI_ROUTE_SCENARIO" = initial-delay ] && [ ! -f "$QMI_STATE.initial" ]; then
+			: >"$QMI_STATE.initial"
+			exit 1
+		fi
+		if [ "$QMI_ROUTE_SCENARIO" = query-failure ]; then
+			printf 'error: PRIVATE_IDENTIFIER\n' >&2
+			exit 1
+		fi
+		active=1
+		logical=1
+		card2=present
+		[ ! -f "$QMI_STATE.route" ] || active=2
+		case "$QMI_ROUTE_SCENARIO" in
+			already|return-tray) active=2 ;;
+			no-card) card2=absent ;;
+			logical2) logical=2 ;;
+		esac
+		if [ "$QMI_ROUTE_SCENARIO" = delayed ] && [ -f "$QMI_STATE.route" ] &&
+		   [ ! -f "$QMI_STATE.readback" ]; then
+			active=1
+			: >"$QMI_STATE.readback"
+		fi
+		if [ "$QMI_ROUTE_SCENARIO" = return-tray ] && [ -f "$QMI_STATE.route" ]; then
+			active=1
+		fi
+		for slot in 1 2; do
+			[ "$QMI_ROUTE_SCENARIO" != missing-slot ] || [ "$slot" != 2 ] || break
+			printf '  Physical slot %s:\n' "$slot"
+			card=present
+			[ "$slot" != 2 ] || card="$card2"
+			printf '     Card status: %s\n' "$card"
+			if [ "$slot" = "$active" ] || [ "$QMI_ROUTE_SCENARIO" = two-active ]; then
+				printf '     Slot status: active\n    Logical slot: %s\n' "$logical"
+			else
+				printf '     Slot status: inactive\n'
+			fi
+			printf '           ICCID: PRIVATE_IDENTIFIER\n             EID: PRIVATE_IDENTIFIER\n'
+		done
+		;;
+	route-switch)
+		: "${QMI_ROUTE_SCENARIO:?QMI_ROUTE_SCENARIO is required}"
+		case "$QMI_ROUTE_SCENARIO" in
+			switch-failure)
+				printf 'error: PRIVATE_IDENTIFIER\n' >&2
+				exit 1 ;;
+			ack-nochange) ;;
+			noack-success)
+				: >"$QMI_STATE.route"
+				printf 'error: PRIVATE_IDENTIFIER\n' >&2
+				exit 1 ;;
+			*) : >"$QMI_STATE.route" ;;
+		esac
+		;;
 	noop)
 		[ "$QMI_SCENARIO" != absent ]
 		;;

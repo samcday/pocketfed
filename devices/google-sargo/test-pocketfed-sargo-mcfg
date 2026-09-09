@@ -290,10 +290,22 @@ assert_private_output activate-failure
 grep -Fq 'did not become active' "$output" ||
 	fail 'activation failure was not diagnosed after verification'
 
-grep -Fxq 'Requires=rmtfs.service' "$unit" ||
-	fail 'unit does not require rmtfs'
-grep -Fxq 'Wants=blob-wrangler.service pocketfed-sargo-uim-select.service' "$unit" ||
-	fail 'unit does not pull in extraction and UIM selection'
+run_case absent PREFERRED_PHYSICAL_SLOT=2 UIM_EXPECT_PHYSICAL_SLOT=2
+test -e "$activation_marker" || fail 'physical preference was not inherited after reset'
+if run_case absent PREFERRED_PHYSICAL_SLOT=2 UIM_SELECT_FAIL=1; then
+	fail 'failed explicit SIM selection was reported as recovered'
+fi
+test ! -e "$activation_marker" || fail 'failed explicit selection handed off network search'
+grep -Fq 'explicit SIM selection failed' "$output" || fail 'post-reset selection failure not diagnosed'
+
+grep -Fxq 'Requires=rmtfs.service pocketfed-sargo-uim-select.service' "$unit" ||
+	fail 'unit must not load a carrier configuration if UIM routing failed'
+grep -Fxq 'Wants=blob-wrangler.service' "$unit" ||
+	fail 'unit does not pull in extraction'
+for config in /usr/lib/pocketfed/sargo-sim.conf /etc/pocketfed/sargo-sim.conf; do
+	grep -Fxq "EnvironmentFile=-$config" "$unit" ||
+		fail 'post-carrier-reset UIM selection does not inherit SIM preference'
+done
 grep -Fxq 'After=blob-wrangler.service rmtfs.service pocketfed-sargo-uim-select.service' "$unit" ||
 	fail 'unit ordering does not serialize extraction, rmtfs, and UIM selection'
 grep -Fxq 'Before=ModemManager.service' "$unit" ||

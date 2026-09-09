@@ -61,6 +61,33 @@ new finalizer before a later update, initramfs change, or kargs transaction can
 use it. The first transition still uses the older helper and its prebuilt boot
 image; this is the same bootstrap constraint as any `aboot-deploy` update.
 
+### SIM selection at boot
+
+Sargo has a physical SIM tray (physical slot 1) and an embedded eUICC
+(physical slot 2), sharing logical slot 1 on the tested modem firmware.
+A ModemManager primary-slot change does not survive a reboot on this setup.
+PocketFed leaves physical routing unchanged by default. To explicitly prefer
+the eSIM at boot, set `PREFERRED_PHYSICAL_SLOT=2` in
+`/etc/pocketfed/sargo-sim.conf` (use `1` for the tray). A derived image can ship
+the same setting in `/usr/lib/pocketfed/sargo-sim.conf`; the `/etc` file overrides
+it, and an empty value disables the preference. These are systemd environment
+files, not shell scripts. Changing the file takes effect on the next boot;
+do not restart the early modem helpers during a call.
+
+The existing UIM helper verifies the single-logical-slot topology, applies the
+explicit preference if necessary, then independently verifies the mapping
+before selecting the USIM application. It does not download, enable or delete
+eSIM profiles, choose a profile automatically, or fall back to another card.
+An enabled eSIM profile must already exist. Do not set `PREFERRED_SLOT=2` for
+the eSIM: that older setting indexes Get Card Status, where both cards appear
+in slot 1 once routed. Physical routing supports only card-status slot 1.
+
+Carrier selection waits for UIM selection to succeed. It also inherits this
+preference when reselecting the USIM after a carrier-configuration reset.
+ModemManager is still allowed to start if the early helper fails, for manual
+recovery. This is a boot preference, not a persistent policy daemon: a later
+manual ModemManager slot change is left alone until the next boot.
+
 ## Samsung Galaxy A5U (EUR)
 
 The `samsung-a5u-eur` target assumes U-Boot or PocketBoot has already been
