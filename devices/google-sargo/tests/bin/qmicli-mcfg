@@ -39,7 +39,7 @@ done
 
 initial_state() {
 	case "$QMI_SCENARIO" in
-		active) printf '%s\n' active ;;
+		active|optus-active) printf '%s\n' active ;;
 		inactive|activate-failure|delayed-active) printf '%s\n' inactive ;;
 		pending) printf '%s\n' pending ;;
 		*) printf '%s\n' absent ;;
@@ -73,6 +73,10 @@ case "$action" in
 				;;
 			unknown)
 				encoded=08:59:50:99:89:67:45:23:01
+				;;
+			optus|optus-active)
+				# Synthetic 50502 subscriber, not a real handset identifier.
+				encoded=08:59:50:20:07:21:43:65:87
 				;;
 			*)
 				encoded=08:59:50:10:07:21:43:65:87
