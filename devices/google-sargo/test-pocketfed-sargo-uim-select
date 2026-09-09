@@ -58,23 +58,31 @@ grep -Fq 'no usable USIM application detected' "$output" ||
 
 run_case usim
 assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
-grep -Fq 'selecting the USIM application in physical slot 1' "$output" ||
+grep -Fq 'selecting the USIM application in card-status slot 1' "$output" ||
 	fail 'usable USIM was not selected'
+
+run_case esim-mapped
+assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
+grep -Fq 'selecting the USIM application in card-status slot 1' "$output" ||
+	fail 'mapped eUICC USIM was not selected in its logical card-status slot'
+if grep -Eq -- '--uim-switch-slot|--uim-set-slot-mapping' "$log"; then
+	fail 'application selection must not change physical-slot routing'
+fi
 
 run_case dual
 assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
-grep -Fq 'selecting the USIM application in physical slot 1' "$output" ||
-	fail 'physical USIM was not preferred over the eUICC USIM'
+grep -Fq 'selecting the USIM application in card-status slot 1' "$output" ||
+	fail 'preferred card-status slot was not used'
 
 run_case stale
 assert_no_changes stale
 grep -Fq 'no usable USIM application detected' "$output" ||
-	fail 'a stale application ID leaked into physical-slot selection'
+	fail 'a stale application ID leaked into card-status selection'
 
 run_case delayed 1
 assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
-grep -Fq 'selecting the USIM application in physical slot 1' "$output" ||
-	fail 'delayed physical USIM enumeration was not retried'
+grep -Fq 'selecting the USIM application in card-status slot 1' "$output" ||
+	fail 'delayed USIM enumeration was not retried'
 
 run_case existing
 assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=activate=no,session-type=primary-gw-provisioning
@@ -97,7 +105,7 @@ if env \
 	sh "$helper" >"$output" 2>&1; then
 	fail 'an invalid preferred slot was accepted'
 fi
-grep -Fq 'invalid preferred physical slot' "$output" ||
+grep -Fq 'invalid preferred card-status slot' "$output" ||
 	fail 'an invalid preferred slot was not diagnosed'
 
 printf 'sargo UIM helper tests passed\n'

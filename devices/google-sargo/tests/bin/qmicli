@@ -44,6 +44,20 @@ Slot [1]:
 Primary GW:   session doesn't exist
 EOF
 				;;
+			esim-mapped)
+				# Synthetic applications for an eUICC mapped to logical slot 1.
+				cat <<'EOF'
+Slot [1]:
+  Card state: 'present'
+  Application type: 'isim (5)'
+  Application ID:
+    A0:00:00:00:87:10:04
+  Application type: 'usim (2)'
+  Application ID:
+    A0:00:00:00:87:10:02
+Primary GW: session doesn't exist
+EOF
+				;;
 			dual)
 				cat <<'EOF'
 Slot [2]:

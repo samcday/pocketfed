@@ -6,6 +6,9 @@ set -eu
 readonly MODEM_WAIT_SECONDS="${MODEM_WAIT_SECONDS:-45}"
 readonly SIM_WAIT_SECONDS="${SIM_WAIT_SECONDS:-30}"
 readonly QMI_DEVICE="${QMI_DEVICE:-qrtr://0}"
+# Index in UIM Get Card Status, not a physical-slot routing preference.
+# On the tested Sargo firmware, physical eUICC 2 mapped to logical slot 1
+# exposes its applications in card-status Slot [1], just like the tray does.
 readonly PREFERRED_SLOT="${PREFERRED_SLOT:-1}"
 
 log() {
@@ -13,9 +16,9 @@ log() {
 }
 
 find_usim() {
-	# Sargo's second physical slot is a soldered eUICC that may be present
-	# without a profile. Select an actual USIM application, not merely the
-	# first card that QMI reports as present.
+	# A mapped eUICC may have no enabled profile, or expose an ISIM alongside
+	# its USIM. Select an actual USIM in the requested card-status slot.
+	# This helper does not change physical-to-logical slot mapping.
 	awk -v preferred_slot="$PREFERRED_SLOT" '
 		/^Slot \[[0-9][0-9]*\]:$/ {
 			slot = $0
@@ -47,7 +50,7 @@ find_usim() {
 
 case "$PREFERRED_SLOT" in
 	''|*[!0-9]*)
-		log "invalid preferred physical slot: ${PREFERRED_SLOT}"
+		log "invalid preferred card-status slot: ${PREFERRED_SLOT}"
 		exit 1
 		;;
 esac
@@ -110,7 +113,7 @@ if ! printf '%s\n' "$card_status" | grep -Eq "Primary GW:.*session doesn't exist
 	fi
 fi
 
-log "selecting the USIM application in physical slot ${slot}"
+log "selecting the USIM application in card-status slot ${slot}"
 qmicli --silent --device="$QMI_DEVICE" \
 	--uim-change-provisioning-session="slot=${slot},activate=yes,session-type=primary-gw-provisioning,aid=${aid}" \
 	>/dev/null
