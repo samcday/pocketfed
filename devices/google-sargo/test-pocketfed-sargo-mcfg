@@ -13,6 +13,7 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 known_imsi=505017012345678
 unknown_imsi=505999876543210
+optus_imsi=505027012345678
 mcfg_root="$tmp/mcfg"
 map="$tmp/sargo-mcfg.tsv"
 mbn="$mcfg_root/telstra-au-commercial.mbn"
@@ -69,8 +70,10 @@ run_case() {
 assert_private_output() {
 	if grep -Fq "$known_imsi" "$output" ||
 		grep -Fq "$unknown_imsi" "$output" ||
+		grep -Fq "$optus_imsi" "$output" ||
 		grep -Fq "$known_imsi" "$qmi_log" ||
-		grep -Fq "$unknown_imsi" "$qmi_log"; then
+		grep -Fq "$unknown_imsi" "$qmi_log" ||
+		grep -Fq "$optus_imsi" "$qmi_log"; then
 		fail "the $1 case logged an IMSI"
 	fi
 	if grep -Fq -- '--dms-uim-get-imsi' "$qmi_log"; then
@@ -137,6 +140,24 @@ assert_private_output six-digit-match
 grep -Fq -- "--pdc-load-config=$six_digit_mbn" "$qmi_log" ||
 	fail 'six-digit MCCMNC mapping did not take precedence over five-digit mapping'
 printf '50501\ttelstra-au-commercial.mbn\n' >"$map"
+
+optus_mbn="$mcfg_root/optus-au-commercial.mbn"
+printf 'Optus configuration fixture, not firmware\n' >"$optus_mbn"
+telstra_config_id=$config_id
+config_id=$(sha1sum "$optus_mbn" | awk '{ print $1 }')
+run_case optus MCFG_MAP="$repo_root/devices/google-sargo/sargo-mcfg.tsv"
+assert_private_output optus
+grep -Fq -- "--pdc-load-config=$optus_mbn" "$qmi_log" ||
+	fail 'the shipped 50502 map did not load the Optus profile'
+grep -Fq -- "--pdc-activate-config=software,$config_id" "$qmi_log" ||
+	fail 'the shipped 50502 map did not activate the exact Optus profile'
+if grep -Fq -- "--pdc-load-config=$mbn" "$qmi_log"; then
+	fail 'the shipped 50502 map incorrectly selected Telstra'
+fi
+run_case optus-active MCFG_MAP="$repo_root/devices/google-sargo/sargo-mcfg.tsv"
+assert_no_mutation optus-active
+assert_private_output optus-active
+config_id=$telstra_config_id
 
 run_case active
 assert_no_mutation active

@@ -1,3 +1,5 @@
 # MCCMNC  blob-wrangler output path, relative to the Sargo MCFG directory
 # Telstra Australia, including ALDImobile
 50501	telstra-au-commercial.mbn
+# Optus Australia, including amaysim
+50502	optus-au-commercial.mbn
