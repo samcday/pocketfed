@@ -1,0 +1,35 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] Import from the configured output directory
+
+Persist setup settings across a reboot when a distribution selects a persistent
+output directory. Do not start the importer on systems with no exported setup.
+
+--- a/data/meson.build
++++ b/data/meson.build
+@@ -59,6 +59,7 @@
+ import_service = 'phosh-first-boot-importer.service'
+ import_service_data = configuration_data()
+ import_service_data.set('libexecdir', libexecdir)
++import_service_data.set('outputdir', get_option('output-dir'))
+ configure_file(
+   input: f'@import_service@.in',
+   output: import_service,
+--- a/data/phosh-first-boot-importer.service.in
++++ b/data/phosh-first-boot-importer.service.in
+@@ -9,6 +9,7 @@
+ Before=user-session-migration.service
+ 
+ ConditionPathExists=!%E/phosh-first-boot-done
++ConditionPathExists=@outputdir@/mobi.phosh.osk.dconf
+ 
+ # Never run in greetd
+ ConditionUser=!@system
+@@ -16,7 +17,7 @@
+ 
+ [Service]
+ Type=oneshot
+-ExecStart=@libexecdir@/phosh-first-boot-importer --verbose
++ExecStart=@libexecdir@/phosh-first-boot-importer --verbose --dir=@outputdir@
+ Restart=no
+ 
+ [Install]

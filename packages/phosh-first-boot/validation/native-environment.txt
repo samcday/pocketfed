@@ -1,0 +1,5 @@
+rust-1.98.1-1.fc46.x86_64
+cargo-1.98.1-1.fc46.x86_64
+gtk4-4.23.3-1.fc45.x86_64
+libadwaita-1.10~beta.1-2.fc45.x86_64
+libphosh-mobile-settings-0.57.0-1.fc46.x86_64

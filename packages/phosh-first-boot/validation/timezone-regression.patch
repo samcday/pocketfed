@@ -1,0 +1,225 @@
+--- a/src/pfb/timezone_page.rs
++++ b/src/pfb/timezone_page.rs
+@@ -25,6 +25,222 @@
+     async fn set_timezone(&self, timezone: &str, interactive: bool) -> zbus::Result<()>;
+ }
+ 
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::{
++        atomic::{AtomicBool, Ordering},
++        Arc, Mutex,
++    };
++    use std::time::Duration;
++
++    struct TimedateMock {
++        timezone: Arc<Mutex<String>>,
++        fail_list: Arc<AtomicBool>,
++        fail_set: Arc<AtomicBool>,
++    }
++
++    #[zbus::interface(name = "org.freedesktop.timedate1")]
++    impl TimedateMock {
++        fn list_timezones(&self) -> zbus::fdo::Result<Vec<String>> {
++            if self.fail_list.load(Ordering::SeqCst) {
++                return Err(zbus::fdo::Error::Failed("tzdata unavailable".into()));
++            }
++            Ok(vec!["Australia/Sydney".into(), "UTC".into()])
++        }
++
++        #[zbus(property)]
++        fn timezone(&self) -> String {
++            self.timezone.lock().unwrap().clone()
++        }
++
++        fn set_timezone(&self, timezone: &str, _interactive: bool) -> zbus::fdo::Result<()> {
++            if self.fail_set.load(Ordering::SeqCst) {
++                return Err(zbus::fdo::Error::AccessDenied("permission denied".into()));
++            }
++            *self.timezone.lock().unwrap() = timezone.into();
++            Ok(())
++        }
++    }
++
++    fn settle(page: &TimezonePage) {
++        glib::MainContext::default().block_on(async {
++            for _ in 0..500 {
++                if !page.imp().active.get() {
++                    return;
++                }
++                glib::timeout_future(Duration::from_millis(10)).await;
++            }
++            panic!("timedate1 operation timed out");
++        });
++    }
++
++    fn screenshot(window: &adw::Window, name: &str) {
++        let Ok(dir) = std::env::var("PFB_SCREENSHOT_DIR") else {
++            return;
++        };
++        glib::MainContext::default().block_on(glib::timeout_future(Duration::from_millis(200)));
++        eprintln!(
++            "Capturing {name}, window {}x{} at scale {}",
++            window.width(),
++            window.height(),
++            window.scale_factor()
++        );
++        if std::env::var_os("PFB_SCREENSHOT_CAPTURE_ROOT").is_some() {
++            assert!(std::process::Command::new("import")
++                .args(["-window", "root"])
++                .arg(std::path::Path::new(&dir).join(name))
++                .status()
++                .unwrap()
++                .success());
++            return;
++        }
++        let paintable = gtk::WidgetPaintable::new(Some(window));
++        let snapshot = gtk::Snapshot::new();
++        paintable.snapshot(&snapshot, 360.0, 740.0);
++        let node = snapshot.to_node().expect("Rendered window");
++        let viewport = gtk::graphene::Rect::new(0.0, 0.0, 360.0, 740.0);
++        let texture = window
++            .renderer()
++            .unwrap()
++            .render_texture(node, Some(&viewport));
++        texture
++            .save_to_png(std::path::Path::new(&dir).join(name))
++            .unwrap();
++    }
++
++    fn find_widget(root: &gtk::Widget, id: &str) -> Option<gtk::Widget> {
++        if root.buildable_id().as_deref() == Some(id) {
++            return Some(root.clone());
++        }
++        let mut child = root.first_child();
++        while let Some(widget) = child {
++            if let Some(found) = find_widget(&widget, id) {
++                return Some(found);
++            }
++            child = widget.next_sibling();
++        }
++        None
++    }
++
++    fn close_popovers(root: &gtk::Widget) {
++        if let Some(popover) = root.downcast_ref::<gtk::Popover>() {
++            popover.popdown();
++        }
++        let mut child = root.first_child();
++        while let Some(widget) = child {
++            close_popovers(&widget);
++            child = widget.next_sibling();
++        }
++    }
++
++    // Run on a disposable bus and display:
++    // dbus-run-session -- xvfb-run -a cargo test timezone_retry -- --ignored --test-threads=1
++    #[test]
++    #[ignore = "requires a disposable D-Bus session and a display"]
++    fn timezone_retry() {
++        std::env::set_var(
++            "DBUS_SYSTEM_BUS_ADDRESS",
++            std::env::var("DBUS_SESSION_BUS_ADDRESS").expect("Run with dbus-run-session"),
++        );
++        adw::init().unwrap();
++        gtk::gio::resources_register_include!("mobi.phosh.FirstBoot.gresource").unwrap();
++
++        let timezone = Arc::new(Mutex::new("UTC".into()));
++        let fail_list = Arc::new(AtomicBool::new(true));
++        let fail_set = Arc::new(AtomicBool::new(false));
++        let service = TimedateMock {
++            timezone: timezone.clone(),
++            fail_list: fail_list.clone(),
++            fail_set: fail_set.clone(),
++        };
++        let _connection = glib::MainContext::default().block_on(async {
++            zbus::connection::Builder::session()
++                .unwrap()
++                .name("org.freedesktop.timedate1")
++                .unwrap()
++                .serve_at("/org/freedesktop/timedate1", service)
++                .unwrap()
++                .build()
++                .await
++                .unwrap()
++        });
++
++        let page = TimezonePage::new();
++        let navigation = adw::NavigationView::new();
++        navigation.add(&page);
++        let window = adw::Window::builder()
++            .decorated(false)
++            .default_width(360)
++            .default_height(740)
++            .content(&navigation)
++            .build();
++        window.present();
++        assert!(!page.upcast_ref::<Page>().can_go_next());
++        settle(&page);
++        assert!(!page.upcast_ref::<Page>().can_go_next());
++        assert!(page.imp().error_banner.is_revealed());
++        screenshot(&window, "timezone-load-error-360x740.png");
++
++        fail_list.store(false, Ordering::SeqCst);
++        page.on_retry_clicked();
++        settle(&page);
++        assert!(page.upcast_ref::<Page>().can_go_next());
++        assert!(page.imp().timezone_row.enables_search());
++        assert_eq!(page.imp().timezone_row.selected(), 1);
++        screenshot(&window, "timezone-360x740.png");
++        adw::prelude::ActionRowExt::activate(&*page.imp().timezone_row);
++        screenshot(&window, "timezone-search-360x740.png");
++        // Close the chooser before changing the selection programmatically.
++        close_popovers(page.imp().timezone_row.upcast_ref());
++
++        fail_set.store(true, Ordering::SeqCst);
++        page.imp().timezone_row.set_selected(0);
++        assert!(!page.upcast_ref::<Page>().can_go_next());
++        settle(&page);
++        assert!(!page.upcast_ref::<Page>().can_go_next());
++        assert!(page.imp().error_banner.is_revealed());
++        assert_eq!(*timezone.lock().unwrap(), "UTC");
++        screenshot(&window, "timezone-save-error-360x740.png");
++
++        fail_set.store(false, Ordering::SeqCst);
++        page.on_retry_clicked();
++        settle(&page);
++        assert!(page.upcast_ref::<Page>().can_go_next());
++        assert!(!page.imp().error_banner.is_revealed());
++        assert_eq!(*timezone.lock().unwrap(), "Australia/Sydney");
++        window.close();
++
++        // Render-only fixture for checking the existing user error layout at
++        // phone width; no account is created by this fixture.
++        if std::env::var_os("PFB_SCREENSHOT_DIR").is_some() {
++            let user = crate::pfb::UserPage::new();
++            let navigation = adw::NavigationView::new();
++            navigation.add(&user);
++            let window = adw::Window::builder()
++                .decorated(false)
++                .default_width(360)
++                .default_height(740)
++                .content(&navigation)
++                .build();
++            let fullname = find_widget(user.upcast_ref(), "full_name_entry_row")
++                .unwrap()
++                .downcast::<adw::EntryRow>()
++                .unwrap();
++            fullname.set_text("Pocket User");
++            let banner = find_widget(user.upcast_ref(), "error_banner")
++                .unwrap()
++                .downcast::<adw::Banner>()
++                .unwrap();
++            banner.set_title("Failed to create user");
++            banner.set_revealed(true);
++            window.present();
++            screenshot(&window, "user-error-fixture-360x740.png");
++            window.close();
++        }
++    }
++}
++
+ mod imp {
+     use glib::subclass::InitializingObject;
+     use gtk::CompositeTemplate;

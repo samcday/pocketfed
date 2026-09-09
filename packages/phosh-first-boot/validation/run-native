@@ -1,0 +1,51 @@
+#!/bin/sh
+# Run against a disposable, prepared phosh-first-boot source tree. The source
+# must already have the RPM's three production patches and Cargo vendor config.
+set -eu
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+    echo "Usage: $0 PREPARED_SOURCE_DIRECTORY [RESULTS_DIRECTORY]" >&2
+    exit 2
+fi
+
+validation_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+source_dir=$(CDPATH='' cd -- "$1" && pwd)
+results_dir=${2:-"$source_dir/validation-results"}
+mkdir -p "$results_dir"
+results_dir=$(CDPATH='' cd -- "$results_dir" && pwd)
+
+cd "$source_dir"
+if ! grep -q 'fn timezone_retry()' src/pfb/timezone_page.rs; then
+    patch -p1 < "$validation_dir/timezone-regression.patch"
+fi
+
+cargo check --locked --offline > "$results_dir/native-check.log" 2>&1
+cargo build --locked --offline > "$results_dir/native-build.log" 2>&1
+
+export GTK_A11Y=none GSK_RENDERER=cairo GDK_SCALE=1
+if command -v import >/dev/null 2>&1; then
+    mkdir -p "$results_dir/screenshots"
+    export PFB_SCREENSHOT_DIR="$results_dir/screenshots"
+    export PFB_SCREENSHOT_CAPTURE_ROOT=1
+fi
+xvfb-run -a -s '-screen 0 360x740x24' dbus-run-session -- \
+    cargo test --locked --offline timezone_retry -- \
+    --ignored --test-threads=1 --nocapture > "$results_dir/native-test.log" 2>&1
+
+# Isolate the full app from the real system bus. It should display its welcome
+# page and remain running even though the private bus has no setup services.
+set +e
+xvfb-run -a -s '-screen 0 360x740x24' dbus-run-session -- sh -c '
+    export DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"
+    export GSETTINGS_SCHEMA_DIR="$1/target"
+    export G_DEBUG=fatal-criticals
+    exec timeout 5 "$1/target/debug/phosh-first-boot" --defaults "$1/data/defaults.conf"
+' sh "$source_dir" > "$results_dir/native-ui-smoke.log" 2>&1
+smoke_status=$?
+set -e
+if [ "$smoke_status" -ne 124 ]; then
+    echo "App startup failed: expected timeout status 124, got $smoke_status" >&2
+    exit 1
+fi
+echo "Native compile, timezone retry checks, and full-app startup passed."
+echo "Results: $results_dir"

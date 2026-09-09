@@ -49,6 +49,7 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
         nautilus \
         phoc \
         phosh \
+        phosh-first-boot \
         phosh-mobile-settings \
         phosh-tour \
         phrog \
@@ -71,15 +72,23 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
         /usr/lib/systemd/user/flatpak-portal.service
 
 COPY phosh/pocketfed-phrog-tmpfiles.conf /usr/lib/tmpfiles.d/
+COPY phosh/pocketfed-first-boot /usr/libexec/
+COPY phosh/90_pocketfed-first-boot.gschema.override /usr/share/glib-2.0/schemas/
+COPY phosh/50-pocketfed-first-boot.conf /usr/lib/systemd/system/phrog.service.d/
 
 # Fedora's phosh PAM service currently authenticates with pam_unix directly.
 # Delegate to authselect's stack so the lock screen also accepts homed users.
 COPY phosh/pam.d/phosh /etc/pam.d/phosh
 
 RUN set -eux; \
+    chmod 0755 /usr/libexec/pocketfed-first-boot; \
+    glib-compile-schemas --strict /usr/share/glib-2.0/schemas; \
     systemd-tmpfiles --create /usr/lib/tmpfiles.d/pocketfed-phrog-tmpfiles.conf; \
     test -f /usr/lib64/libcanberra-0.30/libcanberra-pulse.so; \
     test -d /var/lib/greetd/.config/dconf; \
     test "$(stat -c '%U:%G:%a' /var/lib/greetd/.config/dconf)" = greetd:greetd:700; \
+    authselect enable-feature with-systemd-homed; \
+    systemctl enable systemd-homed.service; \
+    systemctl --global enable phosh-first-boot-importer.service; \
     systemctl enable phrog.service; \
     bootc container lint --no-truncate

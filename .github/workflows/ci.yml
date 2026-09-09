@@ -399,6 +399,16 @@ jobs:
           sudo podman run --rm --interactive --pull=never --arch arm64 \
             "$PF_CI_PHOSH_IMAGE" /usr/bin/bash < base/test-utilities
 
+      - name: Verify noninteractive firstboot and provisioning credentials
+        run: |
+          sudo podman run --rm --interactive --pull=never --arch arm64 \
+            "$PF_CI_PHOSH_IMAGE" /usr/bin/bash < base/test-firstboot
+
+      - name: Verify graphical firstboot integration
+        run: |
+          sudo podman run --rm --interactive --pull=never --arch arm64 \
+            "$PF_CI_PHOSH_IMAGE" /usr/bin/bash < phosh/test-firstboot-image
+
       - name: Verify Phosh packages
         run: |
           sudo podman run --rm --pull=never --arch arm64 "$PF_CI_PHOSH_IMAGE" \

@@ -1,0 +1,704 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] Complete touch setup and preserve recovery after account creation
+
+Add an offline time-zone selector, report locale failures, persist exported
+settings before creating the homed account, and expose it through AccountsService.
+
+diff --git a/po/POTFILES.in b/po/POTFILES.in
+index a49aaef..8242d27 100644
+--- a/po/POTFILES.in
++++ b/po/POTFILES.in
+@@ -1,6 +1,8 @@
+ resources/done_page.ui
+ resources/lang_page.ui
++resources/timezone_page.ui
+ resources/user_page.ui
+ resources/window.ui
+ src/pfb/lang_page.rs
+-src/pfb/page.rs
+\ No newline at end of file
++src/pfb/timezone_page.rs
++src/pfb/page.rs
+diff --git a/resources/lang_page.ui b/resources/lang_page.ui
+index 67304f9..a3f03e5 100644
+--- a/resources/lang_page.ui
++++ b/resources/lang_page.ui
+@@ -10,7 +10,10 @@
+         <property name="margin-start">12</property>
+         <property name="margin-end">12</property>
+         <property name="banner">
+-          <object class="AdwBanner" id="error_banner"/>
++          <object class="AdwBanner" id="error_banner">
++            <property name="button-label" translatable="yes">Retry</property>
++            <signal name="button-clicked" handler="on_retry_clicked" object="PfbLangPage" swapped="yes"/>
++          </object>
+         </property>
+         <child>
+           <object class="AdwPreferencesGroup">
+diff --git a/resources/mobi.phosh.FirstBoot.gresource.xml b/resources/mobi.phosh.FirstBoot.gresource.xml
+index 7f2c792..e2404bb 100644
+--- a/resources/mobi.phosh.FirstBoot.gresource.xml
++++ b/resources/mobi.phosh.FirstBoot.gresource.xml
+@@ -7,6 +7,7 @@
+   <gresource prefix="/mobi/phosh/FirstBoot/pages/">
+     <file compressed="true" preprocess="xml-stripblanks">done_page.ui</file>
+     <file compressed="true" preprocess="xml-stripblanks">lang_page.ui</file>
++    <file compressed="true" preprocess="xml-stripblanks">timezone_page.ui</file>
+     <file compressed="true" preprocess="xml-stripblanks">user_page.ui</file>
+   </gresource>
+   <gresource prefix="/mobi/phosh/FirstBoot/icons/scalable/status/">
+diff --git a/resources/timezone_page.ui b/resources/timezone_page.ui
+new file mode 100644
+index 0000000..58e5584
+--- /dev/null
++++ b/resources/timezone_page.ui
+@@ -0,0 +1,34 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<interface>
++  <template class="PfbTimezonePage" parent="PfbPage">
++    <property name="title" translatable="yes">Time Zone</property>
++    <property name="tag">timezone</property>
++    <property name="content">
++      <object class="AdwPreferencesPage">
++        <property name="margin-start">12</property>
++        <property name="margin-end">12</property>
++        <property name="banner">
++          <object class="AdwBanner" id="error_banner">
++            <property name="button-label" translatable="yes">Retry</property>
++            <signal name="button-clicked" handler="on_retry_clicked" object="PfbTimezonePage" swapped="yes"/>
++          </object>
++        </property>
++        <child>
++          <object class="AdwPreferencesGroup">
++            <property name="description" translatable="yes">Choose a city in your time zone to set the local time.</property>
++            <child>
++              <object class="AdwComboRow" id="timezone_row">
++                <property name="title" translatable="yes">_Time Zone</property>
++                <property name="use-underline">true</property>
++                <property name="enable-search">true</property>
++                <property name="use-subtitle">true</property>
++                <property name="sensitive">false</property>
++                <signal name="notify::selected" handler="on_timezone_selected" object="PfbTimezonePage" swapped="yes"/>
++              </object>
++            </child>
++          </object>
++        </child>
++      </object>
++    </property>
++  </template>
++</interface>
+diff --git a/resources/window.ui b/resources/window.ui
+index becd13b..5374a01 100644
+--- a/resources/window.ui
++++ b/resources/window.ui
+@@ -23,9 +23,12 @@
+         </child>
+         <child>
+           <object class="PfbLangPage" id="lang_page">
++            <property name="next">timezone</property>
++          </object>
++        </child>
++        <child>
++          <object class="PfbTimezonePage" id="timezone_page">
+             <property name="next">user</property>
+-            <!-- TODO: Until we have libpms -->
+-            <property name="can-go-next">1</property>
+           </object>
+         </child>
+         <child>
+diff --git a/src/pfb/application.rs b/src/pfb/application.rs
+index b5f846e..9f685c4 100644
+--- a/src/pfb/application.rs
++++ b/src/pfb/application.rs
+@@ -7,6 +7,7 @@ use adw::subclass::prelude::*;
+ use gtk::{gio, glib};
+ use gtk_macros::action;
+ use log::info;
++use shared::dconf::DCONF_EXPORTS;
+ use std::cell::{OnceCell, RefCell};
+ use std::path::{Path, PathBuf};
+ 
+@@ -149,4 +150,16 @@ impl Application {
+     pub fn output_dir(&self) -> PathBuf {
+         PathBuf::from(config::OUTPUTDIR)
+     }
++
++    // Save the new user's settings before creating their account. If setup is
++    // interrupted after CreateHome succeeds, the importer can still recover
++    // these settings when the user logs in.
++    pub fn export_settings(&self) -> std::io::Result<()> {
++        let dir = self.output_dir();
++        for item in DCONF_EXPORTS {
++            item.export(&dir)?;
++        }
++        std::fs::File::open(dir)?.sync_all()?;
++        Ok(())
++    }
+ }
+diff --git a/src/pfb/done_page.rs b/src/pfb/done_page.rs
+index 6934451..eed8897 100644
+--- a/src/pfb/done_page.rs
++++ b/src/pfb/done_page.rs
+@@ -3,13 +3,12 @@
+ 
+ use glib::Object;
+ 
+-use crate::pfb::{app_get_default, Page, PageImpl};
++use crate::pfb::{Page, PageImpl};
+ use adw::prelude::*;
+ use adw::subclass::prelude::*;
+ use gtk::{gio, glib};
+-use shared::dconf::DCONF_EXPORTS;
+ 
+-use log::{debug, warn};
++use log::warn;
+ 
+ const FIRST_RUN_SCHEMA: &str = "mobi.phosh.phrog";
+ const FIRST_RUN_KEY: &str = "first-run";
+@@ -88,32 +87,10 @@ impl DonePage {
+         settings.set_string(FIRST_RUN_KEY, "").unwrap();
+     }
+ 
+-    fn export_settings(&self) {
+-        let app = app_get_default();
+-        let dir = app.output_dir();
+-        let mut errors = Vec::new();
+-
+-        debug!("Exporting to '{}'", dir.display());
+-        for item in DCONF_EXPORTS {
+-            debug!("Exporting '{}'", item.path);
+-            if let Err(e) = item.export(&dir) {
+-                errors.push((item.filename, e));
+-            }
+-        }
+-
+-        if !errors.is_empty() {
+-            for (path, err) in errors {
+-                warn!("Failed to export '{path}': {err}");
+-            }
+-        }
+-    }
+-
+     #[template_callback]
+     fn on_get_started_clicked(&self, _button: gtk::Button) {
+         self.disable_first_boot();
+ 
+-        self.export_settings();
+-
+         self.activate_action("app.quit", None)
+             .expect("Action does not exit");
+     }
+diff --git a/src/pfb/lang_page.rs b/src/pfb/lang_page.rs
+index 684c58f..739d55e 100644
+--- a/src/pfb/lang_page.rs
++++ b/src/pfb/lang_page.rs
+@@ -11,7 +11,7 @@ use glib_macros::clone;
+ use gtk::glib;
+ use libpms::*;
+ 
+-use std::cell::RefCell;
++use std::cell::{Cell, RefCell};
+ 
+ use zbus::{proxy, Connection};
+ 
+@@ -46,6 +46,11 @@ mod imp {
+         pub lang_row: TemplateChild<adw::ActionRow>,
+         #[template_child]
+         pub osk_layout_prefs: TemplateChild<OskLayoutPrefs>,
++        #[template_child]
++        pub error_banner: TemplateChild<adw::Banner>,
++
++        pub active: Cell<bool>,
++        pub pending_region: RefCell<Option<String>>,
+ 
+         #[property(get, set)]
+         pub region: RefCell<String>,
+@@ -105,17 +110,7 @@ impl LangPage {
+         imp.osk_layout_prefs
+             .set_title(&gettextrs::gettext("Keyboard Layout"));
+ 
+-        MainContext::default().spawn_local(glib::clone!(
+-            #[weak(rename_to = this)]
+-            self,
+-            async move {
+-                if let Err(e) = this.ensure_locale1().await {
+-                    warn!("Failed to init locale1 proxy: {e}");
+-                } else {
+-                    this.get_current_locale().await;
+-                }
+-            }
+-        ));
++        self.load_locale();
+ 
+         self.connect_region_notify(clone!(
+             #[weak(rename_to = this)]
+@@ -127,6 +122,7 @@ impl LangPage {
+     }
+ 
+     async fn set_localed_locale(&self, region: &str) -> Result<(), Box<dyn std::error::Error>> {
++        self.ensure_locale1().await?;
+         let categories: Vec<String> = [
+             "LANG",
+             "LC_TIME",
+@@ -156,19 +152,77 @@ impl LangPage {
+     }
+ 
+     fn update_lang(&self, region: String) {
+-        self.imp().osk_layout_prefs.add_for_locale(&region, None);
++        self.imp().pending_region.replace(Some(region.clone()));
++        self.set_busy(true);
+ 
+         MainContext::default().spawn_local(glib::clone!(
+             #[weak(rename_to = this)]
+             self,
+             async move {
+-                if let Err(err) = this.set_localed_locale(&region).await {
+-                    warn!("Failed to set locale to {region}: {err}");
++                let result = this.set_localed_locale(&region).await;
++                this.set_busy(false);
++                match result {
++                    Ok(()) => {
++                        this.imp().pending_region.take();
++                        this.imp().osk_layout_prefs.add_for_locale(&region, None);
++                        this.upcast_ref::<Page>().set_can_go_next(true);
++                    }
++                    Err(err) => {
++                        this.show_error(&gettextrs::gettext("Failed to set language"), &err);
++                    }
++                }
++            }
++        ));
++    }
++
++    fn set_busy(&self, busy: bool) {
++        self.imp().active.set(busy);
++        self.imp().lang_row.set_sensitive(!busy);
++        self.imp().error_banner.set_sensitive(!busy);
++        if busy {
++            self.upcast_ref::<Page>().set_can_go_next(false);
++            self.imp().error_banner.set_revealed(false);
++        }
++    }
++
++    fn show_error(&self, message: &str, error: &dyn std::fmt::Display) {
++        warn!("{message}: {error}");
++        self.imp().error_banner.set_title(message);
++        self.imp().error_banner.set_revealed(true);
++        self.upcast_ref::<Page>().set_can_go_next(false);
++    }
++
++    fn load_locale(&self) {
++        self.set_busy(true);
++        MainContext::default().spawn_local(glib::clone!(
++            #[weak(rename_to = this)]
++            self,
++            async move {
++                let result = this.get_current_locale().await;
++                this.set_busy(false);
++                match result {
++                    Ok(()) => this.upcast_ref::<Page>().set_can_go_next(true),
++                    Err(err) => {
++                        this.show_error(&gettextrs::gettext("Failed to load language"), &err)
++                    }
+                 }
+             }
+         ));
+     }
+ 
++    #[template_callback]
++    fn on_retry_clicked(&self) {
++        if self.imp().active.get() {
++            return;
++        }
++        let region = self.imp().pending_region.borrow().clone();
++        if let Some(region) = region {
++            self.update_lang(region);
++        } else {
++            self.load_locale();
++        }
++    }
++
+     #[template_callback]
+     fn on_lang_button_clicked(&self) {
+         let lang_chooser = LanguageChooser::new();
+@@ -208,10 +262,11 @@ impl LangPage {
+         Ok(())
+     }
+ 
+-    async fn get_current_locale(&self) {
++    async fn get_current_locale(&self) -> zbus::Result<()> {
++        self.ensure_locale1().await?;
+         // We clone to not hold the `RefCell` ref across the `await` point
+         let proxy = self.imp().locale1.borrow().as_ref().unwrap().clone();
+-        let locales = proxy.locale().await.expect("Can't get locale");
++        let locales = proxy.locale().await?;
+         let region = locales
+             .iter()
+             .find_map(|l| l.strip_prefix("LANG=").map(|v| v.to_string()));
+@@ -223,5 +278,6 @@ impl LangPage {
+             debug!("Falling back to default locale");
+             self.set_region("C.UTF-8");
+         }
++        Ok(())
+     }
+ }
+diff --git a/src/pfb/mod.rs b/src/pfb/mod.rs
+index bb652b8..feb58d7 100644
+--- a/src/pfb/mod.rs
++++ b/src/pfb/mod.rs
+@@ -8,7 +8,7 @@ pub mod defaults;
+ pub mod page;
+ pub mod window;
+ 
+-pub use application::{app_get_default, Application};
++pub use application::Application;
+ pub use page::{Page, PageImpl};
+ pub use window::Window;
+ 
+@@ -16,8 +16,10 @@ pub use window::Window;
+ 
+ pub mod done_page;
+ pub mod lang_page;
++pub mod timezone_page;
+ pub mod user_page;
+ 
+ pub use done_page::DonePage;
+ pub use lang_page::LangPage;
++pub use timezone_page::TimezonePage;
+ pub use user_page::UserPage;
+diff --git a/src/pfb/timezone_page.rs b/src/pfb/timezone_page.rs
+new file mode 100644
+index 0000000..8cd9257
+--- /dev/null
++++ b/src/pfb/timezone_page.rs
+@@ -0,0 +1,224 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++
++use adw::prelude::*;
++use adw::subclass::prelude::*;
++use glib::Object;
++use gtk::glib;
++use log::{debug, warn};
++use std::cell::{Cell, RefCell};
++use zbus::{proxy, Connection};
++
++use crate::pfb::{Page, PageImpl};
++
++#[proxy(
++    interface = "org.freedesktop.timedate1",
++    default_service = "org.freedesktop.timedate1",
++    default_path = "/org/freedesktop/timedate1"
++)]
++trait Timedate1 {
++    async fn list_timezones(&self) -> zbus::Result<Vec<String>>;
++
++    #[zbus(property)]
++    fn timezone(&self) -> zbus::Result<String>;
++
++    #[zbus(allow_interactive_auth)]
++    async fn set_timezone(&self, timezone: &str, interactive: bool) -> zbus::Result<()>;
++}
++
++mod imp {
++    use glib::subclass::InitializingObject;
++    use gtk::CompositeTemplate;
++
++    use super::*;
++
++    #[derive(CompositeTemplate, Default)]
++    #[template(resource = "/mobi/phosh/FirstBoot/pages/timezone_page.ui")]
++    pub struct PfbTimezonePage {
++        #[template_child]
++        pub timezone_row: TemplateChild<adw::ComboRow>,
++        #[template_child]
++        pub error_banner: TemplateChild<adw::Banner>,
++
++        pub zones: RefCell<Vec<String>>,
++        pub loaded: Cell<bool>,
++        pub active: Cell<bool>,
++        pub(super) timedate1: RefCell<Option<Timedate1Proxy<'static>>>,
++    }
++
++    #[glib::object_subclass]
++    impl ObjectSubclass for PfbTimezonePage {
++        const NAME: &'static str = "PfbTimezonePage";
++        type Type = super::TimezonePage;
++        type ParentType = Page;
++
++        fn class_init(klass: &mut Self::Class) {
++            klass.bind_template();
++            klass.bind_template_instance_callbacks();
++        }
++
++        fn instance_init(obj: &InitializingObject<Self>) {
++            obj.init_template();
++        }
++    }
++
++    impl ObjectImpl for PfbTimezonePage {
++        fn constructed(&self) {
++            self.parent_constructed();
++            self.obj().load_timezones();
++        }
++    }
++
++    impl WidgetImpl for PfbTimezonePage {}
++    impl NavigationPageImpl for PfbTimezonePage {}
++    impl PageImpl for PfbTimezonePage {}
++}
++
++glib::wrapper! {
++    pub struct TimezonePage(ObjectSubclass<imp::PfbTimezonePage>)
++    @extends Page, adw::NavigationPage, gtk::Widget,
++    @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
++}
++
++#[gtk::template_callbacks]
++impl TimezonePage {
++    #[allow(clippy::new_without_default)]
++    pub fn new() -> Self {
++        Object::builder().build()
++    }
++
++    async fn ensure_timedate1(&self) -> zbus::Result<Timedate1Proxy<'static>> {
++        if let Some(proxy) = self.imp().timedate1.borrow().as_ref() {
++            return Ok(proxy.clone());
++        }
++
++        let connection = Connection::system().await?;
++        let proxy = Timedate1Proxy::new(&connection).await?;
++        self.imp().timedate1.replace(Some(proxy.clone()));
++        Ok(proxy)
++    }
++
++    fn set_busy(&self, busy: bool) {
++        self.imp().active.set(busy);
++        self.imp().timezone_row.set_sensitive(!busy);
++        self.imp().error_banner.set_sensitive(!busy);
++        if busy {
++            self.upcast_ref::<Page>().set_can_go_next(false);
++            self.imp().error_banner.set_revealed(false);
++        }
++    }
++
++    fn show_error(&self, message: &str, error: &dyn std::fmt::Display) {
++        warn!("{message}: {error}");
++        self.imp().error_banner.set_title(message);
++        self.imp().error_banner.set_revealed(true);
++        self.upcast_ref::<Page>().set_can_go_next(false);
++    }
++
++    fn load_timezones(&self) {
++        self.set_busy(true);
++        glib::MainContext::default().spawn_local(glib::clone!(
++            #[weak(rename_to = this)]
++            self,
++            async move {
++                let result = async {
++                    let proxy = this.ensure_timedate1().await?;
++                    // timedated reads the installed tzdata; no network or location
++                    // service is needed to configure the clock on first boot.
++                    let zones = proxy.list_timezones().await?;
++                    let current = proxy.timezone().await?;
++                    Ok::<_, zbus::Error>((zones, current))
++                }
++                .await;
++
++                match result {
++                    Ok((mut zones, current)) => {
++                        zones.push("UTC".into());
++                        if !current.is_empty() {
++                            zones.push(current.clone());
++                        }
++                        zones.sort();
++                        zones.dedup();
++                        let selected = zones
++                            .iter()
++                            .position(|zone| zone == &current)
++                            .unwrap_or_else(|| {
++                                zones.iter().position(|zone| zone == "UTC").unwrap()
++                            });
++                        let labels: Vec<_> =
++                            zones.iter().map(|zone| zone.replace('_', " ")).collect();
++                        let labels: Vec<_> = labels.iter().map(String::as_str).collect();
++                        let model = gtk::StringList::new(&labels);
++                        this.imp().zones.replace(zones);
++                        this.imp().timezone_row.set_model(Some(&model));
++                        this.imp().timezone_row.set_selected(selected as u32);
++                        this.imp().loaded.set(true);
++                        this.set_busy(false);
++                        if current.is_empty() {
++                            this.apply_timezone();
++                        } else {
++                            this.upcast_ref::<Page>().set_can_go_next(true);
++                        }
++                    }
++                    Err(error) => {
++                        this.set_busy(false);
++                        this.imp().timezone_row.set_sensitive(false);
++                        this.show_error(&gettextrs::gettext("Failed to load time zones"), &error);
++                    }
++                }
++            }
++        ));
++    }
++
++    fn apply_timezone(&self) {
++        let Some(timezone) = self
++            .imp()
++            .zones
++            .borrow()
++            .get(self.imp().timezone_row.selected() as usize)
++            .cloned()
++        else {
++            return;
++        };
++
++        self.set_busy(true);
++        glib::MainContext::default().spawn_local(glib::clone!(
++            #[weak(rename_to = this)]
++            self,
++            async move {
++                let result = async {
++                    let proxy = this.ensure_timedate1().await?;
++                    debug!("Setting time zone to {timezone}");
++                    proxy.set_timezone(&timezone, true).await
++                }
++                .await;
++
++                this.set_busy(false);
++                match result {
++                    Ok(()) => this.upcast_ref::<Page>().set_can_go_next(true),
++                    Err(error) => {
++                        this.show_error(&gettextrs::gettext("Failed to set time zone"), &error);
++                    }
++                }
++            }
++        ));
++    }
++
++    #[template_callback]
++    fn on_timezone_selected(&self) {
++        if self.imp().loaded.get() && !self.imp().active.get() {
++            self.apply_timezone();
++        }
++    }
++
++    #[template_callback]
++    fn on_retry_clicked(&self) {
++        if self.imp().active.get() {
++            return;
++        }
++        if self.imp().loaded.get() {
++            self.apply_timezone();
++        } else {
++            self.load_timezones();
++        }
++    }
++}
+diff --git a/src/pfb/user_page.rs b/src/pfb/user_page.rs
+index 68c0537..47152b9 100644
+--- a/src/pfb/user_page.rs
++++ b/src/pfb/user_page.rs
+@@ -30,6 +30,16 @@ trait HomeManager {
+     async fn create_home(&self, user_record: &str) -> zbus::Result<()>;
+ }
+ 
++#[proxy(
++    interface = "org.freedesktop.Accounts",
++    default_service = "org.freedesktop.Accounts",
++    default_path = "/org/freedesktop/Accounts"
++)]
++trait Accounts {
++    #[zbus(allow_interactive_auth)]
++    async fn cache_user(&self, user_name: &str) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
++}
++
+ #[derive(Serialize, Default)]
+ #[serde(rename_all = "camelCase")]
+ struct SecretSection {
+@@ -80,6 +90,9 @@ mod imp {
+         #[template_child]
+         pub pass_entry_row: TemplateChild<adw::PasswordEntryRow>,
+ 
++        #[template_child]
++        pub repeat_pass_entry_row: TemplateChild<adw::PasswordEntryRow>,
++
+         #[template_child]
+         pub error_banner: TemplateChild<adw::Banner>,
+ 
+@@ -90,6 +103,9 @@ mod imp {
+         // Username derived from full name
+         pub auto_user_name: Cell<bool>,
+ 
++        // Retry AccountsService registration without attempting CreateHome twice.
++        pub created_user: RefCell<Option<String>>,
++
+         pub(super) connection: RefCell<Option<Connection>>,
+         pub(super) home1: RefCell<Option<HomeManagerProxy<'static>>>,
+     }
+@@ -274,6 +290,12 @@ impl UserPage {
+         password: String,
+         aux_groups: Vec<String>,
+     ) -> Result<(), Box<dyn std::error::Error>> {
++        self.ensure_home1().await?;
++        let created_user = self.imp().created_user.borrow().clone();
++        if let Some(created_user) = created_user {
++            self.cache_user(&created_user).await?;
++            return Ok(());
++        }
+         // Example record from homectl:
+         // {
+         //   "enforcePasswordPolicy": false,
+@@ -316,10 +338,28 @@ impl UserPage {
+ 
+         let json_record = serde_json::to_string(&record)?;
+ 
++        application::app_get_default().export_settings()?;
++
+         let proxy = self.imp().home1.borrow().as_ref().unwrap().clone();
+         trace!("Creating user '{}'", user_name);
+         proxy.create_home(&json_record).await?;
+ 
++        self.imp().created_user.replace(Some(user_name.clone()));
++        self.imp().user_name_entry_row.set_sensitive(false);
++        self.imp().full_name_entry_row.set_sensitive(false);
++        self.imp().pass_entry_row.set_sensitive(false);
++        self.imp().repeat_pass_entry_row.set_sensitive(false);
++        self.cache_user(&user_name).await?;
++
++        Ok(())
++    }
++
++    async fn cache_user(&self, user_name: &str) -> zbus::Result<()> {
++        let connection = self.imp().connection.borrow().as_ref().unwrap().clone();
++        let proxy = AccountsProxy::new(&connection).await?;
++        // Phrog discovers users through AccountsService, which does not enumerate
++        // systemd-homed accounts from /etc/passwd.
++        proxy.cache_user(user_name).await?;
+         Ok(())
+     }
+ 
+diff --git a/src/pfb/window.rs b/src/pfb/window.rs
+index cead25b..0b01d94 100644
+--- a/src/pfb/window.rs
++++ b/src/pfb/window.rs
+@@ -10,7 +10,7 @@ use gtk::{gio, glib};
+ use log::trace;
+ 
+ use crate::pfb::{Application, Page};
+-use crate::pfb::{DonePage, LangPage, UserPage};
++use crate::pfb::{DonePage, LangPage, TimezonePage, UserPage};
+ 
+ mod imp {
+ 
+@@ -32,6 +32,9 @@ mod imp {
+         #[template_child]
+         pub lang_page: TemplateChild<LangPage>,
+ 
++        #[template_child]
++        pub timezone_page: TemplateChild<TimezonePage>,
++
+         #[template_child]
+         pub user_page: TemplateChild<UserPage>,
+ 
