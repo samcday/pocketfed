@@ -4,6 +4,7 @@ set -eu
 repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
 helper="$repo_root/devices/google-sargo/pocketfed-sargo-uim-select"
 fake_bin="$repo_root/devices/google-sargo/tests/bin"
+unit="$repo_root/devices/google-sargo/pocketfed-sargo-uim-select.service"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
@@ -27,6 +28,7 @@ run_case() {
 		QMI_STATE="$state" \
 		MODEM_WAIT_SECONDS=0 \
 		SIM_WAIT_SECONDS="${2:-0}" \
+		PREFERRED_PHYSICAL_SLOT= \
 		sh "$helper" >"$output"
 }
 
@@ -60,6 +62,9 @@ run_case usim
 assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
 grep -Fq 'selecting the USIM application in card-status slot 1' "$output" ||
 	fail 'usable USIM was not selected'
+if grep -Eq -- '--uim-get-slot-status|--uim-switch-slot' "$log"; then
+	fail 'default behavior queried or changed physical routing'
+fi
 
 run_case esim-mapped
 assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
@@ -107,5 +112,82 @@ if env \
 fi
 grep -Fq 'invalid preferred card-status slot' "$output" ||
 	fail 'an invalid preferred slot was not diagnosed'
+
+run_route_case() {
+	route_scenario=$1
+	: >"$log"
+	rm -f "$state.route" "$state.readback" "$state.initial"
+	env PATH="$fake_bin:$PATH" QMI_LOG="$log" QMI_STATE="$state" \
+		QMI_SCENARIO="${5:-esim-mapped}" QMI_ROUTE_SCENARIO="$route_scenario" \
+		PREFERRED_PHYSICAL_SLOT="${2:-2}" PREFERRED_SLOT="${3:-1}" \
+		MODEM_WAIT_SECONDS=0 SIM_WAIT_SECONDS=0 SLOT_WAIT_SECONDS="${4:-0}" \
+		sh "$helper" >"$output" 2>&1
+}
+
+assert_private_output() {
+	if grep -Fq PRIVATE_IDENTIFIER "$output"; then
+		fail "slot query or switch leaked an identifier in $1"
+	fi
+}
+
+for scenario in switch noack-success initial-delay delayed return-tray; do
+	wanted=2
+	[ "$scenario" != return-tray ] || wanted=1
+	run_route_case "$scenario" "$wanted" 1 1
+	[ "$(grep -Fc -- "--uim-switch-slot=$wanted" "$log")" = 1 ] ||
+		fail "$scenario did not issue exactly one switch"
+	grep -Fq "verified physical slot $wanted mapped to logical slot 1" "$output" ||
+		fail "$scenario did not verify mapping"
+	assert_changes "--silent --device=qrtr://0 --uim-change-provisioning-session=slot=1,activate=yes,session-type=primary-gw-provisioning,aid=A0:00:00:00:87:10:02"
+	assert_private_output "$scenario"
+done
+
+run_route_case already
+if grep -Fq -- '--uim-switch-slot=' "$log"; then
+	fail 'already-selected physical slot was switched again'
+fi
+grep -Fq 'physical slot 2 is already mapped' "$output" || fail 'no-op mapping not diagnosed'
+assert_private_output already
+
+for scenario in query-failure no-card two-active logical2 missing-slot; do
+	if run_route_case "$scenario"; then
+		fail "unsafe $scenario routing was accepted"
+	fi
+	assert_no_changes "$scenario"
+	if grep -Fq -- '--uim-switch-slot=' "$log"; then
+		fail "unsafe $scenario issued a slot switch"
+	fi
+	assert_private_output "$scenario"
+done
+
+for scenario in ack-nochange switch-failure; do
+	if run_route_case "$scenario"; then
+		fail "$scenario reported success without verified routing"
+	fi
+	assert_no_changes "$scenario"
+	[ "$(grep -Fc -- '--uim-switch-slot=' "$log")" = 1 ] || fail 'switch was retried'
+	grep -Fq 'refusing application selection' "$output" || fail 'bad mapping not diagnosed'
+	assert_private_output "$scenario"
+done
+
+for wanted in 0 3 invalid; do
+	if run_route_case already "$wanted"; then fail 'invalid physical slot accepted'; fi
+	[ ! -s "$log" ] || fail 'invalid setting reached the modem'
+done
+if run_route_case already 2 2; then fail 'physical/logical slot confusion accepted'; fi
+[ ! -s "$log" ] || fail 'conflicting slot indices reached the modem'
+if run_route_case already 2 1 invalid; then fail 'invalid wait accepted'; fi
+[ ! -s "$log" ] || fail 'invalid wait reached the modem'
+for scenario in blank absent; do
+	if run_route_case already 2 1 0 "$scenario"; then
+		fail "explicit preference silently succeeded with $scenario modem/card"
+	fi
+	assert_no_changes "$scenario"
+done
+
+for config in /usr/lib/pocketfed/sargo-sim.conf /etc/pocketfed/sargo-sim.conf; do
+	grep -Fxq "EnvironmentFile=-$config" "$unit" || fail 'unit does not load SIM preference'
+done
+grep -Fxq 'Before=ModemManager.service' "$unit" || fail 'UIM must precede MM'
 
 printf 'sargo UIM helper tests passed\n'

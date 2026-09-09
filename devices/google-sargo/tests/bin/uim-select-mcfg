@@ -3,4 +3,7 @@ set -eu
 
 : "${UIM_LOG:?UIM_LOG is required}"
 printf 'reselected\n' >>"$UIM_LOG"
+if [ -n "${UIM_EXPECT_PHYSICAL_SLOT:-}" ]; then
+	[ "${PREFERRED_PHYSICAL_SLOT:-}" = "$UIM_EXPECT_PHYSICAL_SLOT" ] || exit 1
+fi
 [ "${UIM_SELECT_FAIL:-0}" -eq 0 ]

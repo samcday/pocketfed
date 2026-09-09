@@ -6,8 +6,10 @@ Before=ModemManager.service
 
 [Service]
 Type=oneshot
+EnvironmentFile=-/usr/lib/pocketfed/sargo-sim.conf
+EnvironmentFile=-/etc/pocketfed/sargo-sim.conf
 ExecStart=/usr/libexec/pocketfed-sargo-uim-select
-TimeoutStartSec=90s
+TimeoutStartSec=120s
 
 [Install]
 WantedBy=multi-user.target ModemManager.service

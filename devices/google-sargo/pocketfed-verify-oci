@@ -106,6 +106,13 @@ test -x /usr/libexec/pocketfed-qmicli-pdc
 /usr/libexec/pocketfed-qmicli-pdc --version | grep -Fq 'qmicli 1.36.0'
 test -x /usr/libexec/pocketfed-sargo-mcfg
 test -s /usr/lib/pocketfed/sargo-mcfg.tsv
+for unit in pocketfed-sargo-uim-select pocketfed-sargo-mcfg; do
+    for config in /usr/lib/pocketfed/sargo-sim.conf /etc/pocketfed/sargo-sim.conf; do
+        grep -Fxq "EnvironmentFile=-$config" "/usr/lib/systemd/system/$unit.service"
+    done
+done
+grep -Fxq 'Requires=rmtfs.service pocketfed-sargo-uim-select.service' \
+    /usr/lib/systemd/system/pocketfed-sargo-mcfg.service
 grep -Fxq 'ExecStart=/usr/libexec/pocketfed-sargo-mcfg' \
     /usr/lib/systemd/system/pocketfed-sargo-mcfg.service
 grep -Fxq 'Before=ModemManager.service' \

@@ -10,15 +10,99 @@ readonly QMI_DEVICE="${QMI_DEVICE:-qrtr://0}"
 # On the tested Sargo firmware, physical eUICC 2 mapped to logical slot 1
 # exposes its applications in card-status Slot [1], just like the tray does.
 readonly PREFERRED_SLOT="${PREFERRED_SLOT:-1}"
+# Opt-in routing policy, separate from the logical card-status index above.
+readonly PREFERRED_PHYSICAL_SLOT="${PREFERRED_PHYSICAL_SLOT:-}"
+readonly SLOT_WAIT_SECONDS="${SLOT_WAIT_SECONDS:-15}"
+export LC_ALL=C
 
 log() {
 	printf 'pocketfed-sargo-uim-select: %s\n' "$*"
 }
 
+physical_route() {
+	# qmicli 1.36 Switch Slot chooses the first active logical slot. Only
+	# accept Sargo's verified two-physical-slot, single-logical-slot topology.
+	# Never print the raw response: it also contains ICCID and EID values.
+	qmi_status=$(qmicli --silent --device="$QMI_DEVICE" --uim-get-slot-status 2>/dev/null) || return 1
+	printf '%s\n' "$qmi_status" | awk -v wanted="$PREFERRED_PHYSICAL_SLOT" '
+		/^[[:space:]]*Physical slot [0-9]+:$/ {
+			slot = $3
+			sub(/:$/, "", slot)
+			count++
+			if (slot != count || count > 2) bad = 1
+			next
+		}
+		/^[[:space:]]*Card status:/ {
+			if (!slot || card[slot] != "") bad = 1
+			card[slot] = $3
+			next
+		}
+		/^[[:space:]]*Slot status:/ {
+			if (!slot || state[slot] != "") bad = 1
+			state[slot] = $3
+			next
+		}
+		/^[[:space:]]*Logical slot:/ {
+			if (!slot || logical[slot] != "") bad = 1
+			logical[slot] = $3
+		}
+		END {
+			if (bad || count != 2 || card[wanted] != "present") exit 1
+			for (i = 1; i <= count; i++) {
+				if (card[i] !~ /^(present|absent)$/) exit 1
+				if (state[i] == "active" && logical[i] == "1") {
+					active++
+					physical = i
+				} else if (state[i] != "inactive" || logical[i] != "") exit 1
+			}
+			if (active != 1) exit 1
+			print physical
+		}
+	'
+}
+
+select_physical_slot() {
+	[ -n "$PREFERRED_PHYSICAL_SLOT" ] || return 0
+	# The UIM endpoint may appear before it can report the cards.
+	count=0
+	while ! route=$(physical_route); do
+		if [ "$count" -ge "$SLOT_WAIT_SECONDS" ]; then
+			log 'cannot verify the requested card and single-logical-slot topology; refusing to change routing'
+			return 1
+		fi
+		sleep 1
+		count=$((count + 1))
+	done
+	if [ "$route" = "$PREFERRED_PHYSICAL_SLOT" ]; then
+		log "physical slot ${route} is already mapped to logical slot 1"
+		return 0
+	fi
+
+	log "mapping physical slot ${PREFERRED_PHYSICAL_SLOT} to logical slot 1"
+	if ! qmicli --silent --device="$QMI_DEVICE" \
+		--uim-switch-slot="$PREFERRED_PHYSICAL_SLOT" >/dev/null 2>&1; then
+		# A lost acknowledgement (or NoEffect) is not an authoritative result.
+		log 'slot switch request did not acknowledge success; checking actual routing'
+	fi
+	count=0
+	while :; do
+		if route=$(physical_route) && [ "$route" = "$PREFERRED_PHYSICAL_SLOT" ]; then
+			log "verified physical slot ${route} mapped to logical slot 1"
+			return 0
+		fi
+		if [ "$count" -ge "$SLOT_WAIT_SECONDS" ]; then
+			log 'requested physical-slot mapping was not verified; refusing application selection'
+			return 1
+		fi
+		sleep 1
+		count=$((count + 1))
+	done
+}
+
 find_usim() {
 	# A mapped eUICC may have no enabled profile, or expose an ISIM alongside
 	# its USIM. Select an actual USIM in the requested card-status slot.
-	# This helper does not change physical-to-logical slot mapping.
+	# Physical routing, if explicitly requested, has already been verified.
 	awk -v preferred_slot="$PREFERRED_SLOT" '
 		/^Slot \[[0-9][0-9]*\]:$/ {
 			slot = $0
@@ -55,6 +139,20 @@ case "$PREFERRED_SLOT" in
 		;;
 esac
 
+case "$PREFERRED_PHYSICAL_SLOT" in
+	'') ;;
+	1|2)
+		if [ "$PREFERRED_SLOT" != 1 ]; then
+			log 'physical routing requires card-status slot 1 on Sargo'
+			exit 1
+		fi
+		;;
+	*) log 'preferred physical slot must be 1 or 2'; exit 1 ;;
+esac
+case "$SLOT_WAIT_SECONDS" in
+	''|*[!0-9]*) log 'slot wait must be a non-negative integer'; exit 1 ;;
+esac
+
 if ! command -v qmicli >/dev/null 2>&1; then
 	log 'qmicli is not installed'
 	exit 1
@@ -64,6 +162,7 @@ count=0
 while ! qmicli --silent --device="$QMI_DEVICE" --uim-noop >/dev/null 2>&1; do
 	if [ "$count" -ge "$MODEM_WAIT_SECONDS" ]; then
 		log "UIM service did not appear after ${MODEM_WAIT_SECONDS}s; leaving discovery to ModemManager"
+		[ -z "$PREFERRED_PHYSICAL_SLOT" ] || exit 1
 		exit 0
 	fi
 
@@ -71,6 +170,8 @@ while ! qmicli --silent --device="$QMI_DEVICE" --uim-noop >/dev/null 2>&1; do
 	count=$((count + 1))
 done
 log "UIM service appeared after ${count}s"
+
+select_physical_slot
 
 count=0
 selection=
@@ -86,6 +187,7 @@ while [ -z "$selection" ]; do
 
 	if [ "$count" -ge "$SIM_WAIT_SECONDS" ]; then
 		log "no usable USIM application detected after ${SIM_WAIT_SECONDS}s"
+		[ -z "$PREFERRED_PHYSICAL_SLOT" ] || exit 1
 		exit 0
 	fi
 

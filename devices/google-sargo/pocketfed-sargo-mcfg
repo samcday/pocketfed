@@ -280,6 +280,10 @@ if ! wait_for_pdc; then
 fi
 
 if [ -x "$UIM_SELECT_HELPER" ] && ! "$UIM_SELECT_HELPER"; then
+	if [ -n "${PREFERRED_PHYSICAL_SLOT:-}" ]; then
+		log 'explicit SIM selection failed after the modem reset'
+		exit 1
+	fi
 	log 'USIM reselection after the modem reset failed; continuing verification'
 fi
 
