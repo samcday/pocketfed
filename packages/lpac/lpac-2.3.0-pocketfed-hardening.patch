@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index aca9838..06b11bf 100644
+index aca9838..54f0a1b 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -7,6 +7,7 @@ project (lpac
@@ -10,7 +10,7 @@ index aca9838..06b11bf 100644
  
  set(LPAC_CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
  list(APPEND CMAKE_MODULE_PATH ${LPAC_CMAKE_MODULE_PATH})
-@@ -65,8 +66,56 @@ if(CPACK_GENERATOR)
+@@ -65,8 +66,67 @@ if(CPACK_GENERATOR)
      include(CPack)
  endif()
  
@@ -61,10 +61,21 @@ index aca9838..06b11bf 100644
 +        find_package(Python3 REQUIRED COMPONENTS Interpreter)
 +        add_executable(http-driver-probe tests/http_driver_probe.c)
 +        target_link_libraries(http-driver-probe PRIVATE euicc-drivers)
++        # Compile the exact production driver with an isolated default CA path.
++        # The test creates ephemeral roots there; no system trust is changed.
++        set(http_test_capath "${CMAKE_CURRENT_BINARY_DIR}/http-tls-test-certs")
++        add_executable(http-capath-probe tests/http_driver_probe.c driver/http/curl.c)
++        target_include_directories(http-capath-probe PRIVATE
++            ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/driver)
++        target_compile_definitions(http-capath-probe PRIVATE
++            LPAC_HTTP_DEFAULT_CAPATH="${http_test_capath}")
++        target_link_libraries(http-capath-probe PRIVATE curl)
 +        add_test(NAME http-tls
 +            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/http_tls.py
-+                    $<TARGET_FILE:http-driver-probe> -v)
-+        set_tests_properties(http-tls PROPERTIES TIMEOUT 60)
++                    $<TARGET_FILE:http-driver-probe>
++                    --capath-probe $<TARGET_FILE:http-capath-probe>
++                    --capath-dir "${http_test_capath}" -v)
++        set_tests_properties(http-tls PROPERTIES TIMEOUT 90)
 +    endif()
 +endif()
 diff --git a/REUSE.toml b/REUSE.toml
@@ -148,6 +159,47 @@ index be226fd..b7f0fee 100644
  endif()
  
  configure_file(${SRC} ${DST} @ONLY)
+diff --git a/docs/ENVVARS.md b/docs/ENVVARS.md
+index 563f614..bb73d2d 100644
+--- a/docs/ENVVARS.md
++++ b/docs/ENVVARS.md
+@@ -18,6 +18,15 @@
+ * `LPAC_HTTP`: specify which HTTP backend will be used.
+   - `curl`: use libcurl
+   - `stdio`: use standard input/output
++* `LPAC_HTTP_CAINFO`: optional CA file for the curl backend. A nonempty value
++  suppresses any application-specific default CA directory configured at build
++  time. Empty/unset retains the configured defaults. TLS peer and hostname
++  verification are always enabled; there is no insecure override.
++* `LPAC_HTTP_CAPATH`: optional hashed CA directory for the curl backend. A
++  nonempty value can be used alongside CAINFO; this replaces curl's CA directory,
++  not its CA file. Empty/unset uses `LPAC_HTTP_DEFAULT_CAPATH` when compiled in
++  and CAINFO is not overridden, otherwise curl's native default. OpenSSL users
++  must prepare the directory using `openssl rehash`.
+ * `LPAC_APDU_AT_DEVICE`: specify which serial port device will be used by AT APDU backend.
+ * `LPAC_APDU_PCSC_DRV_IFID`: specify which PC/SC interface index will be used by PC/SC APDU backend.
+ * `LPAC_APDU_PCSC_DRV_NAME`: specify which PC/SC interface name will be used by PC/SC APDU backend.
+diff --git a/driver/CMakeLists.txt b/driver/CMakeLists.txt
+index 901d927..980d481 100644
+--- a/driver/CMakeLists.txt
++++ b/driver/CMakeLists.txt
+@@ -10,6 +10,7 @@ option(LPAC_WITH_APDU_QMI_QRTR "Build QMI-over-QRTR backend for Qualcomm devices
+ option(LPAC_WITH_APDU_MBIM "Build MBIM backend for MBIM devices (requires libmbim)" OFF)
+ 
+ option(LPAC_WITH_HTTP_CURL "Build HTTP Curl interface" ON)
++set(LPAC_HTTP_DEFAULT_CAPATH "" CACHE PATH "Optional application-scoped hashed TLS CA directory")
+ 
+ aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} DIR_INTERFACE_SRCS)
+ if(LPAC_DYNAMIC_DRIVERS)
+@@ -121,6 +122,8 @@ endif()
+ if(LPAC_WITH_HTTP_CURL)
+     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DLPAC_WITH_HTTP_CURL")
+     target_sources(euicc-drivers PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/http/curl.c)
++    target_compile_definitions(euicc-drivers PRIVATE
++        LPAC_HTTP_DEFAULT_CAPATH="${LPAC_HTTP_DEFAULT_CAPATH}")
+     if(WIN32)
+         target_link_libraries(euicc-drivers ${DL_LIBRARY})
+     else()
 diff --git a/driver/apdu/qmi.c b/driver/apdu/qmi.c
 index 0f87023..cc585d0 100644
 --- a/driver/apdu/qmi.c
@@ -926,18 +978,30 @@ index 8b91d0e..b19aa63 100644
  
  const struct euicc_driver driver_apdu_qmi_qrtr = {
 diff --git a/driver/http/curl.c b/driver/http/curl.c
-index b15b3ff..62dc1ee 100644
+index b15b3ff..0d47080 100644
 --- a/driver/http/curl.c
 +++ b/driver/http/curl.c
-@@ -18,6 +18,7 @@
+@@ -18,6 +18,8 @@
  #    define CURLOPT_WRITEDATA 10001
  #    define CURLOPT_SSL_VERIFYPEER 64
  #    define CURLOPT_SSL_VERIFYHOST 81
 +#    define CURLOPT_CAINFO 10065
++#    define CURLOPT_CAPATH 10097
  #    define CURLOPT_HTTPHEADER 10023
  #    define CURLOPT_POSTFIELDS 10015
  #    define CURLOPT_POSTFIELDSIZE 60
-@@ -50,15 +51,24 @@ static struct libcurl_interface {
+@@ -31,6 +33,10 @@ typedef int CURLINFO;
+ static void *libcurl_interface_dlhandle = NULL;
+ #endif
+ 
++#ifndef LPAC_HTTP_DEFAULT_CAPATH
++#    define LPAC_HTTP_DEFAULT_CAPATH ""
++#endif
++
+ struct http_trans_response_data {
+     uint8_t *data;
+     size_t size;
+@@ -50,15 +56,24 @@ static struct libcurl_interface {
  } libcurl;
  
  static size_t http_trans_write_callback(void *contents, size_t size, size_t nmemb, void *userp) {
@@ -966,11 +1030,19 @@ index b15b3ff..62dc1ee 100644
  
      memcpy(&(mem->data[mem->size]), contents, realsize);
      mem->size += realsize;
-@@ -75,20 +85,30 @@ static int http_interface_transmit(struct euicc_ctx *ctx, const char *url, uint3
+@@ -75,20 +90,42 @@ static int http_interface_transmit(struct euicc_ctx *ctx, const char *url, uint3
      struct http_trans_response_data responseData = {0};
      struct curl_slist *headers = NULL, *nheaders = NULL;
      long response_code;
 +    const char *ca_file = getenv("LPAC_HTTP_CAINFO");
++    const char *ca_path = getenv("LPAC_HTTP_CAPATH");
++    int custom_ca_file = ca_file != NULL && ca_file[0] != '\0';
++
++    /* Optional distro-scoped roots augment curl's normal CA file. An explicit
++     * CAINFO does not implicitly inherit those additional roots. Callers may
++     * deliberately provide both CAINFO and CAPATH, as in libcurl itself. */
++    if ((ca_path == NULL || ca_path[0] == '\0') && !custom_ca_file)
++        ca_path = LPAC_HTTP_DEFAULT_CAPATH;
  
      (*rx) = NULL;
      (*rcode) = 0;
@@ -994,15 +1066,19 @@ index b15b3ff..62dc1ee 100644
 +        || (res = libcurl._curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L)) != CURLE_OK) {
 +        goto curl_err;
 +    }
-+    /* curl copies this string. Unset/empty keeps its system trust defaults. */
-+    if (ca_file != NULL && ca_file[0] != '\0'
++    /* curl copies these strings; peer and hostname checks stay enabled. */
++    if (custom_ca_file
 +        && (res = libcurl._curl_easy_setopt(curl, CURLOPT_CAINFO, ca_file)) != CURLE_OK) {
++        goto curl_err;
++    }
++    if (ca_path != NULL && ca_path[0] != '\0'
++        && (res = libcurl._curl_easy_setopt(curl, CURLOPT_CAPATH, ca_path)) != CURLE_OK) {
 +        goto curl_err;
 +    }
      for (int i = 0; h[i] != NULL; i++) {
          nheaders = libcurl._curl_slist_append(headers, h[i]);
          if (nheaders == NULL) {
-@@ -96,21 +116,22 @@ static int http_interface_transmit(struct euicc_ctx *ctx, const char *url, uint3
+@@ -96,21 +133,22 @@ static int http_interface_transmit(struct euicc_ctx *ctx, const char *url, uint3
          }
          headers = nheaders;
      }
@@ -1033,7 +1109,7 @@ index b15b3ff..62dc1ee 100644
      *rcode = response_code;
      *rx = responseData.data;
      *rx_len = responseData.size;
-@@ -118,6 +139,8 @@ static int http_interface_transmit(struct euicc_ctx *ctx, const char *url, uint3
+@@ -118,6 +156,8 @@ static int http_interface_transmit(struct euicc_ctx *ctx, const char *url, uint3
      fret = 0;
      goto exit;
  
@@ -1334,10 +1410,10 @@ index 0000000..c1a6381
 +}
 diff --git a/tests/http_tls.py b/tests/http_tls.py
 new file mode 100644
-index 0000000..2586ffd
+index 0000000..1804d7f
 --- /dev/null
 +++ b/tests/http_tls.py
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,230 @@
 +#!/usr/bin/env python3
 +"""Real curl-driver TLS regressions; ephemeral certificates and loopback only.
 +
@@ -1347,10 +1423,12 @@ index 0000000..2586ffd
 +"""
 +
 +import datetime
++import argparse
 +import http.server
 +import os
 +from pathlib import Path
 +import ssl
++import shutil
 +import subprocess
 +import sys
 +import tempfile
@@ -1359,6 +1437,13 @@ index 0000000..2586ffd
 +
 +
 +PROBE = str(Path(sys.argv.pop(1)).resolve())
++arguments = argparse.ArgumentParser(add_help=False)
++arguments.add_argument('--capath-probe')
++arguments.add_argument('--capath-dir')
++OPTIONS, remainder = arguments.parse_known_args(sys.argv[1:])
++sys.argv[1:] = remainder
++if bool(OPTIONS.capath_probe) != bool(OPTIONS.capath_dir):
++    raise SystemExit('Both --capath-probe and --capath-dir are required together')
 +
 +
 +class TLSRegression(unittest.TestCase):
@@ -1419,8 +1504,19 @@ index 0000000..2586ffd
 +                "-startdate", start.strftime("%Y%m%d%H%M%SZ"),
 +                "-enddate", end.strftime("%Y%m%d%H%M%SZ"),
 +            )
++        cls.hashed = cls.directory / 'hashed'
++        cls.hashed.mkdir()
++        shutil.copyfile(cls.directory / 'trusted.pem', cls.hashed / 'trusted.pem')
++        cls.openssl('rehash', cls.hashed)
++        if OPTIONS.capath_dir:
++            # mkdir is exclusive: never overwrite or remove pre-existing data.
++            default_path = Path(OPTIONS.capath_dir)
++            default_path.mkdir(mode=0o700)
++            cls.addClassCleanup(shutil.rmtree, default_path)
++            shutil.copyfile(cls.directory / 'trusted.pem', default_path / 'trusted.pem')
++            cls.openssl('rehash', default_path)
 +
-+    def request(self, certificate, *, expected, ca="trusted.pem", extra_environment=None):
++    def request(self, certificate, *, expected, ca="trusted.pem", extra_environment=None, probe=PROBE):
 +        requests = []
 +
 +        class Handler(http.server.BaseHTTPRequestHandler):
@@ -1457,7 +1553,7 @@ index 0000000..2586ffd
 +        environment = os.environ.copy()
 +        for name in list(environment):
 +            if name.lower().endswith("_proxy") or name in (
-+                "LPAC_HTTP_CAINFO", "LPAC_HTTP_SSL_VERIFY", "CURL_CA_BUNDLE",
++                "LPAC_HTTP_CAINFO", "LPAC_HTTP_CAPATH", "LPAC_HTTP_SSL_VERIFY", "CURL_CA_BUNDLE",
 +                "SSL_CERT_FILE", "SSL_CERT_DIR",
 +            ):
 +                del environment[name]
@@ -1467,7 +1563,7 @@ index 0000000..2586ffd
 +        environment.update(extra_environment or {})
 +        try:
 +            result = subprocess.run(
-+                [PROBE, f"https://127.0.0.1:{server.server_port}/test"],
++                [probe, f"https://127.0.0.1:{server.server_port}/test"],
 +                env=environment, capture_output=True, text=True, timeout=15,
 +            )
 +        finally:
@@ -1499,6 +1595,51 @@ index 0000000..2586ffd
 +
 +    def test_upstream_insecure_env_cannot_disable_verification(self):
 +        self.request("untrusted", expected=1, extra_environment={"LPAC_HTTP_SSL_VERIFY": "0"})
++
++    def test_explicit_hashed_directory_adds_trust(self):
++        self.request('valid', expected=0, ca='unknown.pem',
++                     extra_environment={'LPAC_HTTP_CAPATH': str(self.hashed)})
++
++    def test_hashed_directory_preserves_ca_file(self):
++        self.request('untrusted', expected=0, ca='unknown.pem',
++                     extra_environment={'LPAC_HTTP_CAPATH': str(self.hashed)})
++
++    def test_hashed_directory_rejects_hostname_mismatch(self):
++        self.request('wrong-host', expected=1, ca='unknown.pem',
++                     extra_environment={'LPAC_HTTP_CAPATH': str(self.hashed)})
++
++    def test_hashed_directory_rejects_expired_certificate(self):
++        self.request('expired', expected=1, ca='unknown.pem',
++                     extra_environment={'LPAC_HTTP_CAPATH': str(self.hashed)})
++
++    def test_missing_ca_file_still_fails_with_valid_directory(self):
++        self.request('valid', expected=1, ca='does-not-exist.pem',
++                     extra_environment={'LPAC_HTTP_CAPATH': str(self.hashed)})
++
++    @unittest.skipUnless(OPTIONS.capath_probe, 'requires separately compiled default-path probe')
++    def test_compiled_default_directory_adds_trust(self):
++        self.request('valid', expected=0, ca=None, probe=OPTIONS.capath_probe)
++
++    @unittest.skipUnless(OPTIONS.capath_probe, 'requires separately compiled default-path probe')
++    def test_empty_overrides_keep_compiled_default_directory(self):
++        self.request('valid', expected=0, ca='', probe=OPTIONS.capath_probe,
++                     extra_environment={'LPAC_HTTP_CAPATH': ''})
++
++    @unittest.skipUnless(OPTIONS.capath_probe, 'requires separately compiled default-path probe')
++    def test_explicit_ca_file_does_not_inherit_packaged_roots(self):
++        self.request('valid', expected=1, ca='unknown.pem', probe=OPTIONS.capath_probe)
++
++    @unittest.skipUnless(OPTIONS.capath_probe, 'requires separately compiled default-path probe')
++    def test_compiled_default_directory_rejects_unknown_ca(self):
++        self.request('untrusted', expected=1, ca=None, probe=OPTIONS.capath_probe)
++
++    @unittest.skipUnless(OPTIONS.capath_probe, 'requires separately compiled default-path probe')
++    def test_compiled_default_directory_rejects_wrong_hostname(self):
++        self.request('wrong-host', expected=1, ca=None, probe=OPTIONS.capath_probe)
++
++    @unittest.skipUnless(OPTIONS.capath_probe, 'requires separately compiled default-path probe')
++    def test_compiled_default_directory_rejects_expired_certificate(self):
++        self.request('expired', expected=1, ca=None, probe=OPTIONS.capath_probe)
 +
 +
 +if __name__ == "__main__":
@@ -2359,4 +2500,3 @@ index 0000000..2ac225a
 +    g_string_free(mock.events, TRUE);
 +    return result;
 +}
-
