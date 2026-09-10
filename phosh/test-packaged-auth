@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Run inside the completed desktop or device image.
+set -euo pipefail
+
+expected='0.57.0-1.1.pocketfed.fc46'
+for package in phosh libphosh; do
+    actual=$(rpm -q --qf '%{VERSION}-%{RELEASE}' "$package")
+    if [[ "$actual" != "$expected" ]]; then
+        printf '%s: expected %s, found %s\n' "$package" "$expected" "$actual" >&2
+        exit 1
+    fi
+done
+test "$(rpm -q --whatprovides phosh-pam-retry-fix --qf '%{NAME}')" = phosh
+test -x /usr/libexec/phosh
+test -f /usr/lib64/libphosh-0.45.so.0
+grep -Eq '^auth[[:space:]]+substack[[:space:]]+system-auth$' /etc/pam.d/phosh
+printf 'Packaged Phosh authentication: %s, fix capability and homed PAM stack present\n' "$expected"
