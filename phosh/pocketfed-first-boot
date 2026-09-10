@@ -27,4 +27,10 @@ if [[ -n "$users" ]]; then
     exit 0
 fi
 
-exec /usr/bin/phosh-first-boot
+# Phrog's portal is unavailable, so hold the session's suspend inhibitor
+# directly. It is released when the assistant exits and Phrog shows login.
+exec /usr/bin/gnome-session-inhibit \
+    --inhibit suspend \
+    --app-id mobi.phosh.FirstBoot \
+    --reason 'First boot setup' \
+    /usr/bin/phosh-first-boot

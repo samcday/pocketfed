@@ -7,6 +7,7 @@ test -x /usr/bin/phosh-first-boot
 test -x /usr/libexec/phosh-first-boot-importer
 test -x /usr/lib/systemd/systemd-homed
 test -x /usr/libexec/pocketfed-first-boot
+test -x /usr/bin/gnome-session-inhibit
 # Check the shipped binary as well as RPM file placement: an unconfigured
 # nested Meson run once embedded /usr/local and /run development paths.
 LC_ALL=C /usr/bin/phosh-first-boot --help | \
@@ -21,6 +22,10 @@ test "$(systemctl is-enabled systemd-homed-firstboot.service)" = disabled
 test "$(systemctl --global is-enabled phosh-first-boot-importer.service)" = enabled
 test "$(XDG_CURRENT_DESKTOP=Phrog:Phosh:GNOME GSETTINGS_BACKEND=memory \
     gsettings get mobi.phosh.phrog first-run)" = "'/usr/libexec/pocketfed-first-boot'"
+test "$(XDG_CURRENT_DESKTOP=Phrog:Phosh:GNOME GSETTINGS_BACKEND=memory \
+    gsettings get org.gnome.desktop.screensaver lock-enabled)" = false
+test "$(XDG_CURRENT_DESKTOP=Phosh:GNOME GSETTINGS_BACKEND=memory \
+    gsettings get org.gnome.desktop.screensaver lock-enabled)" = true
 
 # The persistent handoff must be writable by the greeter, including when /var
 # starts empty in a freshly installed OSTree deployment.
