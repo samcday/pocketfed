@@ -252,6 +252,15 @@ jobs:
       - name: Verify base utilities
         run: sudo chroot base/mkosi.output/pocketfed-base_rawhide /usr/bin/bash < base/test-utilities
 
+      - name: Verify experimental profile manager stays opt-in
+        run: |
+          root=base/mkosi.output/pocketfed-base_rawhide
+          sudo chroot "$root" rpm -q qcom-baseband-profile-manager libqmi \
+            python3-pyosmocom python3-gsm0338 python3-statemachine
+          sudo chroot "$root" qcom-baseband-profile-manager --help
+          sudo test ! -e "$root/etc/qcom-baseband-profile-manager.toml"
+          test "$(sudo systemctl --root="$root" is-enabled qcom-baseband-profile-manager.service || true)" = disabled
+
       - name: Pack base OCI artifact
         if: github.event_name != 'push'
         run: |
