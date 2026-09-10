@@ -8,16 +8,16 @@ Summary:  Graphical shell for mobile devices
 License:  GPL-3.0-or-later
 URL:      https://gitlab.gnome.org/World/Phosh/phosh
 # Fedora mirrors the identical upstream archive (see sources).
-# Source0:  https://gitlab.gnome.org/World/Phosh/phosh/-/archive/v%{version_no_tilde _}/%{name}-v%{version_no_tilde _}.tar.gz
+# Source0:  https://gitlab.gnome.org/World/Phosh/phosh/-/archive/v%%{version_no_tilde _}/%%{name}-v%%{version_no_tilde _}.tar.gz
 Source0:  https://src.fedoraproject.org/repo/pkgs/rpms/phosh/phosh-v0.57.0.tar.gz/sha512/29c177cbc6ba25880160aafec2abc00fe0d02fee63466dd429dc7e0b70f8f2cbdb84e048004c4811932b53a63c56c49d3b597e8f55a77a9751483b51d5774bfc/phosh-v0.57.0.tar.gz
 # This library doesn't compile into a DSO nor has any tagged releases.
 # Other projects such as gnome-shell use it this way.
 # Fedora mirrors the identical upstream archive (see sources).
-# Source1:  https://gitlab.gnome.org/GNOME/libgnome-volume-control/-/archive/%{gvc_commit}/libgnome-volume-control-%{gvc_commit}.tar.gz
+# Source1:  https://gitlab.gnome.org/GNOME/libgnome-volume-control/-/archive/%%{gvc_commit}/libgnome-volume-control-%%{gvc_commit}.tar.gz
 Source1:  https://src.fedoraproject.org/repo/pkgs/rpms/phosh/libgnome-volume-control-d2442f455844e5292cb4a74ffc66ecc8d7595a9f.tar.gz/sha512/6214f4c17f85b76b04f9f60c8fc4fd993bca8d7c61df40e4aa96cb921831b666719d6666474a8f2eda9fcd483dbd4d53cfc55773981fa1e6b1c214bdb698d1e0/libgnome-volume-control-d2442f455844e5292cb4a74ffc66ecc8d7595a9f.tar.gz
 # Similar situation as gvc
 # Fedora mirrors the identical upstream archive (see sources).
-# Source2:  https://gitlab.gnome.org/World/Phosh/libcall-ui/-/archive/%{libcall_ui_version}/libcall-ui-%{libcall_ui_version}.tar.gz
+# Source2:  https://gitlab.gnome.org/World/Phosh/libcall-ui/-/archive/%%{libcall_ui_version}/libcall-ui-%%{libcall_ui_version}.tar.gz
 Source2:  https://src.fedoraproject.org/repo/pkgs/rpms/phosh/libcall-ui-v0.1.5.tar.gz/sha512/e6cbcfd93396cee438262716f29dfe898fa9c061af977d92ff67014388cec71883dbd46500bfc6817647a3a86859daec5594444e3898b825caeac51fe9dac1b1/libcall-ui-v0.1.5.tar.gz
 Source3:  phosh
 

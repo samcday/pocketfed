@@ -210,10 +210,10 @@ index 4423608..504ae49 100644
  
  
 diff --git a/tests/meson.build b/tests/meson.build
-index 51952fc..338216c 100644
+index 51952fc..66e8f59 100644
 --- a/tests/meson.build
 +++ b/tests/meson.build
-@@ -85,6 +85,16 @@ test_cflags = [
+@@ -85,6 +85,18 @@ test_cflags = [
  
  test_link_args = ['-fPIC']
  
@@ -224,6 +224,8 @@ index 51952fc..338216c 100644
 +  ['test-auth.c', '../src/auth.c'],
 +  include_directories: [root_inc, include_directories('../src')],
 +  dependencies: gio_dep,
++  # g_test_expect_message() cannot intercept structured logging.
++  c_args: ['-UG_LOG_USE_STRUCTURED'],
 +)
 +test('auth', test_auth, env: test_env_unit, suite: 'unit')
 +
