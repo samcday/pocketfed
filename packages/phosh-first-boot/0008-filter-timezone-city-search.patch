@@ -1,0 +1,20 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] Filter timezone choices by city name
+
+ComboRow only filters when its expression is set, even with a GtkStringList
+model. Search anywhere in each displayed timezone so city names such as Sydney
+match Australia/Sydney, including labels whose underscores became spaces.
+
+--- a/resources/timezone_page.ui
++++ b/resources/timezone_page.ui
+@@ -21,6 +21,10 @@
+                 <property name="title" translatable="yes">_Time Zone</property>
+                 <property name="use-underline">true</property>
+                 <property name="enable-search">true</property>
++                <property name="expression">
++                  <lookup name="string" type="GtkStringObject"/>
++                </property>
++                <property name="search-match-mode">substring</property>
+                 <property name="use-subtitle">true</property>
+                 <property name="sensitive">false</property>
+                 <signal name="notify::selected" handler="on_timezone_selected" object="PfbTimezonePage" swapped="yes"/>

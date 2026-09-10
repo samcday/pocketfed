@@ -7,6 +7,12 @@ test -x /usr/bin/phosh-first-boot
 test -x /usr/libexec/phosh-first-boot-importer
 test -x /usr/lib/systemd/systemd-homed
 test -x /usr/libexec/pocketfed-first-boot
+# Check the shipped binary as well as RPM file placement: an unconfigured
+# nested Meson run once embedded /usr/local and /run development paths.
+LC_ALL=C /usr/bin/phosh-first-boot --help | \
+    grep -Fq 'default is /usr/share/phosh-first-boot/defaults.conf'
+grep -aFq '/var/lib/phosh-first-boot' /usr/bin/phosh-first-boot
+! grep -aFq '/run/phosh-first-boot' /usr/bin/phosh-first-boot
 authselect check
 authselect is-feature-enabled with-systemd-homed
 test "$(systemctl is-enabled phrog.service)" = enabled

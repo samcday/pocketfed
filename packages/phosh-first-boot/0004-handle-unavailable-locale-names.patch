@@ -1,0 +1,38 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] Handle unavailable locale display names without aborting
+
+The C libpms API may return NULL when the requested translation locale is
+not installed, but libpms-rs 0.0.3 assumes a non-null string. Decode the
+nullable C result and retain the locale identifier when no name is available.
+
+--- a/src/pfb/lang_page.rs
++++ b/src/pfb/lang_page.rs
+@@ -147,8 +147,26 @@
+     }
+ 
+     fn update_lang_row(&self, region: &str) {
+-        let name = functions::lang_get_language_from_locale(region, region.into());
+-        self.imp().lang_row.set_subtitle(&name);
++        use glib::translate::{from_glib_full, ToGlibPtr};
++
++        // libpms can return NULL (for example for an uninstalled locale), but libpms-rs 0.0.3
++        // incorrectly declares a non-null return value. Keep the raw locale
++        // usable until the binding exposes this as an optional string.
++        unsafe extern "C" {
++            fn ms_lang_get_language_from_locale(
++                locale: *const libc::c_char,
++                translation: *const libc::c_char,
++            ) -> *mut libc::c_char;
++        }
++        let name: Option<glib::GString> = unsafe {
++            from_glib_full(ms_lang_get_language_from_locale(
++                region.to_glib_none().0,
++                region.to_glib_none().0,
++            ))
++        };
++        self.imp()
++            .lang_row
++            .set_subtitle(name.as_deref().unwrap_or(region));
+     }
+ 
+     fn update_lang(&self, region: String) {

@@ -1,0 +1,105 @@
+{
+  "package": "phosh-first-boot",
+  "version": "0.1.1-1.2.pocketfed",
+  "upstream": {
+    "release": "v0.1.1",
+    "commit": "0d39c507d7464dc77bdfe256b22460d91e7c0414",
+    "url": "https://gitlab.gnome.org/World/Phosh/phosh-first-boot",
+    "dependency_update_commit": "b21ff7f74a227ac5b203d205d31a487d5b3b8d8e"
+  },
+  "packaging_origin": {
+    "url": "https://forge.fedoraproject.org/samcday/packages",
+    "commit": "d64dc5a",
+    "path": "phosh-first-boot"
+  },
+  "copr": {
+    "project": "samcday/pocketfed",
+    "build_id": 10967443,
+    "url": "https://copr.fedorainfracloud.org/coprs/build/10967443",
+    "chroots": [
+      "fedora-rawhide-aarch64",
+      "fedora-rawhide-x86_64"
+    ],
+    "status": "succeeded",
+    "build_network": false,
+    "completed_at": "2026-09-09T23:13:09Z"
+  },
+  "srpm": {
+    "filename": "phosh-first-boot-0.1.1-1.2.pocketfed.fc46.src.rpm",
+    "sha256": "73820466b0001097b2c0bd5acdd28871ce378411e89d33ac3aa8c6cd6caee8af"
+  },
+  "submitted_files_sha256": {
+    "phosh-first-boot.spec": "00d8790e5fc808edd63efa915e2f4f8d45d197f38f501f399dfa9e79d78fc9f6",
+    "defaults.conf": "df51aee2eea43a6498ab7daf92d76dfd825b3b90d8580a66e77712c0f03450d9",
+    "collect-notices.py": "d11eaf7040385654faa1d58fd8b2b3d3fb28cef03699bf72b229ea4ef9c0e166",
+    "0001-update-rust-dependencies.patch": "b5f290590ec2db4e4207053d741b4e0d13e74ec240bfd34ebeb799f28e783ec5",
+    "0002-import-from-configured-output-directory.patch": "c45323437fb51d5f9703b81f008567a1de45b53979dad61e37cde4bec184841b",
+    "0003-timezone-and-recoverable-setup.patch": "8906179c7c3c902ce70a1b864e24a593a9047ebeaf55c4c49663c69208200457",
+    "0004-handle-unavailable-locale-names.patch": "be823e5a2a4724a7645b8e144ebbf5d3847df22ee06721a9dc26ff747d14267e"
+  },
+  "source_checksums_file": "sources.sha256",
+  "validation": {
+    "source_preparation": "reproduced vendor archive byte-for-byte",
+    "patch_application": "all four package patches apply to v0.1.1 with --fuzz=0",
+    "runtime_tests": "see validation; supplemental test patch is not part of the published SRPM",
+    "packaged_runtime_configuration": "packaging config uses greetd:greetd, /var/lib output, importer --dir/source guard, wheel defaults and explicit dependencies; this did not verify compiled application paths",
+    "license_summary": "matches GPL-3.0-or-later AND MIT AND Unicode-3.0; original dependency notices are shipped",
+    "locale_fallback": "native private-bus locale write denial/retry passed with only C/C.utf8/POSIX locales installed; nullable display-name results fall back to the supplied locale identifier",
+    "submitted_packaging_files": "all submitted file hashes match the current packaging sources",
+    "signature_verification": "both RPMs verified using only the COPR project key imported into an isolated RPM database",
+    "submitted_srpm": "original uploaded SRPM downloaded from COPR matches the recorded SHA-256; RPM digests OK"
+  },
+  "signing_key_fingerprint": "F247F3B726A312E90D74BB76E220B1E0AE59FCB5",
+  "results": {
+    "fedora-rawhide-aarch64": {
+      "state": "succeeded",
+      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-aarch64/10967443-phosh-first-boot/",
+      "rpm": "phosh-first-boot-0.1.1-1.2.pocketfed.fc46.aarch64.rpm",
+      "sha256": "7c48eebf9b9d6c8de1124c17fe34e650422076f6bbb93f6dd8a1a128b4e1e644",
+      "signature": "digests signatures OK",
+      "build_log_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-aarch64/10967443-phosh-first-boot/builder-live.log.gz",
+      "build_log_sha256": "97ee69d2aee4c8632d1f79371a5bfaa55eacf4d65ffba1a200ad8ba4cac644e6",
+      "meson_tests": {
+        "passed": 2,
+        "failed": 0
+      },
+      "rust_tests": {
+        "passed": 0,
+        "failed": 0,
+        "note": "upstream suites contain no Rust tests; separate runtime validation fixture supplies timezone regression coverage"
+      }
+    },
+    "fedora-rawhide-x86_64": {
+      "state": "succeeded",
+      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-x86_64/10967443-phosh-first-boot/",
+      "rpm": "phosh-first-boot-0.1.1-1.2.pocketfed.fc46.x86_64.rpm",
+      "sha256": "a7fa3b3ac765fb4a3016efac3791fe3fa40a719c485976aeace8e3d770ddb7aa",
+      "signature": "digests signatures OK",
+      "build_log_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-x86_64/10967443-phosh-first-boot/builder-live.log.gz",
+      "build_log_sha256": "6ebe6785824a4734c2b4f638912434b7f5ee9a9c911863a572cb9de3b446e368",
+      "meson_tests": {
+        "passed": 2,
+        "failed": 0
+      },
+      "rust_tests": {
+        "passed": 0,
+        "failed": 0,
+        "note": "upstream suites contain no Rust tests; separate runtime validation fixture supplies timezone regression coverage"
+      }
+    }
+  },
+  "previous_builds": [
+    {
+      "build_id": 10967394,
+      "metadata": "builds/10967394.json",
+      "version": "0.1.1-1.1.pocketfed"
+    }
+  ],
+  "known_issues": [
+    {
+      "status": "confirmed",
+      "scope": "compiled application configuration",
+      "detail": "Cargo build.rs reruns Meson with upstream defaults, overwriting the RPM-configured paths with /usr/local/share/phosh-first-boot and /run/phosh-first-boot. Hardware 1.1 and extracted signed 1.2 binary confirm incorrect paths. Requires a rebuilt package that preserves the preconfigured Meson values."
+    }
+  ]
+}

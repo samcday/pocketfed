@@ -25,12 +25,19 @@ Selected keyboard settings are handed to the first graphical session through
 Phrog's own writable dconf state lives under `/var/lib/greetd` and is created
 by tmpfiles on a new OSTree deployment.
 
+The assistant keeps its window visible until setup finishes. Account creation
+commits the selected settings: Back is disabled while creation is pending and
+after the account exists, but becomes available again if creation fails.
+The timezone picker searches city names anywhere in the displayed zone name.
+
 ## Verification
 
 CI runs `base/test-firstboot` inside the image to exercise real systemd
 credential handling with fresh and configured temporary roots. It also runs
 `phosh/test-firstboot-image` to check installed programs, service enablement,
 PAM integration, the greeter entry point and writable state.
+It also checks paths embedded in the installed assistant. The image pins the
+tested COPR release so a cached build cannot silently retain an earlier RPM.
 
 Hardware acceptance requires a newly installed userdata image without a
 regular account, locale/timezone credentials or console input. Check:

@@ -1,9 +1,11 @@
 --- a/src/pfb/timezone_page.rs
 +++ b/src/pfb/timezone_page.rs
-@@ -25,6 +25,222 @@
-     async fn set_timezone(&self, timezone: &str, interactive: bool) -> zbus::Result<()>;
- }
+@@ -23,6 +23,243 @@
  
+     #[zbus(allow_interactive_auth)]
+     async fn set_timezone(&self, timezone: &str, interactive: bool) -> zbus::Result<()>;
++}
++
 +#[cfg(test)]
 +mod tests {
 +    use super::*;
@@ -25,7 +27,13 @@
 +            if self.fail_list.load(Ordering::SeqCst) {
 +                return Err(zbus::fdo::Error::Failed("tzdata unavailable".into()));
 +            }
-+            Ok(vec!["Australia/Sydney".into(), "UTC".into()])
++            Ok(vec![
++                "Africa/Abidjan".into(),
++                "America/New_York".into(),
++                "Australia/Sydney".into(),
++                "Europe/London".into(),
++                "UTC".into(),
++            ])
 +        }
 +
 +        #[zbus(property)]
@@ -102,15 +110,20 @@
 +        None
 +    }
 +
-+    fn close_popovers(root: &gtk::Widget) {
-+        if let Some(popover) = root.downcast_ref::<gtk::Popover>() {
-+            popover.popdown();
-+        }
-+        let mut child = root.first_child();
-+        while let Some(widget) = child {
-+            close_popovers(&widget);
-+            child = widget.next_sibling();
-+        }
++    fn wait_for_search(list: &gtk::ListView, expected: &[&str]) {
++        glib::MainContext::default().block_on(async {
++            let model = list.model().unwrap();
++            for _ in 0..300 {
++                let results: Vec<_> = (0..model.n_items())
++                    .map(|index| model.item(index).unwrap().downcast::<gtk::StringObject>().unwrap().string())
++                    .collect();
++                if results.iter().map(|result| result.as_str()).eq(expected.iter().copied()) {
++                    return;
++                }
++                glib::timeout_future(Duration::from_millis(10)).await;
++            }
++            panic!("search did not filter to {expected:?}; still has {} results", model.n_items());
++        });
 +    }
 +
 +    // Run on a disposable bus and display:
@@ -166,15 +179,25 @@
 +        settle(&page);
 +        assert!(page.upcast_ref::<Page>().can_go_next());
 +        assert!(page.imp().timezone_row.enables_search());
-+        assert_eq!(page.imp().timezone_row.selected(), 1);
++        assert_eq!(page.imp().timezone_row.selected(), 4);
 +        screenshot(&window, "timezone-360x740.png");
 +        adw::prelude::ActionRowExt::activate(&*page.imp().timezone_row);
 +        screenshot(&window, "timezone-search-360x740.png");
-+        // Close the chooser before changing the selection programmatically.
-+        close_popovers(page.imp().timezone_row.upcast_ref());
++        let search = find_widget(page.imp().timezone_row.upcast_ref(), "search_entry")
++            .unwrap().downcast::<gtk::SearchEntry>().unwrap();
++        let list = find_widget(page.imp().timezone_row.upcast_ref(), "list")
++            .unwrap().downcast::<gtk::ListView>().unwrap();
++        search.set_text("New York");
++        wait_for_search(&list, &["America/New York"]);
++        search.set_text("sYdNeY");
++        wait_for_search(&list, &["Australia/Sydney"]);
++        screenshot(&window, "timezone-search-filtered-360x740.png");
 +
 +        fail_set.store(true, Ordering::SeqCst);
-+        page.imp().timezone_row.set_selected(0);
++        assert!(list.model().unwrap().select_item(0, true));
++        list.emit_by_name::<()>("activate", &[&0u32]);
++        assert_eq!(page.imp().timezone_row.selected(), 2,
++            "the filtered result must select the original timezone, not row zero");
 +        assert!(!page.upcast_ref::<Page>().can_go_next());
 +        settle(&page);
 +        assert!(!page.upcast_ref::<Page>().can_go_next());
@@ -218,8 +241,6 @@
 +            window.close();
 +        }
 +    }
-+}
-+
+ }
+ 
  mod imp {
-     use glib::subclass::InitializingObject;
-     use gtk::CompositeTemplate;

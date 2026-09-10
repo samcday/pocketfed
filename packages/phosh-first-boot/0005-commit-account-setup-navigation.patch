@@ -1,0 +1,37 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] Commit setup navigation when creating the first account
+
+The persistent settings export belongs to the account being created. Prevent
+back buttons, gestures and shortcuts from changing it while creation is pending
+or after the account exists. A failed CreateHome still allows editing and retry.
+
+--- a/resources/done_page.ui
++++ b/resources/done_page.ui
+@@ -3,6 +3,7 @@
+   <template class="PfbDonePage" parent="PfbPage">
+     <property name="title" translatable="yes">All set up!</property>
+     <property name="tag">all-done</property>
++    <property name="can-pop">false</property>
+     <property name="content">
+       <object class="AdwStatusPage">
+         <property name="icon-name">setup-finished-symbolic</property>
+--- a/src/pfb/user_page.rs
++++ b/src/pfb/user_page.rs
+@@ -383,6 +383,9 @@
+ 
+         imp.error_banner.set_revealed(false);
+         self.set_active(true);
++        // Account creation commits the exported settings. Keep the user on
++        // this page until the result is known, and after the account exists.
++        self.set_can_pop(false);
+         MainContext::default().spawn_local(glib::clone!(
+             #[weak(rename_to = this)]
+             self,
+@@ -405,6 +408,7 @@
+                     }
+                 }
+                 this.set_active(false);
++                this.set_can_pop(this.imp().created_user.borrow().is_none());
+             }
+         ));
+     }

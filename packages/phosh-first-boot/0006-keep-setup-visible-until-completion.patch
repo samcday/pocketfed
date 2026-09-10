@@ -1,0 +1,38 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] Keep setup visible until its completion action
+
+First boot has no existing user to return to if its window is closed. Hide
+window title controls and ignore close requests; Get started still quits the
+application explicitly after setup.
+
+--- a/resources/page.ui
++++ b/resources/page.ui
+@@ -16,7 +16,10 @@
+           </object>
+         </property>
+         <child type="top">
+-          <object class="AdwHeaderBar"/>
++          <object class="AdwHeaderBar">
++            <property name="show-start-title-buttons">false</property>
++            <property name="show-end-title-buttons">false</property>
++          </object>
+         </child>
+         <child type="bottom">
+           <object class="GtkActionBar">
+--- a/src/pfb/window.rs
++++ b/src/pfb/window.rs
+@@ -73,7 +73,13 @@
+     }
+ 
+     impl WidgetImpl for PfbWindow {}
+-    impl WindowImpl for PfbWindow {}
++    impl WindowImpl for PfbWindow {
++        fn close_request(&self) -> glib::Propagation {
++            // Closing unfinished setup would return to a greeter with no user.
++            // The final Get started action quits the application explicitly.
++            glib::Propagation::Stop
++        }
++    }
+     impl ApplicationWindowImpl for PfbWindow {}
+     impl AdwApplicationWindowImpl for PfbWindow {}
+ }

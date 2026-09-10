@@ -5,7 +5,7 @@
 
 Name:           phosh-first-boot
 Version:        0.1.1
-Release:        1.1.pocketfed%{?dist}
+Release:        1.4.pocketfed%{?dist}
 Summary:        First boot setup assistant for Phosh
 
 SourceLicense:  GPL-3.0-or-later
@@ -19,9 +19,15 @@ Source0:        %{url}/-/archive/v%{version}/%{name}-v%{version}.tar.gz
 Source1:        vendor-%{version}.tar.xz
 Source2:        defaults.conf
 Source3:        collect-notices.py
+Source4:        check-build-configuration.py
 Patch0:         0001-update-rust-dependencies.patch
 Patch1:         0002-import-from-configured-output-directory.patch
 Patch2:         0003-timezone-and-recoverable-setup.patch
+Patch3:         0004-handle-unavailable-locale-names.patch
+Patch4:         0005-commit-account-setup-navigation.patch
+Patch5:         0006-keep-setup-visible-until-completion.patch
+Patch6:         0007-preserve-meson-package-configuration.patch
+Patch7:         0008-filter-timezone-city-search.patch
 
 ExclusiveArch:  %{rust_arches}
 
@@ -58,7 +64,7 @@ their system after booting a device for the first time.
 %cargo_prep -v vendor
 
 %build
-export GETTEXT_SYSTEM=1
+export GETTEXT_SYSTEM=1 PFB_MESON_PRECONFIGURED=1
 %meson \
   -Dsetup-user=greetd \
   -Doutput-dir-group=greetd \
@@ -82,9 +88,10 @@ install -Dpm 0644 %{SOURCE2} %{buildroot}%{_datadir}/%{name}/defaults.conf
 
 %check
 %if %{with check}
-export GETTEXT_SYSTEM=1
+export GETTEXT_SYSTEM=1 PFB_MESON_PRECONFIGURED=1
 %meson_test
 %cargo_test -- --locked
+%{__python3} %{SOURCE4} --config src/pfb/config.rs --binary %{buildroot}%{_bindir}/%{name}
 %endif
 
 %post
@@ -112,6 +119,19 @@ export GETTEXT_SYSTEM=1
 %{_datadir}/%{name}/
 
 %changelog
+* Thu Sep 10 2026 Sam Day <me@samcday.com> - 0.1.1-1.4.pocketfed
+- Preserve packaged Meson paths during Cargo builds and test the installed binary
+- Keep first boot visible until the final Get started action
+- Match time zone city names with case-insensitive substring search
+
+* Thu Sep 10 2026 Sam Day <me@samcday.com> - 0.1.1-1.3.pocketfed
+- Commit setup navigation when the first account is created
+- Prevent changes to the saved settings during and after account creation
+
+* Thu Sep 10 2026 Sam Day <me@samcday.com> - 0.1.1-1.2.pocketfed
+- Display the locale identifier when libpms cannot translate its name
+- Avoid aborting setup when a supplied locale is not installed
+
 * Thu Sep 10 2026 Sam Day <me@samcday.com> - 0.1.1-1.1.pocketfed
 - Update the Fedora Mobility package to 0.1.1 with upstream dependency fixes
 - Use the Fedora greetd user and group for firstboot settings output
