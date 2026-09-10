@@ -1,2 +1,7 @@
 [mobi.phosh.phrog:Phosh]
 first-run='/usr/libexec/pocketfed-first-boot'
+
+# Blanking the greeter must not cover first-run setup with an empty login.
+# Phrog explicitly locks its login surface when the first-run command exits.
+[org.gnome.desktop.screensaver:Phrog]
+lock-enabled=false

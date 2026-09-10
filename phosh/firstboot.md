@@ -30,12 +30,23 @@ commits the selected settings: Back is disabled while creation is pending and
 after the account exists, but becomes available again if creation fails.
 The timezone picker searches city names anywhere in the displayed zone name.
 
+The Phrog desktop profile allows the screen to blank without creating a login
+overlay over unfinished setup. Waking it with the power button returns to the
+assistant. The wrapper also holds a GNOME session suspend inhibitor while the
+assistant runs, using `gnome-session-inhibit` directly because Phrog's desktop
+portal is unavailable. Existing accounts return before acquiring an inhibitor.
+The inhibitor ends with setup, and Phrog explicitly locks its normal login
+surface when the first-run command exits. The owner's Phosh profile retains
+normal automatic locking.
+
 ## Verification
 
 CI runs `base/test-firstboot` inside the image to exercise real systemd
 credential handling with fresh and configured temporary roots. It also runs
 `phosh/test-firstboot-image` to check installed programs, service enablement,
 PAM integration, the greeter entry point and writable state.
+It checks that the session inhibitor helper is present, that only the Phrog
+profile disables automatic locking, and that the normal Phosh profile keeps it.
 It also checks paths embedded in the installed assistant. The image pins the
 tested COPR release so a cached build cannot silently retain an earlier RPM.
 
@@ -49,6 +60,10 @@ regular account, locale/timezone credentials or console input. Check:
 5. Reboot uses normal login and preserves the chosen settings.
 6. Restart before account creation resumes setup; restart after creation
    offers the existing account instead of asking for another one.
+7. During setup, leave the device idle for more than 60 seconds and wake it,
+   then use the power button to blank and wake it again. Both return to the
+   same assistant page. A suspend inhibitor exists only while setup is running;
+   completing setup releases it and presents the normal locked Phrog login.
 
 UART may record boot progress, but answering its prompts invalidates the
 unattended first-boot check. SSH keys used for test observation are not a
