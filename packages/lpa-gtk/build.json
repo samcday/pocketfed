@@ -1,0 +1,75 @@
+{
+  "package": "lpa-gtk",
+  "version": "0.4-1.4.pocketfed",
+  "date": "2026-09-11",
+  "upstream": {
+    "url": "https://codeberg.org/lucaweiss/lpa-gtk",
+    "tag": "0.4",
+    "commit": "35e272af38405ef1e138d89bce7acb5ac8e305fb",
+    "archive_sha256": "06ee0ce2c891f90c30dbfe0a804fdf319d2648ac619c25159f16e1caf7ccec2d",
+    "application_patches": []
+  },
+  "source_verification": {
+    "submitted_srpm_sha256": "1c04122ab084bc1a4cf0608e7f9d5f7ea34ced45c81ce3d9cf7eb94112e70bbf",
+    "spec_sha256": "cc8ba3c21af2e9128e6ba414b72e1cf4512a261823813c2142ed27def27da6a1",
+    "test_script_sha256": "d5fc3391ff924417d3a2b144fa3323abf1125c3fcbaf2e68e66ce12e04ecdbba",
+    "copr_specs_match_repository": true
+  },
+  "copr": {
+    "project": "samcday/pocketfed",
+    "build_id": 10973318,
+    "url": "https://copr.fedorainfracloud.org/coprs/samcday/pocketfed/build/10973318/",
+    "state": "succeeded",
+    "build_network_enabled": false,
+    "signing_key_fingerprint": "F247F3B726A312E90D74BB76E220B1E0AE59FCB5",
+    "verification": "Each downloaded binary RPM passed header/payload digest and both OpenPGP signature checks in an isolated RPM database containing the established COPR key. Host trust was not changed.",
+    "artifacts": [
+      {
+        "chroot": "fedora-rawhide-aarch64",
+        "nevra": "lpa-gtk-0.4-1.4.pocketfed.fc46.noarch",
+        "sha256": "8a8d43ecc79ad2a11c4d57f2fd9398972b6827fc0d6cf16ae2183a6f3ccf0144",
+        "url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-aarch64/10973318-lpa-gtk/lpa-gtk-0.4-1.4.pocketfed.fc46.noarch.rpm"
+      },
+      {
+        "chroot": "fedora-rawhide-x86_64",
+        "nevra": "lpa-gtk-0.4-1.4.pocketfed.fc46.noarch",
+        "sha256": "2659d95e2ca207a97846cd763f421477c55ac830daa4f2b179d7131a85ff6035",
+        "url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-x86_64/10973318-lpa-gtk/lpa-gtk-0.4-1.4.pocketfed.fc46.noarch.rpm"
+      },
+      {
+        "chroot": "fedora-45-aarch64",
+        "nevra": "lpa-gtk-0.4-1.4.pocketfed.fc45.noarch",
+        "sha256": "8d43a8af6c29d13b3fee3432eca28b1db17c1c9cba6418abb968254adcc9eb48",
+        "url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-45-aarch64/10973318-lpa-gtk/lpa-gtk-0.4-1.4.pocketfed.fc45.noarch.rpm"
+      }
+    ]
+  },
+  "checks": {
+    "all_three_chroots": [
+      "Pinned source archive hash verified",
+      "Upstream offline AppStream Meson test passed",
+      "Desktop file validation passed",
+      "Staged launcher paths, Python modules and compiled resources passed",
+      "Headless main window, dummy profile list, add-profile page and slot selector passed",
+      "Constructing the real lpac backend was forbidden during the UI test"
+    ],
+    "local": [
+      "Final spec rpmlint: zero errors and warnings",
+      "All COPR spec copies byte-identical to the repository spec",
+      "ARM64 test URL followed through the normal COPR redirect and independently matched the downloaded RPM",
+      "No RPM scriptlets, services, autostart files, permission rules or device configuration installed"
+    ],
+    "known_diagnostics": [
+      "Upstream AppStream first-paragraph-length informational diagnostic",
+      "Xvfb lacks accelerated DRI3; software-rendered UI test passes",
+      "Upstream AdwExpanderRow-in-GtkBox warning during GUI test; application unchanged",
+      "Binary rpmlint flags eSIM/lpac/eUICC as spelling and notes the absent upstream man page; default host key lookup reports NOKEY because only the isolated verification keyring was populated"
+    ]
+  },
+  "earlier_builds": [
+    {"id": 10973300, "state": "failed", "reason": "Overly literal test compared Meson's trailing-slash Python path as text; normalized path check retained"},
+    {"id": 10973307, "state": "failed", "reason": "All GUI checks passed; RPM rejected mixing absolute Source and relative documentation paths"},
+    {"id": 10973311, "state": "succeeded", "reason": "Superseded by the explicit-Source-macro spec-lint cleanup; no application change"}
+  ],
+  "scope": "Packaging only. No image selection or repository allowlist change, no device installation/launch, no SIM/profile operation. Real-device GUI testing remains with the user."
+}
