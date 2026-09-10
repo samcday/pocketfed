@@ -1,0 +1,44 @@
+diff --git a/src/qcom_baseband_profile_manager/config.py b/src/qcom_baseband_profile_manager/config.py
+index c262d76..e924313 100644
+--- a/src/qcom_baseband_profile_manager/config.py
++++ b/src/qcom_baseband_profile_manager/config.py
+@@ -83,7 +83,7 @@ class Config:
+ 
+         for profile_name in self.profiles:
+             profile = self.profiles[profile_name]
+-            if profile.mcc not in self.profiles:
++            if profile.mcc not in by_plmn:
+                 by_plmn[profile.mcc] = {}
+             by_plmn[profile.mcc][profile.mnc] = profile
+ 
+diff --git a/src/qcom_baseband_profile_manager/main.py b/src/qcom_baseband_profile_manager/main.py
+index a657f25..cfc6eff 100644
+--- a/src/qcom_baseband_profile_manager/main.py
++++ b/src/qcom_baseband_profile_manager/main.py
+@@ -169,7 +169,6 @@ class UIM():
+             task = LOOP.create_task(self.cb_card_status(old_card_status, card_status))
+             self._callbacks.add(task)
+             task.add_done_callback(self._callbacks.discard)
+-            LOOP.call_soon(LOOP.create_task(self.cb_card_status(old_card_status, card_status)))
+ 
+     async def get_uim_card_status(self, timeout: int = 3) -> tuple[int, int, dict[int, SimState]]:
+         """ Request UIM Card Status to determine if the SIM card is already unlocked """
+@@ -195,7 +194,9 @@ class UIM():
+         LOG.debug(f"Uim Slot Indication: parsed {new_slot_status}")
+ 
+         if self.cb_slot_status:
+-            LOOP.call_soon(LOOP.create_task(self.cb_slot_status(old_slot_status, new_slot_status)))
++            task = LOOP.create_task(self.cb_slot_status(old_slot_status, new_slot_status))
++            self._callbacks.add(task)
++            task.add_done_callback(self._callbacks.discard)
+ 
+     async def get_uim_slot_status(self, timeout: int = 3) -> dict[str, Qmi.PhysicalSlotStatusSlot]:
+         """
+@@ -827,7 +828,6 @@ class ProfileManager(StateMachine):
+     async def on_enter_wait_for_usim(self):
+         LOG.info("Wait for a USIM to appear")
+         self._task_periodic = LOOP.create_task(self.wait_for_usim_periodic())
+-        LOOP.call_soon(self._task_periodic)
+ 
+     async def wait_for_usim_periodic(self):
+         """ periodic checks if an usim is present in case

@@ -1,0 +1,50 @@
+.TH QCOM-BASEBAND-PROFILE-MANAGER 1 "September 2026" "0.1.1" "User Commands"
+.SH NAME
+qcom-baseband-profile-manager \- select resident Qualcomm modem profiles
+.SH SYNOPSIS
+.B qcom-baseband-profile-manager
+.BI \-d " device"
+.RB [ \-v | \-q ]
+.RB [ \-c " config" ]
+.SH DESCRIPTION
+An experimental OpenIMSd daemon that reads the primary provisioning SIM's
+carrier identity and selects an appropriate modem-resident software profile
+using QMI PDC. Profiles must already be loaded into the modem.
+.PP
+The program does not scan vendor partitions, upload MBN files, provision
+embedded SIM profiles, or establish IMS bearers. Selecting a profile can
+interrupt modem service. Do not run multiple carrier-policy owners together.
+.SH OPTIONS
+.TP
+.BR \-d ", " \-\-device " URI"
+Required QMI device, for example qrtr://0 or /dev/cdc-wdm0.
+.TP
+.BR \-c ", " \-\-config " FILE"
+TOML configuration file. The CLI default is pdc.toml in the current directory.
+The packaged service explicitly uses /etc/qcom-baseband-profile-manager.toml.
+.TP
+.BR \-v ", " \-\-verbose
+Enable debug logging.
+.TP
+.BR \-q ", " \-\-quiet
+Reduce logging. Repeat to suppress additional log levels.
+Cannot be combined with verbose mode.
+.TP
+.BR \-h ", " \-\-help
+Display command-line help and exit.
+.SH FILES
+.TP
+.I /etc/qcom-baseband-profile-manager.toml
+Administrator-supplied carrier-to-profile configuration for the service.
+The package does not create this file or choose carrier IDs automatically.
+.TP
+.I /usr/share/doc/qcom-baseband-profile-manager/config.example.toml
+An intentionally empty example with no carrier or fallback policy.
+.SH LIMITATIONS
+Only the primary SIM is supported. Automatic catalogue import, coordinated
+modem-restart recovery, and robust end-to-end error handling remain unfinished.
+PocketFed images include this tool but preset its service disabled.
+.SH SEE ALSO
+.BR qmicli (1),
+.BR ModemManager (8),
+.BR systemctl (1)

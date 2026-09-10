@@ -1,0 +1,33 @@
+{
+  "date": "2026-09-10",
+  "upstream_commit": "e5cc292dc95d3745341db67387d5fd0ff0e8c9e7",
+  "copr_project": "samcday/pocketfed",
+  "chroots": ["fedora-rawhide-aarch64", "fedora-rawhide-x86_64"],
+  "builds": {
+    "python-gsm0338": {"id": 10967626, "nvr": "python-gsm0338-1.1.0-1.1.pocketfed.fc46", "state": "succeeded"},
+    "python-statemachine": {"id": 10967628, "nvr": "python-statemachine-2.6.0-1.1.pocketfed.fc46", "state": "succeeded"},
+    "libqmi": {"id": 10967629, "nvr": "libqmi-1.36.0-4.1.pocketfed.fc46", "state": "succeeded"},
+    "python-pyosmocom": {"id": 10967646, "nvr": "python-pyosmocom-0.0.12-1.2.pocketfed.fc46", "state": "succeeded"},
+    "qcom-baseband-profile-manager": {"id": 10967647, "nvr": "qcom-baseband-profile-manager-0.1.1-1.2.pocketfed.fc46", "state": "succeeded"}
+  },
+  "verification": {
+    "signed_srpm_archives_and_packaging_match": true,
+    "downloaded_artifact_signatures_verified": true,
+    "local_codec_tests_passed": 21,
+    "local_osmocom_tests_passed": 43,
+    "local_statemachine_tests_passed": 379,
+    "local_statemachine_expected_failures": 3,
+    "local_manager_regressions_passed": 4,
+    "arm_libqmi_meson_targets_passed": 5,
+    "libqmi_generated_gir_regression_passed": true,
+    "fresh_arm_signed_rpm_dependency_install_passed": true,
+    "image_service_preset_disabled": true,
+    "package_installs_carrier_configuration": false,
+    "full_ostree_image_built_by_this_trial": false,
+    "local_client_activation_and_readback_passed": true,
+    "local_client_idempotence_mutations": 0,
+    "signed_copr_client_phone_idempotence_mutations": 0,
+    "device_last_observed_registration": "connected/home on 50502",
+    "phone_reboot_or_persistent_package_install_by_this_trial": false
+  }
+}

@@ -1,0 +1,53 @@
+From 082bf3454c011e1481375e843a0c91c9e338d422 Mon Sep 17 00:00:00 2001
+From: Dan Williams <dan@ioncontrol.co>
+Date: Tue, 28 Apr 2026 12:04:07 -0500
+Subject: [PATCH] qmi-codegen: fix VariableArray GArray element type GObject
+ introspection annotations
+
+The GArray element type wasn't specified, causing the element type to be assumed
+to be guint64.
+
+When using pygobject < 3.56 this worked fine, but changes in pygobject >= 3.56
+interpreted un-type elements as guint64 instead. Fix that by actually telling
+GObject Introspection what size our GArray elements are.
+
+Given code like:
+
+    resp = await uim.get_card_status(None, timeout)
+    card_status = resp.get_card_status()
+    _, _, _, _, states = card_status
+    for state in states:
+        for app in state.applications:
+            print(f"UIM Card aid:  {app.application_identifier_value}")
+
+pygobject < 3.56 would print:
+
+    UIM Card aid:  [160, 0, 0, 0, 135, 16, 2, 255, 255, 255, 255, 137, 7, 9, 0, 0]
+
+while pygobject >= 3.56 prints:
+
+UIM Card aid:  [18375267601631674528, 9927984676863, 0, 129, 126594, 13080730998658708540, 140663686701856, 0, 516393552, 0, 10, 0, 0, 0, 0, 0]
+
+Related: https://gitlab.gnome.org/GNOME/pygobject/-/work_items/753
+
+Signed-off-by: Dan Williams <dan@ioncontrol.co>
+
+diff --git a/build-aux/qmi-codegen/VariableArray.py b/build-aux/qmi-codegen/VariableArray.py
+index 9d111322..50cbd42d 100644
+--- a/build-aux/qmi-codegen/VariableArray.py
++++ b/build-aux/qmi-codegen/VariableArray.py
+@@ -607,6 +607,7 @@ class VariableArray(Variable):
+     def build_struct_field_documentation(self, line_prefix, variable_name):
+         translations = { 'lp'                          : line_prefix,
+                          'array_element_public_format' : self.array_element.public_format,
++                         'array_element_element_type'  : self.array_element.element_type,
+                          'name'                        : variable_name }
+ 
+         template = ''
+@@ -615,7 +616,7 @@ class VariableArray(Variable):
+                 '${lp}@${name}_sequence: the sequence number.\n')
+ 
+         template += (
+-            '${lp}@${name}: a #GArray of #${array_element_public_format} elements.\n')
++            '${lp}@${name}: (element-type ${array_element_element_type})(transfer none): a #GArray of #${array_element_public_format} elements.\n')
+         return string.Template(template).substitute(translations)
