@@ -1,0 +1,507 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] auth: do not replay a rejected token in a PAM conversation
+
+pam_systemd_home emits PAM_ERROR_MSG and asks for another password after a
+failed verification. The lockscreen has collected only one token, so answering
+that prompt with the same token repeats expensive checks and consumes homed's
+rate limit without accepting any new user input.
+
+Remember rejection for this submission and refuse subsequent prompts with
+PAM_CONV_ERR. Accept informational/error messages without a response, allow
+errors before the first token, and preserve multiple prompts before rejection.
+End each PAM transaction while its conversation state and token remain valid.
+
+Test the real asynchronous auth implementation against a synthetic PAM stack.
+The homed regression observes four wrong-token checks without this change and
+one with it; no real credentials or host PAM configuration are involved.
+---
+diff --git a/src/auth.c b/src/auth.c
+index 4423608..504ae49 100644
+--- a/src/auth.c
++++ b/src/auth.c
+@@ -21,10 +21,14 @@
+ 
+ typedef struct _PhoshAuth {
+   GObject       parent;
+-
+-  pam_handle_t *pamh;
+ } PhoshAuth;
+ 
++typedef struct {
++  const char *authtok;
++  gboolean    authtok_sent;
++  gboolean    authtok_rejected;
++} AuthConversation;
++
+ 
+ G_DEFINE_TYPE (PhoshAuth, phosh_auth, G_TYPE_OBJECT)
+ 
+@@ -35,9 +39,14 @@ pam_conversation_cb (int                        num_msg,
+                      struct pam_response      **resp,
+                      void                      *appdata_ptr)
+ {
+-  const char *authtok = appdata_ptr;
+-  int ret = PAM_CONV_ERR;
+-  g_autofree struct pam_response *pam_resp = g_new0 (struct pam_response, num_msg);
++  AuthConversation *conversation = appdata_ptr;
++  struct pam_response *pam_resp;
++
++  if (num_msg <= 0 || msg == NULL || resp == NULL)
++    return PAM_CONV_ERR;
++
++  *resp = NULL;
++  pam_resp = g_try_new0 (struct pam_response, num_msg);
+ 
+   if (pam_resp == NULL)
+     return PAM_BUF_ERR;
+@@ -46,65 +55,82 @@ pam_conversation_cb (int                        num_msg,
+     switch (msg[i]->msg_style) {
+     case PAM_PROMPT_ECHO_OFF:
+     case PAM_PROMPT_ECHO_ON:
+-      pam_resp[i].resp = g_strdup (authtok);
+-      ret = PAM_SUCCESS;
++      /* The lockscreen collected one token before starting PAM. A module
++       * asking again after rejecting it needs fresh input from the user,
++       * not another copy of the same rejected token. */
++      if (conversation->authtok_rejected)
++        goto out;
++      pam_resp[i].resp = g_strdup (conversation->authtok);
++      conversation->authtok_sent = TRUE;
+       break;
+-    case PAM_ERROR_MSG: /* TBD */
+-    case PAM_TEXT_INFO: /* TBD */
+-    default:
++    case PAM_ERROR_MSG:
++      /* An error before the first token prompt may belong to another
++       * authentication method, such as a missing fingerprint reader. */
++      if (conversation->authtok_sent)
++        conversation->authtok_rejected = TRUE;
++      G_GNUC_FALLTHROUGH;
++    case PAM_TEXT_INFO:
+       break;
++    default:
++      goto out;
+     }
+   }
+ 
+-  if (ret == PAM_SUCCESS)
+-    *resp = g_steal_pointer (&pam_resp);
++  *resp = pam_resp;
++  return PAM_SUCCESS;
+ 
+-  return ret;
++ out:
++  for (int i = 0; i < num_msg; ++i)
++    g_free (pam_resp[i].resp);
++  g_free (pam_resp);
++  return PAM_CONV_ERR;
+ }
+ 
+ 
+ /* return TRUE if auth token is correct, FALSE otherwise */
+ static gboolean
+-authenticate (PhoshAuth *self, const char *authtok)
++authenticate (const char *authtok)
+ {
+   int ret;
+   gboolean authenticated = FALSE;
+-  const char *username;
++  pam_handle_t *pamh = NULL;
++  AuthConversation conversation = { .authtok = authtok };
+   const struct pam_conv conv = {
+     .conv = pam_conversation_cb,
+-    .appdata_ptr = (void*)authtok,
++    .appdata_ptr = &conversation,
+   };
+ 
+-  if (self->pamh == NULL) {
+-    username = g_get_user_name ();
+-    ret = pam_start ("phosh", username, &conv, &self->pamh);
+-    if (ret != PAM_SUCCESS) {
+-      g_warning ("PAM start error %s", pam_strerror (self->pamh, ret));
+-      goto out;
+-    }
++  ret = pam_start ("phosh", g_get_user_name (), &conv, &pamh);
++  if (ret != PAM_SUCCESS) {
++    g_warning ("PAM start error %s", pam_strerror (pamh, ret));
++    goto out;
+   }
+ 
+-  ret = pam_authenticate (self->pamh, 0);
++  ret = pam_authenticate (pamh, 0);
+   if (ret != PAM_SUCCESS) {
+     if (ret != PAM_AUTH_ERR)
+-      g_warning ("pam_authenticate error %s", pam_strerror (self->pamh, ret));
++      g_warning ("pam_authenticate error %s", pam_strerror (pamh, ret));
+     goto out;
+   }
+ 
+-  ret = pam_acct_mgmt (self->pamh, 0);
++  ret = pam_acct_mgmt (pamh, 0);
+   if (ret != PAM_SUCCESS) {
+-    g_warning ("pam_acct check failed: %s\n", pam_strerror (self->pamh, ret));
++    g_warning ("pam_acct check failed: %s\n", pam_strerror (pamh, ret));
+     goto out;
+   }
+ 
+   authenticated = TRUE;
+ 
+-  ret = pam_end (self->pamh, ret);
+-  if (ret != PAM_SUCCESS)
+-    g_warning ("pam_end error %d", ret);
+-  self->pamh = NULL;
+-
+  out:
++  /* The conversation state and token belong to this submission. Finish the
++   * PAM transaction before either goes out of scope, including on failure. */
++  if (pamh) {
++    int end_ret = pam_end (pamh, ret);
++
++    if (end_ret != PAM_SUCCESS)
++      g_warning ("pam_end error %d", end_ret);
++  }
++
+   return authenticated;
+ }
+ 
+@@ -115,7 +141,6 @@ authenticate_thread (GTask        *task,
+                      gpointer      task_data,
+                      GCancellable *cancellable)
+ {
+-  PhoshAuth *self = PHOSH_AUTH (source_object);
+   char *authtok = task_data;
+   gboolean ret;
+ 
+@@ -124,35 +149,14 @@ authenticate_thread (GTask        *task,
+     return;
+   }
+ 
+-  ret = authenticate (self, authtok);
++  ret = authenticate (authtok);
+   g_task_return_boolean (task, ret);
+ }
+ 
+ 
+-static void
+-phosh_auth_finalize (GObject *object)
+-{
+-  PhoshAuth *self = PHOSH_AUTH (object);
+-  GObjectClass *parent_class = G_OBJECT_CLASS (phosh_auth_parent_class);
+-  int ret;
+-
+-  if (self->pamh) {
+-    ret = pam_end (self->pamh, PAM_AUTH_ERR);
+-    if (ret != PAM_SUCCESS)
+-      g_warning ("pam_end error %s", pam_strerror (self->pamh, ret));
+-    self->pamh = NULL;
+-  }
+-
+-  parent_class->finalize (object);
+-}
+-
+-
+ static void
+ phosh_auth_class_init (PhoshAuthClass *klass)
+ {
+-  GObjectClass *object_class = G_OBJECT_CLASS (klass);
+-
+-  object_class->finalize = phosh_auth_finalize;
+ }
+ 
+ 
+diff --git a/tests/meson.build b/tests/meson.build
+index 51952fc..338216c 100644
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -85,6 +85,16 @@ test_cflags = [
+ 
+ test_link_args = ['-fPIC']
+ 
++# Compile the real authentication implementation against the test's PAM
++# functions, without linking libpam or authenticating against the host.
++test_auth = executable(
++  'test-auth',
++  ['test-auth.c', '../src/auth.c'],
++  include_directories: [root_inc, include_directories('../src')],
++  dependencies: gio_dep,
++)
++test('auth', test_auth, env: test_env_unit, suite: 'unit')
++
+ testlib_sources = [
+   'testlib.c',
+   'testlib-head-stub.c',
+diff --git a/tests/test-auth.c b/tests/test-auth.c
+new file mode 100644
+index 0000000..774d573
+--- /dev/null
++++ b/tests/test-auth.c
+@@ -0,0 +1,269 @@
++/*
++ * SPDX-License-Identifier: GPL-3.0-or-later
++ *
++ * Exercise the real asynchronous PhoshAuth with a synthetic PAM stack.
++ * No host PAM configuration, user credentials or privileged service is used.
++ */
++
++#include "auth.h"
++
++#include <security/pam_appl.h>
++#include <stdlib.h>
++
++typedef enum {
++  HOMED_RETRY,
++  EARLY_ERROR,
++  MULTIPLE_PROMPTS,
++  BATCH_RETRY,
++  UNKNOWN_STYLE,
++  ACCOUNT_FAILURE,
++  START_FAILURE,
++} Scenario;
++
++struct pam_handle {
++  struct pam_conv conversation;
++};
++
++static Scenario scenario;
++static guint checks, starts, ends, accounts;
++static int end_status;
++
++
++static void
++free_responses (struct pam_response *responses, int count)
++{
++  if (responses == NULL)
++    return;
++
++  for (int i = 0; i < count; i++)
++    free (responses[i].resp);
++  free (responses);
++}
++
++
++static int
++message (pam_handle_t *pamh, int style)
++{
++  const struct pam_message msg = { style, "Synthetic PAM message" };
++  const struct pam_message *messages[] = { &msg };
++  struct pam_response *responses = NULL;
++  int ret;
++
++  ret = pamh->conversation.conv (1, messages, &responses, pamh->conversation.appdata_ptr);
++  if (ret == PAM_SUCCESS) {
++    g_assert_nonnull (responses);
++    g_assert_null (responses[0].resp);
++    g_assert_cmpint (responses[0].resp_retcode, ==, 0);
++  }
++  free_responses (responses, 1);
++  return ret;
++}
++
++
++static char *
++prompt (pam_handle_t *pamh)
++{
++  const struct pam_message msg = { PAM_PROMPT_ECHO_OFF, "Password:" };
++  const struct pam_message *messages[] = { &msg };
++  struct pam_response *responses = NULL;
++  char *token = NULL;
++  int ret;
++
++  ret = pamh->conversation.conv (1, messages, &responses, pamh->conversation.appdata_ptr);
++  if (ret == PAM_SUCCESS) {
++    g_assert_nonnull (responses);
++    g_assert_cmpint (responses[0].resp_retcode, ==, 0);
++    token = g_strdup (responses[0].resp);
++  } else {
++    g_assert_cmpint (ret, ==, PAM_CONV_ERR);
++    g_assert_null (responses);
++  }
++  free_responses (responses, 1);
++  return token;
++}
++
++
++int
++pam_start (const char *service, const char *user, const struct pam_conv *conv, pam_handle_t **pamh)
++{
++  g_assert_cmpstr (service, ==, "phosh");
++  g_assert_nonnull (user);
++  starts++;
++  if (scenario == START_FAILURE) {
++    *pamh = NULL;
++    return PAM_SYSTEM_ERR;
++  }
++  *pamh = g_new0 (pam_handle_t, 1);
++  (*pamh)->conversation = *conv;
++  return PAM_SUCCESS;
++}
++
++
++int
++pam_authenticate (pam_handle_t *pamh, int flags)
++{
++  g_assert_cmpint (flags, ==, 0);
++
++  if (scenario == EARLY_ERROR) {
++    g_assert_cmpint (message (pamh, PAM_ERROR_MSG), ==, PAM_SUCCESS);
++    g_assert_cmpint (message (pamh, PAM_TEXT_INFO), ==, PAM_SUCCESS);
++  }
++
++  if (scenario == BATCH_RETRY || scenario == UNKNOWN_STYLE) {
++    const struct pam_message first = { PAM_PROMPT_ECHO_OFF, "Password:" };
++    const struct pam_message error = { PAM_ERROR_MSG, "Rejected" };
++    const struct pam_message last = {
++      scenario == BATCH_RETRY ? PAM_PROMPT_ECHO_OFF : -1, "Another message"
++    };
++    const struct pam_message *messages[] = { &first, &error, &last };
++    struct pam_response *responses = NULL;
++
++    g_assert_cmpint (pamh->conversation.conv (G_N_ELEMENTS (messages), messages, &responses,
++                                             pamh->conversation.appdata_ptr), ==, PAM_CONV_ERR);
++    g_assert_null (responses);
++    return PAM_AUTH_ERR;
++  }
++
++  /* pam_systemd_home permits five AcquireHome calls. The first probes without
++   * a password, so the bug resubmits the same real password four times. Its
++   * error-message return value is ignored before asking for another token. */
++  for (guint i = 0; i < 4; i++) {
++    g_autofree char *token = prompt (pamh);
++
++    if (token == NULL) {
++      /* Information must not clear rejection; even a module that ignores a
++       * conversation error must not obtain the rejected token later. */
++      g_assert_cmpint (message (pamh, PAM_TEXT_INFO), ==, PAM_SUCCESS);
++      g_assert_null (prompt (pamh));
++      return PAM_AUTH_ERR;
++    }
++    checks++;
++    if (g_str_equal (token, "synthetic-correct")) {
++      if (scenario == MULTIPLE_PROMPTS) {
++        g_autofree char *second = NULL;
++
++        g_assert_cmpint (message (pamh, PAM_TEXT_INFO), ==, PAM_SUCCESS);
++        second = prompt (pamh);
++        g_assert_cmpstr (second, ==, token);
++        checks++;
++      }
++      return PAM_SUCCESS;
++    }
++    message (pamh, PAM_ERROR_MSG);
++  }
++  return PAM_AUTH_ERR;
++}
++
++
++int
++pam_acct_mgmt (pam_handle_t *pamh, int flags)
++{
++  g_assert_cmpint (flags, ==, 0);
++  accounts++;
++  return scenario == ACCOUNT_FAILURE ? PAM_ACCT_EXPIRED : PAM_SUCCESS;
++}
++
++
++int
++pam_end (pam_handle_t *pamh, int status)
++{
++  ends++;
++  end_status = status;
++  g_free (pamh);
++  return PAM_SUCCESS;
++}
++
++
++const char *
++pam_strerror (pam_handle_t *pamh, int status)
++{
++  return "Synthetic PAM error";
++}
++
++
++typedef struct {
++  GMainLoop *loop;
++  gboolean success;
++} AuthResult;
++
++
++static void
++on_authenticated (GObject *source, GAsyncResult *result, gpointer data)
++{
++  AuthResult *auth_result = data;
++  g_autoptr (GError) error = NULL;
++
++  auth_result->success = phosh_auth_authenticate_finish (PHOSH_AUTH (source), result, &error);
++  g_assert_no_error (error);
++  g_main_loop_quit (auth_result->loop);
++}
++
++
++static gboolean
++authenticate (PhoshAuth *auth, const char *token)
++{
++  g_autoptr (GMainLoop) loop = g_main_loop_new (NULL, FALSE);
++  AuthResult result = { .loop = loop };
++
++  phosh_auth_authenticate_async (auth, token, NULL, on_authenticated, &result);
++  g_main_loop_run (loop);
++  return result.success;
++}
++
++
++static void
++test_auth (gconstpointer data)
++{
++  g_autoptr (PhoshAuth) auth = PHOSH_AUTH (phosh_auth_new ());
++  gboolean expected;
++
++  scenario = GPOINTER_TO_INT (data);
++  checks = starts = ends = accounts = 0;
++  end_status = -1;
++
++  if (scenario == START_FAILURE)
++    g_test_expect_message ("phosh-auth", G_LOG_LEVEL_WARNING, "PAM start error*");
++  if (scenario == ACCOUNT_FAILURE)
++    g_test_expect_message ("phosh-auth", G_LOG_LEVEL_WARNING, "pam_acct check failed:*");
++
++  expected = scenario == EARLY_ERROR || scenario == MULTIPLE_PROMPTS;
++  g_assert_cmpint (authenticate (auth, scenario == HOMED_RETRY ?
++                                "synthetic-wrong" : "synthetic-correct"), ==, expected);
++  g_test_assert_expected_messages ();
++  g_assert_cmpuint (starts, ==, 1);
++  if (scenario == HOMED_RETRY)
++    g_assert_cmpuint (checks, ==, 1);
++  g_assert_cmpuint (ends, ==, scenario == START_FAILURE ? 0 : 1);
++
++  if (scenario == HOMED_RETRY) {
++    g_assert_cmpuint (accounts, ==, 0);
++    g_assert_cmpint (end_status, ==, PAM_AUTH_ERR);
++    /* A new visible attempt on the same object must have fresh state. */
++    g_assert_true (authenticate (auth, "synthetic-correct"));
++    g_assert_cmpuint (checks, ==, 2);
++    g_assert_cmpuint (starts, ==, 2);
++    g_assert_cmpuint (ends, ==, 2);
++    g_assert_cmpuint (accounts, ==, 1);
++    g_assert_cmpint (end_status, ==, PAM_SUCCESS);
++  } else if (expected || scenario == ACCOUNT_FAILURE) {
++    g_assert_cmpuint (checks, ==, scenario == MULTIPLE_PROMPTS ? 2 : 1);
++    g_assert_cmpuint (accounts, ==, 1);
++    g_assert_cmpint (end_status, ==,
++                     scenario == ACCOUNT_FAILURE ? PAM_ACCT_EXPIRED : PAM_SUCCESS);
++  }
++}
++
++
++int
++main (int argc, char **argv)
++{
++  g_test_init (&argc, &argv, NULL);
++  g_test_add_data_func ("/phosh/auth/homed-retry", GINT_TO_POINTER (HOMED_RETRY), test_auth);
++  g_test_add_data_func ("/phosh/auth/early-error", GINT_TO_POINTER (EARLY_ERROR), test_auth);
++  g_test_add_data_func ("/phosh/auth/multiple-prompts", GINT_TO_POINTER (MULTIPLE_PROMPTS), test_auth);
++  g_test_add_data_func ("/phosh/auth/batch-retry", GINT_TO_POINTER (BATCH_RETRY), test_auth);
++  g_test_add_data_func ("/phosh/auth/unknown-style", GINT_TO_POINTER (UNKNOWN_STYLE), test_auth);
++  g_test_add_data_func ("/phosh/auth/account-failure", GINT_TO_POINTER (ACCOUNT_FAILURE), test_auth);
++  g_test_add_data_func ("/phosh/auth/start-failure", GINT_TO_POINTER (START_FAILURE), test_auth);
++  return g_test_run ();
++}
