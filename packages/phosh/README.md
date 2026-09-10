@@ -26,13 +26,15 @@ dependencies, subpackages, build options, PAM service and full enabled test
 suite. The image already replaces Fedora's direct-pam_unix service with the
 authselect stack that supports homed.
 
-Changes are the source patch, explicit release, expanded Fedora changelog and
+Changes are the source patch, Fedora lookaside download URLs, explicit release,
+expanded Fedora changelog and
 `phosh-pam-retry-fix = 1` capability. `%check` requires the new regression binary
 to exist and executes it through the existing Meson test suite. The unmodified
 Fedora `sources`, `changelog` and PAM file are retained. All three source archives
 were verified against Fedora's SHA-512 lookaside record; `sources.sha256` records
 the same bytes for the common COPR source build helper. Archives and RPMs are
-kept outside Git.
+kept outside Git. The source URLs use these checksum-addressed Fedora copies
+because GNOME GitLab returned HTTP 503 during COPR source preparation.
 
 ## Validation
 
