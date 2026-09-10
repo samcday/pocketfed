@@ -10,6 +10,13 @@ Kernel packaging is the exception that is not intended for Fedora review: it is
 a temporary transport for the downstream PocketFed kernel branch until the image
 can use Fedora's aarch64 kernel plus external modules and devicetrees.
 
+## eSIM Manager
+
+[lpa-gtk](lpa-gtk/README.pocketfed.md) packages the upstream mobile eSIM GUI,
+using the existing lpac backend. It is available for optional installation;
+this packaging does not select it in an image or change modem/SIM policy.
+RPM checks exercise its staged resources and UI with an offline dummy backend.
+
 ## Flatpak startup notifications
 
 The [Flatpak packaging fork](flatpak/README.md) carries the nested-sandbox
