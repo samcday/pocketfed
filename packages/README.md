@@ -19,6 +19,14 @@ the unchanged negative control to reproduce the lost notification. Phosh images
 select the fixed COPR package explicitly; the earlier temporary portal override
 is not part of the image.
 
+## Phosh PAM retries
+
+The [Phosh packaging fork](phosh/README.md) stops the lockscreen from supplying
+the same rejected PIN repeatedly to `pam_systemd_home`. Its tests run the actual
+asynchronous authentication code against a synthetic PAM stack; the original
+source reproduces four checks while the patch permits one. COPR runs the full
+enabled Phosh test suite, and image builds require the fixed Phosh/libphosh RPMs.
+
 ## Modem package regression tests
 
 `test-modem-packages` downloads the pinned ModemManager and 81voltd source

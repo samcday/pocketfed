@@ -10,9 +10,12 @@ COPY phosh/samcday-pocketfed.repo /etc/yum.repos.d/
 # Flatpak 1.19.0 can lose SpawnStarted while nested sandbox PID metadata is
 # still being written. Keep the tested portal fix in the image until Fedora
 # carries it; packaging and regression checks live in packages/flatpak/.
+# Phosh must also carry the rejected-PIN retry fix from packages/phosh/;
+# install matching libphosh so consumers use the same authentication code.
 RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=locked \
     set -eux; \
     flatpak_version='1.19.0-3.1.pocketfed.fc46'; \
+    phosh_version='0.57.0-1.1.pocketfed.fc46'; \
     dnf install -y \
         --allow-vendor-change \
         --refresh \
@@ -21,7 +24,9 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
         --setopt=keepcache=True \
         "flatpak-$flatpak_version" \
         "flatpak-libs-$flatpak_version" \
-        "flatpak-session-helper-$flatpak_version"; \
+        "flatpak-session-helper-$flatpak_version" \
+        "phosh-$phosh_version" \
+        "libphosh-$phosh_version"; \
     dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True \
         calls \
         chatty \
@@ -57,6 +62,10 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
     for package in flatpak flatpak-libs flatpak-session-helper; do \
         test "$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' "$package")" = "$flatpak_version"; \
     done; \
+    for package in phosh libphosh; do \
+        test "$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' "$package")" = "$phosh_version"; \
+    done; \
+    test "$(rpm -q --whatprovides phosh-pam-retry-fix --qf '%{NAME}\n')" = phosh; \
     test -x /usr/libexec/flatpak-portal; \
     grep -Fxq 'ExecStart=/usr/libexec/flatpak-portal' \
         /usr/lib/systemd/user/flatpak-portal.service
