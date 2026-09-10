@@ -1,0 +1,3 @@
+# Catalogue import and coordinated modem lifecycle handling are not ready yet.
+# Administrators may explicitly configure and enable the experimental manager.
+disable qcom-baseband-profile-manager.service

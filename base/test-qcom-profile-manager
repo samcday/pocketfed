@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Image-policy checks only: no modem or running service is accessed."""
+import configparser
+from pathlib import Path
+import tomllib
+
+root = Path(__file__).resolve().parent.parent
+config = configparser.ConfigParser(interpolation=None)
+config.read(root / "base/mkosi.conf.d/20-qcom-profile-manager.conf")
+assert "qcom-baseband-profile-manager" in config["Content"]["Packages"].split()
+
+preset = root / "base/mkosi.extra/usr/lib/systemd/system-preset/84-qcom-profile-manager.preset"
+assert "disable qcom-baseband-profile-manager.service" in preset.read_text().splitlines()
+
+# Device layers install libqmi-utils, whose dependency on libqmi is exact-EVR.
+# Their narrower COPR allowlists must permit the same build as the base image.
+for device in ("google-sargo", "google-crosshatch", "oneplus-fajita"):
+    repo = configparser.ConfigParser(interpolation=None)
+    repo.read(root / "devices" / device / "samcday-pocketfed.repo")
+    section = repo["copr:copr.fedorainfracloud.org:samcday:pocketfed"]
+    assert "libqmi*" in section["includepkgs"].split(","), device
+
+example = root / "packages/qcom-baseband-profile-manager/qcom-baseband-profile-manager.conf.example"
+with example.open("rb") as stream:
+    policy = tomllib.load(stream)
+assert policy["version"] == 1
+assert policy["global"]["fallback_profiles"] == []
+assert "profile" not in policy
+print("Profile manager included, disabled, unconfigured; paired libqmi tools allowed")

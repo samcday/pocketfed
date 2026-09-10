@@ -1,0 +1,13 @@
+# This example deliberately does not select any profile.
+# Populate carrier entries with colon-separated IDs read from YOUR modem.
+# Importing vendor MBN files is not implemented by this daemon yet.
+version = 1
+
+[global]
+fallback_profiles = []
+
+# [profile.example]
+# mcc = "505"
+# mnc = "02"
+# mnc_len = 2
+# profiles = ["ID-FROM-YOUR-MODEM"]
