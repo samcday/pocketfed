@@ -1,6 +1,6 @@
 {
   "package": "phosh-first-boot",
-  "version": "0.1.1-1.1.pocketfed",
+  "version": "0.1.1-1.4.pocketfed",
   "upstream": {
     "release": "v0.1.1",
     "commit": "0d39c507d7464dc77bdfe256b22460d91e7c0414",
@@ -14,67 +14,106 @@
   },
   "copr": {
     "project": "samcday/pocketfed",
-    "build_id": 10967394,
-    "url": "https://copr.fedorainfracloud.org/coprs/build/10967394",
+    "build_id": 10967574,
+    "url": "https://copr.fedorainfracloud.org/coprs/build/10967574",
     "chroots": [
       "fedora-rawhide-aarch64",
       "fedora-rawhide-x86_64"
     ],
     "status": "succeeded",
-    "build_network": false
+    "build_network": false,
+    "completed_at": "2026-09-10T00:45:26Z"
   },
   "srpm": {
-    "filename": "phosh-first-boot-0.1.1-1.1.pocketfed.fc46.src.rpm",
-    "sha256": "883ba3f56615a20bf78bc8880930cfb7ece1ed92c84c47fd03ee2b7e137b66ed"
+    "filename": "phosh-first-boot-0.1.1-1.4.pocketfed.fc46.src.rpm",
+    "sha256": "0cda45c196505c75e958b7a59e8e5f15430e9495b636932fdb61c781592e25da"
   },
   "submitted_files_sha256": {
-    "phosh-first-boot.spec": "a2374a4a33a0a3786c3895107be6045b86bf9235f5925eaa7684b23ad25ada19",
+    "phosh-first-boot.spec": "5744747459fb9d01ec2ef0e7af15be94fe27018978b0837041b0088c265db14b",
     "defaults.conf": "df51aee2eea43a6498ab7daf92d76dfd825b3b90d8580a66e77712c0f03450d9",
     "collect-notices.py": "d11eaf7040385654faa1d58fd8b2b3d3fb28cef03699bf72b229ea4ef9c0e166",
+    "check-build-configuration.py": "4cb74e62b3ae62c4005bd90bdb2f3869c48bb163e3d81c42a236ec7020e636ac",
     "0001-update-rust-dependencies.patch": "b5f290590ec2db4e4207053d741b4e0d13e74ec240bfd34ebeb799f28e783ec5",
     "0002-import-from-configured-output-directory.patch": "c45323437fb51d5f9703b81f008567a1de45b53979dad61e37cde4bec184841b",
-    "0003-timezone-and-recoverable-setup.patch": "8906179c7c3c902ce70a1b864e24a593a9047ebeaf55c4c49663c69208200457"
+    "0003-timezone-and-recoverable-setup.patch": "8906179c7c3c902ce70a1b864e24a593a9047ebeaf55c4c49663c69208200457",
+    "0004-handle-unavailable-locale-names.patch": "be823e5a2a4724a7645b8e144ebbf5d3847df22ee06721a9dc26ff747d14267e",
+    "0005-commit-account-setup-navigation.patch": "c4bac1cdc2bffd91d5bbf0fc2cadfe5366179e0c8ba2b17c32f8a4ead851ab6a",
+    "0006-keep-setup-visible-until-completion.patch": "5994c0c1157ef61f96d6871cf0253742935dd5a934d7f4087478dfcb64edeb69",
+    "0007-preserve-meson-package-configuration.patch": "b9c22204ecc7c62993175e16d263756d5de551b9dfc361776e07760afcf22af0",
+    "0008-filter-timezone-city-search.patch": "dcc16c0b8bbff6d9ba2654aef48a1b3c6132bec09c331b3bd8fc3098e01e0056"
   },
   "source_checksums_file": "sources.sha256",
   "validation": {
     "source_preparation": "reproduced vendor archive byte-for-byte",
-    "patch_application": "all package patches apply to v0.1.1 with --fuzz=0",
-    "runtime_tests": "see validation; supplemental test patch is not part of the published SRPM",
-    "packaged_runtime_configuration": "verified greetd:greetd persistent output directory, importer --dir and source guard, wheel account defaults, explicit homed executable/PAM/accountsservice/tzdata requirements",
+    "patch_application": "all eight package patches apply to v0.1.1 with --fuzz=0",
+    "runtime_tests": "native compile, linked build, timezone city search/filter/selection and retry, locale retry, account handoff/navigation retry, close protection, and full-app startup passed; see validation; supplemental test patches are not part of the published SRPM",
+    "packaged_runtime_configuration": "both COPR architecture builds pass generated-constant, installed-binary-path, forbidden-development-path and actual --help checks; independently extracted signed ARM binary preserves /usr/share and /var/lib paths and runs --help successfully in an ARM pocketfed container",
     "license_summary": "matches GPL-3.0-or-later AND MIT AND Unicode-3.0; original dependency notices are shipped",
-    "emulated_build": "fallback stopped after native COPR builds passed; no emulated build artifact used"
+    "locale_fallback": "native private-bus locale write denial/retry passed with only C/C.utf8/POSIX locales installed; nullable display-name results fall back to the supplied locale identifier",
+    "submitted_packaging_files": "all submitted file hashes match the current packaging sources",
+    "submitted_srpm": "original uploaded SRPM downloaded from COPR matches the recorded SHA-256; RPM digests OK",
+    "account_navigation": "actual GTK navigation cannot go back while account creation is pending or after the account exists; CreateHome failure restores editing; retry after CacheUser failure never creates a duplicate home; Done cannot go back",
+    "window_close_protection": "native GTK application ignores top-level close requests and hides title controls; the final Get started action still quits",
+    "timezone_search": "actual ComboRow search filters New York and mixed-case sYdNeY by substring; activating the filtered result selects and saves Australia/Sydney using the original model index",
+    "signature_verification": "both RPMs verified using only the COPR project key imported into an isolated RPM database"
   },
   "signing_key_fingerprint": "F247F3B726A312E90D74BB76E220B1E0AE59FCB5",
   "results": {
     "fedora-rawhide-aarch64": {
       "state": "succeeded",
-      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-aarch64/10967394-phosh-first-boot/",
-      "rpm": "phosh-first-boot-0.1.1-1.1.pocketfed.fc46.aarch64.rpm",
-      "sha256": "092b34b2fe94d0514966232f4cd37aabeadddf7362fc19844e8904363e40ef84",
+      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-aarch64/10967574-phosh-first-boot/",
+      "rpm": "phosh-first-boot-0.1.1-1.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "5a6f51a422a78626ed8592b60b9255e342db1468cbd56e610af77bb55b281eb6",
       "signature": "digests signatures OK",
+      "build_log_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-aarch64/10967574-phosh-first-boot/builder-live.log.gz",
+      "build_log_sha256": "2589cd3d6ec0ad52d07e8a4ca40714c5444939a12db64021a0855bd5726bb916",
       "meson_tests": {
         "passed": 2,
         "failed": 0
       },
       "rust_tests": {
+        "passed": 0,
         "failed": 0,
-        "note": "upstream suites contain no Rust tests; separate runtime validation fixture supplies timezone regression coverage"
-      }
+        "note": "upstream suites contain no Rust tests; separate runtime validation fixtures supply regression coverage"
+      },
+      "packaged_configuration_check": "passed: generated constants, installed binary configured/development paths, and actual --help defaults",
+      "extracted_binary_help": "passed in existing ARM pocketfed candidate container; default is /usr/share/phosh-first-boot/defaults.conf"
     },
     "fedora-rawhide-x86_64": {
       "state": "succeeded",
-      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-x86_64/10967394-phosh-first-boot/",
-      "rpm": "phosh-first-boot-0.1.1-1.1.pocketfed.fc46.x86_64.rpm",
-      "sha256": "c7eca1250af4646661df97bb15984989e1d937d81174164530ba77ba070a3fe0",
+      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-x86_64/10967574-phosh-first-boot/",
+      "rpm": "phosh-first-boot-0.1.1-1.4.pocketfed.fc46.x86_64.rpm",
+      "sha256": "899a94f2740e48d301217b78f84928878a80d81bcb103a5528dd2845fd0c2d24",
       "signature": "digests signatures OK",
+      "build_log_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-x86_64/10967574-phosh-first-boot/builder-live.log.gz",
+      "build_log_sha256": "508fc111876cabf900a6d54915226229895aee129327d067f5941fc879c1c55e",
       "meson_tests": {
         "passed": 2,
         "failed": 0
       },
       "rust_tests": {
+        "passed": 0,
         "failed": 0,
-        "note": "upstream suites contain no Rust tests; separate runtime validation fixture supplies timezone regression coverage"
-      }
+        "note": "upstream suites contain no Rust tests; separate runtime validation fixtures supply regression coverage"
+      },
+      "packaged_configuration_check": "passed: generated constants, installed binary configured/development paths, and actual --help defaults"
     }
-  }
+  },
+  "previous_builds": [
+    {
+      "build_id": 10967394,
+      "metadata": "builds/10967394.json",
+      "version": "0.1.1-1.1.pocketfed"
+    },
+    {
+      "build_id": 10967443,
+      "metadata": "builds/10967443.json",
+      "version": "0.1.1-1.2.pocketfed"
+    },
+    {
+      "build_id": 10967552,
+      "metadata": "builds/10967552.json",
+      "version": "0.1.1-1.3.pocketfed"
+    }
+  ]
 }

@@ -38,5 +38,5 @@ tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
     sha256sum --check "$package_dir/sources.sha256"
 )
 cp "$package_dir"/*.spec "$package_dir"/*.patch "$package_dir/defaults.conf" \
-    "$package_dir/collect-notices.py" "$output_dir/"
+    "$package_dir/collect-notices.py" "$package_dir/check-build-configuration.py" "$output_dir/"
 echo "Verified SRPM sources are in $output_dir"

@@ -1,0 +1,27 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] build: preserve configuration supplied by distribution Meson
+
+Meson copies its configured Rust constants into the source tree. A subsequent
+Cargo build currently configures another Meson build with its default options,
+silently replacing distribution paths such as /usr/share and persistent first
+boot settings output with /usr/local/share and /run.
+
+Let distribution builds declare that Meson was already configured, retaining
+the development fallback and the existing Debian guard. Track the new setting
+so a reused Cargo target directory rebuilds when this mode changes.
+---
+diff --git a/build.rs b/build.rs
+--- a/build.rs
++++ b/build.rs
+@@ -8,7 +8,10 @@ fn main() {
+         "mobi.phosh.FirstBoot.gresource",
+     );
+ 
+-    if env::var("DEB_HOST_ARCH").is_err() {
++    println!("cargo:rerun-if-env-changed=PFB_MESON_PRECONFIGURED");
++    let meson_preconfigured =
++        env::var("PFB_MESON_PRECONFIGURED").is_ok_and(|value| value == "1");
++    if !meson_preconfigured && env::var("DEB_HOST_ARCH").is_err() {
+         let meson_dir = format!("{}/_build/", env::var("OUT_DIR").unwrap());
+         Command::new("meson")
+             .args(["setup", "--reconfigure", &meson_dir])

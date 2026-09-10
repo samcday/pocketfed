@@ -1,0 +1,80 @@
+--- a/src/pfb/window.rs
++++ b/src/pfb/window.rs
+@@ -11,6 +11,77 @@
+ 
+ use crate::pfb::{Application, Page};
+ use crate::pfb::{DonePage, LangPage, TimezonePage, UserPage};
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::cell::Cell;
++    use std::rc::Rc;
++
++    fn check_title_buttons(widget: &gtk::Widget) -> usize {
++        let mut count = 0;
++        if let Some(header) = widget.downcast_ref::<adw::HeaderBar>() {
++            assert!(!header.shows_start_title_buttons());
++            assert!(!header.shows_end_title_buttons());
++            count += 1;
++        }
++        let mut child = widget.first_child();
++        while let Some(widget) = child {
++            count += check_title_buttons(&widget);
++            child = widget.next_sibling();
++        }
++        count
++    }
++
++    #[test]
++    #[ignore = "requires a private bus and display"]
++    fn window_close_protection() {
++        std::env::set_var(
++            "DBUS_SYSTEM_BUS_ADDRESS",
++            std::env::var("DBUS_SESSION_BUS_ADDRESS").expect("Use validation runner"),
++        );
++        adw::init().unwrap();
++        gtk::gio::resources_register_include!("mobi.phosh.FirstBoot.gresource").unwrap();
++
++        let app = Application::new();
++        let checked = Rc::new(Cell::new(false));
++        let stopped = Rc::new(Cell::new(false));
++        app.connect_activate(glib::clone!(
++            #[strong]
++            checked,
++            move |app| {
++                let app = app.clone();
++                let checked = checked.clone();
++                glib::idle_add_local_once(move || {
++                    let window = app.active_window().unwrap().downcast::<Window>().unwrap();
++                    assert!(window.is_visible());
++                    assert!(window.imp().user_page.imp().created_user.borrow().is_none());
++                    assert!(check_title_buttons(window.upcast_ref()) >= 1);
++
++                    // Exercise the same close-request signal as a window manager,
++                    // while setup still has no account to return to.
++                    window.close();
++                    assert!(window.is_visible(), "closing must leave setup on screen");
++                    assert_eq!(app.windows().len(), 1);
++                    assert_eq!(window.application(), Some(app.clone().upcast()));
++                    checked.set(true);
++
++                    // Get started uses this explicit action; it must still be able
++                    // to end the running GtkApplication despite the close guard.
++                    window.imp().done_page.activate_action("app.quit", None).unwrap();
++                });
++            }
++        ));
++        app.connect_shutdown(glib::clone!(
++            #[strong]
++            stopped,
++            move |_| stopped.set(true)
++        ));
++        assert_eq!(app.run_with_args(&["pfb-window-close-test"]), glib::ExitCode::SUCCESS);
++        assert!(checked.get());
++        assert!(stopped.get(), "the explicit completion action must shut down setup");
++    }
++}
+ 
+ mod imp {
+ 

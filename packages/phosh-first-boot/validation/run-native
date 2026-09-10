@@ -1,6 +1,6 @@
 #!/bin/sh
 # Run against a disposable, prepared phosh-first-boot source tree. The source
-# must already have the RPM's three production patches and Cargo vendor config.
+# must already have the RPM's production patches and Cargo vendor config.
 set -eu
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
@@ -15,12 +15,62 @@ mkdir -p "$results_dir"
 results_dir=$(CDPATH='' cd -- "$results_dir" && pwd)
 
 cd "$source_dir"
+if ! grep -q 'let name: Option<glib::GString>' src/pfb/lang_page.rs; then
+    patch -p1 < "$validation_dir/../0004-handle-unavailable-locale-names.patch"
+fi
+if ! grep -q 'self.set_can_pop(false)' src/pfb/user_page.rs; then
+    patch -p1 < "$validation_dir/../0005-commit-account-setup-navigation.patch"
+fi
+if ! grep -q 'fn close_request(' src/pfb/window.rs; then
+    patch -p1 < "$validation_dir/../0006-keep-setup-visible-until-completion.patch"
+fi
+if ! grep -q 'PFB_MESON_PRECONFIGURED' build.rs; then
+    patch -p1 < "$validation_dir/../0007-preserve-meson-package-configuration.patch"
+fi
+if ! grep -q 'search-match-mode' resources/timezone_page.ui; then
+    patch -p1 < "$validation_dir/../0008-filter-timezone-city-search.patch"
+fi
 if ! grep -q 'fn timezone_retry()' src/pfb/timezone_page.rs; then
     patch -p1 < "$validation_dir/timezone-regression.patch"
+elif ! grep -q 'fn wait_for_search(' src/pfb/timezone_page.rs; then
+    echo 'Timezone fixture is outdated; prepare a clean source tree before validating.' >&2
+    exit 1
+fi
+if ! grep -q 'fn user_handoff_retry()' src/pfb/user_page.rs; then
+    patch -p1 < "$validation_dir/handoff-and-locale-regression.patch"
+fi
+if ! grep -q 'fn window_close_protection()' src/pfb/window.rs; then
+    patch -p1 < "$validation_dir/window-close-regression.patch"
 fi
 
+# Keep dconf, desktop caches, and the mock home output separate from real user
+# data. Preserve toolchain locations before replacing HOME for the fixtures.
+export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+test_root=$(mktemp -d)
+trap 'rm -rf "$test_root"' EXIT HUP INT TERM
+export HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config"
+export XDG_CACHE_HOME="$test_root/cache" XDG_DATA_HOME="$test_root/data"
+export PFB_TEST_OUTPUT_DIR="$test_root/output"
+mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_DATA_HOME"
+
+# Reproduce the RPM's configured Meson paths, rather than accepting Cargo's
+# development fallback. Fixture output overrides must not hide broken paths.
+export PFB_MESON_PRECONFIGURED=1
+meson setup --reconfigure _build-packaged --prefix=/usr \
+    --datadir=share --localedir=share/locale \
+    -Dsetup-user=greetd -Doutput-dir-group=greetd \
+    -Doutput-dir=/var/lib/phosh-first-boot \
+    -Dsystemd_user_unit_dir=/usr/lib/systemd/user \
+    -Dtmpfiles_dir=/usr/lib/tmpfiles.d > "$results_dir/native-meson.log" 2>&1
+meson compile -C _build-packaged >> "$results_dir/native-meson.log" 2>&1
+mkdir -p target
+cp _build-packaged/data/gschemas.compiled target/gschemas.compiled
 cargo check --locked --offline > "$results_dir/native-check.log" 2>&1
 cargo build --locked --offline > "$results_dir/native-build.log" 2>&1
+python3 "$validation_dir/../check-build-configuration.py" \
+    --config src/pfb/config.rs --binary target/debug/phosh-first-boot \
+    > "$results_dir/package-paths.log" 2>&1
 
 export GTK_A11Y=none GSK_RENDERER=cairo GDK_SCALE=1
 if command -v import >/dev/null 2>&1; then
@@ -31,6 +81,13 @@ fi
 xvfb-run -a -s '-screen 0 360x740x24' dbus-run-session -- \
     cargo test --locked --offline timezone_retry -- \
     --ignored --test-threads=1 --nocapture > "$results_dir/native-test.log" 2>&1
+for test_name in user_handoff_retry locale_write_retry; do
+    xvfb-run -a dbus-run-session -- cargo test --locked --offline "$test_name" -- \
+        --ignored --test-threads=1 --nocapture > "$results_dir/$test_name.log" 2>&1
+done
+timeout 30 xvfb-run -a dbus-run-session -- \
+    cargo test --locked --offline window_close_protection -- \
+    --ignored --test-threads=1 --nocapture > "$results_dir/window_close_protection.log" 2>&1
 
 # Isolate the full app from the real system bus. It should display its welcome
 # page and remain running even though the private bus has no setup services.
@@ -47,5 +104,5 @@ if [ "$smoke_status" -ne 124 ]; then
     echo "App startup failed: expected timeout status 124, got $smoke_status" >&2
     exit 1
 fi
-echo "Native compile, timezone retry checks, and full-app startup passed."
+echo "Native compile, timezone/locale/account retry checks, and full-app startup passed."
 echo "Results: $results_dir"

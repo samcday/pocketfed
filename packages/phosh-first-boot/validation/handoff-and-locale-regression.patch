@@ -1,0 +1,363 @@
+--- a/src/pfb/application.rs
++++ b/src/pfb/application.rs
+@@ -148,7 +148,16 @@
+     }
+ 
+     pub fn output_dir(&self) -> PathBuf {
++        #[cfg(test)]
++        if let Some(dir) = std::env::var_os("PFB_TEST_OUTPUT_DIR") {
++            return PathBuf::from(dir);
++        }
+         PathBuf::from(config::OUTPUTDIR)
++    }
++
++    #[cfg(test)]
++    pub(crate) fn set_test_defaults_path(&self, path: &Path) {
++        self.imp().defaults_path.replace(path.to_owned());
+     }
+ 
+     // Save the new user's settings before creating their account. If setup is
+--- a/src/pfb/user_page.rs
++++ b/src/pfb/user_page.rs
+@@ -15,6 +15,219 @@
+ use zbus::{proxy, Connection};
+ 
+ use log::{debug, trace, warn};
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::path::PathBuf;
++    use std::sync::{
++        atomic::{AtomicBool, AtomicUsize, Ordering},
++        Arc, Mutex,
++    };
++    use std::time::Duration;
++
++    struct HomeMock {
++        records: Arc<Mutex<Vec<serde_json::Value>>>,
++        output_dir: PathBuf,
++        exported_first: Arc<AtomicBool>,
++        reject: Arc<AtomicBool>,
++    }
++
++    #[zbus::interface(name = "org.freedesktop.home1.Manager")]
++    impl HomeMock {
++        fn create_home(&self, record: &str) -> zbus::fdo::Result<()> {
++            self.exported_first.store(
++                [
++                    "mobi.phosh.osk.dconf",
++                    "org.gnome.desktop.input-sources.dconf",
++                ]
++                .iter()
++                .all(|file| self.output_dir.join(file).is_file()),
++                Ordering::SeqCst,
++            );
++            if self.reject.load(Ordering::SeqCst) {
++                return Err(zbus::fdo::Error::Failed("temporary home failure".into()));
++            }
++            self.records
++                .lock()
++                .unwrap()
++                .push(serde_json::from_str(record).unwrap());
++            Ok(())
++        }
++    }
++
++    struct AccountsMock {
++        calls: Arc<AtomicUsize>,
++        reject: Arc<AtomicBool>,
++        users: Arc<Mutex<Vec<String>>>,
++    }
++
++    #[zbus::interface(name = "org.freedesktop.Accounts")]
++    impl AccountsMock {
++        fn cache_user(
++            &self,
++            user_name: &str,
++        ) -> zbus::fdo::Result<zbus::zvariant::OwnedObjectPath> {
++            self.calls.fetch_add(1, Ordering::SeqCst);
++            self.users.lock().unwrap().push(user_name.into());
++            if self.reject.load(Ordering::SeqCst) {
++                return Err(zbus::fdo::Error::Failed("temporary cache failure".into()));
++            }
++            Ok("/org/freedesktop/Accounts/User60001".try_into().unwrap())
++        }
++    }
++
++    fn settle(page: &UserPage) {
++        MainContext::default().block_on(async {
++            for _ in 0..1000 {
++                if !page.active() {
++                    return;
++                }
++                glib::timeout_future(Duration::from_millis(10)).await;
++            }
++            panic!("account operation timed out");
++        });
++    }
++
++    #[test]
++    #[ignore = "requires a private bus, display, and PFB_TEST_OUTPUT_DIR"]
++    fn user_handoff_retry() {
++        let output_dir =
++            PathBuf::from(std::env::var_os("PFB_TEST_OUTPUT_DIR").expect("Use validation runner"));
++        assert!(
++            !output_dir.exists(),
++            "Use a fresh temporary output directory"
++        );
++        std::fs::create_dir_all(&output_dir).unwrap();
++        std::env::set_var(
++            "DBUS_SYSTEM_BUS_ADDRESS",
++            std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap(),
++        );
++        adw::init().unwrap();
++        gtk::gio::resources_register_include!("mobi.phosh.FirstBoot.gresource").unwrap();
++
++        let defaults_file = output_dir.join("defaults.conf");
++        std::fs::write(&defaults_file, "[user]\naux_groups = [\"wheel\"]\n").unwrap();
++        let app = application::Application::new();
++        app.set_test_defaults_path(&defaults_file);
++        app.register(None::<&gtk::gio::Cancellable>).unwrap();
++        assert_eq!(app.defaults().user.aux_groups, ["wheel"]);
++
++        let input_sources = gtk::gio::Settings::new("org.gnome.desktop.input-sources");
++        input_sources
++            .set_value("sources", &vec![("xkb", "us")].to_variant())
++            .unwrap();
++        gtk::gio::Settings::sync();
++
++        let records = Arc::new(Mutex::new(Vec::new()));
++        let exported_first = Arc::new(AtomicBool::new(false));
++        let reject_home = Arc::new(AtomicBool::new(true));
++        let calls = Arc::new(AtomicUsize::new(0));
++        let reject = Arc::new(AtomicBool::new(true));
++        let cached_users = Arc::new(Mutex::new(Vec::new()));
++        let _connection = MainContext::default().block_on(async {
++            zbus::connection::Builder::session()
++                .unwrap()
++                .name("org.freedesktop.home1")
++                .unwrap()
++                .name("org.freedesktop.Accounts")
++                .unwrap()
++                .serve_at(
++                    "/org/freedesktop/home1",
++                    HomeMock {
++                        records: records.clone(),
++                        output_dir: output_dir.clone(),
++                        exported_first: exported_first.clone(),
++                        reject: reject_home.clone(),
++                    },
++                )
++                .unwrap()
++                .serve_at(
++                    "/org/freedesktop/Accounts",
++                    AccountsMock {
++                        calls: calls.clone(),
++                        reject: reject.clone(),
++                        users: cached_users.clone(),
++                    },
++                )
++                .unwrap()
++                .build()
++                .await
++                .unwrap()
++        });
++
++        let page = UserPage::new();
++        page.upcast_ref::<Page>().set_next("all-done");
++        let navigation = adw::NavigationView::new();
++        let previous = Page::new();
++        previous.set_tag(Some("language"));
++        navigation.add(&previous);
++        navigation.add(&page);
++        let done_page = crate::pfb::DonePage::new();
++        navigation.add(&done_page);
++        navigation.push(&page);
++        page.imp().full_name_entry_row.set_text("Pocket User");
++        page.imp().user_name_entry_row.set_text("pocketuser");
++        page.imp().pass_entry_row.set_text("1234");
++        page.imp().repeat_pass_entry_row.set_text("1234");
++        assert!(page.can_pop(), "settings remain editable before creation");
++        page.on_create_clicked(gtk::Button::new());
++        assert!(!page.can_pop(), "cannot leave during account creation");
++        settle(&page);
++
++        assert!(records.lock().unwrap().is_empty());
++        assert_eq!(calls.load(Ordering::SeqCst), 0);
++        assert!(page.imp().error_banner.is_revealed());
++        assert!(!page.upcast_ref::<Page>().can_go_next());
++        assert!(page.can_pop(), "a failed CreateHome must allow editing settings");
++        assert!(navigation.pop());
++        assert_eq!(navigation.visible_page().unwrap(), previous.upcast::<adw::NavigationPage>());
++        navigation.push(&page);
++
++        reject_home.store(false, Ordering::SeqCst);
++        page.on_create_clicked(gtk::Button::new());
++        assert!(!page.can_pop());
++        settle(&page);
++
++        assert!(
++            exported_first.load(Ordering::SeqCst),
++            "dconf exports must precede CreateHome"
++        );
++        assert!(!page.upcast_ref::<Page>().can_go_next());
++        assert!(page.imp().error_banner.is_revealed());
++        assert!(!page.can_pop(), "an existing account commits the exported settings");
++        assert_eq!(calls.load(Ordering::SeqCst), 1);
++        {
++            let records = records.lock().unwrap();
++            assert_eq!(records.len(), 1);
++            assert_eq!(records[0]["memberOf"], serde_json::json!(["wheel"]));
++            assert_eq!(records[0]["userName"], "pocketuser");
++            assert_eq!(records[0]["storage"], "directory");
++        }
++        assert!(
++            std::fs::read_to_string(output_dir.join("org.gnome.desktop.input-sources.dconf"))
++                .unwrap()
++                .contains("('xkb', 'us')")
++        );
++
++        reject.store(false, Ordering::SeqCst);
++        page.on_create_clicked(gtk::Button::new());
++        settle(&page);
++        assert!(page.upcast_ref::<Page>().can_go_next());
++        assert!(!page.imp().error_banner.is_revealed());
++        assert_eq!(
++            records.lock().unwrap().len(),
++            1,
++            "retry must not create a second home"
++        );
++        assert_eq!(calls.load(Ordering::SeqCst), 2);
++        assert_eq!(*cached_users.lock().unwrap(), ["pocketuser", "pocketuser"]);
++        assert!(!page.can_pop());
++        assert!(!done_page.can_pop(), "finishing must not reopen committed settings");
++        assert_eq!(navigation.visible_page().unwrap(), done_page.upcast::<adw::NavigationPage>());
++        app.quit();
++    }
++}
+ 
+ const PIN_MIN_LEN: usize = 4;
+ const USERNAME_MIN_LEN: usize = 3;
+--- a/src/pfb/lang_page.rs
++++ b/src/pfb/lang_page.rs
+@@ -16,6 +16,119 @@
+ use zbus::{proxy, Connection};
+ 
+ use log::{debug, trace, warn};
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::{
++        atomic::{AtomicBool, Ordering},
++        Arc, Mutex,
++    };
++    use std::time::Duration;
++
++    struct LocaleMock {
++        locale: Arc<Mutex<Vec<String>>>,
++        reject: Arc<AtomicBool>,
++    }
++
++    #[zbus::interface(name = "org.freedesktop.locale1")]
++    impl LocaleMock {
++        #[zbus(property)]
++        fn locale(&self) -> Vec<String> {
++            self.locale.lock().unwrap().clone()
++        }
++
++        fn set_locale(&self, locale: Vec<String>, _interactive: bool) -> zbus::fdo::Result<()> {
++            if self.reject.load(Ordering::SeqCst) {
++                return Err(zbus::fdo::Error::AccessDenied("permission denied".into()));
++            }
++            *self.locale.lock().unwrap() = locale;
++            Ok(())
++        }
++    }
++
++    fn settle(page: &LangPage) {
++        MainContext::default().block_on(async {
++            for _ in 0..500 {
++                if !page.imp().active.get() {
++                    return;
++                }
++                glib::timeout_future(Duration::from_millis(10)).await;
++            }
++            panic!("locale operation timed out");
++        });
++    }
++
++    #[test]
++    #[ignore = "requires a disposable bus and display"]
++    fn locale_write_retry() {
++        std::env::set_var(
++            "DBUS_SYSTEM_BUS_ADDRESS",
++            std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap(),
++        );
++        adw::init().unwrap();
++        gtk::gio::resources_register_include!("mobi.phosh.FirstBoot.gresource").unwrap();
++        let locale = Arc::new(Mutex::new(vec!["LANG=en_US.UTF-8".into()]));
++        let reject = Arc::new(AtomicBool::new(true));
++        let _connection = MainContext::default().block_on(async {
++            zbus::connection::Builder::session()
++                .unwrap()
++                .name("org.freedesktop.locale1")
++                .unwrap()
++                .serve_at(
++                    "/org/freedesktop/locale1",
++                    LocaleMock {
++                        locale: locale.clone(),
++                        reject: reject.clone(),
++                    },
++                )
++                .unwrap()
++                .build()
++                .await
++                .unwrap()
++        });
++
++        let page = LangPage::new();
++        assert!(!page.upcast_ref::<Page>().can_go_next());
++        settle(&page);
++        assert!(page.upcast_ref::<Page>().can_go_next());
++        assert_eq!(page.region(), "en_US.UTF-8");
++        page.update_lang_row("zz_ZZ.UTF-8");
++        assert_eq!(
++            page.imp().lang_row.subtitle().as_deref(),
++            Some("zz_ZZ.UTF-8")
++        );
++        page.update_lang_row("C.UTF-8");
++        assert!(!page.imp().lang_row.subtitle().unwrap().is_empty());
++        page.update_lang_row(&page.region());
++
++        page.update_lang("de_DE.UTF-8".into());
++        assert!(!page.upcast_ref::<Page>().can_go_next());
++        settle(&page);
++        assert!(!page.upcast_ref::<Page>().can_go_next());
++        assert!(page.imp().error_banner.is_revealed());
++        assert_eq!(page.region(), "en_US.UTF-8");
++        assert_eq!(*locale.lock().unwrap(), ["LANG=en_US.UTF-8"]);
++
++        reject.store(false, Ordering::SeqCst);
++        page.on_retry_clicked();
++        settle(&page);
++        assert!(page.upcast_ref::<Page>().can_go_next());
++        assert!(!page.imp().error_banner.is_revealed());
++        assert_eq!(page.region(), "de_DE.UTF-8");
++        let saved = locale.lock().unwrap();
++        for category in [
++            "LANG",
++            "LC_TIME",
++            "LC_NUMERIC",
++            "LC_MONETARY",
++            "LC_MEASUREMENT",
++            "LC_PAPER",
++        ] {
++            assert!(saved.contains(&format!("{category}=de_DE.UTF-8")));
++        }
++    }
++}
+ 
+ #[proxy(
+     interface = "org.freedesktop.locale1",

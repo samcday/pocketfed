@@ -1,0 +1,32 @@
+{
+  "date": "2026-09-10",
+  "upstream_tag": "v0.1.1",
+  "upstream_commit": "0d39c507d7464dc77bdfe256b22460d91e7c0414",
+  "tests": {
+    "cargo_check": "passed",
+    "cargo_build": "passed",
+    "timezone_retry": "passed",
+    "user_handoff_retry": "passed",
+    "locale_write_retry": "passed",
+    "full_app_startup": "passed; timeout 124 after five seconds with fatal GTK criticals enabled",
+    "account_navigation": "passed within user_handoff_retry; pending creation disables Back, rejected creation restores Back, and successful creation disables Back through cache retry and Done",
+    "window_close_protection": "passed; title controls hidden, close request leaves pre-owner setup visible, and explicit completion action shuts down application",
+    "package_configuration": "passed; configured Rust constants and actual native binary preserve /usr/share defaults/locale and /var/lib/phosh-first-boot output, reject upstream development paths, and --help exposes the installed defaults path",
+    "package_configuration_negative_control": "passed; published 1.2 ARM64 binary contains /usr/local/share and /run paths and fails the new regression; its --help was independently executed and confirmed the wrong defaults path",
+    "timezone_search": "passed within timezone_retry; typed New York and sYdNeY match one displayed label each, and activating filtered row zero selects/saves the original Australia/Sydney ID",
+    "timezone_search_negative_control": "passed; expanded GTK search fixture fails against patches0001\u20130007 with all five rows remaining after three seconds"
+  },
+  "scope": "Native x86_64 GTK pages; private mock D-Bus services and temporary HOME/XDG directories; no actual account creation or host locale/timezone writes",
+  "display": {
+    "surface": [
+      360,
+      740
+    ],
+    "scale": 1,
+    "gtk_content": [
+      350,
+      730
+    ]
+  },
+  "environment_image": "local validation snapshot sha256:79da84ee8b9a524e0c0b986744782f7a32649487da52dba2fdd4b94ff7343890"
+}
