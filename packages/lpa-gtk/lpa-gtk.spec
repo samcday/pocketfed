@@ -3,7 +3,7 @@
 
 Name:           lpa-gtk
 Version:        0.4
-Release:        1.2.pocketfed%{?dist}
+Release:        1.4.pocketfed%{?dist}
 Summary:        Download and manage eSIM profiles
 License:        GPL-3.0-only AND CC-BY-SA-4.0 AND CC0-1.0
 URL:            https://codeberg.org/lucaweiss/lpa-gtk
@@ -40,8 +40,9 @@ on built-in or removable eUICC cards. Activation codes can be pasted into
 the application; camera-based QR scanning is not currently supported.
 
 %prep
-(cd "%{_sourcedir}" && sha256sum --check --status "%{SOURCE2}")
+test "$(sha256sum "%{SOURCE0}" | cut -d' ' -f1)" = "$(cut -d' ' -f1 "%{SOURCE2}")"
 %autosetup -n %{name}
+cp -p %{SOURCE3} README.pocketfed.md
 
 %build
 %meson -Dpython.purelibdir=%{python3_sitelib}
@@ -62,7 +63,7 @@ GSETTINGS_BACKEND=memory GDK_BACKEND=x11 GSK_RENDERER=cairo GTK_A11Y=none \
 
 %files
 %license LICENSES/*
-%doc README.md REUSE.toml %{SOURCE3}
+%doc README.md REUSE.toml README.pocketfed.md
 %{_bindir}/lpa-gtk
 %{python3_sitelib}/lpa_gtk/
 %{_datadir}/lpa-gtk/
@@ -71,6 +72,12 @@ GSETTINGS_BACKEND=memory GDK_BACKEND=x11 GSK_RENDERER=cairo GTK_A11Y=none \
 %{_datadir}/icons/hicolor/scalable/apps/%{app_id}.svg
 
 %changelog
+* Fri Sep 11 2026 PocketFed maintainers <me@samcday.com> - 0.4-1.4.pocketfed
+- Verify the archive through explicit Source macros for Fedora spec lint
+
+* Fri Sep 11 2026 PocketFed maintainers <me@samcday.com> - 0.4-1.3.pocketfed
+- Include the packaging notes using RPM's relative documentation file syntax
+
 * Fri Sep 11 2026 PocketFed maintainers <me@samcday.com> - 0.4-1.2.pocketfed
 - Normalize equivalent Meson install paths in the staged-launcher test
 
