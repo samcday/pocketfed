@@ -1,0 +1,14 @@
+# Installed-image iteration that preserves the caller's exact kernel/userspace.
+# Build from the repository root with an immutable BASE_IMAGE and the signed
+# main-COPR theme RPM in a separate, read-only named build context.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+COPY devices/google-sargo/dracut.conf /etc/dracut.conf.d/60-google-sargo.conf
+COPY devices/google-sargo/plymouthd.defaults /usr/share/plymouth/plymouthd.defaults
+COPY devices/google-sargo/aboot-kargs /usr/lib/ostree-boot/aboot-kargs
+COPY --chmod=0755 devices/google-sargo/pocketfed-verify-plymouth-initrd /usr/libexec/
+COPY --chmod=0755 devices/google-sargo/install-plymouth-iteration /tmp/
+RUN --mount=from=theme-rpm,source=/,target=/run/theme-rpm,ro \
+    /tmp/install-plymouth-iteration && rm /tmp/install-plymouth-iteration
+COPY --chmod=0755 devices/google-sargo/pocketfed-verify-oci /usr/libexec/
+RUN /usr/libexec/pocketfed-verify-oci && bootc container lint --no-truncate

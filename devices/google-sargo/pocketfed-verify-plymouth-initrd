@@ -1,0 +1,56 @@
+#!/usr/bin/python3
+"""Check the generated Sargo early-splash artifact, not just dracut intent."""
+import configparser
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+def inspect(image):
+    def lsinitrd(*args):
+        return subprocess.check_output(["lsinitrd", *args, str(image)], text=True)
+
+    modules = set(lsinitrd("-m").splitlines())
+    assert {"plymouth", "simpledrm"} <= modules, "Plymouth/simpledrm dracut module missing"
+    assert "drm" not in modules, "broad DRM discovery reintroduced"
+    listing = lsinitrd()
+    paths = set()
+    for line in listing.splitlines():
+        fields = line.split(maxsplit=8)
+        if len(fields) == 9 and fields[0][0] in "dl-":
+            paths.add(fields[8].split(" -> ", 1)[0].removeprefix("./"))
+    theme = "usr/share/plymouth/themes/fedora-mobile/"
+    for required in (
+        "usr/bin/plymouthd",
+        "usr/bin/plymouth",
+        "usr/lib/systemd/system/plymouth-start.service",
+        "usr/lib/systemd/system/sysinit.target.wants/plymouth-start.service",
+        "usr/lib64/plymouth/renderers/drm.so",
+        "usr/lib64/plymouth/two-step.so",
+        "usr/lib64/plymouth/label-freetype.so",
+        "usr/share/fonts/Plymouth.ttf",
+        theme + "fedora-mobile.plymouth",
+        theme + "keymap-render.png",
+        "usr/share/plymouth/themes/spinner/keymap-render.png",
+    ):
+        assert required in paths, f"initrd lacks {required}"
+    assert any(path.startswith(theme + "throbber-") for path in paths), "animation assets missing"
+    forbidden = [path for path in paths if re.search(
+        r"/kernel/drivers/gpu/drm/msm/|/(?:gpucc_sdm845|dispcc_sdm845|panel_[^/]+)\.ko|"
+        r"/firmware/(?:qcom/)?(?:a[0-9]+_|adreno)", path)]
+    assert not forbidden, f"native GPU/panel payload in early initrd: {forbidden}"
+    config = configparser.ConfigParser()
+    config.read_string(lsinitrd("-f", "usr/share/plymouth/plymouthd.defaults"))
+    for key, value in {"Theme": "fedora-mobile", "UseSimpledrm": "1", "ShowDelay": "0"}.items():
+        assert config["Daemon"][key] == value, f"incorrect Plymouth {key}"
+    print(f"Plymouth initrd verified: {image} ({image.stat().st_size} bytes)")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit("usage: pocketfed-verify-plymouth-initrd INITRAMFS")
+    try:
+        inspect(Path(sys.argv[1]))
+    except (AssertionError, OSError, subprocess.CalledProcessError, configparser.Error) as error:
+        sys.exit(f"Plymouth initrd verification failed: {error}")

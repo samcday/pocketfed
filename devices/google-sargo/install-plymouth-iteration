@@ -1,0 +1,28 @@
+#!/bin/bash
+# Image build only. This does not stage a deployment or access a phone.
+set -euo pipefail
+test -e /run/.containerenv || test -e /.dockerenv
+save=$(mktemp -d /tmp/plymouth-image.XXXXXX)
+trap 'rm -rf "$save"' EXIT
+rpm -qa --qf '%{NEVRA}\n' | sort >"$save/before"
+set -- /usr/lib/modules/*
+test "$#" -eq 1 && test -d "$1"
+module_dir=$1
+kver=${module_dir##*/}
+sha256sum "$module_dir/vmlinuz" "$module_dir/dtb/qcom/sdm670-google-sargo.dtb" >"$save/kernel"
+theme=/run/theme-rpm/plymouth-theme-fedora-mobile-0.1.0-1.fc46.noarch.rpm
+printf '%s  %s\n' 617a8a05e381153ec7a89e6a1346da1ebecde101c1f09a096eb619a2e6c8706a "$theme" | sha256sum -c -
+rpmkeys --checksig "$theme"
+rpm -ivh "$theme"
+rpm -qa --qf '%{NEVRA}\n' | sort >"$save/after"
+test -z "$(comm -23 "$save/before" "$save/after")"
+test "$(comm -13 "$save/before" "$save/after")" = plymouth-theme-fedora-mobile-0.1.0-1.fc46.noarch
+dracut --force --hostonly --hostonly-mode=strict --no-hostonly-cmdline \
+    --no-hostonly-default-device "$module_dir/initramfs.img" "$kver"
+/usr/libexec/pocketfed-verify-plymouth-initrd "$module_dir/initramfs.img"
+/usr/libexec/pocketfed-aboot-finalize \
+    --options 'root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true' \
+    --append-options-file /usr/lib/ostree-boot/aboot-kargs \
+    "$module_dir/aboot.img" "$save/aboot.img"
+install -m0644 "$save/aboot.img" "$module_dir/aboot.img"
+sha256sum -c "$save/kernel"

@@ -166,6 +166,15 @@ COPY devices/google-sargo/wifi/LICENSE /usr/share/licenses/pocketfed-wcn3990-des
 RUN python3 /tmp/pocketfed-wcn3990-descriptor.py /usr/lib/firmware/ath10k/WCN3990/hw1.0 && \
     rm /tmp/pocketfed-wcn3990-descriptor.py
 
+# Keep the theme packaged in the main PocketFed COPR; the image owns selection
+# and initrd policy, while installing the RPM alone only makes it available.
+RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/cache,sharing=locked \
+    dnf install -y --refresh --setopt=install_weak_deps=False \
+        --from-repo='copr:copr.fedorainfracloud.org:samcday:pocketfed' \
+        plymouth-theme-fedora-mobile-0.1.0-1.fc46
+COPY devices/google-sargo/plymouthd.defaults /usr/share/plymouth/plymouthd.defaults
+COPY --chmod=0755 devices/google-sargo/pocketfed-verify-plymouth-initrd /usr/libexec/
+
 FROM device-root AS initrd
 RUN set -eu; \
     set -- /usr/lib/modules/*; \
@@ -180,6 +189,7 @@ RUN set -eu; \
         --no-hostonly-cmdline \
         --no-hostonly-default-device \
         /out/initramfs.img "$kver" && \
+    /usr/libexec/pocketfed-verify-plymouth-initrd /out/initramfs.img && \
     install -m0644 "/usr/lib/modules/$kver/vmlinuz" /out/vmlinuz && \
     install -m0644 "/usr/lib/modules/$kver/dtb/qcom/sdm670-google-sargo.dtb" /out/sdm670-google-sargo.dtb && \
     printf '%s\n' "$kver" >/out/kver
