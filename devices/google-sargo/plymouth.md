@@ -62,6 +62,15 @@ image, pin the current deployment, preserve existing overrides and Android slot
 recovery, then use the normal OSTree image deployment path. Check the regenerated
 deployment initrd as well as the image's initrd before rebooting.
 
+When migrating from the old native-display preload policy, local initramfs
+regeneration can retain the running deployment's old preload list even though
+the staged `/etc/dracut.conf.d/60-google-sargo.conf` contains the new policy.
+For an installed trial whose root-boot requirements are fully covered by this
+device image, `rpm-ostree initramfs --disable` selects the verified image-supplied
+initrd. Confirm the selected image, preserved package overrides, staged initrd
+hash and boot arguments afterward. Do not substitute the generic image initrd
+for additional host-specific boot requirements that it does not contain.
+
 Acceptance requires an observed early splash, working prompts, continued storage
 and charging, native DRM handoff and a usable greeter/session. Record both first
 boot and subsequent boot: deployment-only initialization can distort timing.

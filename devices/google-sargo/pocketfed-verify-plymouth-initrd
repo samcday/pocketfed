@@ -37,7 +37,7 @@ def inspect(image):
         assert required in paths, f"initrd lacks {required}"
     assert any(path.startswith(theme + "throbber-") for path in paths), "animation assets missing"
     forbidden = [path for path in paths if re.search(
-        r"/kernel/drivers/gpu/drm/msm/|/(?:gpucc_sdm845|dispcc_sdm845|panel_[^/]+)\.ko|"
+        r"/kernel/drivers/gpu/drm/msm/|/(?:gpucc[-_]sdm845|dispcc[-_]sdm845|panel[-_][^/]+)\.ko|"
         r"/firmware/(?:qcom/)?(?:a[0-9]+_|adreno)", path)]
     assert not forbidden, f"native GPU/panel payload in early initrd: {forbidden}"
     config = configparser.ConfigParser()
