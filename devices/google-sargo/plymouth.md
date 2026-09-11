@@ -7,7 +7,11 @@ preserved-display-state goal in
 
 The installed image selects `quiet rhgb` and `fedora-mobile`. `quiet` reduces
 console output; Plymouth also needs `rhgb` (or `splash`) to choose its graphical
-renderer. `UseSimpledrm=1` matters twice: it lets Plymouth use the inherited
+renderer. The kernel can still advertise its UART as an active console without
+an explicit `console=` argument. `plymouth.ignore-serial-consoles` keeps that
+console from forcing Plymouth into detailed text mode; kernel UART output and
+the separate verbose liveboot command line retain their existing behavior.
+`UseSimpledrm=1` matters twice: it lets Plymouth use the inherited
 framebuffer immediately, and makes dracut's `45plymouth` depend on `simpledrm`
 instead of broad `drm` discovery. Fedora's `UseSimpledrmNoLuks=1` alone does not
 select that narrow dracut dependency. `DeviceTimeout=8` is a fallback timeout,

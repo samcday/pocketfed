@@ -183,7 +183,7 @@ grep -Fxq 'POCKETFED_SLOT_SWITCH=qbootctl' /usr/lib/ostree-boot/aboot.cfg
 test -x /usr/bin/aboot-deploy
 grep -Fq 'finalize_boot_image' /usr/bin/aboot-deploy
 grep -Fxq \
-    'quiet rhgb init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl' \
+    'quiet rhgb plymouth.ignore-serial-consoles init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl' \
     /usr/lib/ostree-boot/aboot-kargs
 test -x /usr/libexec/pocketfed-aboot-finalize
 test -x /usr/libexec/abl-exorcist-assembler

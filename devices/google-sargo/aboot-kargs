@@ -1,1 +1,1 @@
-quiet rhgb init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl
+quiet rhgb plymouth.ignore-serial-consoles init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl

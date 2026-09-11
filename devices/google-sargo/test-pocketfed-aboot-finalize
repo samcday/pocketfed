@@ -79,7 +79,7 @@ initramfs_path.write_bytes(b"deployment-initramfs")
 PY
 
 printf '%s\n' \
-    'quiet rhgb init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl' \
+    'quiet rhgb plymouth.ignore-serial-consoles init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl' \
     >"$static_options"
 template_hash=$(sha256sum "$template")
 options='root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.1/pocketfed/test/0 ath10k_core.rawmode=1'
