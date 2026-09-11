@@ -2,6 +2,14 @@
 
 Some fed in your pocket.
 
+## Development trials
+
+For kernel, camera, fingerprint, Type-C, or related userspace experiments, start
+with the [local kboop/fastboop workflow](tools/liveboot/README.md). It exports a
+cached or locally built device OCI and RAM-boots a coherent local kernel bundle.
+Use `just liveboot-*` for these trials; public CI/COPR and installation image
+assembly are reserved for later promotion and installed-system checks.
+
 ## Installation artifacts
 
 PocketFed uses a device OCI as the immutable system and update boundary. The

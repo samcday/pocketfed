@@ -1,0 +1,72 @@
+#!/usr/bin/python3
+"""Report the minimum userspace handoff contract to UART and the journal."""
+import json
+from pathlib import Path
+import subprocess
+
+
+def command(*args):
+    result = subprocess.run(args, text=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, check=False)
+    return result.returncode, result.stdout.strip()
+
+
+release = command("uname", "-r")[1]
+cmdline = Path("/proc/cmdline").read_text().split()
+run_id = next((x.split("=", 1)[1] for x in cmdline
+               if x.startswith("pocketfed.liveboot=")), None)
+root_mode = next((x.split("=", 1)[1] for x in cmdline
+                  if x.startswith("pocketfed.root_mode=")), "usb")
+resident = {}
+if root_mode == "ram":
+    try:
+        resident = json.loads(Path("/run/kboop/root-mode.json").read_text())
+    except (OSError, ValueError):
+        resident = {}
+root_type = command("findmnt", "-n", "-o", "FSTYPE", "/")[1]
+module_mount = command("findmnt", "-n", "-o", "SOURCE,FSTYPE", "-T",
+                       f"/usr/lib/modules/{release}")[1]
+slot_policy = command("systemctl", "is-enabled", "qbootctl.service")[1]
+usb_policy = command("systemctl", "is-enabled", "usb-signaller.service")[1]
+selinux = command("getenforce")[1]
+labels_state = command("systemctl", "is-active", "pocketfed-liveboot-labels.service")[1]
+failed_units = command("systemctl", "--failed", "--no-legend", "--plain", "--no-pager")[1]
+ram_ready = (isinstance(resident, dict) and resident.get("mode") == "ram"
+             and resident.get("smoo_detached") is True
+             and resident.get("hashes_verified") is True
+             and isinstance(resident.get("rootfs"), dict)
+             and isinstance(resident.get("modules"), dict)
+             and resident["rootfs"].get("device", "").startswith("/dev/loop")
+             and resident["modules"].get("device", "").startswith("/dev/loop")
+             and module_mount.split("[", 1)[0].split(" ", 1)[0] == resident["modules"].get("device")
+             and "erofs" in module_mount)
+checks = {
+    "run_id_present": bool(run_id),
+    "disposable_root": root_type == "overlay",
+    "matching_modules_present": Path(f"/usr/lib/modules/{release}/modules.dep").is_file(),
+    "root_transport_ready": ram_ready if root_mode == "ram" else
+                            root_mode == "usb" and "ublkb" in module_mount and "erofs" in module_mount,
+    "slot_marking_disabled": slot_policy == "masked",
+    "usb_transport_policy": root_mode == "ram" or usb_policy == "masked",
+    "selinux_enforcing": selinux == "Enforcing",
+    "writable_root_labels_restored": labels_state == "active",
+}
+result = {
+    "schema_version": 1,
+    "run_id": run_id,
+    "result": "pass" if all(checks.values()) else "fail",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": release,
+    "root_fstype": root_type, "root_mode": root_mode,
+    "resident": resident, "usb_policy_state": usb_policy,
+    "module_mount": module_mount,
+    "selinux": selinux,
+    "label_repair_state": labels_state,
+    "failed_units": failed_units.splitlines(),
+    "checks": checks,
+}
+out = Path("/run/pocketfed-liveboot")
+out.mkdir(exist_ok=True)
+(out / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+print("POCKETFED_LIVEBOOT_RESULT=" + json.dumps(result, separators=(",", ":")), flush=True)
+raise SystemExit(result["result"] != "pass")
