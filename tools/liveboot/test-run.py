@@ -17,6 +17,16 @@ RUN = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(RUN)
 
 
+def seal_test_fixture(fixture):
+    info = json.loads((fixture / "fixture.json").read_text())
+    (fixture / "root-labels.json").write_text(json.dumps({
+        "result": "pass", "rootfs_sha256": RUN.sha256(fixture / "rootfs.erofs")}))
+    info.update(schema_version=1, input_fingerprint="test", artifacts={
+        p.relative_to(fixture).as_posix(): {"type": "file", "size": p.stat().st_size, "sha256": RUN.sha256(p)}
+        for p in fixture.rglob("*") if p.is_file() and p.name != "fixture.json"})
+    (fixture / "fixture.json").write_text(json.dumps(info))
+
+
 class ModuleGateTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -51,6 +61,24 @@ class ModuleGateTests(unittest.TestCase):
             RUN.verify_required_modules(self.bundle, [])
 
 
+class FixtureIntegrityTests(unittest.TestCase):
+    def test_corrupt_cached_root_is_rejected_against_its_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "kernel-bundle").mkdir()
+            for name in ("rootfs.erofs", "production-ablx-shim.bin", "kernel-bundle/bundle.json"):
+                (root / name).write_bytes(b"fixture artifact")
+            (root / "root-labels.json").write_text(json.dumps({"result": "pass", "rootfs_sha256": RUN.sha256(root / "rootfs.erofs")}))
+            artifacts = {p.relative_to(root).as_posix(): {"type": "file", "size": p.stat().st_size,
+                         "sha256": RUN.sha256(p)} for p in root.rglob("*") if p.is_file()}
+            (root / "fixture.json").write_text(json.dumps({"schema_version": 1,
+                "input_fingerprint": "test", "artifacts": artifacts}))
+            RUN.verify_fixture(root)
+            (root / "rootfs.erofs").write_bytes(b"silently changed")
+            with self.assertRaisesRegex(Exception, "artifacts changed"):
+                RUN.verify_fixture(root)
+
+
 class ResidentReleaseTests(unittest.TestCase):
     def test_only_verified_ram_pass_releases_host(self):
         record = {"root_mode": "ram", "result": "pass",
@@ -82,6 +110,7 @@ class PrepareTests(unittest.TestCase):
             for path in [fixture / "rootfs.erofs", fixture / "production-ablx-shim.bin",
                          fixture / "kernel-bundle/kernel.config", root / "kboop", root / "init"]:
                 path.write_bytes(b"test artifact")
+            seal_test_fixture(fixture)
             args = argparse.Namespace(
                 run_dir=root / "serial-selection", fixture=fixture,
                 profile=ROOT / "profiles/google-sargo.json", device_serial="TEST-SARGO-123",
@@ -174,6 +203,7 @@ class PrepareTests(unittest.TestCase):
         bundle.write_text(json.dumps({"release": "candidate-ath10k", "dtb": {"path": "dtb/qcom/" + dtb}}))
         if config:
             (candidate / "kernel.config").write_text("CANDIDATE_CONFIG=y\n")
+        seal_test_fixture(fixture)
         return argparse.Namespace(run_dir=root / "candidate-run", fixture=fixture,
                                   profile=ROOT / "profiles/google-sargo.json",
                                   device_serial="TEST-SARGO-123", kboop=root / "kboop",

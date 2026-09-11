@@ -5,6 +5,7 @@ import contextlib
 import errno
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -60,6 +61,20 @@ def verify_required_modules(bundle, requested):
         raise ValueError("required early modules are neither installed nor built in: " + ", ".join(missing))
 
 
+def verify_fixture(fixture):
+    spec = importlib.util.spec_from_file_location("liveboot_fixture", Path(__file__).with_name("prepare-fixture.py"))
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    info = json.loads((fixture / "fixture.json").read_text())
+    for name in ("rootfs.erofs", "production-ablx-shim.bin", "root-labels.json", "kernel-bundle/bundle.json"):
+        helper.require_regular(helper.safe_child(fixture, name))
+    helper.verify_reuse(fixture, info.get("input_fingerprint"))
+    labels = json.loads((fixture / "root-labels.json").read_text())
+    if labels.get("result") != "pass" or labels.get("rootfs_sha256") != info["artifacts"]["rootfs.erofs"]["sha256"]:
+        raise ValueError("fixture lacks a passing label proof for its exact rootfs")
+    return info
+
+
 def prepare(args):
     run = args.run_dir.resolve()
     run.mkdir(parents=True, exist_ok=False)
@@ -70,7 +85,7 @@ def prepare(args):
         fixture = args.fixture.resolve(strict=True)
         recipe = json.loads(args.profile.read_text())
         fixture_manifest = fixture / "fixture.json"
-        fixture_info = json.loads(fixture_manifest.read_text())
+        fixture_info = verify_fixture(fixture)
         if fixture_info["inputs"]["dtb"] != recipe["devicetree_name"] + ".dtb":
             raise ValueError("fixture device tree does not match selected profile")
         serial = safe_name(args.device_serial)
@@ -382,13 +397,16 @@ def boot(args):
                                     # The device verified its RAM copies, mounted loops and
                                     # detached smoo. Keep independent UART recovery alive.
                                     keep_console = True
-                                    os.killpg(child.pid, signal.SIGTERM)
+                                    with contextlib.suppress(ProcessLookupError):
+                                        os.killpg(child.pid, signal.SIGTERM)
                                     try:
                                         child.wait(timeout=3)
                                     except subprocess.TimeoutExpired:
-                                        os.killpg(child.pid, signal.SIGKILL)
+                                        with contextlib.suppress(ProcessLookupError):
+                                            os.killpg(child.pid, signal.SIGKILL)
                                         child.wait(timeout=3)
-                                    state.update(phase="console", usb_host_released=True,
+                                    fcntl.flock(host_lock, fcntl.LOCK_UN)
+                                    state.update(phase="console", usb_host_released=True, host_lock_released=True,
                                                  host_exit_code=child.returncode)
                                 write_json(run / "status.json", state)
                                 print(json.dumps({"phase": state["phase"], "result": result["result"],
