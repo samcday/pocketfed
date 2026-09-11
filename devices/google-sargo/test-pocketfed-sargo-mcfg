@@ -23,6 +23,8 @@ output="$tmp/output"
 state="$tmp/state"
 mmcli_state="$tmp/mmcli-state"
 mmcli_log="$tmp/mmcli.log"
+nmcli_log="$tmp/nmcli.log"
+nmcli_state="$tmp/nmcli-state"
 activation_marker="$tmp/activated"
 
 mkdir -p "$mcfg_root"
@@ -40,6 +42,8 @@ reset_case() {
 	: >"$uim_log"
 	: >"$output"
 	: >"$mmcli_log"
+	: >"$nmcli_log"
+	rm -f "$nmcli_state"
 	rm -f "$state"
 	rm -f "$mmcli_state"
 	rm -f "$activation_marker"
@@ -338,10 +342,34 @@ run_search_case() {
 		MMCLI="$fake_bin/mmcli-network-search" \
 		MMCLI_LOG="$mmcli_log" \
 		MMCLI_STATE="$mmcli_state" \
+		NMCLI="$fake_bin/nmcli-network-search" \
+		NMCLI_LOG="$nmcli_log" \
+		NMCLI_STATE="$nmcli_state" \
 		SEARCH_WAIT_SECONDS=0 \
 		"$@" \
 		sh "$search_helper" >"$output" 2>&1
 }
+
+run_search_case NMCLI_SCENARIO=disabled MMCLI_SCENARIO=disabled
+[ ! -s "$mmcli_log" ] && [ ! -s "$qmi_log" ] ||
+	fail 'disabled WWAN reached modem or QMI readiness checks'
+grep -Fq 'WWAN is disabled in NetworkManager' "$output" ||
+	fail 'disabled WWAN was not diagnosed as an intentional skip'
+
+run_search_case NMCLI_SCENARIO=disabled-later MMCLI_SCENARIO=disabled SEARCH_WAIT_SECONDS=1
+[ "$(wc -l <"$nmcli_log")" -eq 2 ] ||
+	fail 'WWAN preference was not checked again while waiting'
+[ "$(wc -l <"$mmcli_log")" -eq 1 ] && [ ! -s "$qmi_log" ] ||
+	fail 'WWAN disabled during startup did not stop the readiness wait'
+
+for scenario in unknown failure; do
+	if run_search_case NMCLI_SCENARIO="$scenario" MMCLI_SCENARIO=disabled; then
+		fail "unknown WWAN policy hid a modem readiness failure: $scenario"
+	fi
+done
+if run_search_case NMCLI="$tmp/missing-nmcli" MMCLI_SCENARIO=disabled; then
+	fail 'missing nmcli hid a modem readiness failure'
+fi
 
 run_search_case QMI_SCENARIO=search-delayed SEARCH_WAIT_SECONDS=1
 [ "$(grep -Fc -- '--nas-force-network-search' "$qmi_log")" -eq 2 ] ||

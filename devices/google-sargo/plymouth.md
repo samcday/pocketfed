@@ -81,3 +81,11 @@ Acceptance requires an observed early splash, working prompts, continued storage
 and charging, native DRM handoff and a usable greeter/session. Record both first
 boot and subsequent boot: deployment-only initialization can distort timing.
 Keep installed quiet defaults separate from the verbose UART liveboot defaults.
+
+After each installed boot, verify `qbootctl.service` completed and the current
+slot is marked successful before repeating reboot trials. Reaching the greeter
+alone does not satisfy the boot health check. A failed service can block
+`boot-complete.target` and prevent slot blessing; repeated usable boots can then
+exhaust both slots' retry counters. The network-search helper treats an explicit
+NetworkManager WWAN-disabled preference as a successful skip. An unknown radio
+preference still follows the normal readiness checks.

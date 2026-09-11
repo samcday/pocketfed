@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+: "${NMCLI_LOG:?NMCLI_LOG is required}"
+: "${NMCLI_STATE:?NMCLI_STATE is required}"
+
+[ "$*" = 'radio wwan' ] || exit 2
+[ "$LC_ALL" = C ] || exit 2
+printf '%s\n' "$*" >>"$NMCLI_LOG"
+
+state=${NMCLI_SCENARIO:-enabled}
+case "$state" in
+	failure) exit 1 ;;
+	disabled-later)
+		if [ ! -e "$NMCLI_STATE" ]; then
+			: >"$NMCLI_STATE"
+			state=enabled
+		else
+			state=disabled
+		fi
+		;;
+esac
+printf '%s\n' "$state"

@@ -11,4 +11,5 @@ COPY --chmod=0755 devices/google-sargo/install-plymouth-iteration /tmp/
 RUN --mount=from=theme-rpm,source=/,target=/run/theme-rpm,ro \
     /tmp/install-plymouth-iteration && rm /tmp/install-plymouth-iteration
 COPY --chmod=0755 devices/google-sargo/pocketfed-verify-oci /usr/libexec/
+COPY --chmod=0755 devices/google-sargo/pocketfed-sargo-network-search /usr/libexec/
 RUN /usr/libexec/pocketfed-verify-oci && bootc container lint --no-truncate

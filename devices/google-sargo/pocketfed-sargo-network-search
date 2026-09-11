@@ -6,6 +6,7 @@ set -eu
 readonly QMI_DEVICE="${QMI_DEVICE:-qrtr://0}"
 readonly QMICLI="${QMICLI:-qmicli}"
 readonly MMCLI="${MMCLI:-mmcli}"
+readonly NMCLI="${NMCLI:-nmcli}"
 readonly SEARCH_WAIT_SECONDS="${SEARCH_WAIT_SECONDS:-45}"
 
 log() {
@@ -30,6 +31,14 @@ fi
 
 count=0
 while :; do
+	# A deliberately disabled radio is a valid boot state. Check on each
+	# retry so NetworkManager can restore its saved preference after startup.
+	# Unknown state or an unavailable daemon must not hide a real failure.
+	if wwan=$(LC_ALL=C "$NMCLI" radio wwan 2>/dev/null) &&
+		[ "$wwan" = disabled ]; then
+		log 'WWAN is disabled in NetworkManager; no network search needed'
+		exit 0
+	fi
 	# Ordering after the daemon is not ordering after modem enablement. NAS
 	# can accept a search while ModemManager is still enabling the modem,
 	# then lose it and remain in power-save. Wait for the modem's state too.
