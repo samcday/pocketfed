@@ -155,8 +155,13 @@ iterations. kboop streams EROFS on demand. Keep hosting and the data connection
 alive until the disposable session ends. Pass, failure and timeout do not stop
 USB-root hosting. Stopping it while the phone uses that root breaks the session.
 
-For controller resets, role switches, cable removal or other tests that interrupt
-USB, prepare with `--root-mode ram`:
+**Sargo resident mode is experimental and has not passed hardware acceptance.**
+Verified RAM copies and loop mounts work, but both `.8` and `.11` attempts reset
+during userspace startup before the handoff report. Use the validated USB mode
+for trials that preserve its storage connection. Tests that interrupt USB need
+a resident root that has passed the independent-storage checks below.
+
+To investigate resident mode, prepare with `--root-mode ram`:
 
 ```sh
 just liveboot-prepare \
@@ -185,6 +190,18 @@ services, while retaining installation/update guards. For example, removing a
 also update that overlay's policy inventory. RAM mode permits active USB policy,
 but is not evidence that the production policy or a dock was tested.
 
+The 11 September diagnostics have not resolved the reset. `cpuidle.off=1` did
+not help. Faster SHA256 raised copying from about 16 to 44 MB/s, reducing the
+copy stage to roughly 40 seconds, but startup still reset. Retaining the bootstrap
+gadget and smoo also reproduced RPMh timeouts and a reset; selecting the
+performance governor did too. A FunctionFS (`f_fs`) teardown warning was observed,
+but the failure with teardown disabled means that warning is not an established
+cause. Extending `deferred_probe_timeout` to 120 seconds also failed: Bluetooth,
+modem and RPMh timeouts appeared around 88 seconds, followed by a reset without
+a handoff report. Post-copy `MemAvailable` was 1,604,384 kB (about 1.53 GiB), so
+that checkpoint does not show immediate RAM exhaustion. The reset's exact cause
+remains unresolved; RAM mode cannot yet support USB-disruption acceptance.
+
 ## UART recovery
 
 Every trial includes `sysrq_always_enabled=1`. The runner owns the UART exclusively
@@ -211,10 +228,25 @@ workflow.
 ## Current evidence and remaining device work
 
 The Sargo `.8` baseline passed enforcing userspace handoff and UART HELP/reboot
-on 9 September. The normal-checkout USB-root run passed again on 11 September.
-The local kernel producer has passed real incremental and existing-output smoke
-runs; those minimal configs test the producer, not a phone boot. Current RAM-root
-hardware acceptance is being recorded under `out/liveboot/runs/`.
+on 9 September. Tests from the normal source checkouts passed on 11 September:
+
+| USB-root input | Handoff from host startup, including boot transfer |
+| --- | --- |
+| [Known `.8` baseline](../../out/liveboot/runs/sargo-durable-usb-20260911/result.json) | 64.70 seconds |
+| [Exported local `.11` candidate with an explicit kernel bundle](../../out/liveboot/runs/sargo-durable-usb11-20260911/result.json) | 65.05 seconds |
+
+Both reported enforcing SELinux and no failed units at the checkpoint. The `.11`
+run took 10.89 seconds to prepare; its UART acknowledged SysRq HELP at kernel
+uptimes 74.40 and 191.28 seconds, then the explicit reboot at 216.30 seconds.
+That bundle came from the local candidate image's packaged kernel. The local
+source producer separately passed real incremental and existing-output smoke
+runs with minimal configurations; those validate bundle production, not a phone
+boot of a newly compiled full device kernel. Neither handoff accepts camera,
+fingerprint, Type-C, or other subsystem behavior.
+
+Generated fixtures, run outcomes and producer evidence are indexed in
+[`out/liveboot/README.md`](../../out/liveboot/README.md). RAM mode remains
+unaccepted as described above; do not infer it from these USB-root results.
 
 Fajita and Crosshatch need their own serial/UART, DTB, early modules, production
 shim, address recipe and source fixture. Do not copy Sargo's boot offsets or shim.
