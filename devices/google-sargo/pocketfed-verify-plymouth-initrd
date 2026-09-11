@@ -36,8 +36,13 @@ def inspect(image):
     ):
         assert required in paths, f"initrd lacks {required}"
     assert any(path.startswith(theme + "throbber-") for path in paths), "animation assets missing"
+    # The built-in GPU IOMMU must find its power-domain supplier before its
+    # deferred-probe deadline; otherwise native MSM cannot bind on the real root.
+    assert any(re.search(r"/gpucc[-_]sdm845\.ko(?:\.|$)", path) for path in paths), "GPU IOMMU power-domain supplier missing"
+    preload = lsinitrd("-f", "etc/cmdline.d/20-force_drivers.conf")
+    assert "rd.driver.pre=gpucc_sdm845" in preload, "GPU IOMMU supplier is not preloaded"
     forbidden = [path for path in paths if re.search(
-        r"/kernel/drivers/gpu/drm/msm/|/(?:gpucc[-_]sdm845|dispcc[-_]sdm845|panel[-_][^/]+)\.ko|"
+        r"/kernel/drivers/gpu/drm/msm/|/(?:dispcc[-_]sdm845|panel[-_][^/]+)\.ko|"
         r"/firmware/(?:qcom/)?(?:a[0-9]+_|adreno)", path)]
     assert not forbidden, f"native GPU/panel payload in early initrd: {forbidden}"
     config = configparser.ConfigParser()

@@ -18,7 +18,13 @@ select that narrow dracut dependency. `DeviceTimeout=8` is a fallback timeout,
 not an unconditional delay; `ShowDelay=0` requests immediate display.
 
 The strict initrd retains the proven storage, charging and USB supplier ordering.
-MSM, display/GPU clocks and panel modules are deferred to the real root. The panel
+MSM, display clocks and panel modules are deferred to the real root. The small
+`gpucc_sdm845` clock/power-domain supplier remains preloaded: the built-in GPU
+SMMU needs its `GPU_CX_GDSC` power domain before the deferred-probe deadline.
+Deferring that supplier until real-root coldplug can make the SMMU fail permanently
+with `-ETIMEDOUT`, followed by MSM failing to bind the GPU. This supplier does not
+pull MSM or Adreno firmware into the initrd. The artifact check requires both its
+module and preload entry. The panel
 omission also prevents `45simpledrm` from adding every modular panel driver.
 Simpledrm is built into the Sargo kernel. This does not implement preserved MSM
 modesetting state or establish that the inherited ABL scanout stays valid.
