@@ -1,7 +1,7 @@
 # Local kernel and userspace trials
 
 Use this path first for PocketFed camera, fingerprint, kernel-driver and related
-userspace experiments. kboop assembles a fastboop RAM boot from a cached device
+userspace experiments. kboop assembles an ephemeral boot from a cached device
 rootfs and a coherent kernel/DTB/modules set. The trial needs no public CI, COPR,
 published OCI, OSTree deployment or installation partition images. Keep packaging
 and installed-system checks as the promotion gate after the experiment works.
@@ -11,6 +11,21 @@ The reusable source lives here and in the normal sibling `../kboop` checkout.
 The earlier `out/liveboot-dev` checkouts are historical development material and
 are not needed by these commands. `just fastboot` is the installation-image
 builder; `just liveboot-*` is this independent development loop.
+
+## Scope: retained integration work and an experimental detour
+
+This harness and the kboop extensions grew beyond the requested fast iteration
+workflow during the September 2026 session. The extra whole-root RAM staging and
+its diagnostic modes are a retained runaway experiment: keep the code and
+evidence for now, but do not expand, resume debugging or promote them by default.
+RAM startup is still broken on Sargo. Only the USB-root integration has passed
+the hardware handoff checks below.
+
+These additions do not establish fastboop's long-term storage architecture. An
+opportunistic device-side block cache, LRU eviction and learned boot prefetching
+have not been implemented here. The tested commands invoke kboop; the exported
+fixture separates kernel/modules from rootfs and is not a standalone
+`fastboop boot rootfs.erofs` artifact.
 
 ## Host setup
 
@@ -159,7 +174,7 @@ USB-root hosting. Stopping it while the phone uses that root breaks the session.
 Verified RAM copies and loop mounts work, but both `.8` and `.11` attempts reset
 during userspace startup before the handoff report. Use the validated USB mode
 for trials that preserve its storage connection. Tests that interrupt USB need
-a resident root that has passed the independent-storage checks below.
+a storage strategy validated through those interruptions.
 
 To investigate resident mode, prepare with `--root-mode ram`:
 

@@ -11,6 +11,18 @@ installed-deployment acceptance after the experiment succeeds. Historical trial
 notes that require COPR describe their installed/package workflow; they do not
 prohibit this local development loop. Follow any explicit current user constraint.
 
+## Scope of the retained integration work
+
+The `tools/liveboot` harness and sibling kboop additions include a runaway scope
+expansion from the September 2026 trial work. Keep this work for now, including
+the optional whole-root RAM staging and diagnostics, but do not treat it as an
+agreed long-term fastboop architecture or a mandate for further expansion.
+The USB-root Sargo path passed; RAM-resident startup still fails and cannot
+validate USB disruption. Do not resume its debugging or promote its workarounds
+unless the current task asks for that. The proposed device-side block cache,
+LRU eviction and learned prefetching remain design ideas, not implemented here.
+Distinguish the tested kboop integration from standalone fastboop CLI support.
+
 ## Entry points
 
 - `just liveboot-fixture`: export a locally cached device OCI (registry digest or
@@ -35,9 +47,10 @@ there. Preserve concurrent changes in this shared repository.
 
 USB-backed EROFS is the default for quick kernel and userspace iterations. Tests
 that reset/disconnect the USB controller, change USB role, or remove the cable
-need a validated RAM-resident root. Check the current workflow's hardware evidence
-before choosing resident mode; a UART console alone does not make root storage
-independent. Do not report a USB-root run as acceptance of USB-loss behavior.
+need a storage strategy validated through those interruptions. The retained
+whole-root RAM experiment has not passed that gate. A UART console alone does
+not make root storage independent. Do not report a USB-root run as acceptance
+of USB-loss behavior.
 
 Match device product and exact serial, inspect UART ownership, and use the
 runner's locks; do not take over another task's device or console. Keep hosting
