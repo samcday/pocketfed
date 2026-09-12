@@ -20,7 +20,8 @@ def inspect(image):
         fields = line.split(maxsplit=8)
         if len(fields) == 9 and fields[0][0] in "dl-":
             paths.add(fields[8].split(" -> ", 1)[0].removeprefix("./"))
-    theme = "usr/share/plymouth/themes/fedora-mobile/"
+    theme = "usr/share/plymouth/themes/spinner/"
+    assert not any("/themes/fedora-mobile/" in path for path in paths), "retired custom theme in initrd"
     for required in (
         "usr/bin/plymouthd",
         "usr/bin/plymouth",
@@ -30,9 +31,12 @@ def inspect(image):
         "usr/lib64/plymouth/two-step.so",
         "usr/lib64/plymouth/label-freetype.so",
         "usr/share/fonts/Plymouth.ttf",
-        theme + "fedora-mobile.plymouth",
+        "usr/share/plymouth/themes/bgrt/bgrt.plymouth",
         theme + "keymap-render.png",
-        "usr/share/plymouth/themes/spinner/keymap-render.png",
+        theme + "watermark.png",
+        theme + "entry.png",
+        theme + "lock.png",
+        theme + "bullet.png",
     ):
         assert required in paths, f"initrd lacks {required}"
     assert any(path.startswith(theme + "throbber-") for path in paths), "animation assets missing"
@@ -47,8 +51,11 @@ def inspect(image):
     assert not forbidden, f"native GPU/panel payload in early initrd: {forbidden}"
     config = configparser.ConfigParser()
     config.read_string(lsinitrd("-f", "usr/share/plymouth/plymouthd.defaults"))
-    for key, value in {"Theme": "fedora-mobile", "UseSimpledrm": "1", "ShowDelay": "0"}.items():
+    for key, value in {"Theme": "bgrt", "UseSimpledrm": "1", "ShowDelay": "0"}.items():
         assert config["Daemon"][key] == value, f"incorrect Plymouth {key}"
+    config.read_string(lsinitrd("-f", "usr/share/plymouth/themes/bgrt/bgrt.plymouth"))
+    assert config["Plymouth Theme"]["ModuleName"] == "two-step", "incorrect BGRT renderer"
+    assert Path(config["two-step"]["ImageDir"]) == Path("/usr/share/plymouth/themes/spinner"), "incorrect BGRT asset directory"
     print(f"Plymouth initrd verified: {image} ({image.stat().st_size} bytes)")
 
 

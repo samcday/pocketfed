@@ -190,6 +190,10 @@ grep -Fxq \
 test -x /usr/libexec/pocketfed-aboot-finalize
 test -x /usr/libexec/abl-exorcist-assembler
 rpm -q python3
+rpm -q plymouth-theme-spinner fedora-logos
+if rpm -q plymouth-theme-fedora-mobile >/dev/null 2>&1; then
+    fail 'Sargo image still contains the retired custom Plymouth theme'
+fi
 
 dracut_policy=/etc/dracut.conf.d/60-google-sargo.conf
 grep -Fxq 'hostonly="yes"' "$dracut_policy"

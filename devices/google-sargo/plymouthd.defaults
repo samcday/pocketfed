@@ -1,7 +1,7 @@
 # Use ABL's framebuffer until native display initialization on the real root.
 # Administrators can override these defaults in /etc/plymouth/plymouthd.conf.
 [Daemon]
-Theme=fedora-mobile
+Theme=bgrt
 ShowDelay=0
 DeviceTimeout=8
 UseSimpledrm=1

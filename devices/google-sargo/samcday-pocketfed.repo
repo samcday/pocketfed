@@ -9,4 +9,4 @@ repo_gpgcheck=0
 enabled=1
 enabled_metadata=1
 priority=50
-includepkgs=81voltd,ModemManager,ModemManager-glib,libqmi,libqmi-utils,lpac,pocketfed-qmicli-pdc-fixed,q6voiced,flatpak*,phosh,libphosh,plymouth-theme-fedora-mobile
+includepkgs=81voltd,ModemManager,ModemManager-glib,libqmi,libqmi-utils,lpac,pocketfed-qmicli-pdc-fixed,q6voiced,flatpak*,phosh,libphosh
