@@ -1,0 +1,12 @@
+[Unit]
+Description=Initialize the inherited display before full coldplug
+DefaultDependencies=no
+After=systemd-udevd.service
+Before=plymouth-start.service systemd-udev-trigger.service
+ConditionPathExists=/sys/class/drm/card0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/pocketfed-plymouth-prepare-display
+TimeoutStartSec=5s

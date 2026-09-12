@@ -1,0 +1,38 @@
+#!/usr/bin/python3
+"""Verify the actual initrd's trial ordering and bounded optional coldplug."""
+from pathlib import Path
+import subprocess
+import sys
+
+image = Path(sys.argv[1])
+def content(path):
+    return subprocess.check_output(['lsinitrd', '-f', path, str(image)], text=True)
+
+def section(text, name):
+    result = {}
+    active = False
+    for line in text.splitlines():
+        if line.startswith('['):
+            active = line == '[' + name + ']'
+        elif active and '=' in line and not line.startswith('#'):
+            key, value = line.split('=', 1)
+            result.setdefault(key, []).extend(value.split())
+    return result
+
+units = 'usr/lib/systemd/system/'
+plymouth = section(content(units + 'plymouth-start.service'), 'Unit')
+assert 'systemd-udev-trigger.service' not in plymouth['After']
+assert {'systemd-udevd.service', 'pocketfed-plymouth-display.service'} <= set(plymouth['After'])
+assert 'pocketfed-plymouth-display.service' in plymouth['Wants']
+early = content(units + 'pocketfed-plymouth-display.service')
+assert {'plymouth-start.service', 'systemd-udev-trigger.service'} <= set(section(early, 'Unit')['Before'])
+assert section(early, 'Unit')['After'] == ['systemd-udevd.service']
+assert section(early, 'Service')['TimeoutStartSec'] == ['5s']
+script = content('usr/libexec/pocketfed-plymouth-prepare-display')
+assert 'timeout --kill-after=1s 2s udevadm trigger' in script
+assert '--subsystem-match=drm --subsystem-match=graphics --settle' in script
+assert 'exit 0' in script
+listing = subprocess.check_output(['lsinitrd', str(image)], text=True)
+assert 'usr/bin/timeout' in listing
+assert 'usr/bin/udevadm' in listing
+print('Early Plymouth initrd ordering verified:', image)

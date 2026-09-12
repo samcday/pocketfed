@@ -1,0 +1,8 @@
+# Opt-in installed trial; BASE_IMAGE must be an existing immutable image ID.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+COPY devices/google-sargo/plymouth-early-trial/95sargo-plymouth-early /usr/lib/dracut/modules.d/95sargo-plymouth-early
+COPY --chmod=0755 devices/google-sargo/plymouth-early-trial/install /tmp/install-plymouth-early-trial
+COPY --chmod=0755 devices/google-sargo/plymouth-early-trial/verify /usr/libexec/pocketfed-verify-plymouth-early-trial
+RUN /tmp/install-plymouth-early-trial && rm /tmp/install-plymouth-early-trial && \
+    /usr/libexec/pocketfed-verify-oci && bootc container lint --no-truncate

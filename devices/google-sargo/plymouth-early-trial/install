@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+test -e /run/.containerenv || test -e /.dockerenv
+save=$(mktemp -d)
+trap 'rm -rf "$save"' EXIT
+set -- /usr/lib/modules/*
+test "$#" -eq 1 && test -d "$1"
+module_dir=$1
+sha256sum "$module_dir/vmlinuz" "$module_dir/dtb/qcom/sdm670-google-sargo.dtb" \
+    /usr/libexec/pocketfed-sargo-network-search > "$save/retained"
+find /usr/share/plymouth/themes/fedora-mobile -type f -exec sha256sum {} + > "$save/theme"
+rpm -qa --qf '%{NEVRA}\n' | sort > "$save/packages"
+chmod +x /usr/lib/dracut/modules.d/95sargo-plymouth-early/{module-setup.sh,prepare-display}
+printf 'add_dracutmodules+=" sargo-plymouth-early "\n' > /etc/dracut.conf.d/95-sargo-plymouth-early.conf
+dracut --force --hostonly --hostonly-mode=strict --no-hostonly-cmdline \
+    --no-hostonly-default-device "$module_dir/initramfs.img" "${module_dir##*/}"
+/usr/libexec/pocketfed-verify-plymouth-initrd "$module_dir/initramfs.img"
+/usr/libexec/pocketfed-verify-plymouth-early-trial "$module_dir/initramfs.img"
+/usr/libexec/pocketfed-aboot-finalize \
+    --options 'root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true' \
+    --append-options-file /usr/lib/ostree-boot/aboot-kargs \
+    "$module_dir/aboot.img" "$save/aboot.img"
+install -m0644 "$save/aboot.img" "$module_dir/aboot.img"
+sha256sum -c "$save/retained"
+sha256sum -c "$save/theme" > /dev/null
+rpm -qa --qf '%{NEVRA}\n' | sort | cmp - "$save/packages"

@@ -1,0 +1,36 @@
+#!/usr/bin/python3
+"""Exercise success, failure and a stalled optional display coldplug."""
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import time
+
+script = Path(__file__).parent / '95sargo-plymouth-early/prepare-display'
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    mock = root / 'udevadm'
+    mock.write_text('''#!/bin/sh
+printf '%s\\n' "$*" > "$TRIAL_ARGUMENTS"
+case "$TRIAL_CASE" in
+    success) exit 0 ;;
+    failure) exit 1 ;;
+    stalled) exec sleep 30 ;;
+esac
+exit 2
+''')
+    mock.chmod(0o755)
+    for case in ('success', 'failure', 'stalled'):
+        env = dict(os.environ, PATH=str(root) + ':' + os.environ['PATH'],
+                   TRIAL_CASE=case, TRIAL_ARGUMENTS=str(root / 'arguments'))
+        start = time.monotonic()
+        result = subprocess.run(['sh', str(script)], env=env, text=True,
+                                capture_output=True, timeout=5)
+        elapsed = time.monotonic() - start
+        assert result.returncode == 0, (case, result)
+        assert (root / 'arguments').read_text().strip() == (
+            'trigger --action=add --subsystem-match=drm --subsystem-match=graphics --settle')
+        assert ('continuing with ordinary coldplug' in result.stdout) == (case != 'success')
+        if case == 'stalled':
+            assert 1.5 <= elapsed < 4, elapsed
+print('Optional display coldplug: success, failure and bounded timeout passed.')
