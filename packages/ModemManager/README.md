@@ -1,95 +1,82 @@
-# ModemManager suspend fix
+# ModemManager
 
-PocketFed forks Fedora's ModemManager packaging to fix an abort during suspend
-cleanup on Qualcomm modems using multiplexed data bearers. The package also
-retains PocketFed's existing netlink transaction lifetime correction.
+PocketFed packages upstream [1.25.95-dev](https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/tags/1.25.95-dev),
+the latest tagged release checked on 12 September 2026. This is an upstream
+development release. Its Meson project version is `1.25.95`; the RPM uses
+`1.25.95-1.pocketfed`, and the separate `upstream_tag` macro preserves the
+`-dev` suffix in the source URL and extracted directory name.
 
-The Fedora packaging base is dist-git commit
-[`fc074fd1e3d35afc57da502beb7790c361bd73ef`](https://src.fedoraproject.org/rpms/ModemManager/c/fc074fd1e3d35afc57da502beb7790c361bd73ef),
-whose `rpmautospec calculate-release` result is `5` (ModemManager 1.24.2-5).
-PocketFed uses release `5.1.pocketfed` so this build upgrades both Fedora's
-release 5 and the previous PocketFed release `4.1.pocketfed`.
-Fedora's build flags, subpackages, service integration, and `%meson_test`
-checks are retained. The downstream changes are the two patches, explicit
-release and expanded changelog, plus the bearer regression check in `%check`.
+The packaging retains Fedora's build flags, subpackages, service integration,
+and upstream Meson tests. Its Fedora base is dist-git commit
+[`fc074fd1e3d35afc57da502beb7790c361bd73ef`](https://src.fedoraproject.org/rpms/ModemManager/c/fc074fd1e3d35afc57da502beb7790c361bd73ef)
+(ModemManager 1.24.2-5). The upstream release requires **libqmi >= 1.37.95**;
+libmbim >= 1.32.0 and libqrtr-glib >= 1.0.0 remain sufficient.
 
 ## Source and patch provenance
 
-The previous PocketFed package was based on Fedora dist-git commit
-[`8fc8008d6bc39f95999ce7b7848ef291e7959217`](https://src.fedoraproject.org/rpms/ModemManager/c/8fc8008d6bc39f95999ce7b7848ef291e7959217),
-ModemManager 1.24.2-4. The later Fedora release-5 commit is a mass rebuild;
-the two commits' spec files are byte-identical and use the same source archive.
-The previous build's spec, excluding release, patch declaration, and generated
-changelog, also matches that Fedora spec.
+The annotated upstream tag points to commit
+`61e2f69d489eceb51c0ac21c2989c18c3f00f734`. Its source archive was compared with
+`git archive` of that tag: all 875 regular files match byte-for-byte.
+`sources` records the archive's SHA-512, and `sources.sha256` records its
+SHA-256 for PocketFed's common [COPR SRPM helper](../../.copr/Makefile).
+These are records for the upstream tag archive, not Fedora lookaside uploads.
+Source archives and build outputs remain outside Git.
 
-The checked-in `sources` file is Fedora's unmodified lookaside record. The
-source archive's SHA-512 was verified against it:
-
-```
-692d0699037845f7e189cc854f6fbaab90615c9eaaada83a00a02745d13bd87afac16349a4211425929a84cf373fda18475479bff64c9fe89cb35b361fb45663
-```
-
-`sources.sha256` records the same archive for PocketFed's common
-[COPR SRPM helper](../../.copr/Makefile). Source archives and build outputs
-remain outside Git.
-
-- `ModemManager-1.24.2-fix-netlink-transaction-use-after-free.patch` is preserved
-  byte-for-byte from the previous PocketFed
-  [COPR build 10709915](https://copr.fedorainfracloud.org/coprs/build/10709915).
-  It saves the completion callback before removing the transaction from its
-  owning hash table. The original device packaging identified upstream
-  `c0900eefe196` as the corresponding fix. The exact old
-  [source RPM](https://packages.redhat.com/api/pulp-content/public-copr/samcday/pocketfed/fedora-45-aarch64/Packages/m/ModemManager-1.24.2-4.1.pocketfed.fc45.src.rpm)
-  has SHA-256
-  `15c4bfe0c21fff11864ac6d5096f62e445f9b279ff3bc4a48d6876e6e3d18942`.
-- `ModemManager-1.24.2-fix-multiplexed-bearer-cleanup.patch` is the unmodified
-  upstream commit
+- The release already contains upstream
   [`0edcb916ad2b7267caf73bbd9a31e46da0727a00`](https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/commit/0edcb916ad2b7267caf73bbd9a31e46da0727a00),
-  “base-manager: fix cleanup of multiplexed bearers.” It adds multiplexed
-  capacity when counting ACTIVE or CONNECTED bearers. Both patches apply
-  cleanly to the exact Fedora source archive.
+  “base-manager: fix cleanup of multiplexed bearers.” The old downstream
+  bearer patch is removed; the production-source regression remains in `%check`.
+- `ModemManager-1.24.2-fix-netlink-transaction-use-after-free.patch` remains
+  byte-for-byte from [COPR build 10709915](https://copr.fedorainfracloud.org/coprs/build/10709915).
+  The tag still reads `tr->completion_fn` after removing the transaction from
+  its owning hash table. The retained patch saves that callback first and
+  applies without fuzz. Its filename records its original backport base.
+- The tag includes the SDM670 GNSS support from
+  [upstream merge request 1340](https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/merge_requests/1340)
+  and the later
+  [engine-unlock correction](https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/commit/9c4aeeb33a1abdc513f315247bbd8120780675ed).
+  This provides the upstream GNSS changes missing from PocketFed's old 1.24.2
+  package. Location fix quality and wake-to-LTE latency still require device
+  measurements; this version update does not change suspend policy or establish
+  those acceptance results.
 
-The old COPR package was an uploaded SRPM, with no configured SCM source.
-This directory is the maintained packaging fork for subsequent builds.
+The COPR package historically used uploaded SRPMs. This directory is the
+maintained packaging source for subsequent builds.
 
 ## Regression check
 
-The Sargo crash core showed one ACTIVE bearer, a regular bearer limit of zero,
-and a multiplexed limit of 254. The old counter compares that bearer against
-zero and aborts before modem cleanup starts. See the
+The original Sargo suspend crash had one ACTIVE multiplexed bearer, a regular
+bearer limit of zero, and a multiplexed limit of 254. ModemManager 1.24.2 without
+the fix compared the bearer against zero and aborted before cleanup. See the
 [device investigation](../../devices/google-sargo/modem-suspend.md).
 
 `test-bearer-count.py` extracts the production enums and complete counter
 functions from the prepared source tree, then compiles them unchanged against
-small modem/bearer fixtures and GLib. It does not reproduce the counting
-algorithm in the test. The nine cases cover the measured Sargo state,
-multiple multiplexed bearers, mixed bearer types, filtering, state transitions,
-a conventional modem, and an empty list.
-
-Before patching, the Sargo case reproduces the `max >= ctx.count` abort.
-With the upstream patch, all nine cases pass. This check is included in the
-RPM's `%check` alongside Fedora's upstream test suite. It verifies the source
-accounting fix; device suspend/resume and real voice calls remain separate
-acceptance tests.
-
-Run the check manually against a source tree after `%prep`:
+small modem/bearer fixtures and GLib. The nine cases cover the measured Sargo
+state, multiple multiplexed bearers, mixed types, filtering, transitions,
+a conventional modem, and an empty list. All nine pass against 1.25.95-dev.
+The RPM runs them alongside the full upstream Meson test suite.
 
 ```sh
-python3 packages/ModemManager/test-bearer-count.py /path/to/ModemManager-1.24.2
+python3 packages/ModemManager/test-bearer-count.py /path/to/ModemManager-1.25.95-dev
 ```
+
+The repository's `packages/test-modem-packages` helper also checks the exact
+pinned archive and applies the spec's remaining patch before running this
+regression and 81voltd's fake D-Bus lifecycle tests. No modem is accessed.
 
 ## Build
 
-The common `.copr/Makefile` can build this directory through the repository's
-usual `make_srpm` flow; `sources.sha256` enables its checksum verification.
-To prepare an uploaded SRPM from the repository root:
+The common `.copr/Makefile` builds this directory through the repository's
+usual `make_srpm` flow, verifying `sources.sha256`. To prepare an uploaded SRPM
+from the repository root:
 
 ```sh
 repo_dir=$PWD
 srpm_dir=$(mktemp -d)
 curl --fail --location \
-  https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/archive/1.24.2/ModemManager-1.24.2.tar.bz2 \
-  --output "$srpm_dir/ModemManager-1.24.2.tar.bz2"
+  https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/archive/1.25.95-dev/ModemManager-1.25.95-dev.tar.bz2 \
+  --output "$srpm_dir/ModemManager-1.25.95-dev.tar.bz2"
 (cd "$srpm_dir" && sha256sum --check "$repo_dir/packages/ModemManager/sources.sha256")
 cp packages/ModemManager/*.patch packages/ModemManager/test-bearer-count.py "$srpm_dir/"
 rpmbuild -bs \
@@ -98,15 +85,20 @@ rpmbuild -bs \
   packages/ModemManager/ModemManager.spec
 copr-cli build --nowait \
   -r fedora-rawhide-aarch64 -r fedora-rawhide-x86_64 -r fedora-45-aarch64 \
-  samcday/pocketfed "$srpm_dir/ModemManager-1.24.2-5.1.pocketfed.fc46.src.rpm"
+  samcday/pocketfed "$srpm_dir/ModemManager-1.25.95-1.pocketfed.fc46.src.rpm"
 ```
 
-The package is selected by version checks in the Sargo, Crosshatch, and Fajita
-image definitions. When Fedora carries both corrections, validate its package
-and retire the downstream pins and COPR override together.
+Build the required libqmi package in the same COPR targets first. The Sargo,
+Crosshatch, and Fajita image definitions require this ModemManager RPM version.
+Retire the COPR override and version pins together after a suitable Fedora
+package is validated.
 
+[The historical build record](builds/1.24.2-5.1.pocketfed.json) preserves the previous
+COPR and deployment verification. The previous
 [COPR build 10955548](https://copr.fedorainfracloud.org/coprs/build/10955548)
-succeeded on all three requested targets. Each passed the nine bearer counter
-cases and 32 upstream tests. [build.json](build.json) records source/RPM hashes,
-verified signatures and image integration checks. Device suspend/call acceptance
-remains separate from these build results.
+was 1.24.2-5.1.pocketfed and passed nine bearer cases plus 32 upstream tests on
+all three targets; those historical counts are not evidence for this release.
+
+[build.json](build.json) records the upstream source, source RPM hash, COPR build
+and target chroots for this version. The linked COPR results contain the binary
+build logs and package test results.

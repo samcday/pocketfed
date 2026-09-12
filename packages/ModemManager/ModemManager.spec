@@ -6,19 +6,18 @@
 %global qrtr_version %(pkg-config --modversion qrtr-glib 2>/dev/null || echo bad)
 
 %global forgeurl https://gitlab.freedesktop.org/mobile-broadband/ModemManager
+%global upstream_tag %{version}-dev
 
 Name: ModemManager
-Version: 1.24.2
-Release: 5.1.pocketfed%{?dist}
+Version: 1.25.95
+Release: 1.pocketfed%{?dist}
 Summary: Mobile broadband modem management service
 License: GPL-2.0-or-later
 URL: %{forgeurl}
-Source0: %{forgeurl}/-/archive/%{version}/%{name}-%{version}.tar.bz2
+Source0: %{forgeurl}/-/archive/%{upstream_tag}/%{name}-%{upstream_tag}.tar.bz2
 Source1: test-bearer-count.py
 # Preserve the existing PocketFed netlink transaction lifetime correction.
 Patch0: ModemManager-1.24.2-fix-netlink-transaction-use-after-free.patch
-# Upstream 0edcb916ad2b7267caf73bbd9a31e46da0727a00.
-Patch1: ModemManager-1.24.2-fix-multiplexed-bearer-cleanup.patch
 
 # For mbim-proxy and qmi-proxy
 Requires: libmbim-utils
@@ -49,7 +48,7 @@ BuildRequires: gobject-introspection-devel >= 1.38
 BuildRequires: gtk-doc
 BuildRequires: libgudev1-devel >= 232
 BuildRequires: libmbim-devel >= 1.32.0
-BuildRequires: libqmi-devel >= 1.36.0
+BuildRequires: libqmi-devel >= 1.37.95
 BuildRequires: libqrtr-glib-devel >= 1.0.0
 BuildRequires: systemd
 BuildRequires: systemd-devel >= 209
@@ -112,7 +111,7 @@ Vala bindings for ModemManager
 
 
 %prep
-%autosetup -p1
+%autosetup -n %{name}-%{upstream_tag} -p1
 
 
 %build
@@ -205,6 +204,12 @@ CC="%{__cc}" %{__python3} %{SOURCE1} .
 
 
 %changelog
+* Sat Sep 12 2026 Sam Day <me@samcday.com> - 1.25.95-1.pocketfed
+- Update to upstream development release 1.25.95-dev, including SDM670 GNSS support
+- Require libqmi 1.37.95 as specified by the upstream release
+- Drop the merged bearer cleanup patch and retain the production counter regression
+- Retain the netlink transaction use-after-free correction, absent from this tag
+
 * Mon Sep 07 2026 Sam Day <me@samcday.com> - 1.24.2-5.1.pocketfed
 - Backport upstream multiplexed bearer cleanup fix for suspend
 - Exercise the packaged bearer-count source in the regression check

@@ -1,0 +1,19 @@
+{
+  "chroots": [
+    "fedora-rawhide-aarch64",
+    "fedora-rawhide-x86_64",
+    "fedora-45-aarch64"
+  ],
+  "signing_key_fingerprint": "F247F3B726A312E90D74BB76E220B1E0AE59FCB5",
+  "build_id": 10978224,
+  "url": "https://copr.fedorainfracloud.org/coprs/build/10978224",
+  "upstream_tag": "1.38.0",
+  "upstream_commit": "e3d79ed3f7fdc6a7fa8b374860b1c23a8f172812",
+  "source_archive_sha256": "742cd353a7b6f64285c444cf33242176c70c4d711b877bec15e1f4ed3e064f1a",
+  "source_rpm": "libqmi-1.38.0-1.1.pocketfed.fc46.src.rpm",
+  "source_rpm_sha256": "b1496e6e5be318f5ce9b78345c3d612a97a6eed9bd4db03791c34fd8afd322cb",
+  "configured_checks": [
+    "upstream Meson test suite",
+    "generated GIR PDC and UIM byte-array annotations"
+  ]
+}
