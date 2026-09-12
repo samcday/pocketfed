@@ -21,10 +21,10 @@ import urllib.request
 
 PACKAGES = {
     "ModemManager": (
-        "ModemManager-1.24.2.tar.bz2",
+        "ModemManager-1.25.95-dev.tar.bz2",
         "https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/archive/"
-        "1.24.2/ModemManager-1.24.2.tar.bz2",
-        "ModemManager-1.24.2",
+        "1.25.95-dev/ModemManager-1.25.95-dev.tar.bz2",
+        "ModemManager-1.25.95-dev",
     ),
     "81voltd": (
         "81voltd-v1.2.0.tar.gz",

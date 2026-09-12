@@ -29,7 +29,9 @@ grep -Fxq 'ExecStart=/usr/libexec/pocketfed-sargo-typec-host' \
     fail 'Type-C host request must not start automatically on attachment'
 grep -Fq 'ACTION=="add|change"' /usr/lib/udev/rules.d/99-pocketfed-sargo-typec-host.rules
 rpm -q --qf '%{VERSION}-%{RELEASE}\n' ModemManager |
-    grep -Eq '^1\.24\.2-5\.1\.pocketfed\.fc[0-9]+$'
+    grep -Eq '^1\.25\.95-1\.pocketfed\.fc[0-9]+$'
+rpm -q --qf '%{VERSION}-%{RELEASE}\n' libqmi |
+    grep -Eq '^1\.38\.0-1\.1\.pocketfed\.fc[0-9]+$'
 
 # Enumerate compiled capabilities with stdio backends: no card, modem, D-Bus,
 # PC/SC daemon or provisioning server is contacted during image verification.

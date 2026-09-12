@@ -1,146 +1,20 @@
 {
-  "build_id": 10955548,
-  "url": "https://copr.fedorainfracloud.org/coprs/build/10955548",
-  "source_rpm": "ModemManager-1.24.2-5.1.pocketfed.fc46.src.rpm",
-  "source_rpm_sha256": "b3e3141f6649c2c22bb8c5debb082b4f17bf4611270b527c47ef4d0ee464abe7",
-  "fedora_distgit_commit": "fc074fd1e3d35afc57da502beb7790c361bd73ef",
-  "results": {
-    "fedora-45-aarch64": {
-      "state": "succeeded",
-      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-45-aarch64/10955548-ModemManager/",
-      "validation": {
-        "upstream_meson_tests": {
-          "passed": 32,
-          "failed": 0
-        },
-        "bearer_counter_cases": 9
-      },
-      "rpms": [
-        {
-          "name": "ModemManager-1.24.2-5.1.pocketfed.fc45.aarch64.rpm",
-          "sha256": "ea98addbdbdb6163aaaa3fc159ee9bf2a7a1d397a74bc04905dae5a47c99fbe7",
-          "signatures_verified": true
-        },
-        {
-          "name": "ModemManager-glib-1.24.2-5.1.pocketfed.fc45.aarch64.rpm",
-          "sha256": "ba5427d82fc2e287ccae5e71e619dcf40744aed983e03db542c411584382d17e",
-          "signatures_verified": true
-        }
-      ]
-    },
-    "fedora-rawhide-aarch64": {
-      "state": "succeeded",
-      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-aarch64/10955548-ModemManager/",
-      "validation": {
-        "upstream_meson_tests": {
-          "passed": 32,
-          "failed": 0
-        },
-        "bearer_counter_cases": 9
-      },
-      "rpms": [
-        {
-          "name": "ModemManager-1.24.2-5.1.pocketfed.fc46.aarch64.rpm",
-          "sha256": "e65bd7d8b2f78c2938aa4ed48bfe7356bb65476aec75a06478da26c19898f7c7",
-          "signatures_verified": true
-        },
-        {
-          "name": "ModemManager-glib-1.24.2-5.1.pocketfed.fc46.aarch64.rpm",
-          "sha256": "947a796f57b0d9f7579a517f5582e583f51d3fc7df7573cc16a817bf3da601fb",
-          "signatures_verified": true
-        }
-      ]
-    },
-    "fedora-rawhide-x86_64": {
-      "state": "succeeded",
-      "result_url": "https://download.copr.fedorainfracloud.org/results/samcday/pocketfed/fedora-rawhide-x86_64/10955548-ModemManager/",
-      "validation": {
-        "upstream_meson_tests": {
-          "passed": 32,
-          "failed": 0
-        },
-        "bearer_counter_cases": 9
-      },
-      "rpms": [
-        {
-          "name": "ModemManager-1.24.2-5.1.pocketfed.fc46.x86_64.rpm",
-          "sha256": "c49489dd6cb73293a03e21d32c151eb8b40d663240f6b5a7aa54f38759475d1c",
-          "signatures_verified": true
-        },
-        {
-          "name": "ModemManager-glib-1.24.2-5.1.pocketfed.fc46.x86_64.rpm",
-          "sha256": "4a97cbd91e1f7b5df6c5741dd2529cccb751d24ac2391b7fb7193a8db49e1660",
-          "signatures_verified": true
-        }
-      ]
-    }
-  },
+  "chroots": [
+    "fedora-rawhide-aarch64",
+    "fedora-rawhide-x86_64",
+    "fedora-45-aarch64"
+  ],
   "signing_key_fingerprint": "F247F3B726A312E90D74BB76E220B1E0AE59FCB5",
-  "image_validation": {
-    "image": "localhost/sam-sargo:personal-baseline",
-    "architecture": "aarch64 (QEMU on x86_64)",
-    "network": "disabled",
-    "checks": [
-      "combined RPM dependency transaction",
-      "signed RPM installation",
-      "rpm -V for all three runtime packages",
-      "ModemManager --version",
-      "81voltd shared-library resolution",
-      "updated Sargo pocketfed-verify-oci"
-    ],
-    "result": "passed",
-    "device_acceptance": "Cold-boot modem/IMS checks passed; controlled suspend/wake/call tests pending"
-  },
-  "sargo_rollout": {
-    "device": "sam-sargo",
-    "checked_at": "2026-09-07T09:58:00+10:00",
-    "state": "booted; cold-boot modem/IMS checks passed",
-    "deployment_checksum": "356d00c9ee8564b36159ed521ff4a44d0427ec711408ea8f4a4cf97b2c2c57a9",
-    "retained_booted_checksum": "1912fa2d44e96afbdaf7e765e4a611b21bf528d16e97cbbb892a31bde7885c37",
-    "preserved_customizations": [
-      "gtk4-4.23.4-1.1.pocketfed.fc46",
-      "feedbackd-device-themes-0.8.9-1.fc46",
-      "tailscale"
-    ],
-    "pre_reboot_imsa": "registered; voice and SMS available over WWAN",
-    "suspend_wake_call_acceptance": "pending",
-    "staging_services_restarted": false,
-    "activation": {
-      "boot_id": "4b818fb7-f39d-400c-b141-21e704e72f6d",
-      "deployment_checksum": "356d00c9ee8564b36159ed521ff4a44d0427ec711408ea8f4a4cf97b2c2c57a9",
-      "imsa_checked_at": "2026-09-07T10:05:47+10:00",
-      "modemmanager": {
-        "pid": 1469,
-        "restarts": 0,
-        "version": "1.24.2-5.1.pocketfed.fc46.aarch64"
-      },
-      "81voltd": {
-        "pid": 1534,
-        "restarts": 0,
-        "version": "1.2.0-1.1.pocketfed.fc46.aarch64"
-      },
-      "data_bearer": {
-        "id": 1,
-        "apn": "mdata.net.au",
-        "ip_type": "ipv4",
-        "connected": true
-      },
-      "ims_bearer": {
-        "id": 2,
-        "apn": "ims",
-        "ip_type": "ipv6",
-        "profile_id": 2,
-        "connected": true
-      },
-      "imsa": {
-        "registration": "registered",
-        "voice": "available",
-        "sms": "available",
-        "technology": "WWAN"
-      },
-      "calls_at_capture": 0,
-      "cold_boot_result": "passed",
-      "suspend_wake_and_call_audio": "pending controlled tests"
-    }
-  }
+  "build_id": 10978225,
+  "url": "https://copr.fedorainfracloud.org/coprs/build/10978225",
+  "upstream_tag": "1.25.95-dev",
+  "upstream_commit": "61e2f69d489eceb51c0ac21c2989c18c3f00f734",
+  "source_archive_sha256": "9ff6a5328550abfb39811c2848290d31ee14212e4b2f9303bcc6f67101badc80",
+  "source_rpm": "ModemManager-1.25.95-1.pocketfed.fc46.src.rpm",
+  "source_rpm_sha256": "c86733434874374302ff7ee32eda7304d8e5131051280b4442d82be8bdbf16e0",
+  "dependency_build_id": 10978224,
+  "configured_checks": [
+    "nine production-source bearer counter cases",
+    "upstream Meson test suite"
+  ]
 }

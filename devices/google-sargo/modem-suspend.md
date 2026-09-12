@@ -165,7 +165,7 @@ succeeded for Fedora Rawhide aarch64, Rawhide x86_64 and Fedora 45 aarch64.
 Each target passed nine production-source bearer counter cases and all 32
 upstream Meson tests. Runtime RPM signatures were verified against the
 samcday/pocketfed signing key; source/RPM hashes and results are recorded in
-[build.json](../../packages/ModemManager/build.json).
+[historical build record](../../packages/ModemManager/builds/1.24.2-5.1.pocketfed.json).
 
 [81voltd's maintained package](../../packages/81voltd/README.md) now carries
 readiness gating, prompt Start acknowledgement, pending-request cancellation,
