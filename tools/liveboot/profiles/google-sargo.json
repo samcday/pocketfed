@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "id": "google-sargo",
+  "display_name": "PocketFed Pixel 3a liveboot",
+  "devicetree_name": "qcom/sdm670-google-sargo",
+  "match": [
+    {
+      "fastboot": {
+        "vid": 6353,
+        "pid": 20192
+      }
+    }
+  ],
+  "probe": [
+    {
+      "fastboot.getvar": "product",
+      "equals": "sargo"
+    }
+  ],
+  "boot": {
+    "fastboot_boot": {
+      "android_bootimg": {
+        "header_version": 2,
+        "page_size": 4096,
+        "base": 0,
+        "kernel_offset": 32768,
+        "dtb_offset": 50331648,
+        "kernel": {
+          "encoding": "image.gz"
+        }
+      }
+    }
+  },
+  "ramdisk_offset": 67108864,
+  "dracut_config": "tools/liveboot/profiles/google-sargo-initrd.conf",
+  "cmdline": [
+    "console=ttyMSM0,115200n8",
+    "earlycon",
+    "init_on_alloc=0",
+    "sysrq_always_enabled=1",
+    "module_blacklist=rpmsg_wwan_ctrl",
+    "systemd.firstboot=off",
+    "systemd.wants=pocketfed-liveboot-check.service",
+    "systemd.wants=pocketfed-liveboot-labels.service",
+    "systemd.unit=multi-user.target"
+  ],
+  "fixture_image": "ghcr.io/samcday/pocketfed-phosh-google-sargo@sha256:bfb17e069aef329113a41d3b42c348e5f866d40f72e8a4ff16d2ceb0ce4db881"
+}

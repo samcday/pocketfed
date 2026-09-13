@@ -1,0 +1,22 @@
+[Unit]
+Description=Restore disposable PocketFed writable-root labels
+DefaultDependencies=no
+ConditionKernelCommandLine=pocketfed.liveboot
+ConditionSecurity=selinux
+After=systemd-remount-fs.service
+Before=systemd-sysusers.service systemd-tmpfiles-setup-dev-early.service systemd-tmpfiles-setup-dev.service systemd-tmpfiles-setup.service systemd-timesyncd.service ldconfig.service sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/echo POCKETFED_LIVEBOOT_LABELS_BEFORE
+ExecStart=/usr/bin/ls -Zd / /etc /usr /usr/lib /usr/lib/modules /var /run
+ExecStart=/usr/bin/restorecon -F / /usr /usr/lib /usr/lib/modules
+ExecStart=/usr/bin/restorecon -RF -x /etc /var
+ExecStart=/usr/bin/echo POCKETFED_LIVEBOOT_LABELS_AFTER
+ExecStart=/usr/bin/ls -Zd / /etc /usr /usr/lib /usr/lib/modules /var /run
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=sysinit.target
