@@ -1,0 +1,21 @@
+[package]
+name = "premouth"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+description = "Experimental Sargo ABL framebuffer capture and bottom-up dissolve"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[[bin]]
+name = "premouth"
+path = "src/main.rs"
+
+[dependencies]
+drm = { version = "=0.14.1", default-features = false }
+libc = "0.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
