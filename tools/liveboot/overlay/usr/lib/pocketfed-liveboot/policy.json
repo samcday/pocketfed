@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "runtime": "usb-stream",
+  "purpose": "disposable kernel development userspace",
+  "masked_units": [
+    "qbootctl.service",
+    "usb-signaller.service",
+    "usb-moded.service",
+    "usb-moded-developer-mode.service",
+    "usb-moded-tethering-mode.service",
+    "usb-moded-mtp-mode.service",
+    "pocketfed-usb-developer-mode.service",
+    "pocketfed-sargo-typec-host.service",
+    "dbus-com.meego.usb_moded.service",
+    "rpm-ostreed-automatic.service",
+    "rpm-ostreed-automatic.timer",
+    "bootc-fetch-apply-updates.service",
+    "bootc-fetch-apply-updates.timer",
+    "bootc-finalize-staged.service",
+    "bootc-destructive-cleanup.service",
+    "systemd-growfs-root.service",
+    "sleep.target",
+    "suspend.target",
+    "hibernate.target",
+    "hybrid-sleep.target",
+    "suspend-then-hibernate.target"
+  ]
+}

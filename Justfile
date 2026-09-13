@@ -279,3 +279,23 @@ vars:
     @printf 'builder_image=%s\n' "{{builder_image}}"
     @printf 'sudo=%s\n' "{{sudo}}"
     @printf 'oci_output=%s\n' "{{oci_output}}"
+
+# Local disposable trials; independent of base/device/builder/fastboot.
+liveboot-fixture +args:
+    PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 tools/liveboot/prepare-fixture.py --overlay tools/liveboot/overlay --smoo-policy {{args}}
+
+liveboot-kernel +args:
+    PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 tools/liveboot/build-kernel.py {{args}}
+
+liveboot-prepare +args:
+    PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 tools/liveboot/run.py prepare --profile tools/liveboot/profiles/google-sargo.json {{args}}
+
+liveboot-boot +args:
+    PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 tools/liveboot/run.py boot {{args}}
+
+liveboot-sysrq +args:
+    PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 tools/liveboot/run.py sysrq {{args}}
+
+liveboot-help:
+    @/usr/bin/python3 tools/liveboot/run.py --help
+    @printf '\nWorkflow: tools/liveboot/README.md\n'
