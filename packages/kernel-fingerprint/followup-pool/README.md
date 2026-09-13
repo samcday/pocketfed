@@ -7,7 +7,7 @@ between commands. Each staging allocation is still fully cleared and released.
 The userspace-mapped TEE pool stays separate.
 
 The kernel change is on
-[samcday/linux's focused review branch](https://github.com/samcday/linux/tree/codex/sargo-fingerprint-invoke-pool-fix),
+[kernel draft PR #3](https://github.com/samcday/linux/pull/3),
 based on preserved kernel .11 source at commit
 `132283913205a1db1d57fc3e563eea8224f5b79a`. The accompanying patch is the same
 driver change; the kernel repository also carries the .12 packaging release.
