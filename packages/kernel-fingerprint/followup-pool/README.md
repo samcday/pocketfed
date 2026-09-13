@@ -51,8 +51,11 @@ commit `3ad4e5eac8aa16c1e6dcf291fdec4fb906f803d0`; the later review commit only
 removes trailing changelog whitespace. The trial-only module parameter is absent
 from the production source.
 
-Interactive Settings reopen/enrollment retention, real match/nonmatch, Phosh
-unlock, PIN fallback and full-reboot persistence remain pending. These checks
+Physical Settings testing passed additional finger enrollments, a dozen more
+dialog reopens and sampled matching/nonmatching feedback. The same .12 boot
+remained responsive without observed UART stall signatures. Phosh scanning is
+now enabled for the next physical check. Phosh unlock, PIN fallback and
+full-reboot persistence remain pending. These checks
 support the allocator change but do not prove the underlying platform fault or
 long-term reliability. Private device logs, firmware, credentials and biometric
 templates are excluded from this review.
