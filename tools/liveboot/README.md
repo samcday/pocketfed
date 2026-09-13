@@ -29,9 +29,11 @@ fixture separates kernel/modules from rootfs and is not a standalone
 
 ## Host setup
 
-Use the kboop version containing `--kernel-bundle`, `--prepared`, ABLX ramdisk
-support, and `--resident-root`. Build an optimized host CLI and a static ARM64
-init as described in [the kboop README](https://github.com/samcday/kboop#readme):
+The matching kboop implementation is under review in
+[samcday/kboop#1](https://github.com/samcday/kboop/pull/1); use that branch until it
+lands. It supplies `--kernel-bundle`, `--prepared`, ABLX ramdisk support, and the
+optional `--resident-root` experiment. Build an optimized host CLI and a static
+ARM64 init as described in that branch's README:
 
 ```sh
 cd ../kboop
