@@ -2,7 +2,7 @@
   "base_commit": "132283913205a1db1d57fc3e563eea8224f5b79a",
   "source_before_sha256": "57b8f1e905126cb1348b70cb9669f2cea31b686dba8906730a943975368ede08",
   "source_after_sha256": "4dd57140a62c8e476940d6bd8c6ad17f71d59969f6282a53bdff3eb17a9b7bf0",
-  "status": "ARM64 COPR build, image comparison, installed boot, 50-cycle service-lifetime test and physical Settings enrollment/reopening/feedback passed; Phosh and reboot persistence pending",
+  "status": "Passed: ARM64 COPR build, image comparison, installed boot, 50-cycle service-lifetime test, Settings enrollment/reopening/feedback, repeated Phosh fingerprint unlock/rejection/PIN fallback, and full-reboot persistence",
   "patch_sha256": "3f6d92273700c316b89d913bd8539aa3881505e7d9f907230c8477ec2f1add2f",
   "copr_build_id": 10980882,
   "source_rpm_sha256": "389c6ed63da1d6cf96c9d014131b01ffea0d7e71b9cf322dd0f4e0bf74cc6c9b"

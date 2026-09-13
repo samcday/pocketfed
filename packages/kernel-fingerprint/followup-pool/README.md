@@ -7,7 +7,7 @@ between commands. Each staging allocation is still fully cleared and released.
 The userspace-mapped TEE pool stays separate.
 
 The kernel change is on
-[kernel draft PR #3](https://github.com/samcday/linux/pull/3),
+[kernel PR #3](https://github.com/samcday/linux/pull/3),
 based on preserved kernel .11 source at commit
 `132283913205a1db1d57fc3e563eea8224f5b79a`. The accompanying patch is the same
 driver change; the kernel repository also carries the .12 packaging release.
@@ -52,10 +52,21 @@ removes trailing changelog whitespace. The trial-only module parameter is absent
 from the production source.
 
 Physical Settings testing passed additional finger enrollments, a dozen more
-dialog reopens and sampled matching/nonmatching feedback. The same .12 boot
-remained responsive without observed UART stall signatures. Phosh scanning is
-now enabled for the next physical check. Phosh unlock, PIN fallback and
-full-reboot persistence remain pending. These checks
-support the allocator change but do not prove the underlying platform fault or
-long-term reliability. Private device logs, firmware, credentials and biometric
-templates are excluded from this review.
+dialog reopens and sampled matching/nonmatching feedback. A normal reboot of
+the same .12 deployment preserved enrollment metadata and automatically started
+the fingerprint socket. After the initial PIN login, the user confirmed roughly
+six further cycles alternating Phosh lock/unlock, multiple enrolled fingers,
+wrong-finger rejection, PIN fallback and Settings tester matching/nonmatching
+feedback. The phone remained responsive on the same boot, with SELinux enforcing
+and no observed UART stall signatures. The ordinary PIN configuration stayed
+unchanged.
+
+The requested Settings and Phosh acceptance is complete. The brief Phosh
+wrong-fingerprint message remains a UX follow-up. Transient authentication workers
+also retain failed-unit bookkeeping for exit status 1, which covers authentication
+failure and client disconnect; none in the final snapshot timed out or crashed.
+The logs do not distinguish each individual transaction's reason for that status.
+
+These checks support the allocator change but do not prove the underlying
+platform fault or long-term reliability. Private device logs, firmware,
+credentials and biometric templates are excluded from this review.
