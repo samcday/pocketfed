@@ -9,6 +9,8 @@ readonly UPSTREAM_COMMIT=191e202178f02430b5942397c70d215cdd2056fa
 readonly UPSTREAM_TAG=v0.7.2
 readonly BUILD_JOBS=2
 readonly IPA_SIGN_MARKER=ipa-sign-install.sh
+readonly IPA_RESIGN_GLOB='%{buildroot}/%{_libdir}/libcamera/ipa_*.so'
+readonly IPA_RESIGN_GLOB_FIXED='%{buildroot}/%{_libdir}/libcamera/ipa/*.so'
 readonly EXACT_REQUIRE='%{name}%{?_isa} = %{version}-%{release}'
 readonly SOURCE_ARCHIVE=libcamera-v0.7.2.tar.bz2
 readonly RUN_PREFIX=pocketfed-libcamera-native-
@@ -36,6 +38,8 @@ check_mode=0
 fedora_patches=
 task_patches=
 rpms_records=
+spec_original_sha256=
+spec_packaged_sha256=
 
 log() { printf '%s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -200,6 +204,30 @@ verify_fedora_payload() {
     verify_spec_properties "$directory/libcamera.spec" "$dist"
 }
 
+correct_fedora_spec() {
+    local spec=$1
+    [[ -f $spec ]] || die "missing spec: $spec"
+    spec_original_sha256=$(sha256_of "$spec")
+    if ! python3 - "$spec" "$IPA_RESIGN_GLOB" "$IPA_RESIGN_GLOB_FIXED" <<'PY'
+import sys
+
+path, old, new = sys.argv[1:4]
+with open(path, encoding="utf-8") as handle:
+    text = handle.read()
+if text.count(old) != 1:
+    raise SystemExit(f"expected exactly one {old!r}, found {text.count(old)}")
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(text.replace(old, new))
+PY
+    then
+        die "Fedora IPA re-sign glob is not the expected single occurrence ($IPA_RESIGN_GLOB)"
+    fi
+    spec_packaged_sha256=$(sha256_of "$spec")
+    [[ $spec_original_sha256 != "$spec_packaged_sha256" ]] || die \
+        "Fedora IPA re-sign glob correction did not change $spec"
+    log "corrected the Fedora IPA re-sign glob for the packaged spec"
+}
+
 fedora_patch_records() {
     local directory=$1 file
     fedora_patches=
@@ -280,6 +308,8 @@ write_manifest() {
         LC_SOURCE_EXPECTED="$source_expected" LC_SOURCE_ACTUAL="$source_archive_sha256" \
         LC_FEDORA_PATCHES="$fedora_patches" LC_TASK_PATCHES="$task_patches" \
         LC_RPMS="$rpms_records" LC_ARCH="$arch" LC_GCC="$gcc_version" \
+        LC_SPEC_ORIGINAL="$spec_original_sha256" LC_SPEC_PACKAGED="$spec_packaged_sha256" \
+        LC_IPA_GLOB_ORIGINAL="$IPA_RESIGN_GLOB" LC_IPA_GLOB_FIXED="$IPA_RESIGN_GLOB_FIXED" \
         LC_MESON="$meson_version" LC_NINJA="$ninja_version" \
         LC_RPM="$rpm_version" LC_RPMBUILD="$rpmbuild_version"
     python3 - <<'PY'
@@ -306,6 +336,13 @@ data = {
                        "regenerated_sha256": os.environ["LC_SOURCE_ACTUAL"]},
     "fedora_patches": records(os.environ["LC_FEDORA_PATCHES"]),
     "task_patches": records(os.environ["LC_TASK_PATCHES"]),
+    "fedora_spec": {
+        "original_sha256": os.environ["LC_SPEC_ORIGINAL"],
+        "packaged_sha256": os.environ["LC_SPEC_PACKAGED"],
+        "changes": [{"from": os.environ["LC_IPA_GLOB_ORIGINAL"],
+                     "to": os.environ["LC_IPA_GLOB_FIXED"],
+                     "reason": "libcamera 0.7.2 installs IPA modules under libcamera/ipa/"}],
+    },
     "toolchain": {"arch": os.environ["LC_ARCH"], "gcc": os.environ["LC_GCC"],
                   "meson": os.environ["LC_MESON"], "ninja": os.environ["LC_NINJA"],
                   "rpm": os.environ["LC_RPM"], "rpmbuild": os.environ["LC_RPMBUILD"]},
@@ -347,8 +384,9 @@ main() {
         scratch=$(mktemp -d "${TMPDIR:-/tmp}/pocketfed-libcamera-check.XXXXXX")
         unpack_srpm "$scratch"
         verify_fedora_payload "$scratch"
+        correct_fedora_spec "$scratch/libcamera.spec"
         rm -rf "$scratch"
-        log "check passed: SRPM, embedded archive, Fedora spec layout, clone and build root"
+        log "check passed: SRPM, embedded archive, Fedora spec layout and IPA re-sign glob, clone and build root"
         log "release would be $release"
         log "no source was built"
         return 0
@@ -358,6 +396,7 @@ main() {
     unpack_srpm "$build_root/fedora"
     verify_fedora_payload "$build_root/fedora"
     install_fedora_packaging "$build_root/fedora"
+    correct_fedora_spec "$build_root/rpmbuild/SPECS/libcamera.spec"
     fedora_patch_records "$build_root/fedora"
     rm -rf "$build_root/fedora"
     package_source_from_clone

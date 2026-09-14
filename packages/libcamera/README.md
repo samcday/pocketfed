@@ -22,15 +22,20 @@ The helper uses the Fedora spec, the two downstream patches
 auxiliary sources (`qcam.desktop`, `qcam.metainfo.xml`, `70-libcamera.rules`)
 unmodified from the verified SRPM. It therefore keeps:
 
-- the Fedora IPA re-signing step (`ipa-sign-install.sh` after debug stripping);
+- the Fedora IPA re-signing step (`ipa-sign-install.sh` after debug stripping),
+  with one path correction: the spec globs `%{_libdir}/libcamera/ipa_*.so`,
+  but 0.7.2 installs its IPA modules under `%{_libdir}/libcamera/ipa/`, so the
+  re-sign script silently matched nothing. The helper rewrites exactly that
+  line to `%{_libdir}/libcamera/ipa/*.so` in the packaged spec;
 - the exact subpackage set (`libcamera`, `-devel`, `-ipa`, `-tools`, `-qcam`,
   `-gstreamer`, `-v4l2`, `python3-libcamera`);
 - every version-locked subpackage dependency,
   `Requires: %{name}%{?_isa} = %{version}-%{release}`.
 
-The helper refuses to run if the spec no longer re-signs IPA modules, if fewer
-than all subpackages keep that exact `Requires`, or if the subpackage set
-differs.
+The helper refuses to run if the spec no longer re-signs IPA modules, if the
+expected re-sign glob is absent or not a single occurrence, if fewer than all
+subpackages keep that exact `Requires`, or if the subpackage set differs. It
+corrects the glob path only and does not verify module signatures.
 
 The candidate adds the pinned postmarketOS IMX363 tuning file; see
 [tuning provenance](tuning-provenance.md). Its colour remains unvalidated.
@@ -79,9 +84,10 @@ source archive from the clone, applies any task patches in
 The build writes a private manifest at `$build_root/manifest.json` (never
 committed). It records the iteration and `.fc46.native.N` release, the upstream
 commit and tag, the original SRPM name/hash, the expected and regenerated
-source archive hashes, the Fedora and task patch names/hashes, the toolchain
-(`arch`, `gcc`, `meson`, `ninja`, `rpm`, `rpmbuild`) and each built RPM path
-with its SHA256.
+source archive hashes, the Fedora and task patch names/hashes, the original and
+packaged Fedora spec hashes with the exact IPA re-sign glob change, the
+toolchain (`arch`, `gcc`, `meson`, `ninja`, `rpm`, `rpmbuild`) and each built
+RPM path with its SHA256.
 
 ## Installing the trial
 
@@ -121,6 +127,23 @@ python3 packages/libcamera/validation/test-build-native.py
 **No successful `build-native` RPM build has been verified or is claimed.**
 The helper is prepared for the phone's native iteration and still needs a real
 run there.
+
+## Incremental repackage
+
+The only packaging change is the IPA re-sign glob in `%__spec_install_post`, so
+a full recompile is not required. When the existing build tree is still present
+(`<build-root>/rpmbuild/BUILD/libcamera-v0.7.2` plus its meson build directory),
+root can produce corrected RPMs on the phone by re-running install and package
+against that tree, skipping `%prep`/`%build`:
+
+    rpmbuild -bb --short-circuit=install --noclean \
+        --define "_topdir <build-root>/rpmbuild" \
+        --define "dist .fc46.native.N" SPECS/libcamera.spec
+
+This re-runs `%install` (including the corrected IPA re-sign) and repackages
+from the already-compiled objects. It requires the build root that produced the
+tree; a fresh root has nothing to install from. This is advice only -- the
+helper always builds from source.
 
 ## Limitations
 

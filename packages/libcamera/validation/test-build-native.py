@@ -37,6 +37,14 @@ def sourced(body, *args):
                           stderr=subprocess.STDOUT, check=False)
 
 
+def shell_value(name):
+    result = subprocess.run(
+        ["bash", "-c", f'source "$1"; printf "%s" "${{{name}}}"', "bash", str(HELPER)],
+        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    assert result.returncode == 0, result.stdout
+    return result.stdout
+
+
 def spec_fixture(directory, *, marker=True, requires=len(SUBPACKAGES),
                  extra_package=False):
     lines = [
@@ -187,11 +195,42 @@ def test_spec_guard(tmp):
     assert unexpected.returncode != 0 and "subpackage" in unexpected.stdout
 
 
+def test_spec_glob_correction(tmp):
+    original = shell_value("IPA_RESIGN_GLOB")
+    corrected = shell_value("IPA_RESIGN_GLOB_FIXED")
+    assert original and corrected and original != corrected
+
+    good = Path(tmp) / "good.spec"
+    good.write_text("%define __spec_install_post \\\n"
+                    "    .../ipa-sign-install.sh key " + original + " \\\n")
+    result = sourced('correct_fedora_spec "$1" >/dev/null; '
+                     'printf "%s %s" "$spec_original_sha256" "$spec_packaged_sha256"',
+                     str(good))
+    assert result.returncode == 0, result.stdout
+    text = good.read_text()
+    assert corrected in text and original not in text, text
+    recorded = result.stdout.split()
+    assert len(recorded) == 2 and recorded[0] != recorded[1]
+    assert all(len(value) == 64 for value in recorded)
+
+    absent = Path(tmp) / "absent.spec"
+    absent.write_text("%define __spec_install_post \\\n    /bin/true\n")
+    before = absent.read_text()
+    failed = sourced('correct_fedora_spec "$@"', str(absent))
+    assert failed.returncode != 0 and "expected single occurrence" in failed.stdout
+    assert absent.read_text() == before
+
+    unexpected = Path(tmp) / "unexpected.spec"
+    unexpected.write_text(original.replace("ipa_*.so", "other/ipa_*.so") + "\n")
+    assert sourced('correct_fedora_spec "$@"', str(unexpected)).returncode != 0
+
+
 def test_manifest(tmp):
     manifest = Path(tmp) / "manifest.json"
     body = ('build_root=/tmp/x; iteration=3; dist=.fc46.native.3; '
             'release=4.fc46.native.3; srpm=/tmp/libcamera.src.rpm; '
             'srpm_sha256=aaaa; source_archive_sha256=bbbb; '
+            'spec_original_sha256=1111; spec_packaged_sha256=2222; '
             'fedora_patches="0001-x.patch cccc"; task_patches=""; '
             'rpms_records="/x/libcamera.rpm dddd"; write_manifest "$1"')
     result = sourced(body, str(manifest))
@@ -204,6 +243,9 @@ def test_manifest(tmp):
     assert data["source_archive"]["regenerated_sha256"] == "bbbb"
     assert data["fedora_patches"] == [{"name": "0001-x.patch", "sha256": "cccc"}]
     assert data["task_patches"] == []
+    assert data["fedora_spec"]["original_sha256"] == "1111"
+    assert data["fedora_spec"]["packaged_sha256"] == "2222"
+    assert data["fedora_spec"]["changes"][0]["to"] == shell_value("IPA_RESIGN_GLOB_FIXED")
     assert data["rpms"] == [{"name": "/x/libcamera.rpm", "sha256": "dddd"}]
     assert data["toolchain"]["arch"]
 
@@ -217,8 +259,10 @@ def main():
         test_build_root_guard(root)
         test_clone_guard(root)
         test_spec_guard(root)
+        test_spec_glob_correction(root)
         test_manifest(root)
-    print("PASS: syntax, arguments, pins, hash/build-root/clone/spec guards, manifest")
+    print("PASS: syntax, arguments, pins, hash/build-root/clone/spec guards, "
+          "spec glob correction, manifest")
 
 
 if __name__ == "__main__":
