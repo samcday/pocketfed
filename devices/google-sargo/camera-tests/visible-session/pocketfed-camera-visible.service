@@ -1,0 +1,54 @@
+# PocketFed Sargo visible camera trial.
+#
+# This is a disposable, manually started trial session. It is NOT a desktop and
+# is not pulled in by graphical.target. Edit the two Environment paths below to
+# point at the PocketFed checkout and a writable work directory on the phone,
+# then start it explicitly:
+#
+#   systemctl daemon-reload
+#   systemctl start pocketfed-camera-visible.service
+#   journalctl -u pocketfed-camera-visible -f
+#
+# The ExecStart always runs the readiness gate first. The gate requires a fresh
+# Volume Up press/release before it starts the session (and keeps monitoring so
+# Volume Down cancels, including while the capture runs). The part after `--`
+# is the single authorized command: the visible Phoc + Megapixels session.
+#
+# Seat/DRM: the defaults below run Phoc standalone as root on a dedicated VT
+# with WLR_BACKENDS=drm and LIBSEAT_BACKEND=noop. If the hardware validation
+# shows root/standalone cannot take the DRM seat, run the same visible-session
+# command under greetd with an [initial_session] instead; see
+# devices/google-sargo/camera-tests/visible-session/README.md.
+
+[Unit]
+Description=PocketFed Sargo visible camera trial (Volume-Up gate + Phoc + Megapixels)
+Documentation=file:${POCKETFED_CAMERA_VISIBLE_REPO}/devices/google-sargo/camera-tests/visible-session/README.md
+Conflicts=getty@tty3.service
+After=systemd-user-sessions.service
+
+[Service]
+Type=simple
+
+# Adjust these two paths for the phone.
+Environment=POCKETFED_CAMERA_VISIBLE_REPO=/path/to/pocketfed
+Environment=POCKETFED_CAMERA_VISIBLE_WORKDIR=/var/tmp/pocketfed-camera-visible
+
+# Standalone DRM session on a dedicated VT.
+Environment=WLR_BACKENDS=drm
+Environment=WLR_RENDERER=gles2
+Environment=LIBSEAT_BACKEND=noop
+TTYPath=/dev/tty3
+StandardInput=tty
+TTYReset=yes
+TTYVHangup=yes
+
+# Bound the session and give the gate/launcher time to stop owned children.
+TimeoutStopSec=30
+
+ExecStart=/usr/bin/python3 ${POCKETFED_CAMERA_VISIBLE_REPO}/devices/google-sargo/camera-tests/wait-for-ready.py \
+    --timeout 120 --settle 2 --log ${POCKETFED_CAMERA_VISIBLE_WORKDIR}/capture.log \
+    -- /usr/bin/python3 ${POCKETFED_CAMERA_VISIBLE_REPO}/devices/google-sargo/camera-tests/visible-session/visible-session.py \
+    --output ${POCKETFED_CAMERA_VISIBLE_WORKDIR}/session --preview-seconds 10
+
+[Install]
+WantedBy=multi-user.target
