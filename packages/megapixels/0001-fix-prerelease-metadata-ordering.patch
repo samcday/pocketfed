@@ -1,0 +1,27 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] metainfo: mark prereleases with a tilde
+
+The Fedora AppStream validator sorts the hyphenated prerelease versions
+after the final 2.0.0 release. Use the tilde spelling already present in
+upstream master so the chronological release list validates correctly.
+
+--- a/data/me.gapixels.Megapixels.metainfo.xml
++++ b/data/me.gapixels.Megapixels.metainfo.xml
+@@ -54,7 +54,7 @@
+ 				</ul>
+                         </description>
+                 </release>
+-	        <release version="2.0.0-alpha2" date="2025-06-12">
++	        <release version="2.0.0~alpha2" date="2025-06-12">
+                         <description>
+ 				<ul>
+ 					<li>Update to GNOME 47 runtime</li>
+@@ -69,7 +69,7 @@
+ 				</ul>
+                         </description>
+                 </release>
+-	        <release version="2.0.0-alpha1" date="2024-12-28">
++	        <release version="2.0.0~alpha1" date="2024-12-28">
+                         <description>
+                                 <p>
+ 					Pre-release version of Megapixels 2

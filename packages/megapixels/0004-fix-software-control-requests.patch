@@ -1,0 +1,300 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] camera: keep software and manual control requests separate
+
+The software exposure pass writes all controls, including zero-initialized
+requests for controls it did not change. On an IMX363 this sets digital
+gain to zero and attempts exposure zero. Apply only the selected adjustment,
+using the observed value and sensor bounds, and leave neutral frames alone.
+
+Refresh digital gain, initialize a selected camera's requests from its own
+controls, and do not reapply stale manual requests during software AE/AF.
+The process thread owns software adjustments; the IO thread applies manual
+requests and hardware-auto mode switches. Preserve the current value when
+switching a UI control into manual mode.
+
+--- a/src/io_pipeline.c
++++ b/src/io_pipeline.c
+@@ -70,6 +70,11 @@
+                         mp_camera_control_get_int32(&state_io.gain.control);
+         }
+ 
++        if (state_io.dgain.control.id) {
++                state_io.dgain.value =
++                        mp_camera_control_get_int32(&state_io.dgain.control);
++        }
++
+         if (!state_io.exposure.manual && state_io.exposure.control.id) {
+                 state_io.exposure.value =
+                         mp_camera_control_get_int32(&state_io.exposure.control);
+@@ -117,6 +122,7 @@
+                 .exposure.auto_control = state_io.exposure.auto_control,
+                 .exposure.value = state_io.exposure.value,
+                 .exposure.max = state_io.exposure.max,
++                .exposure.min = state_io.exposure.min,
+                 .exposure.manual = state_io.exposure.manual,
+ 
+                 .focus.control = state_io.focus.control,
+@@ -269,15 +275,14 @@
+                 if (state_io.focus.auto_control.id > 0) {
+                         mp_camera_control_set_bool_bg(mpcamera,
+                                                       &state_io.focus.auto_control,
+-                                                      !state_io.gain.manual_req);
++                                                      !state_io.focus.manual_req);
+                 }
+                 state_changed = true;
+         }
+ 
+-        // If focus is manual, OR auto but no auto control, and the value got
+-        // updated by the program/user, update the manual control
+-        if ((state_io.focus.manual ||
+-             (!state_io.focus.manual && state_io.focus.auto_control.id == 0)) &&
++        // Software autofocus writes its selected value from the process thread.
++        // Only apply explicit manual requests here.
++        if (state_io.focus.manual &&
+             state_io.focus.value != state_io.focus.value_req) {
+                 mp_camera_control_set_int32_bg(
+                         mpcamera, &state_io.focus.control, state_io.focus.value_req);
+@@ -286,15 +291,16 @@
+         }
+ 
+         if (state_io.gain.manual != state_io.gain.manual_req) {
+-                mp_camera_control_set_bool_bg(mpcamera,
+-                                              &state_io.gain.auto_control,
+-                                              !state_io.gain.manual_req);
++                if (state_io.gain.auto_control.id) {
++                        mp_camera_control_set_bool_bg(mpcamera,
++                                                      &state_io.gain.auto_control,
++                                                      !state_io.gain.manual_req);
++                }
+                 state_io.gain.manual = state_io.gain.manual_req;
+                 state_changed = true;
+         }
+ 
+-        if ((state_io.gain.manual ||
+-             (!state_io.gain.manual && state_io.gain.auto_control.id == 0)) &&
++        if (state_io.gain.manual &&
+             state_io.gain.value != state_io.gain.value_req) {
+                 mp_camera_control_set_int32_bg(
+                         mpcamera, &state_io.gain.control, state_io.gain.value_req);
+@@ -303,11 +309,13 @@
+         }
+ 
+         if (state_io.exposure.manual != state_io.exposure.manual_req) {
+-                mp_camera_control_set_bool_bg(mpcamera,
+-                                              &state_io.exposure.auto_control,
+-                                              state_io.exposure.manual_req ?
+-                                                      V4L2_EXPOSURE_MANUAL :
+-                                                      V4L2_EXPOSURE_AUTO);
++                if (state_io.exposure.auto_control.id) {
++                        mp_camera_control_set_bool_bg(mpcamera,
++                                                      &state_io.exposure.auto_control,
++                                                      state_io.exposure.manual_req ?
++                                                              V4L2_EXPOSURE_MANUAL :
++                                                              V4L2_EXPOSURE_AUTO);
++                }
+                 state_io.exposure.manual = state_io.exposure.manual_req;
+                 state_changed = true;
+         }
+@@ -328,51 +336,6 @@
+ }
+ 
+ static void
+-do_aaa()
+-{
+-        bool auto_exposure =
+-                !state_io.exposure.manual && state_io.exposure.auto_control.id == 0;
+-
+-        if (auto_exposure) {
+-                int direction = state_io.stats.exposure;
+-                int step = 0;
+-                if (direction > 0) {
+-                        // Preview is too dark
+-
+-                        // Try raising the exposure time first
+-                        if (state_io.exposure.value < state_io.exposure.max) {
+-                                step = state_io.exposure.value / 16;
+-                                state_io.exposure.value_req =
+-                                        state_io.exposure.value + (step * direction);
+-                                printf("Expose + %d\n", state_io.exposure.value_req);
+-                        } else {
+-                                // Raise sensor gain if exposure limit is hit
+-                                step = state_io.gain.value / 16;
+-                                state_io.gain.value_req =
+-                                        state_io.gain.value + (step * direction);
+-                                printf("Gain + %d\n", state_io.gain.value_req);
+-                        }
+-                } else if (direction < 0) {
+-                        // Preview is too bright
+-
+-                        // Lower the sensor gain first to have less noise
+-                        if (state_io.gain.value > 0) {
+-                                step = state_io.gain.value / 16;
+-                                state_io.gain.value_req =
+-                                        state_io.gain.value + (step * direction);
+-                                printf("Gain - %d\n", state_io.gain.value_req);
+-                        } else {
+-                                // Shorten the exposure time to go even darker
+-                                step = state_io.exposure.value / 16;
+-                                state_io.exposure.value_req =
+-                                        state_io.exposure.value + (step * direction);
+-                                printf("Expose - %d\n", state_io.exposure.value_req);
+-                        }
+-                }
+-        }
+-}
+-
+-static void
+ on_frame(MPBuffer buffer, void *_data)
+ {
+         // Don't process frame when the window is not active, unless we're capturing
+@@ -386,7 +349,6 @@
+         pipeline_changed = true;
+ 
+         // Only update controls right after a frame was captured
+-        do_aaa();
+         update_controls();
+ 
+         // When the mode is switched while capturing we get a couple blank frames,
+@@ -460,6 +422,14 @@
+ static void
+ init_controls()
+ {
++        // A different sensor must not inherit the previous sensor's controls.
++        state_io.gain = (controlstate){ 0 };
++        state_io.dgain = (controlstate){ 0 };
++        state_io.exposure = (controlstate){ 0 };
++        state_io.focus = (controlstate){ 0 };
++        state_io.red = (controlstate){ 0 };
++        state_io.blue = (controlstate){ 0 };
++
+         MPControl focus_control;
+         // V4L2_CID_FOCUS_ABSOLUTE exists on the sensor for PP, but on the lens for
+         // PPP. Check both, if applicable.
+@@ -548,6 +518,7 @@
+                                     &exposure_control)) {
+                 state_io.exposure.control = exposure_control;
+                 state_io.exposure.max = exposure_control.max;
++                state_io.exposure.min = exposure_control.min;
+                 state_io.exposure.value =
+                         mp_camera_control_get_int32(&exposure_control);
+         } else {
+@@ -586,6 +557,14 @@
+                 state_io.blue.control.id = 0;
+         }
+ 
++        state_io.gain.value_req = state_io.gain.value;
++        state_io.dgain.value_req = state_io.dgain.value;
++        state_io.exposure.value_req = state_io.exposure.value;
++        state_io.focus.value_req = state_io.focus.value;
++        state_io.gain.manual_req = state_io.gain.manual;
++        state_io.dgain.manual_req = state_io.dgain.manual;
++        state_io.exposure.manual_req = state_io.exposure.manual;
++        state_io.focus.manual_req = state_io.focus.manual;
+         pipeline_changed = true;
+ }
+ 
+@@ -595,7 +574,8 @@
+ static void
+ update_state(MPPipeline *pipeline, const mp_state_io *new_state)
+ {
+-        if (state_io.camera != new_state->camera) {
++        bool camera_changed = state_io.camera != new_state->camera;
++        if (camera_changed) {
+                 if (state_io.camera != NULL) {
+                         mp_process_pipeline_sync();
+                         mp_camera_stop_capture(mpcamera);
+@@ -676,7 +656,7 @@
+         state_io.device_accel_rotation = new_state->device_accel_rotation;
+         state_io.device_accel_rotation_good = new_state->device_accel_rotation_good;
+ 
+-        if (state_io.camera) {
++        if (state_io.camera && !camera_changed) {
+                 state_io.gain.value = new_state->gain.value;
+                 state_io.gain.value_req = new_state->gain.value_req;
+                 state_io.gain.manual = new_state->gain.manual;
+--- a/src/process_pipeline.c
++++ b/src/process_pipeline.c
+@@ -380,7 +380,11 @@
+ static void
+ update_control(controlstate *control)
+ {
++        if (!control->control.id)
++                return;
+ 	clamp_control(control);
++        if (control->value_req == control->value)
++                return;
+ 	mp_io_pipeline_set_control_int32(&control->control, control->value_req);
+ 	control->value = control->value_req;
+ }
+@@ -491,6 +495,7 @@
+ 	step = control->value / 4;
+ 	step = step < min_step ? min_step : step;
+ 	control->value_req = control->value + (step * direction);
++        update_control(control);
+ }
+ 
+ static int exposure_limit;
+@@ -579,7 +584,8 @@
+ 				update_exp(&state_proc.exposure, direction);
+                                 printf("Expose + %d\n",
+                                        state_proc.exposure.value_req);
+-                        } else if (state_proc.gain.value < state_proc.gain.max) {
++                        } else if (!state_proc.gain.manual &&
++                                   state_proc.gain.value < state_proc.gain.max) {
+                                 // Raise sensor gain if exposure limit is hit
+ 				update_exp(&state_proc.gain, direction);
+                                 printf("Gain + %d\n", state_proc.gain.value_req);
+@@ -604,7 +610,8 @@
+ 				update_exp(&state_proc.exposure, direction);
+                                 printf("L/Expose - %d\n",
+                                        state_proc.exposure.value_req);
+-			} else if (state_proc.gain.value > state_proc.gain.min) {
++			} else if (!state_proc.gain.manual &&
++                                   state_proc.gain.value > state_proc.gain.min) {
+ 				update_exp(&state_proc.gain, direction);
+                                 printf("Gain - %d\n", state_proc.gain.value_req);
+                         } else {
+@@ -615,9 +622,6 @@
+                         }
+                 }
+ 
+-                update_control(&state_proc.gain);
+-                update_control(&state_proc.dgain);
+-                update_control(&state_proc.exposure);
+ 		//summarize();
+         }
+ 
+@@ -1565,6 +1569,7 @@
+         state_proc.exposure.auto_control = new_state->exposure.auto_control;
+         state_proc.exposure.value = new_state->exposure.value;
+         state_proc.exposure.max = new_state->exposure.max;
++        state_proc.exposure.min = new_state->exposure.min;
+         state_proc.exposure.manual = new_state->exposure.manual;
+ 
+         state_proc.focus.control = new_state->focus.control;
+--- a/src/main.c
++++ b/src/main.c
+@@ -917,6 +917,7 @@
+ set_gain_auto(bool is_auto)
+ {
+         if (state.gain.manual != !is_auto) {
++                state.gain.value_req = state.gain.value;
+                 state.gain.manual_req = !is_auto;
+                 update_io_pipeline();
+         }
+@@ -949,6 +950,7 @@
+ set_shutter_auto(bool is_auto)
+ {
+         if (state.exposure.manual != !is_auto) {
++                state.exposure.value_req = state.exposure.value;
+                 state.exposure.manual_req = !is_auto;
+                 update_io_pipeline();
+         }
+@@ -967,6 +969,7 @@
+ set_focus_auto(bool is_auto)
+ {
+         if (state.focus.manual != !is_auto) {
++                state.focus.value_req = state.focus.value;
+                 state.focus.manual_req = !is_auto;
+                 update_io_pipeline();
+         }

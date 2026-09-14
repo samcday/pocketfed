@@ -1,0 +1,148 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] io: reject buffer returns from a stopped stream
+
+Synchronizing processing waits for pixel reads but can leave asynchronous
+buffer returns queued on the IO thread. A mode restart reuses the same buffer
+indices. Returning an old index after STREAMON then queues a buffer that is
+already active in the new stream, producing VIDIOC_QBUF EINVAL on the phone.
+
+Carry the IO stream generation with each frame, invalidate it at every stop,
+and ignore old returns. Keep the generation across camera replacement too.
+
+--- a/src/camera.h
++++ b/src/camera.h
+@@ -10,6 +10,8 @@
+ #define MAX_BG_TASKS 8
+ typedef struct {
+         uint32_t index;
++        /* IO stream identity, assigned before dispatch to processing. */
++        uint64_t generation;
+ 
+         uint8_t *data;
+         int fd;
+--- a/src/io_pipeline.h
++++ b/src/io_pipeline.h
+@@ -12,6 +12,6 @@
+ void mp_io_pipeline_capture();
+ void mp_io_pipeline_set_control_int32(MPControl *control, uint32_t value);
+ 
+-void mp_io_pipeline_release_buffer(uint32_t buffer_index);
++void mp_io_pipeline_release_buffer(MPBuffer buffer);
+ 
+ void mp_io_pipeline_update_state(const mp_state_io *state);
+--- a/src/io_pipeline.c
++++ b/src/io_pipeline.c
+@@ -23,6 +23,16 @@
+ static MPPipeline *pipeline;
+ static GSource *capture_source;
+ static bool pipeline_changed = true;
++/* Owned by the IO thread, including across camera replacement. */
++static uint64_t stream_generation;
++
++static void
++stop_capture(void)
++{
++        /* Process sync may leave old returns queued on this IO context. */
++        ++stream_generation;
++        mp_camera_stop_capture(mpcamera);
++}
+ 
+ typedef struct invoke_set_control {
+         MPControl *control;
+@@ -194,7 +204,7 @@
+ 
+         // Change camera mode for capturing
+         mp_process_pipeline_sync();
+-        mp_camera_stop_capture(mpcamera);
++        stop_capture();
+         struct v4l2_format format = { 0 };
+         libmegapixels_select_mode(state_io.camera, state_io.mode_capture, &format);
+         state_io.flush_pipeline = true;
+@@ -219,18 +229,20 @@
+ }
+ 
+ static void
+-release_buffer(MPPipeline *pipeline, const uint32_t *buffer_index)
+-{
+-        mp_camera_release_buffer(mpcamera, *buffer_index);
++release_buffer(MPPipeline *pipeline, const MPBuffer *buffer)
++{
++        if (buffer->generation != stream_generation)
++                return;
++        mp_camera_release_buffer(mpcamera, buffer->index);
+ }
+ 
+ void
+-mp_io_pipeline_release_buffer(uint32_t buffer_index)
++mp_io_pipeline_release_buffer(MPBuffer buffer)
+ {
+         mp_pipeline_invoke(pipeline,
+                            (MPPipelineCallback)release_buffer,
+-                           &buffer_index,
+-                           sizeof(uint32_t));
++                           &buffer,
++                           sizeof(MPBuffer));
+ }
+ 
+ static pid_t focus_continuous_task = 0;
+@@ -339,11 +351,12 @@
+ static void
+ on_frame(MPBuffer buffer, void *_data)
+ {
++        buffer.generation = stream_generation;
+         // Don't process frame when the window is not active, unless we're capturing
+         // an image, in which case the flash window may be active instead of this
+         // window
+         if (!check_window_active() && state_io.captures_remaining == 0) {
+-                mp_io_pipeline_release_buffer(buffer.index);
++                mp_io_pipeline_release_buffer(buffer);
+                 return;
+         }
+ 
+@@ -370,7 +383,7 @@
+ 
+                         if (image_is_blank) {
+                                 ++state_io.blank_frame_count;
+-                                mp_io_pipeline_release_buffer(buffer.index);
++                                mp_io_pipeline_release_buffer(buffer);
+                                 return;
+                         }
+                 } else {
+@@ -403,7 +416,7 @@
+ 
+                         // Go back to preview mode
+                         mp_process_pipeline_sync();
+-                        mp_camera_stop_capture(mpcamera);
++                        stop_capture();
+                         struct v4l2_format format = { 0 };
+                         libmegapixels_select_mode(
+                                 state_io.camera, state_io.mode_preview, &format);
+@@ -580,7 +593,7 @@
+         if (camera_changed) {
+                 if (state_io.camera != NULL) {
+                         mp_process_pipeline_sync();
+-                        mp_camera_stop_capture(mpcamera);
++                        stop_capture();
+                         libmegapixels_close(state_io.camera);
+                 }
+ 
+--- a/src/process_pipeline.c
++++ b/src/process_pipeline.c
+@@ -1371,7 +1371,7 @@
+                       state_proc.mode->height;
+         uint8_t *image = malloc(size);
+         memcpy(image, buffer->data, size);
+-        mp_io_pipeline_release_buffer(buffer->index);
++        mp_io_pipeline_release_buffer(*buffer);
+ 
+ 	if (movie_recording) {
+ 		char name[1024];
+@@ -1457,7 +1457,7 @@
+         // If we haven't processed the previous frame yet, drop this one
+         if (frames_received != frames_processed && !is_capturing) {
+ 		printf("Dropping frame\n");
+-                mp_io_pipeline_release_buffer(buffer.index);
++                mp_io_pipeline_release_buffer(buffer);
+                 return;
+         }
+ 

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Native, unprivileged RPM build from pinned upstream Git clones.
+set -euo pipefail
+if [[ $# != 2 || ! $2 =~ ^(libdng|libmegapixels|megapixels)$ ]]; then
+    echo "Usage: $0 BUILD-ROOT {libdng|libmegapixels|megapixels}" >&2
+    exit 2
+fi
+[[ $(uname -m) == aarch64 ]] || { echo 'Run on the aarch64 phone' >&2; exit 1; }
+[[ $(id -u) != 0 ]] || { echo 'Build as an unprivileged user; use root only for dnf' >&2; exit 1; }
+packages_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+mkdir -p -- "$1"
+build_root=$(cd -- "$1" && pwd)
+cd "$build_root"
+package=$2
+case "$package" in
+    libdng) version=0.2.2; commit=438df53ee06d9f21202e0398c90a9c3bf9e86591; upstream=libdng; prefix=libdng-0.2.2 ;;
+    libmegapixels) version=0.2.3; commit=d50bf166972df4252d127f72f90986892f3cd901; upstream=libmegapixels; prefix=libmegapixels-0.2.3 ;;
+    megapixels) version=2.1.0; commit=5fb1f24f1aeef80ea18224ab5829fda85653a4e8; upstream=Megapixels; prefix=Megapixels-2.1.0-$commit ;;
+esac
+mkdir -p "$build_root/clones" "$build_root/rpmbuild"/{SOURCES,SPECS,SRPMS,BUILD,BUILDROOT,RPMS}
+clone="$build_root/clones/$package"
+if [[ ! -e "$clone" ]]; then
+    git -c advice.detachedHead=false clone --depth 1 --branch "$version" \
+        "https://gitlab.com/megapixels-org/$upstream.git" "$clone"
+fi
+[[ $(git -C "$clone" rev-parse HEAD) == "$commit" ]]
+[[ -z $(git -C "$clone" status --porcelain) ]]
+archive="$build_root/rpmbuild/SOURCES/$package-$version.tar.gz"
+git -C "$clone" archive --format=tar --prefix="$prefix/" HEAD | gzip -n > "$archive"
+# This archive is generated from the verified Git commit. Its byte hash differs
+# from GitLab's release archive; record it separately from sources.sha256.
+python3 - "$clone" "$archive" "$build_root/$package-source.json" <<'PY'
+import hashlib,json,subprocess,sys
+from pathlib import Path
+clone,archive,output=map(Path,sys.argv[1:])
+def git(*args):
+    return subprocess.check_output(['git','-C',str(clone),*args],text=True).strip()
+Path(output).write_text(json.dumps({'method':'native shallow Git clone and git archive',
+    'origin':git('remote','get-url','origin'),'commit':git('rev-parse','HEAD'),
+    'tree':git('rev-parse','HEAD^{tree}'),'archive_sha256':hashlib.sha256(archive.read_bytes()).hexdigest()},indent=2)+'\n')
+PY
+spec="$packages_dir/$package/$package.spec"
+while IFS= read -r source; do
+    [[ "$source" == https://* ]] && continue
+    found=false
+    for directory in . patches validation; do
+        candidate="$packages_dir/$package/$directory/$source"
+        if [[ -f "$candidate" ]]; then
+            cp "$candidate" "$build_root/rpmbuild/SOURCES/"
+            found=true
+            break
+        fi
+    done
+    [[ "$found" == true ]] || { echo "Missing spec input: $source" >&2; exit 1; }
+done < <(rpmspec --parse "$spec" | sed -nE 's/^(Source|Patch)[0-9]*:[[:space:]]*//p')
+cp "$spec" "$build_root/rpmbuild/SPECS/"
+rpmbuild --define "_topdir $build_root/rpmbuild" --define 'dist .fc46.native' \
+    --define '_smp_build_ncpus 2' --define '_smp_mflags -j2' -ba "$spec"

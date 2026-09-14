@@ -1,0 +1,22 @@
+--- a/src/camera.c
++++ b/src/camera.c
+@@ -375,7 +375,7 @@
+         if (xioctl(camera->camera->video_fd, VIDIOC_DQBUF, &buf) == -1) {
+                 switch (errno) {
+                 case EAGAIN:
+-                        return true;
++                        return false;
+                 case EIO:
+                         /* Could ignore EIO, see spec. */
+                         /* fallthrough */
+--- a/src/pipeline.c
++++ b/src/pipeline.c
+@@ -116,7 +116,7 @@
+ static bool
+ on_capture(int fd, GIOCondition condition, struct capture_source_args *args)
+ {
+-        MPBuffer buffer;
++        MPBuffer buffer = { 0 };
+         if (mp_camera_capture_buffer(args->camera, &buffer)) {
+                 args->callback(buffer, args->user_data);
+         }

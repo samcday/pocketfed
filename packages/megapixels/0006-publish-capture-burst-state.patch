@@ -1,0 +1,18 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] io: publish the new burst state before starting processing
+
+Capture changes burst_length and the selected mode even if no control changed.
+An inactive preview can leave pipeline_changed false. In that case the process
+thread keeps its initial zero burst length, consumes the frames as previews,
+and never starts the JPEG postprocessor. Always publish the capture state.
+
+--- a/src/io_pipeline.c
++++ b/src/io_pipeline.c
+@@ -210,6 +210,7 @@
+                 mp_flash_enable(state_io.camera);
+         }
+ 
++        pipeline_changed = true;
+         update_process_pipeline();
+ 
+         mp_process_pipeline_capture();

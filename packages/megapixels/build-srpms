@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# != 1 ]]; then
+    echo "Usage: $0 OUTPUT-DIRECTORY" >&2
+    exit 2
+fi
+
+packages_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+mkdir -p -- "$1"
+output_dir=$(cd -- "$1" && pwd)
+mkdir -p "$output_dir"/{SOURCES,SPECS,SRPMS,BUILD,BUILDROOT,RPMS}
+
+for package in libdng libmegapixels megapixels; do
+    spec="$packages_dir/$package/$package.spec"
+    url=$(rpmspec --parse "$spec" | sed -n 's/^Source0:[[:space:]]*//p')
+    archive=$(awk '{print $2}' "$packages_dir/$package/sources.sha256")
+    if [[ ! -f "$output_dir/SOURCES/$archive" ]]; then
+        curl --fail --location --retry 3 --output "$output_dir/SOURCES/$archive" "$url"
+    fi
+    (cd "$output_dir/SOURCES" && sha256sum --check "$packages_dir/$package/sources.sha256")
+    # Include only local patches and validation sources declared by the spec.
+    while IFS= read -r source; do
+        [[ "$source" == https://* ]] && continue
+        found=false
+        for directory in . patches validation; do
+            candidate="$packages_dir/$package/$directory/$source"
+            if [[ -f "$candidate" ]]; then
+                cp "$candidate" "$output_dir/SOURCES/"
+                found=true
+                break
+            fi
+        done
+        if [[ "$found" != true ]]; then
+            echo "Missing source declared by $spec: $source" >&2
+            exit 1
+        fi
+    done < <(rpmspec --parse "$spec" | sed -nE 's/^(Source|Patch)[0-9]*:[[:space:]]*//p')
+    cp "$spec" "$output_dir/SPECS/"
+    rpmbuild --define "_topdir $output_dir" --nodeps -bs "$spec"
+done
