@@ -17,10 +17,10 @@ Upstream clone: `v0.7.2` = `191e202178f02430b5942397c70d215cdd2056fa`.
 
 ## What is preserved
 
-The helper uses the Fedora spec, the two downstream patches
+The helper uses the Fedora spec with the IPA path correction below, the two downstream patches
 (`0001-disable-rpi-pisp.patch`, `0002-fix-ov01a10-flickering.patch`) and the
 auxiliary sources (`qcam.desktop`, `qcam.metainfo.xml`, `70-libcamera.rules`)
-unmodified from the verified SRPM. It therefore keeps:
+from the verified SRPM. The patches and auxiliary sources are unchanged. It keeps:
 
 - the Fedora IPA re-signing step (`ipa-sign-install.sh` after debug stripping),
   with one path correction: the spec globs `%{_libdir}/libcamera/ipa_*.so`,
@@ -37,8 +37,10 @@ expected re-sign glob is absent or not a single occurrence, if fewer than all
 subpackages keep that exact `Requires`, or if the subpackage set differs. It
 corrects the glob path only and does not verify module signatures.
 
-The candidate adds the pinned postmarketOS IMX363 tuning file; see
-[tuning provenance](tuning-provenance.md). Its colour remains unvalidated.
+Patch 0001 adds the pinned postmarketOS IMX363 tuning file; see
+[tuning provenance](tuning-provenance.md). Patch 0002 adds optional bounded
+saving to qcam; see [qcam trial options](qcam-bounded-save.md). The completed
+`.native.1` build contains only patch 0001. Image quality remains unvalidated.
 Sensor gain conversion, delays and lens mapping are unchanged.
 
 ## Phone workflow
@@ -95,8 +97,9 @@ Install the exact matching subpackages from a single iteration together --
 `libcamera`, `-ipa`, `-tools`, `-gstreamer` and `-qcam` -- using the explicit
 paths from the helper output or the manifest. Do not use wildcards: they can
 mix iterations or pick up stale RPMs. The example paths below refer to the
-`native.1` build root, which was discarded by the host reboot; rebuild first
-(see [Native iteration 1](#native-iteration-1-4fc46native1)).
+`native.1` build root on the phone. It is currently unreachable after the host
+reboot. The private RPM backup survived, but this iteration has the signing
+defect described below; use a corrected iteration for acceptance.
 
 ```sh
 R=/run/pocketfed-libcamera-native-1/rpmbuild/RPMS/aarch64
