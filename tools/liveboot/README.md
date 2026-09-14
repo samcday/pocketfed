@@ -236,11 +236,14 @@ are logged; inspect the device acknowledgment, not merely a successful queue.
 Reboots are explicit and never triggered by timeout. SysRq returns control to
 the bootloader's normal path; it cannot repair an invalid installed boot image.
 
-One liveboot owner at a time: initial fastboot selection is serial-bound, but the
-pinned native smoo runtime discovery is not serial-filtered. The runner holds
-both global hosting and device/UART locks. An installed peer can still join mesh
-experiments. No flash, erase, format or slot-selection command is part of this
-workflow.
+Liveboot sessions are independent: the runner locks only the exact device serial
+plus the exact UART's unique by-id path (`fuser` and `TIOCEXCL` checks), and
+there is no shared-host reservation process. Devices with distinct serials can
+therefore be hosted concurrently. smoo runtime discovery filters by the profile
+VID/PID and the exact gadget serial, so a cloned serial adapter that reports the
+same serial must be identified by its physical path before use. An installed
+peer can still join mesh experiments. No flash, erase, format or slot-selection
+command is part of this workflow.
 
 ## Current evidence and remaining device work
 

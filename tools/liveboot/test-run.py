@@ -431,23 +431,43 @@ class BootFixture(unittest.TestCase):
         self.stack.enter_context(mock.patch.object(RUN.termios, "tcflush"))
         self.ioctl = self.stack.enter_context(mock.patch.object(RUN.fcntl, "ioctl"))
 
-    def assert_lock_released(self):
-        for name in ("TEST-CLEANUP.lock", "smoo-host.lock"):
-            path = self.root / f"pocketfed-liveboot-locks-{RUN.os.getuid()}" / name
-            with path.open("a") as lock:
-                RUN.fcntl.flock(lock, RUN.fcntl.LOCK_EX | RUN.fcntl.LOCK_NB)
+    def assert_lock_released(self, serial="TEST-CLEANUP"):
+        path = self.root / f"pocketfed-liveboot-locks-{RUN.os.getuid()}" / f"{serial}.lock"
+        with path.open("a") as lock:
+            RUN.fcntl.flock(lock, RUN.fcntl.LOCK_EX | RUN.fcntl.LOCK_NB)
+
+    def boot_to_completion(self):
+        child = mock.Mock(returncode=0, pid=999999)
+        child.poll.return_value = 0
+        with mock.patch.object(RUN.subprocess, "Popen", return_value=child):
+            RUN.boot(self.args)
 
 
 class BootCleanupTests(BootFixture):
-    def test_another_smoo_host_is_rejected_before_uart_or_device_access(self):
+    def test_same_device_runner_is_rejected_before_uart_or_device_access(self):
         locks = self.root / f"pocketfed-liveboot-locks-{RUN.os.getuid()}"
         locks.mkdir(mode=0o700)
-        with (locks / "smoo-host.lock").open("a") as holder:
+        with (locks / "TEST-CLEANUP.lock").open("a") as holder:
             RUN.fcntl.flock(holder, RUN.fcntl.LOCK_EX | RUN.fcntl.LOCK_NB)
-            with self.assertRaisesRegex(ValueError, "only one USB-root session"):
+            with self.assertRaisesRegex(ValueError, "exact device serial"):
                 RUN.boot(self.args)
         self.open_uart.assert_not_called()
         self.fuser.assert_not_called()
+        self.assert_lock_released()
+
+    def test_distinct_device_and_legacy_global_lock_do_not_block_hosting(self):
+        # Concurrency contract: only the exact device serial (and the exact UART
+        # via fuser/TIOCEXCL) excludes a runner. A different device's lock, and
+        # the retired smoo-host.lock, must not reserve all USB hosting.
+        locks = self.root / f"pocketfed-liveboot-locks-{RUN.os.getuid()}"
+        locks.mkdir(mode=0o700)
+        with (locks / "OTHER-DEVICE.lock").open("a") as other, \
+                (locks / "smoo-host.lock").open("a") as legacy:
+            RUN.fcntl.flock(other, RUN.fcntl.LOCK_EX | RUN.fcntl.LOCK_NB)
+            RUN.fcntl.flock(legacy, RUN.fcntl.LOCK_EX | RUN.fcntl.LOCK_NB)
+            self.boot_to_completion()
+        self.fuser.assert_called_once()
+        self.open_uart.assert_called()
         self.assert_lock_released()
 
     def test_existing_uart_reader_releases_device_lease_without_opening_uart(self):
