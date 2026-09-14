@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Verify the signature of every IPA module in a single libcamera IPA RPM.
+
+Usage:
+    verify-ipa-signatures --rpm libcamera-ipa-<nvr>.rpm --key ipa-pub-key.pem
+
+The RPM payload is unpacked to a private temporary directory with
+`rpm2cpio` and `cpio`; no package scriptlet is executed. `--key` accepts a
+public key (PEM or DER) or a private key (PEM or DER), from which only the
+public key is derived. Only a hash of the public key is reported.
+
+The exact set of packaged IPA modules is fixed. Each must be present as a
+regular file with a matching `.so.sign` under `libcamera/ipa/`, and its
+bytes must verify with `openssl dgst -sha256`. A missing, duplicated or
+invalid module or signature fails the run; an RPM with no modules fails.
+
+Output is one JSON document on stdout. Exit status is 0 only when all
+modules verify.
+"""
+
+import argparse
+import hashlib
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+MODULES = (
+    "ipa_mali_c55",
+    "ipa_rkisp1",
+    "ipa_rpi_vc4",
+    "ipa_soft_simple",
+    "ipa_vimc",
+)
+
+KEY_ATTEMPTS = (
+    ("private-derived", ("pkey", "-in", "{key}", "-pubout", "-outform", "DER")),
+    ("private-derived", ("pkey", "-inform", "DER", "-in", "{key}",
+                         "-pubout", "-outform", "DER")),
+    ("public", ("pkey", "-pubin", "-in", "{key}", "-pubout", "-outform", "DER")),
+    ("public", ("pkey", "-pubin", "-inform", "DER", "-in", "{key}",
+                "-pubout", "-outform", "DER")),
+)
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def emit(document, code):
+    print(json.dumps(document, indent=2, sort_keys=True))
+    return code
+
+
+def error(message):
+    return emit({"ok": False, "error": message}, 1)
+
+
+def derive_public_key(key, openssl):
+    for kind, template in KEY_ATTEMPTS:
+        command = [openssl]
+        command += [str(key) if item == "{key}" else item for item in template]
+        result = subprocess.run(command, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, check=False)
+        if result.returncode == 0 and result.stdout:
+            return kind, result.stdout
+    return None, None
+
+
+def extract_payload(rpm, destination, rpm2cpio, cpio):
+    producer = subprocess.Popen([rpm2cpio, str(rpm)], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+    consumer = subprocess.Popen(
+        [cpio, "-idm", "--quiet", "--no-absolute-filenames"],
+        stdin=producer.stdout, stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE, cwd=str(destination))
+    producer.stdout.close()
+    _, consumer_error = consumer.communicate()
+    _, producer_error = producer.communicate()
+    if producer.returncode != 0:
+        raise RuntimeError("rpm2cpio failed: " +
+                           producer_error.decode("utf-8", "replace").strip())
+    if consumer.returncode != 0:
+        raise RuntimeError("cpio failed: " +
+                           consumer_error.decode("utf-8", "replace").strip())
+
+
+def locate(root, module, suffix):
+    pattern = f"libcamera/ipa/{module}.so{suffix}"
+    return sorted(path for path in root.rglob(pattern)
+                  if path.is_file() and not path.is_symlink())
+
+
+def verify_module(module, root, public_der, openssl):
+    modules = locate(root, module, "")
+    if len(modules) != 1:
+        return {"name": module,
+                "status": "missing-module" if not modules else "duplicate-module"}
+    signatures = locate(root, module, ".sign")
+    if len(signatures) != 1:
+        return {"name": module,
+                "status": ("missing-signature" if not signatures
+                           else "duplicate-signature")}
+    result = subprocess.run(
+        [openssl, "dgst", "-sha256", "-verify", str(public_der),
+         "-keyform", "DER", "-signature", str(signatures[0]), str(modules[0])],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    return {
+        "name": module,
+        "path": str(modules[0].relative_to(root)),
+        "sha256": sha256_file(modules[0]),
+        "status": "valid" if result.returncode == 0 else "invalid",
+    }
+
+
+def run(rpm, key):
+    openssl = shutil.which("openssl")
+    rpm2cpio = shutil.which("rpm2cpio")
+    cpio = shutil.which("cpio")
+    for tool, name in ((openssl, "openssl"), (rpm2cpio, "rpm2cpio"), (cpio, "cpio")):
+        if not tool:
+            return error(f"required tool not found: {name}")
+    if not rpm.is_file():
+        return error(f"RPM not found: {rpm}")
+    if not key.is_file():
+        return error(f"key not found: {key}")
+
+    kind, public_der = derive_public_key(key, openssl)
+    if public_der is None:
+        return error("could not read a public or private key from --key")
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="verify-ipa-signatures-") as tmp:
+            root = Path(tmp)
+            public_path = root / "public.der"
+            public_path.write_bytes(public_der)
+            extract_payload(rpm, root, rpm2cpio, cpio)
+            modules = [verify_module(module, root, public_path, openssl)
+                       for module in MODULES]
+    except RuntimeError as failure:
+        return error(str(failure))
+
+    failures = [f"{entry['name']}: {entry['status']}"
+                for entry in modules if entry["status"] != "valid"]
+    document = {
+        "ok": not failures,
+        "rpm": {"path": str(rpm), "sha256": sha256_file(rpm)},
+        "key": {"kind": kind, "sha256": hashlib.sha256(public_der).hexdigest()},
+        "modules": modules,
+        "failures": failures,
+    }
+    return emit(document, 0 if not failures else 1)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Verify packaged libcamera IPA module signatures.")
+    parser.add_argument("--rpm", required=True, type=Path,
+                        help="libcamera IPA RPM to inspect")
+    parser.add_argument("--key", required=True, type=Path,
+                        help="build public key, or private key to derive it from")
+    arguments = parser.parse_args()
+    return run(arguments.rpm, arguments.key)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
