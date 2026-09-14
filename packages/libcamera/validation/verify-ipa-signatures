@@ -7,10 +7,12 @@ Usage:
 The RPM payload is decoded from `rpm2cpio` by a bounded newc (070701/070702)
 reader that writes only the ten expected aarch64 payload members
 `./usr/lib64/libcamera/ipa/<module>.so[.sign]` for the five fixed modules.
-No package scriptlet is executed, no other member is written, symlinks,
-non-regular files and duplicates are rejected, and names never become
-filesystem paths. `--key` accepts a public key (PEM or DER) or a private key
-(PEM or DER), from which only the public key is derived. OpenSSL never
+No package scriptlet is executed, no other member is written, and any
+unexpected `.so` or `.so.sign` under that directory is rejected so extra
+IPA code cannot ride along unverified; symlinks, non-regular files and
+duplicates are rejected too, and names never become filesystem paths.
+`--key` accepts a public key (PEM or DER) or a private key (PEM or DER),
+from which only the public key is derived. OpenSSL never
 prompts (closed stdin and an explicit empty passphrase) and only a hash of
 the public key is reported.
 
@@ -39,6 +41,7 @@ MODULES = (
 )
 
 PAYLOAD_DIR = "usr/lib64/libcamera/ipa"
+IPA_PREFIX = PAYLOAD_DIR + "/"
 CPIO_MAGIC = (b"070701", b"070702")
 CPIO_HEADER = 110
 CPIO_TRAILER = "TRAILER!!!"
@@ -148,6 +151,8 @@ def read_cpio(stream, payload_dir):
             raise RuntimeError(f"oversized RPM cpio member: {name}")
         target = allowed.get(name)
         if target is None:
+            if name.startswith(IPA_PREFIX) and name.endswith((".so", ".so.sign")):
+                raise RuntimeError(f"unexpected RPM cpio member: {name}")
             skip_exact(stream, size)
         else:
             if mode & 0o170000 != 0o100000:

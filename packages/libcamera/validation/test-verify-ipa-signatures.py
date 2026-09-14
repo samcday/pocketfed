@@ -313,6 +313,40 @@ def test_bounded_reader(tmp):
     else:
         raise AssertionError("duplicate member accepted")
 
+    for label, member in (
+            ("unexpected-module",
+             ("./usr/lib64/libcamera/ipa/ipa_extra.so", b"", 0o100644)),
+            ("unexpected-signature",
+             ("./usr/lib64/libcamera/ipa/ipa_extra.so.sign", b"", 0o100644)),
+            ("nested-unexpected-module",
+             ("./usr/lib64/libcamera/ipa/nested/ipa_extra.so", b"", 0o100644))):
+        try:
+            read_cpio(io.BytesIO(newc_archive([member])), root / label)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError(f"{label} member accepted")
+
+
+def test_unexpected_ipa_members(tmp):
+    root = Path(tmp)
+    private, public = generate_key(root, "key")
+
+    extra = make_payload(root / "extra-module", MODULES + ("ipa_extra",))
+    sign(extra, private, MODULES)
+    extra_rpm = build_rpm(root / "extra-module", extra, "extra-module")
+    code, document = verify(extra_rpm, public)
+    assert code != 0 and not document["ok"], document
+    assert "unexpected" in document["error"], document
+
+    orphan = make_payload(root / "orphan-signature")
+    sign(orphan, private)
+    (orphan / "ipa_extra.so.sign").write_bytes(b"orphan signature\n")
+    orphan_rpm = build_rpm(root / "orphan-signature", orphan, "orphan-signature")
+    code, document = verify(orphan_rpm, public)
+    assert code != 0 and not document["ok"], document
+    assert "unexpected" in document["error"], document
+
 
 def test_input_errors(tmp):
     root = Path(tmp)
@@ -343,10 +377,12 @@ def main():
         test_missing_signature(tmp)
         test_empty_package(tmp)
         test_bounded_reader(tmp)
+        test_unexpected_ipa_members(tmp)
         test_input_errors(tmp)
     print("PASS: valid package, private/public/DER keys, encrypted key no-prompt, "
           "modified bytes, missing module, missing signature, empty package, "
-          "bounded reader traversal/collision/symlink/duplicate, input errors")
+          "bounded reader traversal/collision/symlink/duplicate/unexpected, "
+          "unexpected extra module and orphan signature, input errors")
 
 
 if __name__ == "__main__":
