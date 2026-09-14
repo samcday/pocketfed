@@ -38,8 +38,9 @@ and the JPEG path is fixed.
 ## Prerequisites
 
 - **Patched qcam.** `packages/libcamera/patches/0002-qcam-bounded-save.patch`
-  adds `--output`/`--after-frames`. It is **not compiled** in the repository; a
-  stock `qcam` rejects those options and this helper fails closed with no JPEG.
+  adds `--output`/`--after-frames` and is included in the installed native.2
+  candidate. A stock `qcam` rejects those options and this helper fails closed
+  with no JPEG.
 - **Qt runtime plugins on the device:** the Qt Wayland platform plugin (for
   `QT_QPA_PLATFORM=wayland`) and the Qt JPEG image plugin (`libqjpeg`, from
   `qt6-qtbase-gui`) for `.jpg` output.
@@ -170,8 +171,9 @@ operator decision; this helper proves mechanism and release only.
 
 Remaining native checks:
 
-- Patch 0002 is **not compiled**; a stock `qcam` rejects `--output` and
-  `--after-frames` and the run fails closed with no JPEG.
+- Patch 0002 compiled in `4.fc46.native.2` and is installed on the test phone;
+  14 isolated help/invalid-option cases passed. The actual gated preview/save
+  remains pending. A stock `qcam` still rejects the added options.
 - The Qt Wayland platform plugin and the Qt JPEG plugin must be present; a
   missing plugin fails qcam start-up or the save, never silently.
 - Standalone root Phoc (`LIBSEAT_BACKEND=noop`, `WLR_BACKENDS=drm,libinput`)

@@ -99,19 +99,17 @@ Install the exact matching subpackages from a single iteration together --
 `libcamera`, `-ipa`, `-tools`, `-gstreamer` and `-qcam` -- using the explicit
 paths from the helper output or the manifest. Do not use wildcards: they can
 mix iterations or pick up stale RPMs. The example paths below refer to the
-`native.1` build root on the phone. That temporary build tree was lost when the
-phone was returned to fastboot after the host reboot. The private RPM backup
-survived, but this iteration has the signing
-defect described below; use a corrected iteration for acceptance.
+validated and installed `native.2` candidate. The earlier `native.1` RPMs were
+preserved privately but have the signing defect described below.
 
 ```sh
-R=/run/pocketfed-libcamera-native-1/rpmbuild/RPMS/aarch64
+R=/run/pocketfed-libcamera-native-2/rpmbuild/RPMS/aarch64
 sudo dnf install \
-    "$R/libcamera-0.7.2-4.fc46.native.1.aarch64.rpm" \
-    "$R/libcamera-ipa-0.7.2-4.fc46.native.1.aarch64.rpm" \
-    "$R/libcamera-tools-0.7.2-4.fc46.native.1.aarch64.rpm" \
-    "$R/libcamera-gstreamer-0.7.2-4.fc46.native.1.aarch64.rpm" \
-    "$R/libcamera-qcam-0.7.2-4.fc46.native.1.aarch64.rpm"
+    "$R/libcamera-0.7.2-4.fc46.native.2.aarch64.rpm" \
+    "$R/libcamera-ipa-0.7.2-4.fc46.native.2.aarch64.rpm" \
+    "$R/libcamera-tools-0.7.2-4.fc46.native.2.aarch64.rpm" \
+    "$R/libcamera-gstreamer-0.7.2-4.fc46.native.2.aarch64.rpm" \
+    "$R/libcamera-qcam-0.7.2-4.fc46.native.2.aarch64.rpm"
 ```
 
 Use `dnf install` with explicit local paths, not `dnf upgrade`. The disposable
@@ -153,16 +151,25 @@ signatures. The helper rewrites that glob in the packaged spec for the next
 build, and its default patch directory now also carries the optional
 `0002-qcam-bounded-save.patch`, which was **not** part of this build.
 
-Iteration 1 is **not installed**, and the installed stack remains stock Fedora
-`0.7.2-4.fc46`. No capture or image quality is claimed for it, and the RPMs
+Iteration 1 was **not installed**. No capture or image quality is claimed for it, and the RPMs
 should not be installed as-is; rebuild with the corrected glob so the IPA
 modules re-sign.
 
-The fresh `sargo-camera-camcc-02-20260914` liveboot starts from the original
-fixture and has no libcamera runtime package installed yet. Iteration 2 is
-building on that phone with both task patches and the corrected signing glob;
-its input check passed. Compilation, final IPA signature checks and capture
-validation must finish before this candidate is accepted.
+## Native iteration 2 (`4.fc46.native.2`)
+
+The fresh `sargo-camera-camcc-02-20260914` liveboot built iteration 2 on the
+phone with both task patches and the corrected signing glob. All 16 binary
+and debug RPM hashes matched the private backup; the source RPM was preserved
+alongside them. All five final IPA module signatures verified against the build
+public key preserved before packaging. The same 20 selected non-camera library
+tests passed, and the Meson build tree survived packaging with `--noclean`.
+
+The five runtime subpackages in the installation example are now installed in
+the disposable overlay. Fourteen qcam help/invalid-option cases passed under
+systemd `PrivateDevices=yes`, with the offscreen Qt platform and no camera
+devices exposed. Strict camera release checks passed around installation.
+The visible capture trial is armed behind the Volume Up gate; actual preview,
+saved-image quality and lifecycle acceptance are still pending.
 
 ## Build tree retention
 

@@ -69,9 +69,11 @@ qcam -c /base/soc@0/cci@ac4a000/i2c-bus@0/camera@1a -r qt \
 
 ## Focused parse verification
 
-Verified by construction against the code and documented cases (no test
-framework; Qt dev headers were not available locally, so the compiled result
-must be confirmed at native build):
+The parser was initially inspected in source. Native iteration 2 then compiled
+the patch and passed 14 help/invalid-option checks under systemd
+`PrivateDevices=yes` with the Qt offscreen platform. Valid frame counts still
+need the physical readiness-gated capture; the accepted rows below describe
+the parser's source contract.
 
 | Input | Result | Reason |
 | --- | --- | --- |
@@ -93,10 +95,10 @@ must be confirmed at native build):
   `QString::toUInt`, `QImageWriter`, `QCoreApplication::exit`,
   `viewfinder_->getCurrentImage()`.
 
-## Limitations needing native compile/test
+## Remaining native checks
 
-- Not compiled or run here. Build against the phone's libcamera 0.7.2 + Qt 6 and
-  exercise on test-sargo.
+- The patched qcam compiled, was installed, and passed the isolated option
+  checks. Actual preview and saving still need a test-sargo capture.
 - The Qt JPEG image format plugin (`libqjpeg.so` from `qt6-qtbase-gui`) must be
   present for `.jpg` output.
 - The real default/adjusted viewfinder size on Sargo is not asserted; pin

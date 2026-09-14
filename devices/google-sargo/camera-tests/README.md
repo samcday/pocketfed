@@ -95,22 +95,14 @@ The selected capture stack is **libcamera**. The visible trial uses
 viewfinder, which saves one JPEG and exits after a bounded frame count.
 [`wait-for-ready.py`](readiness.md) requires a fresh Volume Up press/release;
 Volume Down cancels, and `power-state.py` checks release around capture.
-The patched qcam build and actual preview/capture still need native validation.
+The patched qcam has compiled and is installed on the test phone; actual
+preview/capture still needs native validation.
 
 The headless [`libcamera-session/`](libcamera-session/README.md) helper provides
 the measured baseline through `cam`: it saved a decoded JPEG and released the
 camera, but that image was overexposed and cyan. `run-libcamera.py` is an older
 multi-frame PPM diagnostic. Megapixels and its packaging are retained only in
 the archived branch and are not dependencies of either libcamera path.
-
-A visible libcamera trial is added under
-[`qcam-session/`](qcam-session/README.md): the same `wait-for-ready.py` and
-`power-state.py` bracketing around standalone Phoc and the patched `qcam`
-(`packages/libcamera/patches/0002-qcam-bounded-save.patch`), which shows the
-viewfinder and auto-saves one JPEG after a bounded frame count. It reuses the
-`libcamera-session` helpers and the generic Phoc setup only; no Megapixels code.
-That qcam patch is **not compiled yet**, so the path needs a native build and a
-device trial before it is accepted.
 
 The acceptance goal is unchanged: a useful saved JPEG of the printed target
 with a decodable QR, manual focus, plausible colour, correct orientation and
