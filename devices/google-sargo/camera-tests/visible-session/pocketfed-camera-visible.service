@@ -35,6 +35,7 @@ Environment=POCKETFED_CAMERA_VISIBLE_REPO=/path/to/pocketfed
 Environment=POCKETFED_CAMERA_VISIBLE_WORKDIR=/run/pocketfed-camera-visible
 RuntimeDirectory=pocketfed-camera-visible
 RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
 
 # Standalone DRM session on a dedicated VT. libinput must be listed explicitly.
 Environment=WLR_BACKENDS=drm,libinput
