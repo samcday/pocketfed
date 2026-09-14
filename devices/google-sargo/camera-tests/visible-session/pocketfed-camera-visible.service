@@ -1,9 +1,8 @@
 # PocketFed Sargo visible camera trial.
 #
 # This is a disposable, manually started trial session. It is NOT a desktop and
-# is not pulled in by graphical.target. Edit the two Environment paths below to
-# point at the PocketFed checkout and a writable work directory on the phone,
-# then start it explicitly:
+# is not pulled in by graphical.target. Edit the repository path below to point
+# at the PocketFed checkout on the phone, then start it explicitly:
 #
 #   systemctl daemon-reload
 #   systemctl start pocketfed-camera-visible.service
@@ -15,26 +14,30 @@
 # is the single authorized command: the visible Phoc + Megapixels session.
 #
 # Seat/DRM: the defaults below run Phoc standalone as root on a dedicated VT
-# with WLR_BACKENDS=drm and LIBSEAT_BACKEND=noop. If the hardware validation
-# shows root/standalone cannot take the DRM seat, run the same visible-session
-# command under greetd with an [initial_session] instead; see
+# with WLR_BACKENDS=drm,libinput and LIBSEAT_BACKEND=noop. `drm` alone would
+# omit the libinput backend and leave touch/keyboard (and therefore focus)
+# unavailable. If hardware validation shows root/standalone cannot take the DRM
+# seat, run the same visible session command under greetd with an
+# [initial_session] instead; see
 # devices/google-sargo/camera-tests/visible-session/README.md.
 
 [Unit]
 Description=PocketFed Sargo visible camera trial (Volume-Up gate + Phoc + Megapixels)
-Documentation=file:${POCKETFED_CAMERA_VISIBLE_REPO}/devices/google-sargo/camera-tests/visible-session/README.md
 Conflicts=getty@tty3.service
 After=systemd-user-sessions.service
 
 [Service]
 Type=simple
 
-# Adjust these two paths for the phone.
+# Repository checkout on the phone. The work directory is a bounded, private
+# tmpfs created by systemd; the gate opens its capture log beneath it.
 Environment=POCKETFED_CAMERA_VISIBLE_REPO=/path/to/pocketfed
-Environment=POCKETFED_CAMERA_VISIBLE_WORKDIR=/var/tmp/pocketfed-camera-visible
+Environment=POCKETFED_CAMERA_VISIBLE_WORKDIR=/run/pocketfed-camera-visible
+RuntimeDirectory=pocketfed-camera-visible
+RuntimeDirectoryMode=0700
 
-# Standalone DRM session on a dedicated VT.
-Environment=WLR_BACKENDS=drm
+# Standalone DRM session on a dedicated VT. libinput must be listed explicitly.
+Environment=WLR_BACKENDS=drm,libinput
 Environment=WLR_RENDERER=gles2
 Environment=LIBSEAT_BACKEND=noop
 TTYPath=/dev/tty3
@@ -42,13 +45,16 @@ StandardInput=tty
 TTYReset=yes
 TTYVHangup=yes
 
-# Bound the session and give the gate/launcher time to stop owned children.
+# Contain every descendant in the unit cgroup, including any helper that created
+# its own session and would escape process-group cleanup on cancellation.
+KillMode=control-group
 TimeoutStopSec=30
 
+# The gate bound must cover session startup (20s), the preview window (10s),
+# control commands (15s) and the capture/JPEG bound (60s), with margin.
 ExecStart=/usr/bin/python3 ${POCKETFED_CAMERA_VISIBLE_REPO}/devices/google-sargo/camera-tests/wait-for-ready.py \
-    --timeout 120 --settle 2 --log ${POCKETFED_CAMERA_VISIBLE_WORKDIR}/capture.log \
+    --timeout 120 --settle 2 --capture-timeout 180 \
+    --log ${POCKETFED_CAMERA_VISIBLE_WORKDIR}/capture.log \
     -- /usr/bin/python3 ${POCKETFED_CAMERA_VISIBLE_REPO}/devices/google-sargo/camera-tests/visible-session/visible-session.py \
-    --output ${POCKETFED_CAMERA_VISIBLE_WORKDIR}/session --preview-seconds 10
-
-[Install]
-WantedBy=multi-user.target
+    --output ${POCKETFED_CAMERA_VISIBLE_WORKDIR}/session \
+    --startup-timeout 20 --preview-seconds 10 --capture-timeout 60

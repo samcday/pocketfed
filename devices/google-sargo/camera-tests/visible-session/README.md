@@ -31,10 +31,20 @@ countdown, the preview, or the running capture, and stops only that group.
 - `phoc` 0.56 is installed in the device image (pulled in by phosh); cage is
   not. `man phoc` states it "works perfectly fine on its own"; the `-S` shell
   flag is only for attaching a shell, which this session deliberately omits.
-- The compositor runs on `WLR_BACKENDS=drm` on a dedicated VT, so it appears on
-  the phone screen rather than an inactive headless output.
-- `sm.puri.phoc auto-maximize true` (set best-effort at session start) makes the
-  single Megapixels toplevel the active, full-screen window.
+- The compositor runs on the phone screen (a dedicated VT), not a headless
+  output.
+- `WLR_BACKENDS=drm,libinput`: the `drm` backend alone omits libinput, so
+  touch/keyboard and therefore focus would be unavailable. wlroots only creates
+  the input backend when it is listed (verified from the installed
+  `libwlroots`, which logs "Loading user-specified backends due to
+  WLR_BACKENDS" and "Starting libinput backend").
+- `sm.puri.phoc auto-maximize true` is set best-effort at session start so the
+  single Megapixels toplevel is full-screen.
+- **Focus honesty.** A maximized toplevel is not proof of
+  `gtk_window_is_active`. With libinput present the single maximized window is
+  normally focused, but this tool cannot guarantee the app's active state. If
+  the preview stays blank, the operator/root must activate it (an existing
+  pointer toolkit or a tap); the launcher does not fake that guarantee.
 
 ## Session bus, activation, and privacy
 
@@ -49,10 +59,10 @@ outside that directory or the private bus is modified.
 Run it as the command of the readiness gate (the gate must come first):
 
 ```sh
-python3 ../wait-for-ready.py --timeout 120 --settle 2 \
-    --log /var/tmp/pocketfed-camera-visible/capture.log -- \
+python3 ../wait-for-ready.py --timeout 120 --settle 2 --capture-timeout 180 \
+    --log /run/pocketfed-camera-visible/capture.log -- \
     python3 ./visible-session.py \
-        --output /var/tmp/pocketfed-camera-visible/session --preview-seconds 10
+        --output /run/pocketfed-camera-visible/session --preview-seconds 10
 ```
 
 Check the resolved plan and tools without starting a session:
@@ -70,26 +80,40 @@ Options of interest:
 | `--capture-timeout N` | Bound for the capture action and JPEG wait (1..600). |
 | `--control-command CMD` | Shell command after settling, before capture; repeatable. |
 | `--focus-cue` / `--capture-cue` | Existing-UI cues (default the `fbcli` events below; empty disables). |
-| `--verify-jpeg` | Decode the saved JPEG with ImageMagick before reporting success. |
 | `--allow-existing-compositor` | Skip the phoc/phosh-in-use refusal. |
+
+Capture completion is not a non-empty file. Like `run-megapixels.py`, the
+launcher requires the Megapixels postprocessor's ExifTool `Software` tag, a
+3-second stable file, a full pixel decode with ImageMagick, and readable
+dimensions, which are recorded in `result.json`. `exiftool` and `magick` are
+required tools (checked by `--check`).
 
 ## Systemd unit
 
-`pocketfed-camera-visible.service` is a template. Edit the two `Environment`
-paths for the phone, then `systemctl start` it (do not enable it by default):
+`pocketfed-camera-visible.service` is a template. Edit the repository
+`Environment` path for the phone, then `systemctl start` it. It has no
+`[Install]` section: this trial is armed manually and must not start at boot.
 
 ```ini
 Environment=POCKETFED_CAMERA_VISIBLE_REPO=/path/to/pocketfed
-Environment=POCKETFED_CAMERA_VISIBLE_WORKDIR=/var/tmp/pocketfed-camera-visible
+Environment=POCKETFED_CAMERA_VISIBLE_WORKDIR=/run/pocketfed-camera-visible
+RuntimeDirectory=pocketfed-camera-visible
+RuntimeDirectoryMode=0700
 TTYPath=/dev/tty3
 StandardInput=tty
-Environment=WLR_BACKENDS=drm
+Environment=WLR_BACKENDS=drm,libinput
 Environment=WLR_RENDERER=gles2
 Environment=LIBSEAT_BACKEND=noop
+KillMode=control-group
 ```
 
-It conflicts with `getty@tty3.service` and is not part of any graphical target.
-Remove `${WORKDIR}/session` between runs (the launcher requires a fresh output).
+`RuntimeDirectory` creates the private work directory (and so the gate's
+`capture.log` parent) before `ExecStart`; it is tmpfs and removed on stop.
+`KillMode=control-group` keeps every descendant in the unit cgroup, so even a
+helper that creates its own session is cleaned up when the service stops or is
+cancelled. The gate bound is explicit: `--capture-timeout 180` covers startup
+(20s) + preview (10s) + control (15s) + capture/JPEG (60s) with margin. Remove
+`${WORKDIR}/session` between runs (the launcher requires a fresh output).
 
 **Seat/DRM uncertainty to validate on hardware.** The template runs Phoc as root
 on a dedicated VT with `LIBSEAT_BACKEND=noop`, which lets the process open DRM
@@ -97,12 +121,12 @@ and input directly without a logind session. This is the smallest credible
 standalone path, but it can only be confirmed on the device. If Phoc cannot take
 the DRM seat that way, use the image's existing greetd path instead: a trial
 config with `[initial_session]` (the phrog config already shows this pattern)
-running the same `visible-session.py` command as an unprivileged user. The
-launcher is independent of which seat mechanism starts it. Check the result with:
+running the same visible session command as an unprivileged user. The launcher
+is independent of which seat mechanism starts it. Check the result with:
 
 ```sh
 systemctl status pocketfed-camera-visible
-tail -f /var/tmp/pocketfed-camera-visible/capture.log
+tail -f /run/pocketfed-camera-visible/capture.log
 ```
 
 ## Manual focus and exposure
@@ -127,17 +151,21 @@ gate already uses the verified `capture`, `quit` and `switch-camera` actions.
 python3 test-visible-session.py
 ```
 
-The tests use stub phoc/app/gdbus tools in a temporary directory. They cover
-exactly one capture and quit on the happy path, control commands running before
-capture, capture timeout cleanup, Phoc failing before the socket, SIGTERM during
-preview cancelling and stopping owned children, `--check`/preflight behavior,
-and that the systemd unit runs the gate before the session. No DRM device,
-compositor, camera, session bus, SSH or network is touched.
+The tests use stub phoc/app/gdbus/exiftool/magick tools in a temporary
+directory. They cover exactly one capture and quit on the happy path with
+recorded dimensions, control commands running before capture, capture timeout
+cleanup, Phoc failing before the socket, SIGTERM during preview cancelling and
+stopping owned children, a lingering same-group helper surviving its leader and
+still being reaped, `--check`/preflight behavior, and that the systemd unit runs
+the gate before the session, creates the work directory, includes libinput,
+bounds the gate, and has no `[Install]`. No DRM device, compositor, camera,
+session bus, SSH or network is touched.
 
 ## Remaining hardware validation
 
 This is only the session half of the trial. On the device, confirm: Phoc takes
-the DRM seat and the screen shows an active Megapixels preview; the window is
-focused so AE/AF settle; a JPEG is saved and (with `--verify-jpeg`) decodes; the
-gate's Volume Down cancels the running session; and all owned processes are gone
-after exit.
+the DRM seat and the screen shows an active Megapixels preview; libinput is
+present and the window is focused so AE/AF settle (activate it manually if not);
+a JPEG is saved, passes the ExifTool/decode/dimension checks, and is recorded; the
+gate's Volume Down cancels the running session; and all owned processes,
+including any descendant, are gone after exit.

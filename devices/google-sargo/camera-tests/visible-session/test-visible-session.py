@@ -46,6 +46,24 @@ class VisibleSessionTests(unittest.TestCase):
             while not os.path.exists(os.path.join(runtime, "app.quit")):
                 time.sleep(0.05)
         '''))
+        self.write_stub("app_lingering", textwrap.dedent('''
+            import os, subprocess, sys, time
+            runtime = os.environ["XDG_RUNTIME_DIR"]
+            open(os.path.join(runtime, "app.pid"), "w").write(str(os.getpid()))
+            helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3600)"])
+            open(os.path.join(runtime, "helper.pid"), "w").write(str(helper.pid))
+            while not os.path.exists(os.path.join(runtime, "app.quit")):
+                time.sleep(0.05)
+        '''))
+        self.write_stub("exiftool", textwrap.dedent('''
+            import sys
+            args = sys.argv[1:]
+            if "-j" in args:
+                print('[{"ImageWidth": 4032, "ImageHeight": 3024}]')
+            else:
+                print("Megapixels")
+        '''))
+        self.write_stub("magick", "import sys; sys.exit(0)\n")
         self.write_stub("gdbus", textwrap.dedent('''
             import os, sys
             args = sys.argv[1:]
@@ -89,6 +107,8 @@ class VisibleSessionTests(unittest.TestCase):
                 "--allow-existing-compositor", "--phoc", str(self.bin / "phoc"),
                 "--app", str(self.bin / "app"), "--gdbus", str(self.bin / "gdbus"),
                 "--gsettings", str(self.bin / "true"), "--bus-runner", str(self.bin / "true"),
+                "--exiftool", str(self.bin / "exiftool"),
+                "--magick", str(self.bin / "magick"),
                 "--focus-cue", "", "--capture-cue", "", "--startup-timeout", "5",
                 *extra]
 
@@ -99,7 +119,7 @@ class VisibleSessionTests(unittest.TestCase):
 
     def assert_processes_gone(self, output):
         runtime = Path(output) / "runtime"
-        for name in ("phoc.pid", "app.pid"):
+        for name in ("phoc.pid", "app.pid", "helper.pid"):
             path = runtime / name
             if not path.exists():
                 continue
@@ -126,6 +146,20 @@ class VisibleSessionTests(unittest.TestCase):
         report = json.loads((output / "result.json").read_text())
         self.assertEqual(report["status"], "passed")
         self.assertTrue(Path(report["capture"]).is_file())
+        self.assertEqual(report["dimensions"], {"width": 4032, "height": 3024})
+        self.assert_processes_gone(output)
+
+    def test_lingering_helper_is_reaped_when_leader_exits(self):
+        output = self.root / "out-lingering"
+        sequence = self.root / "seq-lingering"
+        command = self.inner_command(output, ["--preview-seconds", "0",
+                                              "--capture-timeout", "5"])
+        index = command.index(str(self.bin / "app"))
+        command[index] = str(self.bin / "app_lingering")
+        result = subprocess.run(command, env=self.base_env(
+            STUB_SEQUENCE=str(sequence)), capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((output / "runtime" / "helper.pid").exists())
         self.assert_processes_gone(output)
 
     def test_control_commands_run_before_capture(self):
@@ -199,7 +233,8 @@ class VisibleSessionTests(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "--output", str(output),
              "--app", str(self.bin / "app"), "--phoc", str(self.bin / "phoc"),
-             "--check"],
+             "--exiftool", str(self.bin / "exiftool"),
+             "--magick", str(self.bin / "magick"), "--check"],
             env=self.base_env(), capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         plan = json.loads(result.stdout)
@@ -211,6 +246,8 @@ class VisibleSessionTests(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, str(SCRIPT), "--output", str(output),
              "--app", str(self.bin / "app"), "--phoc", "/nonexistent/phoc",
+             "--exiftool", str(self.bin / "exiftool"),
+             "--magick", str(self.bin / "magick"),
              "--bus-runner", str(self.bin / "true"), "--shell", "sh"],
             env=self.base_env(), capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 2)
@@ -228,11 +265,23 @@ class UnitWiringTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(UNIT.stat().st_mode) & 0o111, 0,
                          "a systemd unit file should not be executable")
 
-    def test_unit_is_private_and_bounded(self):
+    def test_unit_has_input_workdir_and_aligned_bounds(self):
         text = UNIT.read_text()
         self.assertIn("StandardInput=tty", text)
         self.assertIn("LIBSEAT_BACKEND=noop", text)
+        self.assertIn("WLR_BACKENDS=drm,libinput", text)
+        self.assertIn("RuntimeDirectory=pocketfed-camera-visible", text)
+        self.assertIn("POCKETFED_CAMERA_VISIBLE_WORKDIR=/run/pocketfed-camera-visible",
+                      text)
+        self.assertIn("--capture-timeout 180", text)
+        self.assertIn("KillMode=control-group", text)
         self.assertIn("TimeoutStopSec=", text)
+
+    def test_unit_is_manual_only_without_env_expansion_in_documentation(self):
+        text = UNIT.read_text()
+        self.assertNotIn("[Install]", text)
+        self.assertNotIn("WantedBy", text)
+        self.assertNotIn("Documentation=", text)
 
 
 if __name__ == "__main__":

@@ -14,9 +14,16 @@ Design notes (see README.md for the full rationale):
   states it "works perfectly fine on its own"; ``-S`` is only for attaching a
   shell, which this session deliberately does not do. Cage is not part of the
   device image, so Phoc is the smallest credible installed choice.
-- Display: ``WLR_BACKENDS=drm`` on a dedicated VT (set by the systemd unit).
-  ``LIBSEAT_BACKEND=noop`` lets root open DRM/input directly without a logind
-  session; the README documents the greetd/logind alternative.
+- Display and input: ``WLR_BACKENDS=drm,libinput`` on a dedicated VT. ``drm``
+  alone would omit libinput, so touch/keyboard and focus may be missing;
+  wlroots only creates the input backend when it is listed. ``LIBSEAT_BACKEND=
+  noop`` lets root open DRM/input directly without a logind session; the README
+  documents the greetd/logind alternative.
+- Focus: a maximized toplevel is not the same as ``gtk_window_is_active``. With
+  input present the single maximized window is normally focused, but this tool
+  cannot guarantee the app's active state; if the preview stays blank the
+  operator/root must activate it (the existing pointer toolkit or a tap). This
+  limitation is stated rather than masked.
 - Session bus: the outer invocation re-executes itself under
   ``dbus-run-session`` so Phoc, Megapixels and this driver share one private
   session bus. Nothing outside the private runtime directory is touched.
@@ -101,6 +108,37 @@ def _signal_process_group(pid, signum):
         pass
 
 
+def group_members(pgid):
+    """Return live members of a process group, excluding zombies.
+
+    Scanned from /proc rather than inferred from the leader: a leader can exit
+    while children in the same group are still running.
+    """
+    members = []
+    for path in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = path.read_text().rsplit(")", 1)[1].split()
+        except OSError:
+            continue
+        try:
+            if int(fields[2]) == pgid and fields[0] not in {"Z", "X"}:
+                members.append(int(path.parent.name))
+        except (IndexError, ValueError):
+            continue
+    return members
+
+
+def terminate_group(pgid, grace=2.0):
+    """Escalate over the whole owned group, even after its leader exited."""
+    for signum in (signal.SIGTERM, signal.SIGKILL):
+        if not group_members(pgid):
+            break
+        _signal_process_group(pgid, signum)
+        deadline = time.monotonic() + grace
+        while group_members(pgid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+
 def start_process(argv, env, log_path):
     stream = subprocess.DEVNULL
     if log_path is not None:
@@ -113,17 +151,14 @@ def start_process(argv, env, log_path):
 
 
 def stop_process(process, grace=2.0):
-    if process is None or process.poll() is not None:
+    if process is None:
         return
-    _signal_process_group(process.pid, signal.SIGTERM)
+    # Clean the owned group unconditionally: the leader may have exited while a
+    # helper it spawned is still alive. Processes that created their own session
+    # escape this and are contained only by the systemd unit cgroup.
+    terminate_group(process.pid, grace)
     try:
-        process.wait(timeout=grace)
-        return
-    except subprocess.TimeoutExpired:
-        pass
-    _signal_process_group(process.pid, signal.SIGKILL)
-    try:
-        process.wait(timeout=2)
+        process.wait(timeout=1)
     except subprocess.TimeoutExpired:
         pass
 
@@ -231,8 +266,46 @@ def interruptible_sleep(seconds, processes):
         time.sleep(min(0.1, remaining))
 
 
-def wait_for_jpeg(pictures, before, timeout):
-    deadline = time.monotonic() + timeout
+SOFTWARE_TAG = "Megapixels"
+JPEG_STABLE_SECONDS = 3.0
+
+
+def jpeg_software(args, jpeg, env):
+    try:
+        result = run_command([args.exiftool, "-s3", "-Software", str(jpeg)], env, 10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def jpeg_dimensions(args, jpeg, env):
+    try:
+        result = run_command(
+            [args.exiftool, "-j", "-ImageWidth", "-ImageHeight", str(jpeg)], env, 10)
+        record = json.loads(result.stdout)[0]
+        width, height = int(record["ImageWidth"]), int(record["ImageHeight"])
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError):
+        return None
+    return (width, height) if width > 0 and height > 0 else None
+
+
+def decode_jpeg(args, jpeg, env):
+    try:
+        result = run_command([args.magick, "-regard-warnings", str(jpeg), "null:"],
+                             env, 30)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise SessionError(f"JPEG decode failed: {error}")
+    if result.returncode != 0:
+        raise SessionError(f"JPEG decode failed: {result.stdout.strip()}")
+
+
+def wait_for_completed_jpeg(args, pictures, before, env):
+    """Match run-megapixels.py: postprocessor metadata, stable file, real decode.
+
+    A non-empty file is not completion; Megapixels' postprocessor only sets
+    Software after the final rename, and the pixels must decode.
+    """
+    deadline = time.monotonic() + args.capture_timeout
     stable = None
     stable_since = None
     while time.monotonic() < deadline:
@@ -240,14 +313,20 @@ def wait_for_jpeg(pictures, before, timeout):
                             if path.name not in before)
         if candidates:
             candidate = candidates[-1]
-            stat = candidate.stat()
-            signature = (stat.st_size, stat.st_mtime_ns)
-            if signature != stable:
-                stable, stable_since = signature, time.monotonic()
-            elif time.monotonic() - stable_since >= 0.5 and stat.st_size > 0:
-                return candidate
+            if jpeg_software(args, candidate, env) == SOFTWARE_TAG:
+                stat = candidate.stat()
+                signature = (stat.st_size, stat.st_mtime_ns)
+                if signature != stable:
+                    stable, stable_since = signature, time.monotonic()
+                elif (stat.st_size > 0
+                      and time.monotonic() - stable_since >= JPEG_STABLE_SECONDS):
+                    decode_jpeg(args, candidate, env)
+                    dimensions = jpeg_dimensions(args, candidate, env)
+                    if dimensions is None:
+                        raise SessionError("could not read saved JPEG dimensions")
+                    return candidate, dimensions
         time.sleep(0.1)
-    raise SessionError("no completed JPEG appeared after the capture action")
+    raise SessionError("no completed Megapixels JPEG appeared after the capture action")
 
 
 def cue(args, command, env, reporter, label):
@@ -262,30 +341,13 @@ def cue(args, command, env, reporter, label):
         reporter.warn(f"{label}-failed exit-{result.returncode}")
 
 
-def verify_jpeg(args, jpeg, env, reporter):
-    if not args.verify_jpeg:
-        return
-    if shutil.which(args.magick) is None:
-        reporter.warn(f"verify-jpeg-skipped {args.magick} not found")
-        return
-    try:
-        result = run_command([args.magick, "-regard-warnings", str(jpeg), "null:"],
-                             env, 30)
-    except (OSError, subprocess.SubprocessError) as error:
-        raise SessionError(f"JPEG validation failed: {error}")
-    if result.returncode != 0:
-        raise SessionError(f"JPEG validation failed: {result.stdout.strip()}")
-
-
-def capture_once(args, pictures, env, reporter):
+def capture_once(args, pictures, env):
     before = {path.name for path in pictures.glob("*.jpg")}
     result = run_command(gdbus_activate(args, args.capture_action), env,
                          args.capture_timeout)
     if result.returncode != 0:
         raise SessionError(f"capture action failed: {result.stdout.strip()}")
-    jpeg = wait_for_jpeg(pictures, before, args.capture_timeout)
-    verify_jpeg(args, jpeg, env, reporter)
-    return jpeg
+    return wait_for_completed_jpeg(args, pictures, before, env)
 
 
 def write_result(path, report):
@@ -316,6 +378,7 @@ def run_inner(args, reporter):
         "preview_seconds": args.preview_seconds,
         "capture_action": args.capture_action,
         "capture": None,
+        "dimensions": None,
         "error": None,
     }
 
@@ -352,8 +415,9 @@ def run_inner(args, reporter):
                 raise SessionError(f"control command failed: {command}")
         reporter.state("capture", args.capture_action)
         cue(args, args.capture_cue, app_env, reporter, "capture-cue")
-        jpeg = capture_once(args, pictures, app_env, reporter)
+        jpeg, (width, height) = capture_once(args, pictures, app_env)
         report["capture"] = str(jpeg)
+        report["dimensions"] = {"width": width, "height": height}
         reporter.state("quit", args.quit_action)
         try:
             run_command(gdbus_activate(args, args.quit_action), app_env, 5)
@@ -404,6 +468,8 @@ def preflight(args):
         "phoc": args.phoc,
         "app": args.app,
         "gdbus": args.gdbus,
+        "exiftool": args.exiftool,
+        "magick": args.magick,
         "bus-runner": args.bus_runner,
         "shell": args.shell,
     }
@@ -438,6 +504,7 @@ def build_parser():
     parser.add_argument("--app", default="megapixels")
     parser.add_argument("--gdbus", default="gdbus")
     parser.add_argument("--gsettings", default="gsettings")
+    parser.add_argument("--exiftool", default="exiftool")
     parser.add_argument("--magick", default="magick")
     parser.add_argument("--bus-runner", default="dbus-run-session")
     parser.add_argument("--shell", default="sh")
@@ -456,11 +523,10 @@ def build_parser():
                         help="existing-UI cue run before the preview (empty to disable)")
     parser.add_argument("--capture-cue", default="fbcli -E camera-shutter",
                         help="existing-UI cue run just before capture (empty to disable)")
-    parser.add_argument("--verify-jpeg", action="store_true",
-                        help="decode the saved JPEG with ImageMagick")
     parser.add_argument("--allow-existing-compositor", action="store_true",
                         help="do not refuse when phoc/phosh is already running")
-    parser.add_argument("--wlr-backends", default="drm")
+    parser.add_argument("--wlr-backends", default="drm,libinput",
+                        help="wlroots backends; drm alone omits input (default drm,libinput)")
     parser.add_argument("--wlr-renderer", default="gles2")
     parser.add_argument("--libseat-backend", default="noop",
                         help="libseat backend for standalone root DRM (default noop)")
