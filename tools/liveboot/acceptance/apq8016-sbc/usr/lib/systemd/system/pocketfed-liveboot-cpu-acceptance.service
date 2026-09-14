@@ -1,0 +1,16 @@
+[Unit]
+Description=Measured four-CPU PocketFed liveboot acceptance workload
+Documentation=file:///usr/libexec/pocketfed-liveboot-cpu-acceptance
+ConditionKernelCommandLine=pocketfed.liveboot
+After=pocketfed-liveboot-check.service
+Wants=pocketfed-liveboot-check.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/pocketfed-liveboot-cpu-acceptance
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
