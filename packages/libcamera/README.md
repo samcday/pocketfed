@@ -92,9 +92,11 @@ RPM path with its SHA256.
 ## Installing the trial
 
 Install the exact matching subpackages from a single iteration together --
-`libcamera`, `-ipa`, `-tools`, `-gstreamer` and `-qcam` (qcam is now installed
-on the device) -- using the explicit paths from the helper output or the
-manifest. Do not use wildcards: they can mix iterations or pick up stale RPMs.
+`libcamera`, `-ipa`, `-tools`, `-gstreamer` and `-qcam` -- using the explicit
+paths from the helper output or the manifest. Do not use wildcards: they can
+mix iterations or pick up stale RPMs. The example paths below refer to the
+`native.1` build root, which was discarded by the host reboot; rebuild first
+(see [Native iteration 1](#native-iteration-1-4fc46native1)).
 
 ```sh
 R=/run/pocketfed-libcamera-native-1/rpmbuild/RPMS/aarch64
@@ -124,9 +126,31 @@ device:
 python3 packages/libcamera/validation/test-build-native.py
 ```
 
-**No successful `build-native` RPM build has been verified or is claimed.**
-The helper is prepared for the phone's native iteration and still needs a real
-run there.
+The helper was later run on the phone; the result is recorded under
+[Native iteration 1](#native-iteration-1-4fc46native1).
+
+## Native iteration 1 (`4.fc46.native.1`)
+
+Iteration 1 built successfully on the phone from the pinned clone and SRPM,
+applying only the IMX363 tuning task patch (`0001`). The run produced 16 binary
+and debug RPMs plus a source RPM, which were backed up privately, and an
+independent SHA-256 check of that backup matched the manifest hashes. A
+specifically selected set of 20 non-camera libcamera library tests passed with
+no failures.
+
+The artifacts have a known defect: all five IPA modules **failed signature
+verification against the build public key**. The Fedora spec's post-strip
+re-sign step still uses the obsolete glob
+`%{_libdir}/libcamera/ipa_*.so`, but 0.7.2 installs the modules under
+`%{_libdir}/libcamera/ipa/`, so the re-sign matched nothing and left stale
+signatures. The helper rewrites that glob in the packaged spec for the next
+build, and its default patch directory now also carries the optional
+`0002-qcam-bounded-save.patch`, which was **not** part of this build.
+
+Iteration 1 is **not installed**, and the installed stack remains stock Fedora
+`0.7.2-4.fc46`. No capture or image quality is claimed for it, and the RPMs
+should not be installed as-is; rebuild with the corrected glob so the IPA
+modules re-sign.
 
 ## Build tree retention
 

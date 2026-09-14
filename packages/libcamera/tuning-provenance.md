@@ -30,7 +30,7 @@ here):
   0.7.2 by RobertMader and introduced `temp/libcamera/imx363.yaml` with the
   current six CCMs.
 
-## Verification performed (0.7.2 source, no build, no hardware)
+## Source verification (0.7.2 source, no hardware)
 
 Verified against `/tmp/libcamera-source-20260914` (libcamera `version : '0.7.2'`):
 
@@ -69,6 +69,10 @@ validity errors; the bytes are intentionally preserved.
   colour accuracy on Sargo.
 - No sensor helper, analogue-gain equation, delay or lens mapping is changed;
   those require empirical validation and are out of scope here.
-- The patch was not built and no camera was run. Building/installing it for the
-  next baseline comparison is the root's follow-up after the current armed
-  trial ends.
+- The patch was built into the `4.fc46.native.1` iteration, which **finished**
+  on the phone and passed 20 selected non-camera libcamera library tests. That
+  iteration was **not installed** and no camera ran it, so the added CCMs are
+  still unvalidated in a capture. The iteration also has an unrelated IPA-module
+  signature defect (see the [native RPM README](README.md)), so it must not be
+  installed as-is; rebuilding with the corrected re-sign glob is the next step
+  before a tuning comparison.
