@@ -588,6 +588,66 @@ class RunnerTests(unittest.TestCase):
             os.close(read_fd)
             os.close(write_fd)
 
+    def test_cancellation_wins_when_child_exits_before_next_poll(self):
+        reporter = Reporter(io.StringIO(), quiet=True)
+        gate, clock = self.make_gate(reporter)
+
+        class FakeSession:
+            def __init__(self, command, timeout, log=None):
+                self.started = False
+                self.exited = False
+                self.stopped = False
+                self.stop_calls = 0
+
+            def start(self, clock=time.monotonic):
+                self.started = True
+                return self
+
+            def poll(self):
+                return 0 if self.exited else None
+
+            def expired(self, now):
+                return False
+
+            def reap(self):
+                return 0, []
+
+            def stop(self):
+                if self.stopped:
+                    return []
+                self.stopped = True
+                self.stop_calls += 1
+                return []
+
+        sessions = []
+
+        def factory(command, timeout, log):
+            session = FakeSession(command, timeout, log)
+            sessions.append(session)
+            return session
+
+        def select_fn(fds, _w, _x, _timeout):
+            session = sessions[0] if sessions else None
+            if session is not None and session.started:
+                # The owned child exits before the loop's next poll.
+                session.exited = True
+                return (list(fds), [], [])
+            if gate.state in ("discovering", "waiting"):
+                return (list(fds), [], [])
+            return ([], [], [])
+
+        reader = self.Reader(11, [[press(KEY_VOLUMEUP)], [release(KEY_VOLUMEUP)],
+                                  [press(KEY_VOLUMEDOWN)]])
+        code = wait_for_readiness(
+            [reader], gate, timeout=10, reporter=reporter, command=["capture"],
+            capture_timeout=5, select_fn=select_fn, clock=clock,
+            sleep_fn=lambda _seconds: None, capture_factory=factory)
+        output = reporter.stream.getvalue()
+        self.assertEqual(sessions[0].stop_calls, 1)
+        self.assertEqual(code, 2)
+        self.assertIn("cancelled", output)
+        self.assertNotIn("complete", output)
+
     def test_failed_resync_fails_closed(self):
         reporter = Reporter(io.StringIO(), quiet=True)
         gate, clock = self.make_gate(reporter)

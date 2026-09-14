@@ -594,8 +594,16 @@ def wait_for_readiness(readers, gate, timeout, reporter, *, command=None,
         deadline = clock() + timeout
         while True:
             now = clock()
-            # Monitor the owned capture first so a capture that already exited
-            # is reported as complete rather than as a late cancellation.
+            # A recorded cancellation is terminal: it must win even when the
+            # owned capture exits before the next poll. Stop the capture group
+            # and report cancellation instead of completion.
+            if gate.state == "cancelled":
+                if session is not None:
+                    session.stop()
+                return 2
+            # Otherwise monitor the owned capture first so a capture that
+            # already exited is reported as complete rather than as a late
+            # cancellation.
             if session is not None:
                 returncode = session.poll()
                 if returncode is not None:
@@ -612,10 +620,6 @@ def wait_for_readiness(readers, gate, timeout, reporter, *, command=None,
                     session.stop()
                     reporter.state("capture-failed", "timeout")
                     return 4
-            if gate.state == "cancelled":
-                if session is not None:
-                    session.stop()
-                return 2
             if gate.state == "timeout":
                 return 3
             if gate.state == "authorized":
