@@ -33,6 +33,7 @@ readonly RUNTIME_PACKAGES=(
 # Camera diagnostics: libcamera 0.7.x stack plus the V4L2 userspace tools.
 readonly CAMERA_PACKAGES=(
     libcamera libcamera-ipa libcamera-tools libcamera-gstreamer v4l-utils
+    dbus-daemon zbar grim
 )
 
 check_mode=0
