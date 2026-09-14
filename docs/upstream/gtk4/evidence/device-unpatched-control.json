@@ -1,0 +1,66 @@
+{
+  "classification": "bad",
+  "exit_code": 1,
+  "word": "hello",
+  "action": null,
+  "library": "/usr/lib64/libgtk-4.so.1.2303.0",
+  "disabled_wayland_globals": "wp_cursor_shape_manager_v1",
+  "gtk_a11y": "test",
+  "library_sha256": "255d3aaba1eb626386bb89f1ffe98fde8276098d39ff0fe0f3a9dd34c575e449",
+  "gtk_version": "4.23.3",
+  "mapped_library": [
+    "/usr/lib64/libgtk-4.so.1.2303.0"
+  ],
+  "observation": {
+    "state": {
+      "active": true,
+      "serial": 5,
+      "cause": 1,
+      "sent": true,
+      "reset": true,
+      "committed": false,
+      "text": "",
+      "cursor": 0,
+      "anchor": 0,
+      "last_done_at": 4527.155086177,
+      "sent_at": 4527.101979095
+    },
+    "events": [
+      {
+        "serial": 1,
+        "cause": 1,
+        "text": "",
+        "cursor": 0,
+        "anchor": 0
+      },
+      {
+        "serial": 2,
+        "cause": 0,
+        "text": "",
+        "cursor": 0,
+        "anchor": 0
+      },
+      {
+        "serial": 3,
+        "cause": 1,
+        "text": "",
+        "cursor": 0,
+        "anchor": 0
+      },
+      {
+        "serial": 4,
+        "cause": 0,
+        "text": "",
+        "cursor": 0,
+        "anchor": 0
+      },
+      {
+        "serial": 5,
+        "cause": 1,
+        "text": "",
+        "cursor": 0,
+        "anchor": 0
+      }
+    ]
+  }
+}

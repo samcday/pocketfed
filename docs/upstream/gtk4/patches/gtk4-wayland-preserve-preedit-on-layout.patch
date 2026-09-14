@@ -1,0 +1,34 @@
+Subject: [PATCH] wayland: Do not reset preedit on caret geometry updates
+
+A layout update can move the caret when the input method changes its
+preedit. Reporting that movement as CHANGE_CAUSE_OTHER tells input
+methods such as Stevia to discard the current composition, causing each
+character to appear briefly and then disappear.
+
+Keep geometry updates on the input-method change path. Actual external
+edits still use gtk_im_context_wayland_reset() to report OTHER.
+
+The regression was source-bisected to the commit below. The later
+bf874024b901 moved its notification into after_layout_cb(). A cause-only
+correction fixes the introducing commit as well as source-built 4.23.3.
+
+Fixes: 1d83c7a95320 ("gtk/imwayland: Make text-input caret location animatable")
+
+Candidate for GTK4 upstream and Fedora gtk4 dist-git, against 4.23.3.
+
+--- a/gtk/gtkimcontextwayland.c
++++ b/gtk/gtkimcontextwayland.c
+@@ -651,8 +651,12 @@
+       context_wayland->surface_cursor_rect.height != rect.height)
+     {
+       context_wayland->surface_cursor_rect = rect;
++      /* Moving the rendered caret (including while displaying preedit) does
++       * not represent an external edit of the surrounding text. Such edits
++       * are reported separately by gtk_im_context_wayland_reset().
++       */
+       notify_im_change (GTK_IM_CONTEXT_WAYLAND (context),
+-                        ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_OTHER);
++                        ZWP_TEXT_INPUT_V3_CHANGE_CAUSE_INPUT_METHOD);
+     }
+ }
+ 

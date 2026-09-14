@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Compare the exact parent/commit boundary without changing a git checkout.
+
+Requires a full Flatpak clone, Python 3, cc, pkg-config, GLib/GIO headers, patch.
+This compiles unchanged production constructors, PID loader, instance type,
+startup callback and retry timer. Child metadata parsing and D-Bus delivery are
+test doubles. It does not start Flatpak or access the phone.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import subprocess
+import tempfile
+
+CANDIDATE = "21f413f17f241240c5c5d67b0ac61c4bb7504075"
+PARENT = "104ed5db5ee42c55139fbeaa5e9bcf3b8e670bec"
+
+
+def block(source, start, end):
+    offset = source.index(start)
+    return source[offset:source.index(end, offset)]
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("repository", type=Path)
+    args = parser.parse_args()
+    recipe = Path(__file__).resolve().parent
+    template = (recipe / "test-start-notification-history.c.in").read_text()
+
+    def git(*command):
+        return subprocess.check_output(["git", "-C", str(args.repository), *command], text=True)
+
+    assert git("rev-parse", CANDIDATE + "^").strip() == PARENT
+    flags = shlex.split(subprocess.check_output(
+        ["pkg-config", "--cflags", "--libs", "glib-2.0", "gio-2.0"], text=True))
+    compiler = shlex.split(os.environ.get("CC", "cc"))
+    results = []
+    with tempfile.TemporaryDirectory(prefix="flatpak-history-build-") as temporary:
+        root = Path(temporary)
+        for label, revision, expected in [
+            ("parent", PARENT, 1), ("suspect", CANDIDATE, 0),
+            ("suspect-plus-fix", CANDIDATE, 1),
+        ]:
+            work = root / label
+            work.mkdir()
+            instance = git("show", revision + ":common/flatpak-instance.c")
+            portal = git("show", revision + ":portal/flatpak-portal.c")
+            metadata = git("show", revision + ":common/flatpak-metadata-private.h")
+            (work / "flatpak-instance.h").write_text(git("show", revision + ":common/flatpak-instance.h"))
+            if label == "suspect-plus-fix":
+                (work / "portal").mkdir()
+                (work / "portal/flatpak-portal.c").write_text(portal)
+                subprocess.run([
+                    "patch", "--batch", "--fuzz=0", "-p1", "-d", str(work),
+                    "-i", str(recipe / "flatpak-1.19.0-retry-instance-pid.patch"),
+                ], check=True, stdout=subprocess.DEVNULL)
+                portal = (work / "portal/flatpak-portal.c").read_text()
+
+            values = {
+                "METADATA_CONSTANTS": "\n".join(re.findall(r"^#define FLATPAK_METADATA_\w+ .*$", metadata, re.M)),
+                "INSTANCE_TYPE": block(instance, "typedef struct _FlatpakInstancePrivate", "/**\n * flatpak_instance_get_id:"),
+                "INSTANCE_FUNCTIONS": "\n".join([
+                    block(instance, "static int\nget_pid (", "\n/*\n * Return the directory"),
+                    block(instance, "FlatpakInstance *\nflatpak_instance_new_for_id (", "\n/*"),
+                    block(instance, "int\nflatpak_instance_get_child_pid (", "\n/**"),
+                ]),
+                "PORTAL_CALLBACKS": block(portal, "typedef struct\n{\n  guint pid;\n  gchar buffer", "\nstatic void\ndrop_cloexec ("),
+            }
+            harness = template
+            for key, value in values.items():
+                harness = harness.replace("@" + key + "@", value)
+            source = work / "harness.c"
+            binary = work / "harness"
+            source.write_text(harness)
+            subprocess.run([
+                *compiler, "-Werror=implicit-function-declaration",
+                "-DEXPECTED_DELAYED_SIGNALS=" + str(expected), "-I", str(work),
+                str(source), "-o", str(binary), *flags,
+            ], check=True)
+            run = subprocess.run([str(binary)], text=True, capture_output=True, timeout=5)
+            if run.returncode:
+                raise RuntimeError(run.stdout + run.stderr)
+            result = json.loads(run.stdout)
+            result.update(label=label, revision=revision)
+            results.append(result)
+    print(json.dumps(results, indent=2))
+
+
+if __name__ == "__main__":
+    main()

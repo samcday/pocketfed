@@ -1,0 +1,20 @@
+[
+  {
+    "ready_metadata_signals": 1,
+    "delayed_metadata_signals": 1,
+    "label": "parent",
+    "revision": "104ed5db5ee42c55139fbeaa5e9bcf3b8e670bec"
+  },
+  {
+    "ready_metadata_signals": 1,
+    "delayed_metadata_signals": 0,
+    "label": "suspect",
+    "revision": "21f413f17f241240c5c5d67b0ac61c4bb7504075"
+  },
+  {
+    "ready_metadata_signals": 1,
+    "delayed_metadata_signals": 1,
+    "label": "suspect-plus-fix",
+    "revision": "21f413f17f241240c5c5d67b0ac61c4bb7504075"
+  }
+]
