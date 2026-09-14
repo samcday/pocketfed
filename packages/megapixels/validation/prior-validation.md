@@ -6,8 +6,8 @@ private screenshots and scene files are intentionally not committed here.
 
 ## What was actually observed
 
-- **Two real rear Megapixels JPEGs existed.** After the libmegapixels Bayer
-  flip fix, the unchanged release-4 app produced a 3024x4032 JPEG plus retained
+- **Two real rear Megapixels JPEGs existed.** With manual sensor flip
+  correction and libmegapixels release 2, the release-4 app produced a 3024x4032 JPEG plus retained
   DNG through the private UI harness. The target was blurred and had a strong
   green cast, so neither printed-text readability nor colour passes. One
   earlier structurally valid capture was almost black because the camera was
@@ -16,7 +16,8 @@ private screenshots and scene files are intentionally not committed here.
   captured. Repeated capture, app close/reopen, suspend/resume and reboot
   acceptance remain outstanding. A later camera transport stall (no frames
   after STREAMON) reproduced across Megapixels, `megapixels-getframe` and
-  libcamera, and a broad `/sys/kernel/debug/gpio` read triggered a kernel hang.
+  libcamera. A broad `/sys/kernel/debug/gpio` read was followed by a kernel hang;
+  the exact cause was not established.
   Do not repeat that read.
 - **Native app release 5 was built but produced no live image.** It stores the
   reciprocal preview white-balance gains in DNG `AsShotNeutral`; its regression
@@ -46,12 +47,14 @@ The source regressions in this tree were re-run against freshly extracted,
 pinned upstream archives (`sources.sha256` verified) with the patches applied:
 
 - Megapixels: calibration lookup, finite blank-frame queue, software/manual
-  controls, empty-dequeue handling, capture burst state and stream generation.
+  controls, empty-dequeue handling, capture burst state, stream generation and
+  reciprocal DNG white balance.
 - libmegapixels: Bayer-order negotiation and rollback.
 - kernel: LC898219XI lifecycle and fault injection.
 - Device helpers: `test-power-state.py` and `test-libcamera-runner.py`.
 
-All passed, and every negative control rejected the unpatched original source.
+All passed. The app, libmegapixels and kernel source regressions also rejected
+the unpatched sources used as negative controls.
 A passing source regression is not a successful camera capture.
 
 ## Current test path
