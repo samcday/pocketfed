@@ -49,8 +49,10 @@ Prerequisites (root owns the device):
 
 1. Clone upstream at the pinned commit and check out `v0.7.2`; the checkout
    stays at `/var/tmp/libcamera-native-20260914/source`.
-2. Fetch the exact SRPM above and install the spec's `BuildRequires`
-   (for example with `dnf builddep`).
+2. Fetch the [signed Fedora SRPM](https://kojipkgs.fedoraproject.org/packages/libcamera/0.7.2/4.fc46/data/signed/91211fce/src/libcamera-0.7.2-4.fc46.src.rpm)
+   above and install the spec's `BuildRequires` (for example with `dnf builddep`).
+   The unsigned copy in Koji's top-level `src/` directory has a different hash;
+   the helper deliberately requires the signed artifact pinned here.
 
 Then, as an unprivileged user, choose a dedicated build root. Use
 `/var/tmp/pocketfed-libcamera-native-*` when the overlay has room, or a
@@ -78,7 +80,7 @@ packages/libcamera/build-native \
 the Fedora spec layout (IPA re-signing, exact `Requires`, subpackage set), the
 clone commit/tag/cleanliness and the build root. The build run regenerates the
 source archive from the clone, applies any task patches in
-`packages/libcamera/patches/` in name order (the current candidate adds IMX363 tuning), and runs
+`packages/libcamera/patches/` in name order (IMX363 tuning and bounded qcam saving), and runs
 `rpmbuild -ba` with two jobs.
 
 ## Generated manifest
@@ -97,8 +99,9 @@ Install the exact matching subpackages from a single iteration together --
 `libcamera`, `-ipa`, `-tools`, `-gstreamer` and `-qcam` -- using the explicit
 paths from the helper output or the manifest. Do not use wildcards: they can
 mix iterations or pick up stale RPMs. The example paths below refer to the
-`native.1` build root on the phone. It is currently unreachable after the host
-reboot. The private RPM backup survived, but this iteration has the signing
+`native.1` build root on the phone. That temporary build tree was lost when the
+phone was returned to fastboot after the host reboot. The private RPM backup
+survived, but this iteration has the signing
 defect described below; use a corrected iteration for acceptance.
 
 ```sh
@@ -154,6 +157,12 @@ Iteration 1 is **not installed**, and the installed stack remains stock Fedora
 `0.7.2-4.fc46`. No capture or image quality is claimed for it, and the RPMs
 should not be installed as-is; rebuild with the corrected glob so the IPA
 modules re-sign.
+
+The fresh `sargo-camera-camcc-02-20260914` liveboot starts from the original
+fixture and has no libcamera runtime package installed yet. Iteration 2 is
+building on that phone with both task patches and the corrected signing glob;
+its input check passed. Compilation, final IPA signature checks and capture
+validation must finish before this candidate is accepted.
 
 ## Build tree retention
 
