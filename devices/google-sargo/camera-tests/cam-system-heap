@@ -1,13 +1,33 @@
 #!/usr/bin/env bash
-# Diagnostic only: run cam with its supported system heap in a private namespace.
+# Diagnostic only: run cam (or the allowlisted qcam) with its supported system
+# heap in a private namespace.
 set -euo pipefail
 [[ $EUID == 0 ]] || { echo 'Run as root for the private mount namespace' >&2; exit 1; }
 [[ -c /dev/dma_heap/system ]] || { echo 'System DMA heap is unavailable' >&2; exit 1; }
+
+# Explicit allowlist, defaulting to the original cam behavior. Only the two
+# reviewed libcamera tools may be selected; this is deliberately a fixed tool
+# name, not an arbitrary command or environment-injected program.
+tool=cam
+if [[ ${1:-} == --tool ]]; then
+    tool=${2:-}
+    shift 2
+elif [[ ${1:-} == --tool=* ]]; then
+    tool=${1#--tool=}
+    shift
+fi
+case $tool in
+    cam|qcam) ;;
+    *) echo "Unsupported tool (expected cam or qcam): $tool" >&2; exit 2 ;;
+esac
+command -v "$tool" >/dev/null || { echo "$tool is not on PATH" >&2; exit 1; }
+
 heap_major_hex=$(stat -c %t /dev/dma_heap/system)
 heap_minor_hex=$(stat -c %T /dev/dma_heap/system)
 exec unshare --mount --propagation private -- sh -ec '
     mount -t tmpfs -o mode=0700 tmpfs /dev/dma_heap
     mknod -m 0600 /dev/dma_heap/system c "$1" "$2"
-    shift 2
-    exec cam "$@"
-' camera-system-heap "$((16#$heap_major_hex))" "$((16#$heap_minor_hex))" "$@"
+    tool=$3
+    shift 3
+    exec "$tool" "$@"
+' camera-system-heap "$((16#$heap_major_hex))" "$((16#$heap_minor_hex))" "$tool" "$@"

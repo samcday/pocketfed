@@ -100,6 +100,15 @@ path. The Megapixels application and its packaging are out of scope for this PR
 (retained only in the local archived branch), so the helpers here do not require
 Phoc, gdbus or any camera app.
 
+A visible libcamera trial is added under
+[`qcam-session/`](qcam-session/README.md): the same `wait-for-ready.py` and
+`power-state.py` bracketing around standalone Phoc and the patched `qcam`
+(`packages/libcamera/patches/0002-qcam-bounded-save.patch`), which shows the
+viewfinder and auto-saves one JPEG after a bounded frame count. It reuses the
+`libcamera-session` helpers and the generic Phoc setup only; no Megapixels code.
+That qcam patch is **not compiled yet**, so the path needs a native build and a
+device trial before it is accepted.
+
 The acceptance goal is unchanged: a useful saved JPEG of the printed target
 with a decodable QR, manual focus, plausible colour, correct orientation and
 repeated capture, reopen, reboot and suspend/release behaviour.
