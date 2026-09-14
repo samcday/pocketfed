@@ -90,10 +90,15 @@ perform those lifecycle checks.
 
 ## Capture path and scope
 
-The selected capture path is **libcamera** through `cam-system-heap` and
-`run-libcamera.py`. The Megapixels application and its packaging are out of
-scope for this PR (retained only in the local archived branch), so the helpers
-here do not require Phoc, gdbus or any camera app.
+The selected capture path is **libcamera** through the
+[`libcamera-session/`](libcamera-session/README.md) helper: one bounded `cam`
+session (via the sibling `cam-system-heap`) that writes a final-frame JPEG,
+gated by [`wait-for-ready.py`](readiness.md) and bracketed by `power-state.py`.
+It has no on-screen preview, so UI behaviour is not covered by it. The earlier
+`run-libcamera.py` is a bounded multi-frame PPM diagnostic, not the selected
+path. The Megapixels application and its packaging are out of scope for this PR
+(retained only in the local archived branch), so the helpers here do not require
+Phoc, gdbus or any camera app.
 
 The acceptance goal is unchanged: a useful saved JPEG of the printed target
 with a decodable QR, manual focus, plausible colour, correct orientation and
@@ -131,15 +136,19 @@ missing devices, unavailable state, incomplete process visibility, renumbered
 media nodes and holders reached through a different pathname. Its safe alias
 fixture uses `/dev/null`; it never opens camera nodes.
 
-## Libcamera capture and allocator diagnostic
+## Libcamera capture helpers and allocator diagnostic
 
-This is the selected capture path. `cam-system-heap` runs `cam` as root in a
-private mount namespace exposing only the existing system DMA heap. The real device nodes and permissions remain
-unchanged. This is a diagnostic for libcamera's software ISP, which permits
-system memory but normally selects an available CMA heap first. It is not a
-production launcher or a general fix for pipelines requiring contiguous memory.
+The selected capture path is the
+[`libcamera-session/`](libcamera-session/README.md) helper; the earlier
+`run-libcamera.py` is a bounded multi-frame PPM diagnostic retained here.
+`cam-system-heap` is the shared wrapper both use: it runs `cam` as root in a
+private mount namespace exposing only the existing system DMA heap. The real
+device nodes and permissions remain unchanged. This is a diagnostic for
+libcamera's software ISP, which permits system memory but normally selects an
+available CMA heap first. It is not a production launcher or a general fix for
+pipelines requiring contiguous memory.
 
-Use `run-libcamera.py` with the two adjacent helpers available:
+The diagnostic runner `run-libcamera.py` uses the two adjacent helpers:
 
 ```sh
 sudo python3 run-libcamera.py --output ./camera-raw-run
