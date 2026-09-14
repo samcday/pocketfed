@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "scope": "Pinned layout-aware keyboard-trial sources for a source-only, locally built sam-sargo trial bundle. This records source and build identities only; it does not describe a device, installed deployment, image or package set.",
+  "checkout_layout": [
+    "<sources-root>/keyboard_layout",
+    "<sources-root>/drift-type",
+    "<sources-root>/verbisage",
+    "<sources-root>/verbisage/patricia_dict",
+    "<sources-root>/stevia"
+  ],
+  "path_dependencies": {
+    "verbisage/Cargo.toml": {
+      "keyboard-layout": "../keyboard_layout",
+      "drift_type": "../drift-type",
+      "patricia_dict": "patricia_dict"
+    },
+    "drift-type/Cargo.toml": {
+      "keyboard-layout": "../keyboard_layout"
+    },
+    "note": "Cargo.lock records package versions but does not pin path-dependency commits, so each checkout commit is verified explicitly before building."
+  },
+  "sources": {
+    "stevia": {
+      "path": "stevia",
+      "commit": "7a00a8fff38ac60d7998a8cc7ec88c6111d4f304",
+      "tree": "a5775655fce1268081c129b9616550d184356e9a",
+      "role": "C Meson client; produces phosh-osk-stevia and the mobi.phosh.osk GSettings schema",
+      "public_pr": "https://github.com/samcday/stevia/pull/1",
+      "retrieval": "https://github.com/samcday/stevia.git",
+      "note": "This commit only changes the Python native test stand-in. The compiled C binary is byte-comparable to the tested parent 8f8b6bdc649b520cfa4210dc9c22e0af7b76039a; that parent's own parent is the exporter commit e688e6a2d48eec1bf26c55e102061cfbac8c025b."
+    },
+    "verbisage": {
+      "path": "verbisage",
+      "commit": "d7012120bfcacb22dc55eb9009c28a3afe985aac",
+      "role": "Rust D-Bus language service and CLI; produces verbisaged and verbisage (swipe layout and Patricia backends are behind features)",
+      "public_pr": "https://github.com/samcday/verbisage/pull/1",
+      "retrieval": "https://github.com/samcday/verbisage.git",
+      "note": "Documentation-only child of the tested commit 34f2a1ca7160812fa8d47565dcc0ddf664c4906b; the release build uses --all-features."
+    },
+    "keyboard_layout": {
+      "path": "keyboard_layout",
+      "commit": "d60e05ce20b77a84ec4ac3a8c38b1c295dfa38fe",
+      "role": "Shared Rust geometry and layout-format crate",
+      "public_pr": "https://github.com/samcday/rs-keyboard-layout/pull/1",
+      "retrieval": "https://github.com/samcday/rs-keyboard-layout.git",
+      "upstream": "https://gitlab.com/InsanePrawn/rs-keyboard-layout.git"
+    },
+    "patricia_dict": {
+      "path": "verbisage/patricia_dict",
+      "commit": "32121e2b5cb8615d408eecc9cd55eeb8d51bd7b7",
+      "role": "Rust Patricia reader crate and developer CLI used by the Verbisage Patricia backend",
+      "public_pr": "https://github.com/samcday/android-patricia-dict/pull/1",
+      "retrieval": "https://github.com/samcday/android-patricia-dict.git",
+      "note": "Submodule of verbisage at path patricia_dict; Cargo.lock does not pin its commit."
+    },
+    "drift-type": {
+      "path": "drift-type",
+      "commit": "f0b2cc7ac1f84d479abfa6c8e4028f473a8c50b3",
+      "role": "Private Rust gesture-decoder crate used by the Verbisage swipe feature",
+      "retrieval": "git@gitlab.com:InsanePrawn/drift-type.git",
+      "private": true,
+      "note": "Private source. Authorized local consumption only; do not publish source, logs or private paths in public artifacts."
+    }
+  },
+  "public_prs": [
+    "https://github.com/samcday/stevia/pull/1",
+    "https://github.com/samcday/verbisage/pull/1",
+    "https://github.com/samcday/rs-keyboard-layout/pull/1"
+  ],
+  "build": {
+    "stevia": {
+      "system": "meson",
+      "buildtype": "debugoptimized",
+      "options": {
+        "tests": true,
+        "gtk_doc": false,
+        "man": false,
+        "default_osk": true
+      },
+      "artifacts": {
+        "phosh-osk-stevia": "<stevia-build>/src/phosh-osk-stevia",
+        "schema": "<stevia-build>/data/mobi.phosh.osk.gschema.xml",
+        "schema_enums": "<stevia-build>/data/mobi.phosh.osk.enums.xml"
+      }
+    },
+    "verbisage": {
+      "system": "cargo",
+      "profile": "release",
+      "features": "all",
+      "artifacts": {
+        "verbisaged": "<cargo-target>/release/verbisaged",
+        "verbisage": "<cargo-target>/release/verbisage"
+      }
+    }
+  },
+  "known_tested_pairs": {
+    "stevia_binary_source_parent": "8f8b6bdc649b520cfa4210dc9c22e0af7b76039a",
+    "verbisage_tested_parent": "34f2a1ca7160812fa8d47565dcc0ddf664c4906b"
+  }
+}
