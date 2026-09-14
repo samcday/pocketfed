@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Static and guard validation for packages/libcamera/build-native.
 
-Runs only bash parsing, argument handling and the helper's pure guard
-functions through bash `source`. It never invokes rpmbuild, dnf, git against a
-real clone, or any device action, and it does not build an RPM.
+Runs only bash parsing, argument handling and the helper's pure functions
+through bash `source`. It never invokes rpmbuild, dnf, or a device, and it
+does not build an RPM.
 """
 
 from pathlib import Path
 import hashlib
+import json
 import os
-import re
 import subprocess
 import tempfile
 
@@ -23,16 +23,7 @@ PINNED = {
     "libcamera-0.7.2-4.fc46.src.rpm": "22708eba16c1f17a918e602da7e2d5372dabb7024ee71f9a2e0365a1f99f01fc",
     "libcamera-v0.7.2.tar.bz2": "6f35dd479dd634a1ec50852fa9716c9da81a6c07af93bbf2990f7bbd829f0dfd",
 }
-SUBPACKAGES = (
-    "libcamera",
-    "libcamera-devel",
-    "libcamera-gstreamer",
-    "libcamera-ipa",
-    "libcamera-qcam",
-    "libcamera-tools",
-    "libcamera-v4l2",
-    "python3-libcamera",
-)
+SUBPACKAGES = ("devel", "ipa", "tools", "qcam", "gstreamer", "v4l2")
 
 
 def run(*args):
@@ -46,7 +37,8 @@ def sourced(body, *args):
                           stderr=subprocess.STDOUT, check=False)
 
 
-def spec_fixture(directory, *, marker=True, extra_package=False):
+def spec_fixture(directory, *, marker=True, requires=len(SUBPACKAGES),
+                 extra_package=False):
     lines = [
         "Name: libcamera",
         "Version: 0.7.2",
@@ -57,9 +49,14 @@ def spec_fixture(directory, *, marker=True, extra_package=False):
     if marker:
         lines.append("%global ipa_signer ipa-sign-install.sh")
     lines += ["%description", "test"]
-    for name in ("devel", "ipa", "tools", "qcam", "gstreamer", "v4l2"):
-        lines += [f"%package {name}", "Summary: test", f"%description {name}", "test"]
+    for name in SUBPACKAGES:
+        lines += [f"%package {name}", "Summary: test"]
+        if requires > 0:
+            lines.append("Requires: %{name}%{?_isa} = %{version}-%{release}")
+            requires -= 1
+        lines += [f"%description {name}", "test"]
     lines += ["%package -n python3-libcamera", "Summary: test",
+              "Requires: %{name}%{?_isa} = %{version}-%{release}",
               "%description -n python3-libcamera", "test"]
     if extra_package:
         lines += ["%package extra", "Summary: test", "%description extra", "test"]
@@ -76,16 +73,26 @@ def test_arguments_and_pins():
 
     help_result = run("--help")
     assert help_result.returncode == 0, "--help did not exit 0"
-    for flag in ("--build-root", "--srpm", "--clone", "--check"):
+    for flag in ("--build-root", "--iteration", "--srpm", "--clone", "--check"):
         assert flag in help_result.stdout, f"--help omits {flag}"
 
     assert run("--nonsense").returncode != 0, "unknown argument accepted"
-    for args, message in ((("--srpm", "x", "--clone", "y"), "--build-root"),
-                          (("--build-root", "/var/tmp/x", "--clone", "y"), "--srpm"),
-                          (("--build-root", "/var/tmp/x", "--srpm", "y"), "--clone")):
+    missing_cases = (
+        (("--srpm", "x", "--clone", "y", "--iteration", "1"), "--build-root"),
+        (("--build-root", "/var/tmp/x", "--clone", "y", "--iteration", "1"), "--srpm"),
+        (("--build-root", "/var/tmp/x", "--srpm", "y", "--iteration", "1"), "--clone"),
+        (("--build-root", "/var/tmp/x", "--srpm", "y", "--clone", "z"), "--iteration"),
+    )
+    for args, message in missing_cases:
         result = run(*args)
         assert result.returncode != 0 and message in result.stdout, \
             f"missing {message} not reported: {result.stdout}"
+
+    base = ["--build-root", "/var/tmp/x", "--srpm", "y", "--clone", "z"]
+    for bad in ("0", "abc", "-1", "1x", ""):
+        result = run(*base, "--iteration", bad)
+        assert result.returncode != 0 and "iteration" in result.stdout, \
+            f"iteration '{bad}' accepted: {result.stdout}"
 
     pins = dict(reversed(line.split()) for line in SOURCES.read_text().splitlines() if line)
     assert pins == PINNED, f"pin mismatch: {pins}"
@@ -102,16 +109,21 @@ def test_hash_guard(tmp):
 
 
 def test_build_root_guard(tmp):
-    safe = "/var/tmp/pocketfed-libcamera-native-test"
-    assert sourced('validate_build_root_path "$@"', safe).returncode == 0
-    for unsafe in ("/", "/var/tmp", "/var/tmp/../etc/x", "/tmp/pocketfed-libcamera",
-                   str(REPO), str(REPO / "out/liveboot/libcamera"),
-                   os.path.join(tmp, "relative-ok-but-not-var-tmp")):
-        result = sourced('validate_build_root_path "$@"', unsafe)
-        assert result.returncode != 0, f"unsafe build root accepted: {unsafe}"
+    safe = ("/var/tmp/pocketfed-libcamera-native-test",
+            "/var/tmp/pocketfed-libcamera-native-test/deeper",
+            "/run/pocketfed-libcamera-native-1")
+    for path in safe:
+        assert sourced('validate_build_root_path "$@"', path).returncode == 0, \
+            f"safe build root rejected: {path}"
+    unsafe = ("/", "/var/tmp", "/tmp/pocketfed-libcamera", "/run/other",
+              "/run/pocketfed-libcamera-native-1/../../etc", "/run",
+              str(REPO), str(REPO / "out/liveboot/libcamera"))
+    for path in unsafe:
+        assert sourced('validate_build_root_path "$@"', path).returncode != 0, \
+            f"unsafe build root accepted: {path}"
 
-    link = Path("/var/tmp") / f"libcamera-native-test-{os.getpid()}-link"
-    real = Path("/var/tmp") / f"libcamera-native-test-{os.getpid()}-real"
+    link = Path("/var/tmp") / f"pocketfed-libcamera-native-{os.getpid()}-link"
+    real = Path("/var/tmp") / f"pocketfed-libcamera-native-{os.getpid()}-real"
     if link.is_symlink():
         link.unlink()
     try:
@@ -131,6 +143,7 @@ def test_clone_guard(tmp):
     clone.mkdir()
     env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
     def git(*args):
         return subprocess.run(["git", "-C", str(clone), *args], env=env,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -152,17 +165,47 @@ def test_clone_guard(tmp):
 
 
 def test_spec_guard(tmp):
-    assert sourced('verify_spec_properties "$@"', str(spec_fixture(tmp))).returncode == 0
+    assert sourced('verify_spec_properties "$@"',
+                   str(spec_fixture(tmp)), ".fc46.native.1").returncode == 0
+
     no_marker = tmp / "nomarker"
     no_marker.mkdir()
     missing = sourced('verify_spec_properties "$@"',
-                      str(spec_fixture(no_marker, marker=False)))
+                      str(spec_fixture(no_marker, marker=False)), ".fc46.native.1")
     assert missing.returncode != 0 and "re-sign" in missing.stdout
+
+    loose = tmp / "loose"
+    loose.mkdir()
+    unpinned = sourced('verify_spec_properties "$@"',
+                       str(spec_fixture(loose, requires=1)), ".fc46.native.1")
+    assert unpinned.returncode != 0 and "Requires" in unpinned.stdout
+
     extra = tmp / "extra"
     extra.mkdir()
     unexpected = sourced('verify_spec_properties "$@"',
-                         str(spec_fixture(extra, extra_package=True)))
+                         str(spec_fixture(extra, extra_package=True)), ".fc46.native.1")
     assert unexpected.returncode != 0 and "subpackage" in unexpected.stdout
+
+
+def test_manifest(tmp):
+    manifest = Path(tmp) / "manifest.json"
+    body = ('build_root=/tmp/x; iteration=3; dist=.fc46.native.3; '
+            'release=4.fc46.native.3; srpm=/tmp/libcamera.src.rpm; '
+            'srpm_sha256=aaaa; source_archive_sha256=bbbb; '
+            'fedora_patches="0001-x.patch cccc"; task_patches=""; '
+            'rpms_records="/x/libcamera.rpm dddd"; write_manifest "$1"')
+    result = sourced(body, str(manifest))
+    assert result.returncode == 0, result.stdout
+    data = json.loads(manifest.read_text())
+    assert data["iteration"] == 3
+    assert data["dist"] == ".fc46.native.3" and data["release"] == "4.fc46.native.3"
+    assert data["srpm"] == {"name": "libcamera.src.rpm", "sha256": "aaaa"}
+    assert data["source_archive"]["expected_sha256"] == PINNED["libcamera-v0.7.2.tar.bz2"]
+    assert data["source_archive"]["regenerated_sha256"] == "bbbb"
+    assert data["fedora_patches"] == [{"name": "0001-x.patch", "sha256": "cccc"}]
+    assert data["task_patches"] == []
+    assert data["rpms"] == [{"name": "/x/libcamera.rpm", "sha256": "dddd"}]
+    assert data["toolchain"]["arch"]
 
 
 def main():
@@ -174,7 +217,8 @@ def main():
         test_build_root_guard(root)
         test_clone_guard(root)
         test_spec_guard(root)
-    print("PASS: syntax, arguments, pins, hash/build-root/clone/spec guards")
+        test_manifest(root)
+    print("PASS: syntax, arguments, pins, hash/build-root/clone/spec guards, manifest")
 
 
 if __name__ == "__main__":
