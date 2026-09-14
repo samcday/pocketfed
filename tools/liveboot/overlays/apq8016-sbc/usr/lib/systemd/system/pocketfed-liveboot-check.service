@@ -1,0 +1,15 @@
+[Unit]
+Description=Report disposable PocketFed liveboot handoff
+Wants=pocketfed-liveboot-labels.service
+After=pocketfed-liveboot-labels.service systemd-user-sessions.service NetworkManager.service
+ConditionKernelCommandLine=pocketfed.liveboot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/pocketfed-liveboot-check
+StandardOutput=journal+console
+StandardError=journal+console
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

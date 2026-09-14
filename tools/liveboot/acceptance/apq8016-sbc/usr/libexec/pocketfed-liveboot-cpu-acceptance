@@ -1,0 +1,90 @@
+#!/usr/bin/python3
+"""Measure four-CPU work for the disposable DB410c graphical acceptance boot.
+
+Runs the retained MSM8916 lab workloads (`smp-work` and `smp-coherency`, which
+write only anonymous RAM) and turns their machine-readable output into one
+JSON summary. The summary is printed as a single ``POCKETFED_CPU_ACCEPTANCE=``
+line on ``journal+console`` so the liveboot runner's UART capture records it.
+
+Scope: measured CPU0-3 work and shared-memory/migration coherency only. The
+display/input/phrog milestones are accepted by separate observation.
+"""
+import argparse
+import json
+from pathlib import Path
+import re
+import subprocess
+
+
+EXPECTED_WORK_HASH = "292d74d0d0222325"
+MIN_CPU_SECONDS = 0.02
+CPU_LINE = re.compile(
+    r"^cpu=(?P<cpu>\d+) start_cpu=(?P<start>\d+) end_cpu=(?P<end>\d+) "
+    r"hash=(?P<hash>[0-9a-f]+) cpu_seconds=(?P<seconds>[0-9.]+) "
+    r"(?P<verdict>PASS|FAIL)$")
+
+
+def invoke(path):
+    result = subprocess.run([str(path)], text=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, check=False)
+    return {"returncode": result.returncode, "output": result.stdout}
+
+
+def parse_work(output):
+    cpus = {}
+    for line in output.splitlines():
+        match = CPU_LINE.match(line)
+        if match:
+            cpus[int(match.group("cpu"))] = {
+                "start_cpu": int(match.group("start")),
+                "end_cpu": int(match.group("end")),
+                "hash": match.group("hash"),
+                "cpu_seconds": float(match.group("seconds")),
+                "verdict": match.group("verdict"),
+            }
+    complete = ("SMP_WORK_V2 " in output and "SMP_WORK_PASS all_four_cpus" in output
+                and set(cpus) == {0, 1, 2, 3}
+                and all(entry["verdict"] == "PASS"
+                        and entry["start_cpu"] == cpu == entry["end_cpu"]
+                        and entry["hash"] == EXPECTED_WORK_HASH
+                        and entry["cpu_seconds"] > MIN_CPU_SECONDS
+                        for cpu, entry in cpus.items()))
+    return complete, cpus
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workload-dir", type=Path,
+                        default=Path("/usr/libexec/pocketfed-liveboot"))
+    parser.add_argument("--output", type=Path,
+                        default=Path("/run/pocketfed-liveboot/cpu-acceptance.json"))
+    args = parser.parse_args()
+
+    work = invoke(args.workload_dir / "smp-work")
+    coherency = invoke(args.workload_dir / "smp-coherency")
+    work_complete, cpus = parse_work(work["output"])
+    work_complete = work_complete and work["returncode"] == 0
+    coherency_complete = (coherency["returncode"] == 0
+                          and "SMP_COHERENCY_PASS all_four_cpus_shared_memory_and_migration"
+                          in coherency["output"])
+    result = {
+        "schema_version": 1,
+        "scope": "measured four-CPU work; display/input/phrog observed separately",
+        "result": "pass" if work_complete and coherency_complete else "fail",
+        "work": {
+            "returncode": work["returncode"],
+            "complete": work_complete,
+            "cpus": {str(cpu): cpus[cpu] for cpu in sorted(cpus)},
+        },
+        "coherency": {"returncode": coherency["returncode"], "complete": coherency_complete},
+    }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(result, indent=2) + "\n")
+    print("POCKETFED_CPU_ACCEPTANCE=" + json.dumps(result, separators=(",", ":")), flush=True)
+    print(f"pocketfed-cpu-acceptance: {result['result']} "
+          f"({len(cpus)}/4 cpus, coherency={coherency_complete})", flush=True)
+    raise SystemExit(0 if result["result"] == "pass" else 1)
+
+
+if __name__ == "__main__":
+    main()

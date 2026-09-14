@@ -130,9 +130,15 @@ def prepare(args):
         argv = [str(tool_dir / "kboop"), "--rootfs", str(fixture / "rootfs.erofs"),
                 "--kernel-bundle", str(bundle), "--work-dir", str(run / "artifacts"),
                 "--init", str(tool_dir / "kboop-init"), "--device-profile", devpro["id"],
-                "--usb-serial", f"pf-{serial}", "--no-serial", "--wait", "120",
-                "--abl-exorcist", str(fixture / "production-ablx-shim.bin"),
-                "--abl-exorcist-mode", "ramdisk", "--ramdisk-offset", hex(recipe["ramdisk_offset"])]
+                "--usb-serial", f"pf-{serial}", "--no-serial", "--wait", "120"]
+        if "ramdisk_offset" in recipe:
+            # Pixel ABL policy: rebuild the payload around the production ABLX
+            # shim and pin the ramdisk address ABL loads. Loaders that parse
+            # the boot sections themselves (Pocketboot kexec) need neither, so
+            # a profile without a ramdisk offset boots without them.
+            argv += ["--abl-exorcist", str(fixture / "production-ablx-shim.bin"),
+                     "--abl-exorcist-mode", "ramdisk",
+                     "--ramdisk-offset", hex(recipe["ramdisk_offset"])]
         if root_mode == "ram":
             argv.append("--resident-root")
         for module in modules:
@@ -309,13 +315,12 @@ def boot(args):
     if locks.exists() and (locks.is_symlink() or locks.stat().st_uid != os.getuid()):
         raise ValueError("unsafe shared device-lock directory")
     locks.mkdir(exist_ok=True, mode=0o700)
-    with (locks / "smoo-host.lock").open("a") as host_lock, \
-            (locks / (safe_name(manifest["device_serial"]) + ".lock")).open("a") as lock:
+    with (locks / (safe_name(manifest["device_serial"]) + ".lock")).open("a") as lock:
         try:
-            fcntl.flock(host_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise ValueError("another liveboot runner owns smoo hosting; only one USB-root session is supported") from error
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            raise ValueError(
+                "another liveboot runner owns this exact device serial") from error
         uart = None
         original_termios = None
         child = None
@@ -405,8 +410,7 @@ def boot(args):
                                         with contextlib.suppress(ProcessLookupError):
                                             os.killpg(child.pid, signal.SIGKILL)
                                         child.wait(timeout=3)
-                                    fcntl.flock(host_lock, fcntl.LOCK_UN)
-                                    state.update(phase="console", usb_host_released=True, host_lock_released=True,
+                                    state.update(phase="console", usb_host_released=True,
                                                  host_exit_code=child.returncode)
                                 write_json(run / "status.json", state)
                                 print(json.dumps({"phase": state["phase"], "result": result["result"],

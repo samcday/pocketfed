@@ -5,7 +5,9 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest import mock
@@ -79,6 +81,76 @@ class FixtureIntegrityTests(unittest.TestCase):
                 RUN.verify_fixture(root)
 
 
+class GadgetContractTests(unittest.TestCase):
+    """The DB410c profile must carry Pocketboot's actual gadget identity and a
+    board discriminator. Where the sibling upstream sources exist, the identity
+    is read from them rather than restated, so a profile that merely agrees with
+    its own test cannot pass."""
+
+    @staticmethod
+    def _source(relative, env_var, registry_glob=None):
+        override = os.environ.get(env_var)
+        candidates = [Path(override).expanduser() / relative] if override else []
+        candidates += [base / relative for base in (ROOT, *ROOT.parents)]
+        if registry_glob:
+            candidates += sorted((Path.home() / ".cargo" / "registry" / "src").glob(registry_glob))
+        return next((path for path in candidates if path.is_file()), None)
+
+    @staticmethod
+    def _constant(path, pattern):
+        match = re.search(pattern, path.read_text())
+        if not match:
+            raise AssertionError(f"{pattern!r} not found in {path}")
+        return int(match.group(1), 16)
+
+    def test_profile_matches_the_upstream_gadget_identity(self):
+        recipe = json.loads((ROOT / "profiles/apq8016-sbc.json").read_text())
+        match = recipe["match"][0]["fastboot"]
+        gadgetry = self._source("gadgetry-most-foul/src/gadget.rs",
+                                "GADGETRY_MOST_FOUL_SRC", "*/gadgetry-most-foul-*/src/gadget.rs")
+        pocketboot = self._source("pocketboot/src/gadget.rs", "POCKETBOOT_SRC")
+        if gadgetry is None or pocketboot is None:
+            raise unittest.SkipTest(
+                "gadgetry-most-foul/pocketboot sources not on this host; set "
+                "GADGETRY_MOST_FOUL_SRC/POCKETBOOT_SRC to verify the real gadget contract")
+        # Pocketboot advertises the Linux Foundation composite VID with its own
+        # FunctionFS PID (0x1d6b:0x0104). The earlier profile carried 7527, which
+        # is neither; derive both from the sources that the gadget is built from.
+        self.assertEqual(match["vid"], self._constant(
+            gadgetry, r"LINUX_FOUNDATION_VID:\s*u16\s*=\s*(0x[0-9a-fA-F]+)"), str(gadgetry))
+        self.assertEqual(match["pid"], self._constant(
+            pocketboot, r"PRODUCT_ID:\s*u16\s*=\s*(0x[0-9a-fA-F]+)"), str(pocketboot))
+
+    def test_profile_vendor_id_is_the_linux_foundation_vid(self):
+        recipe = json.loads((ROOT / "profiles/apq8016-sbc.json").read_text())
+        match = recipe["match"][0]["fastboot"]
+        # Guards the decimal transcription even when the sources are unavailable:
+        # 0x1d6b is 7531, not the tempting 7527.
+        self.assertEqual((match["vid"], match["pid"]), (0x1D6B, 0x0104))
+
+    def test_compatible_probe_discriminates_boards(self):
+        """Mirror fastboop's probe: every step must match exactly, so a generic
+        Pocketboot environment on another board cannot select this DTB."""
+        recipe = json.loads((ROOT / "profiles/apq8016-sbc.json").read_text())
+
+        def evaluates(getvars):
+            for step in recipe["probe"]:
+                if "fastboot.getvar" not in step:
+                    return False
+                if getvars.get(step["fastboot.getvar"], "") != step["equals"]:
+                    return False
+            return True
+
+        self.assertTrue(evaluates({"product": "pocketboot", "compatible": "qcom,apq8016-sbc"}))
+        # The same generic Pocketboot environment on other boards must not
+        # select this profile's apq8016-sbc DTB.
+        self.assertFalse(evaluates({"product": "pocketboot", "compatible": "google,sargo"}))
+        self.assertFalse(evaluates({"product": "pocketboot", "compatible": "qcom,apq8016"}))
+        # Pocketboot answers an unreadable live FDT with an empty variable.
+        self.assertFalse(evaluates({"product": "pocketboot", "compatible": ""}))
+        self.assertFalse(evaluates({"product": "pocketboot"}))
+
+
 class ResidentReleaseTests(unittest.TestCase):
     def test_only_verified_ram_pass_releases_host(self):
         record = {"root_mode": "ram", "result": "pass",
@@ -132,6 +204,9 @@ class PrepareTests(unittest.TestCase):
                 RUN.prepare(args)
             self.assertIn("--no-boot", captured["argv"])
             self.assertEqual(captured["environment"]["RUST_LOG"], RUN.os.environ.get("RUST_LOG", "info"))
+            self.assertIn("--abl-exorcist", captured["argv"])
+            self.assertEqual(captured["argv"][captured["argv"].index("--ramdisk-offset") + 1],
+                             hex(recipe["ramdisk_offset"]))
             schemas = Path(captured["environment"]["FASTBOOP_SCHEMA_PATH"])
             devpro = json.loads(next(schemas.glob("*.json")).read_text())
             self.assertEqual(devpro["probe"], [
@@ -184,6 +259,71 @@ class PrepareTests(unittest.TestCase):
                 RUN.boot(host_args)
             self.assertEqual(dispatch.call_args.args[0], manifest["boot_argv"])
             self.assertEqual(json.loads((args.run_dir / "status.json").read_text())["phase"], "stopped")
+
+    def test_db410c_prepare_omits_pixel_abl_policy_and_uses_pocketboot_gadget(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = root / "fixture"
+            (fixture / "kernel-bundle").mkdir(parents=True)
+            (fixture / "kernel-bundle/bundle.json").write_text(json.dumps({
+                "release": "test", "dtb": {"path": "dtb/qcom/apq8016-sbc.dtb"}}))
+            recipe = json.loads((ROOT / "profiles/apq8016-sbc.json").read_text())
+            (fixture / "fixture.json").write_text(json.dumps({"inputs": {
+                "image": {"reference": recipe["fixture_image"]},
+                "dtb": recipe["devicetree_name"] + ".dtb"}}))
+            for path in [fixture / "rootfs.erofs", fixture / "production-ablx-shim.bin",
+                         fixture / "kernel-bundle/kernel.config", root / "kboop", root / "init"]:
+                path.write_bytes(b"test artifact")
+            seal_test_fixture(fixture)
+            args = argparse.Namespace(
+                run_dir=root / "db410c-preparation", fixture=fixture,
+                profile=ROOT / "profiles/apq8016-sbc.json", device_serial="TEST-DB410C-1",
+                kboop=root / "kboop", init=root / "init", kernel_bundle=None)
+            captured = {}
+
+            def assemble(argv, **kwargs):
+                captured["argv"] = argv
+                captured["environment"] = kwargs["env"]
+                artifacts = args.run_dir / "artifacts"
+                artifacts.mkdir()
+                (artifacts / "boot.img").write_bytes(b"assembled boot image")
+                (artifacts / "modules.ero").write_bytes(b"assembled modules")
+
+            with mock.patch.object(RUN, "verify_required_modules") as gate, \
+                    mock.patch.object(RUN.subprocess, "run", side_effect=assemble), \
+                    mock.patch.object(RUN.os, "open", side_effect=AssertionError("device access")), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                RUN.prepare(args)
+            # Pocketboot parses the boot sections itself, so no Pixel ABLX
+            # shim or ramdisk address belongs on the kboop command line.
+            self.assertTrue({"--abl-exorcist", "--abl-exorcist-mode", "--ramdisk-offset"}.isdisjoint(
+                captured["argv"]))
+            devpro = json.loads(next(
+                Path(captured["environment"]["FASTBOOP_SCHEMA_PATH"]).glob("*.json")).read_text())
+            self.assertEqual(devpro["match"], [{"fastboot": {"vid": 7531, "pid": 260}}])
+            self.assertEqual(devpro["probe"], [
+                {"fastboot.getvar": "product", "equals": "pocketboot"},
+                {"fastboot.getvar": "compatible", "equals": "qcom,apq8016-sbc"},
+                {"fastboot.getvar": "serialno", "equals": "TEST-DB410C-1"}])
+            bootimg = devpro["boot"]["fastboot_boot"]["android_bootimg"]
+            self.assertEqual(bootimg["header_version"], 2)
+            self.assertNotIn("ramdisk_offset", recipe)
+            # Early modules must come from the msm8916 supplier order, with no
+            # sdm670-family leftovers, and keep the chipidea USB chain intact.
+            modules = gate.call_args.args[1]
+            self.assertLess(modules.index("qcom_scm"), modules.index("extcon_usb_gpio"))
+            self.assertLess(modules.index("gcc_msm8916"), modules.index("phy_qcom_usb_hs"))
+            self.assertIn("ci_hdrc_msm", modules)
+            # Builtin SMEM needs the TCSR hwspinlock provider for its hwlocks
+            # and the RPM SMD edge needs the APCS IPC mailbox for its mboxes;
+            # both must be supplied before the SMD RPM transport and USB chain.
+            for provider in ("qcom_hwspinlock", "qcom_apcs_ipc_mailbox"):
+                self.assertIn(provider, modules)
+                self.assertLess(modules.index(provider), modules.index("qcom_smd"))
+                self.assertLess(modules.index(provider), modules.index("phy_qcom_usb_hs"))
+            for sargo_module in ("gcc_sdm845", "qcom_rpmh", "dwc3", "sdhci_msm"):
+                self.assertNotIn(sargo_module, modules)
+            self.assertEqual(json.loads((args.run_dir / "status.json").read_text())["phase"], "prepared")
 
     def candidate_inputs(self, root, *, dtb="sdm670-google-sargo.dtb", config=True):
         fixture = root / "fixture"
@@ -291,23 +431,43 @@ class BootFixture(unittest.TestCase):
         self.stack.enter_context(mock.patch.object(RUN.termios, "tcflush"))
         self.ioctl = self.stack.enter_context(mock.patch.object(RUN.fcntl, "ioctl"))
 
-    def assert_lock_released(self):
-        for name in ("TEST-CLEANUP.lock", "smoo-host.lock"):
-            path = self.root / f"pocketfed-liveboot-locks-{RUN.os.getuid()}" / name
-            with path.open("a") as lock:
-                RUN.fcntl.flock(lock, RUN.fcntl.LOCK_EX | RUN.fcntl.LOCK_NB)
+    def assert_lock_released(self, serial="TEST-CLEANUP"):
+        path = self.root / f"pocketfed-liveboot-locks-{RUN.os.getuid()}" / f"{serial}.lock"
+        with path.open("a") as lock:
+            RUN.fcntl.flock(lock, RUN.fcntl.LOCK_EX | RUN.fcntl.LOCK_NB)
+
+    def boot_to_completion(self):
+        child = mock.Mock(returncode=0, pid=999999)
+        child.poll.return_value = 0
+        with mock.patch.object(RUN.subprocess, "Popen", return_value=child):
+            RUN.boot(self.args)
 
 
 class BootCleanupTests(BootFixture):
-    def test_another_smoo_host_is_rejected_before_uart_or_device_access(self):
+    def test_same_device_runner_is_rejected_before_uart_or_device_access(self):
         locks = self.root / f"pocketfed-liveboot-locks-{RUN.os.getuid()}"
         locks.mkdir(mode=0o700)
-        with (locks / "smoo-host.lock").open("a") as holder:
+        with (locks / "TEST-CLEANUP.lock").open("a") as holder:
             RUN.fcntl.flock(holder, RUN.fcntl.LOCK_EX | RUN.fcntl.LOCK_NB)
-            with self.assertRaisesRegex(ValueError, "only one USB-root session"):
+            with self.assertRaisesRegex(ValueError, "exact device serial"):
                 RUN.boot(self.args)
         self.open_uart.assert_not_called()
         self.fuser.assert_not_called()
+        self.assert_lock_released()
+
+    def test_distinct_device_and_legacy_global_lock_do_not_block_hosting(self):
+        # Concurrency contract: only the exact device serial (and the exact UART
+        # via fuser/TIOCEXCL) excludes a runner. A different device's lock, and
+        # the retired smoo-host.lock, must not reserve all USB hosting.
+        locks = self.root / f"pocketfed-liveboot-locks-{RUN.os.getuid()}"
+        locks.mkdir(mode=0o700)
+        with (locks / "OTHER-DEVICE.lock").open("a") as other, \
+                (locks / "smoo-host.lock").open("a") as legacy:
+            RUN.fcntl.flock(other, RUN.fcntl.LOCK_EX | RUN.fcntl.LOCK_NB)
+            RUN.fcntl.flock(legacy, RUN.fcntl.LOCK_EX | RUN.fcntl.LOCK_NB)
+            self.boot_to_completion()
+        self.fuser.assert_called_once()
+        self.open_uart.assert_called()
         self.assert_lock_released()
 
     def test_existing_uart_reader_releases_device_lease_without_opening_uart(self):
