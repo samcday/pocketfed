@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Exercise the libcamera session helper with stub cam/power/magick tools.
+"""Exercise the libcamera helper with stub cam/power/magick tools.
 
-No camera, DRM device, gate or hardware is touched. The helper's root/preflight
-entry is bypassed in favour of its run_session path run in a real subprocess,
-so cancellation and process-group cleanup are tested for real.
+No camera, DRM, gate or hardware is touched. run_session is run in a real
+subprocess (bypassing only the root/preflight entry) so cancellation and
+process-group cleanup are exercised for real.
 """
 
 import json
+import io
 import os
 from pathlib import Path
+import re
 import runpy
-import shutil
 import signal
 import subprocess
 import sys
@@ -18,7 +19,7 @@ import tempfile
 import textwrap
 import time
 import unittest
-from unittest import mock
+from contextlib import redirect_stderr
 
 
 HERE = Path(__file__).resolve().parent
@@ -55,11 +56,13 @@ class Base(unittest.TestCase):
         return path
 
     def write_cam_stub(self):
+        # Emulates the source contract: a fixed --file is truncated each frame,
+        # and each completed request prints the camera_session.cpp info line.
         self.write("cam-system-heap", textwrap.dedent('''
             import os, re, sys, time
             args = sys.argv[1:]
             capture = None
-            pattern = None
+            output = None
             if os.environ.get("STUB_CAM_ARGS"):
                 open(os.environ["STUB_CAM_ARGS"], "w").write(" ".join(args))
             if os.environ.get("STUB_CAM_PID"):
@@ -68,21 +71,16 @@ class Base(unittest.TestCase):
                 if arg.startswith("--capture="):
                     capture = int(arg.split("=", 1)[1])
                 elif arg.startswith("--file="):
-                    pattern = arg.split("=", 1)[1].replace("#", "{}")
+                    output = arg.split("=", 1)[1]
             frames = int(os.environ.get("STUB_CAM_FRAMES", capture))
-            delay = float(os.environ.get("STUB_CAM_DELAY", "0.15"))
-            peak_file = os.environ.get("STUB_CAM_PEAK")
-            peak = 0
+            delay = float(os.environ.get("STUB_CAM_DELAY", "0.05"))
             for index in range(frames):
-                directory = os.path.dirname(pattern)
-                present = len([f for f in os.listdir(directory)
-                               if re.fullmatch(r"frame-\\d+\\.ppm", f)])
-                peak = max(peak, present + 1)
-                if peak_file:
-                    open(peak_file, "w").write(str(peak))
-                open(pattern.format(index), "w").write("P6\\n1280 960\\n255\\n")
-                print("Metadata: ExposureTime", 100 + index,
-                      "AnalogueGain", 1.0 + index / 10, flush=True)
+                with open(output, "w") as frame:      # PPMWriter truncates
+                    frame.write("P6\\n1280 960\\n255\\n")
+                print(f"{index}.000000 (30.00 fps) cam0-stream0 seq: {index:06d} "
+                      f"bytesused: 3686400", flush=True)
+                print("\\tExposureTime = %d" % (1000 + index), flush=True)
+                print("\\tAnalogueGain = 1.0", flush=True)
                 time.sleep(delay)
         '''))
 
@@ -145,54 +143,90 @@ class Base(unittest.TestCase):
         return json.loads((output / "result.json").read_text())
 
 
-class PrunerTests(Base):
-    def test_pruner_keeps_only_the_newest_frames(self):
-        frames = self.root / "frames"
-        frames.mkdir()
-        log = self.root / "cam.log"
-        peak = self.root / "peak"
-        env = self.base_env(STUB_CAM_PEAK=str(peak), STUB_CAM_DELAY="0.15")
-        command = [str(self.bin / "cam-system-heap"), "--capture=6",
-                   f"--file={frames}/frame-#.ppm"]
-        with mock.patch.dict(os.environ, env):
-            result = MODULE["run_cam"](command, log, 60, frames, 2)
-        self.assertEqual(result["returncode"], 0, result)
-        self.assertEqual(result["remaining"], [])
-        self.assertEqual(result["max_index"], 5)
-        self.assertLessEqual(int(peak.read_text()), 4)
-        remaining = sorted(path.name for path in frames.glob("frame-*.ppm"))
-        self.assertEqual(remaining, ["frame-4.ppm", "frame-5.ppm"])
+class SourceContractTests(Base):
+    def test_fixed_ppm_file_has_no_hash_and_never_expands(self):
+        command = MODULE["build_cam_command"](
+            MODULE["build_parser"](HERE.parent).parse_args(
+                ["--output", str(self.root / "plan")]),
+            91, self.root / "frame.ppm")
+        self.assertIn(f"--capture=91", command)
+        self.assertIn("--metadata", command)
+        self.assertNotIn("--display", command)
+        file_token = next(token for token in command if token.startswith("--file="))
+        self.assertTrue(file_token.endswith(".ppm"))
+        self.assertNotIn("#", file_token)
+
+    def test_hash_expansion_would_break_frame_digits_matching(self):
+        # file_sink.cpp expands the first '#' to "<streamName>-<sequence>", and
+        # camera_session.cpp builds streamName as "cam<idx>-stream<idx>".
+        expanded = "frame-" + "cam0-stream0" + "-" + f"{123:06d}" + ".ppm"
+        self.assertEqual(expanded, "frame-cam0-stream0-000123.ppm")
+        self.assertIsNone(re.fullmatch(r"frame-\d+\.ppm", expanded))
+
+    def test_sequence_parser_matches_camera_session_output(self):
+        log = textwrap.dedent("""
+            12.345678 (30.00 fps) cam0-stream0 seq: 000000 bytesused: 3686400
+            \tExposureTime = 1000
+            \tAnalogueGain = 1.0
+            12.379012 (29.98 fps) cam0-stream0 seq: 000001 bytesused: 3686400
+            \tExposureTime = 1000
+        """)
+        count, sequence = MODULE["frame_sequences"](log)
+        self.assertEqual(count, 2)
+        self.assertEqual(sequence, 1)
+
+    def test_display_option_is_not_offered(self):
+        self.assertEqual(set(MODULE["CAM_OPTIONS"]),
+                         {"-c", "--stream", "--capture", "--file", "--metadata"})
+        parser = MODULE["build_parser"](HERE.parent)
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parser.parse_args(["--output", str(self.root / "x"), "--display"])
+
+    def test_preflight_reports_missing_magick(self):
+        args = MODULE["build_parser"](HERE.parent).parse_args(
+            ["--output", str(self.root / "x"),
+             "--magick", "definitely-not-a-real-binary"])
+        with self.assertRaises(MODULE["SessionError"]):
+            MODULE["preflight"](args)
+
+    def test_main_requires_root(self):
+        if os.geteuid() == 0:
+            self.skipTest("running as root")
+        with self.assertRaises(SystemExit) as caught:
+            MODULE["main"](["--output", str(self.root / "root-check"),
+                            "--cam-entry", str(self.bin / "cam-system-heap"),
+                            "--power-state", str(self.bin / "power-state.py")])
+        self.assertIn("root", str(caught.exception))
 
 
 class SessionTests(Base):
-    def test_happy_path_bounded_warmup_and_jpeg(self):
+    def test_happy_path_fixed_frame_and_jpeg(self):
         cam_args = self.root / "cam-args"
-        result = self.run_session(self.out, ["--warmup", "4", "--keep", "2"],
+        result = self.run_session(self.out, ["--warmup", "2"],
                                   env=self.base_env(STUB_CAM_ARGS=str(cam_args)))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         report = self.read_result(self.out)
         self.assertEqual(report["status"], "passed")
-        self.assertEqual(report["capture_total"], 5)
+        self.assertEqual(report["capture_total"], 3)
+        self.assertEqual(report["frames_captured"], 3)
+        self.assertEqual(report["sequence_max"], 2)
+        self.assertEqual(report["ppm"], str(self.out / "frame.ppm"))
         self.assertTrue(Path(report["jpeg"]).is_file())
         self.assertEqual(report["geometry"], "JPEG 1280 960")
         tokens = cam_args.read_text().split()
-        self.assertIn("--capture=5", tokens)
+        self.assertIn("--capture=3", tokens)
         self.assertIn("--metadata", tokens)
-        self.assertIn(f"--file={self.out}/frame-#.ppm", tokens)
-        self.assertIn("--stream=role=still,width=1280,height=960,pixelformat=RGB888",
-                      tokens)
-        self.assertNotIn("--display", tokens)
-        self.assertIn("Metadata", (self.out / "cam.log").read_text())
-        self.assertEqual(sorted(p.name for p in self.out.glob("frame-*.ppm")),
-                         ["frame-3.ppm", "frame-4.ppm"])
+        self.assertFalse(any("#" in token for token in tokens))
+        self.assertIn("ExposureTime", (self.out / "cam.log").read_text())
+        self.assertEqual(list(self.out.glob("frame-*.ppm")), [])
 
-    def test_too_few_frames_fails(self):
+    def test_fewer_completed_frames_than_expected_fails(self):
         result = self.run_session(self.out, ["--warmup", "4"],
                                   env=self.base_env(STUB_CAM_FRAMES="2"))
         self.assertEqual(result.returncode, 1)
         report = self.read_result(self.out)
-        self.assertEqual(report["status"], "failed")
-        self.assertIn("frames", report["error"])
+        self.assertEqual(report["frames_captured"], 2)
+        self.assertIn("completed frames", report["error"])
 
     def test_decode_failure_fails(self):
         result = self.run_session(self.out, ["--warmup", "1"],
@@ -215,9 +249,10 @@ class SessionTests(Base):
         self.assertFalse(cam_args.exists(), "cam must not start without release")
 
     def test_post_release_failure_fails_after_capture(self):
-        result = self.run_session(self.out, ["--warmup", "1"],
-                                  env=self.base_env(STUB_POWER_FAIL="after",
-                                                    STUB_POWER_COUNT=str(self.root / "power-count")))
+        result = self.run_session(
+            self.out, ["--warmup", "1"],
+            env=self.base_env(STUB_POWER_FAIL="after",
+                              STUB_POWER_COUNT=str(self.root / "power-count")))
         self.assertEqual(result.returncode, 1)
         report = self.read_result(self.out)
         self.assertEqual(report["status"], "failed")
@@ -247,8 +282,7 @@ class SessionTests(Base):
             if process.stdout is not None:
                 process.stdout.close()
         self.assertEqual(process.returncode, 143)
-        report = self.read_result(self.out)
-        self.assertEqual(report["status"], "cancelled")
+        self.assertEqual(self.read_result(self.out)["status"], "cancelled")
         deadline = time.monotonic() + 3
         state = Path(f"/proc/{cam_pid}/stat")
         while state.exists() and time.monotonic() < deadline:
@@ -258,41 +292,6 @@ class SessionTests(Base):
         if state.exists():
             self.assertIn(state.read_text().rsplit(")", 1)[1].split()[0], {"Z", "X"},
                           "cam survived cancellation")
-
-
-class ContractTests(Base):
-    def parser(self, *argv):
-        return MODULE["build_parser"](HERE.parent).parse_args(
-            ["--output", str(self.root / "plan"), *argv])
-
-    def test_display_passthrough_forms(self):
-        build = MODULE["build_cam_command"]
-        self.assertNotIn("--display",
-                         build(self.parser(), 5, "/tmp/frame-#.ppm"))
-        self.assertIn("--display",
-                      build(self.parser("--display"), 5, "/tmp/frame-#.ppm"))
-        self.assertIn("--display=DSI-1",
-                      build(self.parser("--display=DSI-1"), 5, "/tmp/frame-#.ppm"))
-
-    def test_only_documented_cam_options_are_used(self):
-        tokens = MODULE["build_cam_command"](
-            self.parser("--display=DSI-1"), 5, "/tmp/frame-#.ppm")
-        options = {token.split("=", 1)[0] for token in tokens if token.startswith("--")}
-        self.assertLessEqual(options, set(MODULE["CAM_OPTIONS"]))
-
-    def test_preflight_reports_missing_magick(self):
-        args = self.parser("--magick", "definitely-not-a-real-binary")
-        with self.assertRaises(MODULE["SessionError"]):
-            MODULE["preflight"](args)
-
-    def test_main_requires_root(self):
-        if os.geteuid() == 0:
-            self.skipTest("running as root")
-        with self.assertRaises(SystemExit) as caught:
-            MODULE["main"](["--output", str(self.root / "root-check"),
-                            "--cam-entry", str(self.bin / "cam-system-heap"),
-                            "--power-state", str(self.bin / "power-state.py")])
-        self.assertIn("root", str(caught.exception))
 
 
 if __name__ == "__main__":

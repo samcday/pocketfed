@@ -1,67 +1,60 @@
 # libcamera-only capture session
 
-A small replacement for the Megapixels visible session. It runs one bounded
-`cam` session through the existing private-system-heap wrapper and produces a
-settled RGB **JPEG** plus retained `cam --metadata`, with the release gate
-around it. No desktop, no Megapixels, no new compositor.
+Runs one bounded `cam` session through the existing private-system-heap wrapper
+and produces a **final-frame JPEG** plus retained `cam --metadata`. No desktop,
+no Megapixels, no compositor. It depends only on the sibling
+`../cam-system-heap` and `../power-state.py`; it does not use `visible-session/`
+or `native-bootstrap/`.
 
-This directory is new and self-contained. It depends only on the existing
-sibling helpers `../cam-system-heap` and `../power-state.py`; it does not use
-`visible-session/` or `native-bootstrap/`.
+## Source-verified contract (libcamera 0.7.2, `src/apps/cam`)
+
+- `camera_session.cpp` rejects `--display` together with `--file` (and requires a
+  single *viewfinder* stream for `--display`). A file-producing run therefore
+  cannot show preview; on-screen UI acceptance stays **pending**. `--display` is
+  not offered here.
+- `file_sink.cpp` expands the first `#` in `--file` to
+  `<streamName>-<sequence>`, and `camera_session.cpp` builds `streamName` as
+  `cam<idx>-stream<idx>` (e.g. `frame-cam0-stream0-000123.ppm`). A numbered
+  pattern is not `frame-<digits>`.
+- `PPMWriter` opens the file with `std::ofstream(filename, std::ios::binary)`,
+  which truncates. A **fixed `.ppm` name** is overwritten by every frame and
+  holds the final frame after the run, so no warm-up pruning is needed.
+- `camera_session.cpp` prints one `... <stream> seq: <digits> bytesused: ...`
+  line per completed request and, with `--metadata`, tab-indented control lines.
+  The completed-frame count is verified from those `seq:` lines.
+- `--script` is a YAML capture-session config (`capture_script.cpp`), not Python
+  and not dependent on `python3-libcamera`; it is a possible future lever for
+  per-frame controls, not used here.
 
 ## Flow
 
 ```text
-wait-for-ready.py                 # fresh Volume Up authorizes one command;
-  └─ libcamera-session.py         # Volume Down still cancels the group
-        ├─ power-state.py --require-released        (before)
+wait-for-ready.py                 # fresh Volume Up authorizes; Volume Down cancels
+  └─ libcamera-session.py
+        ├─ power-state.py --require-released            (before)
         ├─ cam-system-heap -c REAR --stream role=still,width=1280,height=960,pixelformat=RGB888 \
-        │                  --capture=<warmup+1> --metadata --file=<out>/frame-#.ppm [--display[=connector]]
-        │     └─ warm-up frames are pruned as they complete, keeping only the newest few
-        ├─ keep the final frame, convert to final.jpg, strictly decode PPM + JPEG
-        ├─ power-state.py --require-released        (after)
+        │                  --capture=<warmup+1> --metadata --file=<out>/frame.ppm
+        ├─ verify completed frames from cam.log `seq:` lines (>= warmup+1)
+        ├─ decode frame.ppm, convert to final.jpg, strictly decode JPEG, check geometry
+        ├─ power-state.py --require-released            (after)
         └─ result.json (private)
 ```
 
-## Warm-up plan (source-verified, minimal)
+## Warm-up honesty
 
-The installed `cam` CLI (device `cam --help`) exposes `--capture N`, `--file`,
-`--metadata`, `--stream` and optional `--display[=connector]`, but **no controls
-and no way to discard frames or save only the last**. `python3-libcamera` is not
-part of the installed `libcamera`/`IPA`/`tools`/`GStreamer` set, so `cam
---script` is not assumed.
-
-The simplest bounded approach is therefore a single `cam` invocation with
-`--capture warmup+1` (default `warmup=4`, so five frames: four discarded
-in-effect, the fifth kept) while this helper deletes completed warm-up frames as
-they appear. tmpfs holds at most `--keep` frames (default 2) during the run; only
-the final PPM and the JPEG remain. The final frame is converted to JPEG with
-ImageMagick, then both the RGB frame and the JPEG are fully decoded
-(`magick -regard-warnings … null:`) and their geometry checked.
-
-**Limit.** This bounds warm-up but cannot *prove* AE/AF convergence. If hardware
-trials show the last frame is still not settled, the next step is a bounded
-GStreamer `libcamerasrc`/appsink helper that drops buffers without writing
-files, or a libcamera Python script if `python3-libcamera` is added. That is
-deliberately not implemented speculatively here.
+`--warmup` (default **90**) is the number of captured warm-up frames; one final
+frame follows, so `--capture=<warmup+1>`. This is an initial calibration sample,
+not proof of AE/AF convergence. The JPEG is reported as the **final captured
+frame**, not as settled or useful; that can only be established on hardware
+(the phone UI/quality acceptance remains pending).
 
 ## Usage
-
-Run it as the gate's single command (the gate must obtain Volume Up first):
 
 ```sh
 python3 ../wait-for-ready.py --timeout 120 --settle 2 --capture-timeout 180 \
     --log /run/pocketfed-libcamera/capture.log -- \
     python3 ./libcamera-session.py --output /run/pocketfed-libcamera/session \
-        --warmup 4 --timeout 60
-```
-
-Optional direct DRM/KMS preview on the phone (viable format permitting), passed
-through unchanged:
-
-```sh
-    python3 ./libcamera-session.py --output DIR --display            # any connector
-    python3 ./libcamera-session.py --output DIR --display=DSI-1      # named connector
+        --warmup 90 --timeout 60
 ```
 
 | Option | Meaning |
@@ -69,28 +62,27 @@ through unchanged:
 | `--output DIR` | Fresh private output directory (required). |
 | `--camera ID` | libcamera camera id; defaults to the stable rear identity. |
 | `--stream SPEC` | cam `--stream` value; default 1280x960 RGB888 still. |
-| `--warmup N` | Discarded warm-up frames; final still is frame `N+1` (default 4). |
-| `--keep N` | Completed frames kept on disk during the run (default 2). |
-| `--timeout SEC` | Bound for the whole cam run (default 60). |
-| `--display[=connector]` | Forward cam `--display`; omitted by default. |
-| `--cam-entry` / `--power-state` | Override the sibling helpers. |
+| `--warmup N` | Warm-up frames before the final frame (default 90, 1..2000). |
+| `--timeout SEC` | Bound for the whole cam run (default 60, 1..300). |
+| `--cam-entry` / `--power-state` / `--magick` | Override the helpers/tool. |
 
-Only options present in the device's `cam --help` are forwarded; no cam option
-is invented.
+Only `-c`, `--stream`, `--capture`, `--file`, `--metadata` are forwarded, all
+present in the device's `cam --help`; no option is invented.
 
 ## Cancellation and cleanup
 
-The gate starts this helper in its own session/group and kills that group on
+The gate starts the helper in its own session/group and kills that group on
 Volume Down. The helper starts `cam` **without** a new session, so cam and its
-IPA helpers stay in the helper's group and are reached by both the gate's group
-cleanup and the helper's own `SIGINT`/`SIGTERM` handling (which sends `SIGINT`
-to cam, then escalates within the owned group only). No process-name-wide kills.
+IPA helpers stay in that group; its own `SIGINT`/`SIGTERM` handling sends
+`SIGINT` and then escalates within the owned group only (group members when it
+is the leader, otherwise cam plus its live descendants). Reaped processes are
+never reported as survivors. No process-name-wide kills.
 
-## Outputs
+## Outputs (all private, mode 0600)
 
-- `final.jpg` - the useful settled JPEG; `final.ppm` - the source frame
-- `cam.log` - cam stdout including `--metadata` (private, retained)
-- `power-before.json` / `power-after.json`, `status`, `result.json` - private
+`frame.ppm` (fixed final frame), `final.jpg`, `cam.log` (`--metadata` retained),
+`power-before.json`, `power-after.json`, `status`, `result.json`
+(`frames_captured`, `sequence_max`, `jpeg`, `geometry`, `error`).
 
 ## Tests
 
@@ -98,18 +90,19 @@ to cam, then escalates within the owned group only). No process-name-wide kills.
 python3 test-libcamera-session.py
 ```
 
-Twelve tests use stub `cam`/`power-state`/`magick` binaries and never touch a
-camera, DRM, gate or hardware. They cover the prune bound and final-frame
-selection, a bounded warm-up to JPEG happy path with exact cam argv, too-few
-frames, bad geometry, strict-decode failure, pre-release failure aborting before
-capture, post-release failure, real `SIGTERM` cancellation killing cam, the
-`--display` passthrough forms, the documented-option allowlist, preflight, and
-the root guard.
+Thirteen tests use stub `cam`/`power-state`/`magick` tools and never touch a
+camera, DRM, gate or hardware. They cover the source-derived contracts (fixed
+`.ppm` with no `#`, the `cam<idx>-stream<idx>-<seq>` expansion that breaks
+`frame-<digits>` matching, the `seq:` log parser, and that `--display` is not
+offered), plus a bounded warm-up happy path with frame-count verification, a
+frame-count shortfall, decode/geometry failures, pre/post release failures, real
+`SIGTERM` cancellation killing cam, preflight, and the root guard.
 
 ## Hardware validation (root)
 
-After a fresh Volume Up (and with Volume Down available to cancel), confirm on
-test-sargo: the release gate passes before and after; `cam` starts through
-`cam-system-heap`; `final.jpg` decodes at the expected geometry; `cam.log`
-carries per-frame metadata; tmpfs never holds more than a few frames; and no cam
-or IPA process survives exit.
+After a fresh Volume Up (Volume Down cancels), confirm: release gate passes
+before and after; `cam` starts via `cam-system-heap`; `cam.log` reports at least
+`warmup+1` completed frames; `frame.ppm`/`final.jpg` decode at the expected
+geometry; `cam.log` carries per-frame metadata; and no cam or IPA process
+survives exit. Whether the final frame is visually useful is a separate hardware
+decision.

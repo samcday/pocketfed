@@ -1,39 +1,36 @@
 #!/usr/bin/env python3
-"""One bounded libcamera capture session producing a settled RGB JPEG.
+"""One bounded libcamera capture session producing a final-frame JPEG.
 
-This is the libcamera-only replacement for the Megapixels trial session. It is
+This is the libcamera-only replacement for the Megapixels trial session and is
 meant to be the single command of ``wait-for-ready.py``: the gate obtains a
 fresh Volume Up authorization (and keeps monitoring Volume Down), then starts
-this helper, which:
+this helper. It runs the existing private-system-heap ``cam-system-heap`` entry
+point once, keeps the final captured frame, converts it to JPEG, strictly
+decodes it, and retains the ``cam --metadata`` log.
 
-- passes the release gate before and after using the adjacent ``power-state.py``
-- runs the existing private-system-heap ``cam-system-heap`` entry point once
-- captures warm-up frames plus one final still in a single ``cam`` invocation
-- prunes completed warm-up frames during the run so tmpfs holds only a few
-- converts the final RGB frame to JPEG, strictly decodes both, records geometry
-- retains the ``cam --metadata`` log and writes a private ``result.json``
+Source-verified contract (libcamera 0.7.2, src/apps/cam)
+--------------------------------------------------------
 
-Warm-up approach and its limit (no speculative architecture)
-------------------------------------------------------------
+- ``camera_session.cpp`` rejects ``--display`` together with ``--file`` and
+  requires a single viewfinder stream for ``--display``. A file-producing run
+  therefore cannot show preview; on-screen UI acceptance stays pending.
+- ``file_sink.cpp`` expands the first ``#`` in ``--file`` to
+  ``<streamName>-<frame sequence>`` (e.g. ``cam0-stream0-000123``), so a
+  numbered pattern does not match a simple ``frame-<digits>`` name.
+- ``PPMWriter`` opens the output with ``std::ofstream(filename, std::ios::binary)``,
+  which truncates. A fixed ``.ppm`` name is therefore overwritten by every
+  frame and holds the final frame after the run; no warm-up pruning is needed.
+- ``camera_session.cpp`` prints one ``... <stream> seq: <digits> bytesused: ...``
+  line per completed request, and with ``--metadata`` follows it with
+  tab-indented ``Control = value`` lines. The completed-frame count is verified
+  from those ``seq:`` lines.
+- ``--script`` is a YAML capture-session config (``capture_script.cpp``) that
+  associates controls with frame numbers; it is not Python and does not need
+  ``python3-libcamera``. It is a possible future lever, not used here.
 
-The installed ``cam`` CLI (per the device's ``cam --help``) offers ``--capture
-N`` and ``--file`` but no controls, no per-frame discard and no "save the last
-frame" mode; ``python3-libcamera`` is not part of the installed
-``libcamera``/``IPA``/``tools``/``GStreamer`` set, so ``cam --script`` is not
-assumed. The simplest bounded, source-verifiable way to get a settled frame is
-therefore a single ``cam`` run with ``--capture warmup+1`` while this helper
-deletes completed warm-up frames as they appear. Only the final frame is
-converted and kept.
-
-This cannot prove AE/AF convergence by itself. If hardware trials show the last
-of ``warmup+1`` frames is still not settled, the next step is a bounded
-GStreamer ``libcamerasrc``/appsink helper that drops buffers without writing
-files, or a libcamera Python script if ``python3-libcamera`` is added. That is
-deliberately not implemented here.
-
-``--display`` optionally forwards ``--display``/``--display=<connector>`` to
-``cam`` for direct DRM/KMS preview on the phone; no desktop is constructed.
-No options beyond those in the device's ``cam --help`` are invented.
+Warm-up is a bounded count of captured frames (default 90, one final on top).
+It is an initial calibration sample, not proof that AE/AF have converged: the
+JPEG is reported as the final captured frame, not as a settled or useful one.
 """
 
 import argparse
@@ -45,7 +42,6 @@ import shutil
 import signal
 import subprocess
 import sys
-import threading
 import time
 
 
@@ -53,9 +49,14 @@ PREFIX = "pocketfed-libcamera-session"
 
 REAR = "/base/soc@0/cci@ac4a000/i2c-bus@0/camera@1a"
 DEFAULT_STREAM = "role=still,width=1280,height=960,pixelformat=RGB888"
+DEFAULT_WARMUP = 90
+DEFAULT_TIMEOUT = 60
 
-# Exactly the cam options named in the device's `cam --help`.
-CAM_OPTIONS = ("--stream", "--capture", "--file", "--metadata", "--display")
+# Exactly the cam options used, all present in the device's `cam --help`.
+CAM_OPTIONS = ("-c", "--stream", "--capture", "--file", "--metadata")
+
+# camera_session.cpp prints one of these per completed request.
+SEQUENCE_PATTERN = re.compile(r"seq:\s*(\d+)")
 
 
 class SessionError(RuntimeError):
@@ -133,12 +134,32 @@ def child_pids(pid):
     return children
 
 
+def descendant_pids(pid):
+    found, pending = [], [pid]
+    while pending:
+        for child in child_pids(pending.pop()):
+            if child not in found:
+                found.append(child)
+                pending.append(child)
+    return found
+
+
+def pid_alive(pid):
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    except OSError:
+        return False
+    return fields[0] not in {"Z", "X"}
+
+
 def terminate_process_tree(process, grace=2.0):
     """Kill cam and its helpers without touching the gate.
 
     cam is started in this helper's own process group (the gate gave the helper
     a new session), so when this helper is the group leader every descendant is
-    found by group membership; the gate kills that same group on Volume Down.
+    found by group membership and the gate kills that same group on Volume Down.
+    The fallback includes cam itself (only while it is alive) and its
+    descendants, so a reaped leader is not reported as a survivor.
     """
     if process is None:
         return []
@@ -147,7 +168,8 @@ def terminate_process_tree(process, grace=2.0):
             return [pid for pid in group_members(os.getpgrp()) if pid != os.getpid()]
     else:
         def targets():
-            return child_pids(process.pid)
+            candidates = [process.pid] + descendant_pids(process.pid)
+            return [pid for pid in candidates if pid_alive(pid)]
 
     for signum in (signal.SIGTERM, signal.SIGKILL):
         current = targets()
@@ -168,61 +190,13 @@ def terminate_process_tree(process, grace=2.0):
     return targets()
 
 
-class FramePruner(threading.Thread):
-    """Keep only the newest few completed frames so tmpfs stays bounded."""
-
-    def __init__(self, directory, keep, interval=0.05):
-        super().__init__(daemon=True)
-        self.directory = directory
-        self.keep = max(1, keep)
-        self.interval = interval
-        self.max_index = -1
-        self._stop = threading.Event()
-
-    def _frames(self):
-        frames = []
-        for path in self.directory.glob("frame-*.ppm"):
-            match = re.fullmatch(r"frame-(\d+)\.ppm", path.name)
-            if match:
-                frames.append((int(match.group(1)), path))
-        return sorted(frames)
-
-    def prune(self):
-        frames = self._frames()
-        if frames:
-            self.max_index = max(self.max_index, frames[-1][0])
-        for _, path in frames[: -self.keep]:
-            try:
-                path.unlink()
-            except OSError:
-                pass
-
-    def run(self):
-        while not self._stop.is_set():
-            self.prune()
-            self._stop.wait(self.interval)
-
-    def stop(self):
-        self._stop.set()
-        self.join(timeout=2)
-        self.prune()
-
-
-def run_command(argv, env=None, timeout=30):
-    return subprocess.run(argv, env=env, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, text=True, timeout=timeout,
-                          check=False)
-
-
-def run_cam(command, log_path, timeout, directory, keep):
+def run_cam(command, log_path, timeout):
     result = {"timed_out": False, "returncode": None, "remaining": []}
-    pruner = FramePruner(directory, keep)
     with log_path.open("w") as stream:
         # No start_new_session: cam stays inside the helper's group so the gate's
         # group cancellation reaches it, and terminate_process_tree can find it.
         process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT,
                                    stdin=subprocess.DEVNULL)
-        pruner.start()
         try:
             try:
                 result["returncode"] = process.wait(timeout=timeout)
@@ -238,9 +212,13 @@ def run_cam(command, log_path, timeout, directory, keep):
                     pass
         finally:
             result["remaining"] = terminate_process_tree(process)
-            pruner.stop()
-            result["max_index"] = pruner.max_index
     return result
+
+
+def frame_sequences(text):
+    """Return the completed-frame count and highest sequence in a cam log."""
+    sequences = [int(match.group(1)) for match in SEQUENCE_PATTERN.finditer(text)]
+    return len(sequences), (max(sequences) if sequences else None)
 
 
 def power_gate(power_state, output, timeout=10):
@@ -254,6 +232,12 @@ def power_gate(power_state, output, timeout=10):
         raise SessionError(f"camera release gate failed ({output.name})")
 
 
+def run_command(argv, timeout=30):
+    return subprocess.run(argv, stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT, text=True, timeout=timeout,
+                          check=False)
+
+
 def convert_to_jpeg(magick, source, target, timeout=30):
     result = run_command([magick, str(source), str(target)], timeout=timeout)
     if result.returncode != 0 or not target.is_file() or target.stat().st_size == 0:
@@ -261,7 +245,6 @@ def convert_to_jpeg(magick, source, target, timeout=30):
 
 
 def decode_file(magick, path, timeout=30):
-    """Read every pixel, not just the container header."""
     result = run_command([magick, "-regard-warnings", str(path), "null:"],
                          timeout=timeout)
     if result.returncode != 0:
@@ -284,24 +267,12 @@ def expected_geometry(stream):
     return int(width.group(1)), int(height.group(1))
 
 
-def build_cam_command(args, total, pattern):
-    command = [str(args.cam_entry), "-c", args.camera,
-               f"--stream={args.stream}", f"--capture={total}",
-               "--metadata", f"--file={pattern}"]
-    if args.display is not None:
-        command.append("--display" if args.display == "" else f"--display={args.display}")
-    return command
-
-
-def newest_frame(directory):
-    frames = []
-    for path in directory.glob("frame-*.ppm"):
-        match = re.fullmatch(r"frame-(\d+)\.ppm", path.name)
-        if match:
-            frames.append((int(match.group(1)), path))
-    if not frames:
-        return None
-    return max(frames)[1]
+def build_cam_command(args, total, output_file):
+    # No '#' and a fixed .ppm name: file_sink's expansion never runs and
+    # PPMWriter truncation leaves only the final frame on disk.
+    return [str(args.cam_entry), "-c", args.camera,
+            f"--stream={args.stream}", f"--capture={total}",
+            "--metadata", f"--file={output_file}"]
 
 
 def write_result(path, report):
@@ -326,7 +297,9 @@ def run_session(args, reporter):
         "stream": args.stream,
         "warmup": args.warmup,
         "capture_total": args.warmup + 1,
-        "display": args.display,
+        "frames_captured": None,
+        "sequence_max": None,
+        "ppm": None,
         "jpeg": None,
         "geometry": None,
         "metadata_log": str(output / "cam.log"),
@@ -347,37 +320,39 @@ def run_session(args, reporter):
         reporter.state("release-gate", "before")
         power_gate(Path(args.power_state), output / "power-before.json")
         total = args.warmup + 1
-        pattern = str(output / "frame-#.ppm")
-        command = build_cam_command(args, total, pattern)
-        reporter.state("capture", f"warmup={args.warmup} final=1")
-        cam = run_cam(command, output / "cam.log", args.timeout, output, args.keep)
+        frame_file = output / "frame.ppm"
+        command = build_cam_command(args, total, frame_file)
+        reporter.state("capture", f"warmup-frames={args.warmup} total={total}")
+        cam = run_cam(command, output / "cam.log", args.timeout)
         report["cam"] = cam
         if cam["timed_out"] or cam["returncode"] != 0 or cam["remaining"]:
             raise SessionError("cam run failed or did not stop cleanly")
-        if cam["max_index"] + 1 < total:
+        captured, sequence = frame_sequences((output / "cam.log").read_text())
+        report["frames_captured"] = captured
+        report["sequence_max"] = sequence
+        if captured < total:
             raise SessionError(
-                f"cam produced {cam['max_index'] + 1} frames, expected {total} warm-up+final")
-        final = newest_frame(output)
-        if final is None:
-            raise SessionError("no final RGB frame was saved")
+                f"cam reported {captured} completed frames, expected {total}")
+        if not frame_file.is_file() or frame_file.stat().st_size == 0:
+            raise SessionError("no final frame was saved")
         width, height = expected_geometry(args.stream)
-        ppm_geometry = identify(args.magick, final)
+        ppm_geometry = identify(args.magick, frame_file)
         if ppm_geometry != f"PPM {width} {height}":
             raise SessionError(f"unexpected final frame geometry: {ppm_geometry}")
-        decode_file(args.magick, final)
+        decode_file(args.magick, frame_file)
+        report["ppm"] = str(frame_file)
         jpeg = output / "final.jpg"
-        convert_to_jpeg(args.magick, final, jpeg)
+        convert_to_jpeg(args.magick, frame_file, jpeg)
         decode_file(args.magick, jpeg)
         jpeg_geometry = identify(args.magick, jpeg)
         if not jpeg_geometry.startswith(f"JPEG {width} {height}"):
             raise SessionError(f"unexpected JPEG geometry: {jpeg_geometry}")
         report["jpeg"] = str(jpeg)
         report["geometry"] = jpeg_geometry
-        report["frame_bytes"] = final.stat().st_size
         reporter.state("release-gate", "after")
         power_gate(Path(args.power_state), output / "power-after.json")
         report["status"] = "passed"
-        reporter.state("complete", str(jpeg))
+        reporter.state("complete", f"{jpeg} frames={captured}")
         return 0
     except Cancelled as cancel:
         report["status"] = "cancelled"
@@ -400,9 +375,8 @@ def preflight(args):
         missing.append(str(args.cam_entry))
     if not Path(args.power_state).is_file():
         missing.append(str(args.power_state))
-    for name in ("magick",):
-        if shutil.which(getattr(args, name)) is None:
-            missing.append(name)
+    if shutil.which(args.magick) is None:
+        missing.append(args.magick)
     if missing:
         raise SessionError("missing required tools: " + ", ".join(missing))
 
@@ -414,14 +388,11 @@ def build_parser(default_dir):
                         help="fresh private directory for this session's output")
     parser.add_argument("--camera", default=REAR)
     parser.add_argument("--stream", default=DEFAULT_STREAM)
-    parser.add_argument("--warmup", type=int, default=4,
-                        help="discarded warm-up frames before the final still (default 4)")
-    parser.add_argument("--keep", type=int, default=2,
-                        help="completed frames kept on disk during the run (default 2)")
-    parser.add_argument("--timeout", type=int, default=60,
+    parser.add_argument("--warmup", type=int, default=DEFAULT_WARMUP,
+                        help="captured warm-up frames before the final frame "
+                             "(default 90; a calibration sample, not proven settling)")
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                         help="bound for the whole cam run, seconds (default 60)")
-    parser.add_argument("--display", nargs="?", const="", default=None,
-                        help="forward cam --display[=<connector>] (DRM/KMS preview)")
     parser.add_argument("--cam-entry", type=Path,
                         default=default_dir / "cam-system-heap",
                         help="existing private-system-heap cam wrapper")
@@ -434,10 +405,8 @@ def build_parser(default_dir):
 def main(argv=None):
     default_dir = Path(__file__).resolve().parent.parent
     args = build_parser(default_dir).parse_args(argv)
-    if not 1 <= args.warmup <= 30:
-        raise SystemExit("--warmup must be 1..30")
-    if not 1 <= args.keep <= 30:
-        raise SystemExit("--keep must be 1..30")
+    if not 1 <= args.warmup <= 2000:
+        raise SystemExit("--warmup must be 1..2000")
     if not 1 <= args.timeout <= 300:
         raise SystemExit("--timeout must be 1..300")
     if os.geteuid() != 0:
