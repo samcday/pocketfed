@@ -64,8 +64,8 @@ Required:
 
 Options:
   --patch-dir DIR    Task patches applied in name order to the clone source
-                     before packaging (default: ${patch_dir}). None are shipped;
-                     no sensor patches are included while gain proof is pending.
+                     before packaging (default: ${patch_dir}). The current candidate
+                     adds pinned IMX363 tuning; gain/lens code is unchanged.
   --check            Verify all inputs, the embedded upstream archive, the
                      Fedora spec layout and the build root in temporary scratch,
                      then exit without building.

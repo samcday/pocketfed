@@ -32,8 +32,9 @@ The helper refuses to run if the spec no longer re-signs IPA modules, if fewer
 than all subpackages keep that exact `Requires`, or if the subpackage set
 differs.
 
-No sensor patch is included: the IMX363 gain/exposure proof is still pending,
-so this package carries no speculative sensor changes.
+The candidate adds the pinned postmarketOS IMX363 tuning file; see
+[tuning provenance](tuning-provenance.md). Its colour remains unvalidated.
+Sensor gain conversion, delays and lens mapping are unchanged.
 
 ## Phone workflow
 
@@ -70,7 +71,7 @@ packages/libcamera/build-native \
 the Fedora spec layout (IPA re-signing, exact `Requires`, subpackage set), the
 clone commit/tag/cleanliness and the build root. The build run regenerates the
 source archive from the clone, applies any task patches in
-`packages/libcamera/patches/` in name order (none are shipped today), and runs
+`packages/libcamera/patches/` in name order (the current candidate adds IMX363 tuning), and runs
 `rpmbuild -ba` with two jobs.
 
 ## Generated manifest
