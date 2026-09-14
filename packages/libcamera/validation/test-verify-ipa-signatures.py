@@ -4,12 +4,16 @@
 Builds a tiny throwaway RPM whose payload contains the five IPA modules,
 signs them with a generated key and runs the verifier through its real CLI.
 It exercises a valid package, a modified module, a missing module, a
-missing signature, a wrong key and an empty package. The RPMs and keys are
-created under a temporary directory and removed afterwards; no device is
-touched and no externally supplied package is invoked.
+missing signature, a wrong key, an empty package and an encrypted key that
+must not prompt. It also drives the bounded cpio reader directly with
+crafted payloads containing path traversal, key-collision, symlink and
+duplicate members. The RPMs and keys are created under a temporary
+directory and removed afterwards; no device is touched and no externally
+supplied package is invoked.
 """
 
 from pathlib import Path
+import io
 import json
 import shutil
 import subprocess
@@ -18,6 +22,7 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 VERIFIER = HERE / "verify-ipa-signatures"
+API = {}
 
 MODULES = (
     "ipa_mali_c55",
@@ -113,8 +118,24 @@ def statuses(document):
     return {entry["name"]: entry["status"] for entry in document["modules"]}
 
 
+def newc_entry(name, data=b"", mode=0o100644, ino=1):
+    name_bytes = name.encode("ascii") + b"\0"
+    fields = (ino, mode, 0, 0, 1, 0, len(data), 0, 0, 0, 0, len(name_bytes), 0)
+    header = b"070701" + b"".join(f"{value:08x}".encode("ascii") for value in fields)
+    padding = b"\0" * ((-(110 + len(name_bytes))) % 4)
+    return header + name_bytes + padding + data + b"\0" * ((-len(data)) % 4)
+
+
+def newc_archive(members):
+    blob = bytearray()
+    for index, (name, data, mode) in enumerate(members, start=1):
+        blob += newc_entry(name, data, mode, ino=index)
+    blob += newc_entry("TRAILER!!!", b"", 0, ino=len(members) + 1)
+    return bytes(blob)
+
+
 def test_valid_and_key_forms(tmp):
-    require("openssl", "rpmbuild", "rpm2cpio", "cpio")
+    require("openssl", "rpmbuild", "rpm2cpio")
     assert VERIFIER.stat().st_mode & 0o111, "verifier is not executable"
 
     root = Path(tmp)
@@ -163,6 +184,18 @@ def test_valid_and_key_forms(tmp):
     assert code != 0 and not document["ok"], document
     assert set(statuses(document).values()) == {"invalid"}, document
     assert len(document["failures"]) == len(MODULES)
+
+    encrypted = root / "key-a.encrypted.pem"
+    subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-aes-256-cbc",
+                    "-pass", "pass:secret", "-pkeyopt", "rsa_keygen_bits:2048",
+                    "-out", str(encrypted)],
+                   stderr=subprocess.DEVNULL, check=True)
+    prompted = subprocess.run([str(VERIFIER), "--rpm", str(rpm), "--key", str(encrypted)],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                              timeout=30, check=False)
+    encrypted_document = json.loads(prompted.stdout)
+    assert prompted.returncode != 0 and not encrypted_document["ok"], encrypted_document
+    assert "PRIVATE KEY" not in prompted.stdout
 
 
 def test_modified_bytes(tmp):
@@ -220,6 +253,67 @@ def test_empty_package(tmp):
     assert set(statuses(document).values()) == {"missing-module"}, document
 
 
+def test_bounded_reader(tmp):
+    read_cpio = API["read_cpio"]
+    root = Path(tmp)
+    members = []
+    for module in MODULES:
+        members.append((f"./usr/lib64/libcamera/ipa/{module}.so",
+                        f"{module} bytes\n".encode(), 0o100755))
+        members.append((f"./usr/lib64/libcamera/ipa/{module}.so.sign",
+                        b"signature\n", 0o100644))
+
+    clean = root / "clean"
+    read_cpio(io.BytesIO(newc_archive(members)), clean)
+    for module in MODULES:
+        module_path = clean / "usr/lib64/libcamera/ipa" / f"{module}.so"
+        sign_path = clean / "usr/lib64/libcamera/ipa" / f"{module}.so.sign"
+        assert module_path.read_bytes() == f"{module} bytes\n".encode()
+        assert sign_path.read_bytes() == b"signature\n"
+    assert len(list((clean / "usr/lib64/libcamera/ipa").iterdir())) == 10
+
+    key_dir = root / "trusted"
+    key_dir.mkdir()
+    trusted = key_dir / "public.der"
+    trusted.write_bytes(b"trusted key bytes")
+
+    hostile = newc_archive(members + [
+        ("../../escape", b"escape\n", 0o100644),
+        ("./../../public.der", b"evil\n", 0o100644),
+        ("./usr/lib64/libcamera/ipa/../../../../public.der", b"evil\n", 0o100644),
+        ("./public.der", b"evil\n", 0o100644),
+        ("./usr/lib64/libcamera/ipa/public.der", b"evil\n", 0o100644),
+    ])
+    read_cpio(io.BytesIO(hostile), root / "hostile")
+    assert not (root / "escape").exists()
+    assert not (root / "hostile" / "escape").exists()
+    assert not (root / "hostile" / "public.der").exists()
+    assert not (root / "hostile" / "usr/lib64/libcamera/ipa" / "public.der").exists()
+    assert len(list((root / "hostile" / "usr/lib64/libcamera/ipa").iterdir())) == 10
+    assert trusted.read_bytes() == b"trusted key bytes"
+
+    for label, member in (
+            ("symlink", ("./usr/lib64/libcamera/ipa/ipa_vimc.so", b"", 0o120777)),
+            ("non-regular", ("./usr/lib64/libcamera/ipa/ipa_vimc.so", b"", 0o040755))):
+        try:
+            read_cpio(io.BytesIO(newc_archive([member])), root / label)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError(f"{label} member accepted")
+
+    duplicates = [
+        ("./usr/lib64/libcamera/ipa/ipa_vimc.so", b"a", 0o100644),
+        ("./usr/lib64/libcamera/ipa/ipa_vimc.so", b"b", 0o100644),
+    ]
+    try:
+        read_cpio(io.BytesIO(newc_archive(duplicates)), root / "duplicate")
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("duplicate member accepted")
+
+
 def test_input_errors(tmp):
     root = Path(tmp)
     _, public = generate_key(root, "key")
@@ -240,6 +334,7 @@ def main():
     namespace = {"__name__": "verify_ipa_signatures_under_test"}
     exec(compile(VERIFIER.read_text(), str(VERIFIER), "exec"), namespace)
     assert tuple(namespace["MODULES"]) == MODULES, "verifier module list changed"
+    API.update(namespace)
 
     with tempfile.TemporaryDirectory(prefix="verify-ipa-signatures-test-") as tmp:
         test_valid_and_key_forms(tmp)
@@ -247,9 +342,11 @@ def main():
         test_missing_module(tmp)
         test_missing_signature(tmp)
         test_empty_package(tmp)
+        test_bounded_reader(tmp)
         test_input_errors(tmp)
-    print("PASS: valid package, private/public/DER keys, modified bytes, "
-          "missing module, missing signature, empty package, input errors")
+    print("PASS: valid package, private/public/DER keys, encrypted key no-prompt, "
+          "modified bytes, missing module, missing signature, empty package, "
+          "bounded reader traversal/collision/symlink/duplicate, input errors")
 
 
 if __name__ == "__main__":

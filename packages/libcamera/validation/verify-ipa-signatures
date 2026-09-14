@@ -4,18 +4,21 @@
 Usage:
     verify-ipa-signatures --rpm libcamera-ipa-<nvr>.rpm --key ipa-pub-key.pem
 
-The RPM payload is unpacked to a private temporary directory with
-`rpm2cpio` and `cpio`; no package scriptlet is executed. `--key` accepts a
-public key (PEM or DER) or a private key (PEM or DER), from which only the
-public key is derived. Only a hash of the public key is reported.
+The RPM payload is decoded from `rpm2cpio` by a bounded newc (070701/070702)
+reader that writes only the ten expected aarch64 payload members
+`./usr/lib64/libcamera/ipa/<module>.so[.sign]` for the five fixed modules.
+No package scriptlet is executed, no other member is written, symlinks,
+non-regular files and duplicates are rejected, and names never become
+filesystem paths. `--key` accepts a public key (PEM or DER) or a private key
+(PEM or DER), from which only the public key is derived. OpenSSL never
+prompts (closed stdin and an explicit empty passphrase) and only a hash of
+the public key is reported.
 
-The exact set of packaged IPA modules is fixed. Each must be present as a
-regular file with a matching `.so.sign` under `libcamera/ipa/`, and its
-bytes must verify with `openssl dgst -sha256`. A missing, duplicated or
-invalid module or signature fails the run; an RPM with no modules fails.
-
-Output is one JSON document on stdout. Exit status is 0 only when all
-modules verify.
+Each module must be present with a matching `.so.sign`, and its bytes must
+verify with `openssl dgst -sha256`. A missing module or signature, an
+unsafe payload member or a verification failure fails the run; an RPM with
+no modules fails. Output is one JSON document on stdout, and the exit
+status is 0 only when all modules verify.
 """
 
 import argparse
@@ -35,12 +38,24 @@ MODULES = (
     "ipa_vimc",
 )
 
+PAYLOAD_DIR = "usr/lib64/libcamera/ipa"
+CPIO_MAGIC = (b"070701", b"070702")
+CPIO_HEADER = 110
+CPIO_TRAILER = "TRAILER!!!"
+COPY_CHUNK = 1024 * 1024
+MAX_NAME_BYTES = 4096
+MAX_MEMBER_BYTES = 512 * 1024 * 1024
+TRAILER_DRAIN_BYTES = 1024 * 1024
+OPENSSL_TIMEOUT = 60
+
 KEY_ATTEMPTS = (
-    ("private-derived", ("pkey", "-in", "{key}", "-pubout", "-outform", "DER")),
-    ("private-derived", ("pkey", "-inform", "DER", "-in", "{key}",
+    ("private-derived", ("pkey", "-passin", "pass:", "-in", "{key}",
                          "-pubout", "-outform", "DER")),
-    ("public", ("pkey", "-pubin", "-in", "{key}", "-pubout", "-outform", "DER")),
-    ("public", ("pkey", "-pubin", "-inform", "DER", "-in", "{key}",
+    ("private-derived", ("pkey", "-passin", "pass:", "-inform", "DER", "-in", "{key}",
+                         "-pubout", "-outform", "DER")),
+    ("public", ("pkey", "-passin", "pass:", "-pubin", "-in", "{key}",
+                "-pubout", "-outform", "DER")),
+    ("public", ("pkey", "-passin", "pass:", "-pubin", "-inform", "DER", "-in", "{key}",
                 "-pubout", "-outform", "DER")),
 )
 
@@ -48,7 +63,7 @@ KEY_ATTEMPTS = (
 def sha256_file(path):
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
+        for block in iter(lambda: handle.read(COPY_CHUNK), b""):
             digest.update(block)
     return digest.hexdigest()
 
@@ -62,60 +77,142 @@ def error(message):
     return emit({"ok": False, "error": message}, 1)
 
 
+def wanted_members():
+    allowed = {}
+    for module in MODULES:
+        for suffix in ("", ".sign"):
+            allowed[f"{PAYLOAD_DIR}/{module}.so{suffix}"] = f"{module}.so{suffix}"
+    return allowed
+
+
+def read_exact(stream, count):
+    chunks = []
+    remaining = count
+    while remaining:
+        chunk = stream.read(remaining)
+        if not chunk:
+            raise RuntimeError("truncated RPM cpio payload")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def skip_exact(stream, count):
+    remaining = count
+    while remaining:
+        chunk = stream.read(min(remaining, COPY_CHUNK))
+        if not chunk:
+            raise RuntimeError("truncated RPM cpio payload")
+        remaining -= len(chunk)
+
+
+def copy_exact(stream, count, handle):
+    remaining = count
+    while remaining:
+        chunk = stream.read(min(remaining, COPY_CHUNK))
+        if not chunk:
+            raise RuntimeError("truncated RPM cpio payload")
+        handle.write(chunk)
+        remaining -= len(chunk)
+
+
+def normalize_member(raw):
+    name = raw.split(b"\0", 1)[0].decode("ascii", "replace")
+    return name[2:] if name.startswith("./") else name
+
+
+def read_cpio(stream, payload_dir):
+    """Decode a newc cpio stream, writing only the exact expected members."""
+    allowed = wanted_members()
+    seen = set()
+    base = Path(payload_dir) / PAYLOAD_DIR
+    while True:
+        header = read_exact(stream, CPIO_HEADER)
+        if header[:6] not in CPIO_MAGIC:
+            raise RuntimeError("unsupported RPM cpio payload format")
+        try:
+            fields = [int(header[6 + index * 8:14 + index * 8], 16)
+                      for index in range(13)]
+        except ValueError:
+            raise RuntimeError("invalid RPM cpio header")
+        mode, size, namesize = fields[1], fields[6], fields[11]
+        if not 0 < namesize <= MAX_NAME_BYTES:
+            raise RuntimeError("invalid RPM cpio member name size")
+        raw_name = read_exact(stream, namesize)
+        skip_exact(stream, (-(CPIO_HEADER + namesize)) % 4)
+        name = normalize_member(raw_name)
+        if name == CPIO_TRAILER:
+            skip_exact(stream, min(size, TRAILER_DRAIN_BYTES))
+            break
+        if size > MAX_MEMBER_BYTES:
+            raise RuntimeError(f"oversized RPM cpio member: {name}")
+        target = allowed.get(name)
+        if target is None:
+            skip_exact(stream, size)
+        else:
+            if mode & 0o170000 != 0o100000:
+                raise RuntimeError(f"non-regular RPM cpio member: {name}")
+            if target in seen:
+                raise RuntimeError(f"duplicate RPM cpio member: {name}")
+            seen.add(target)
+            base.mkdir(parents=True, exist_ok=True)
+            with open(base / target, "wb") as handle:
+                copy_exact(stream, size, handle)
+        skip_exact(stream, (-size) % 4)
+
+
+def extract_payload(rpm, payload_dir, rpm2cpio):
+    producer = subprocess.Popen([rpm2cpio, str(rpm)], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+    failure = None
+    try:
+        read_cpio(producer.stdout, payload_dir)
+    except RuntimeError as problem:
+        failure = problem
+    finally:
+        producer.stdout.close()
+        if producer.poll() is None:
+            producer.terminate()
+            try:
+                producer.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                producer.kill()
+                producer.wait()
+        detail = producer.stderr.read().decode("utf-8", "replace").strip()
+        producer.stderr.close()
+    if failure is not None:
+        raise RuntimeError(f"{failure}: {detail}" if detail else str(failure))
+
+
 def derive_public_key(key, openssl):
     for kind, template in KEY_ATTEMPTS:
         command = [openssl]
         command += [str(key) if item == "{key}" else item for item in template]
         result = subprocess.run(command, stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL, check=False)
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                check=False, timeout=OPENSSL_TIMEOUT)
         if result.returncode == 0 and result.stdout:
             return kind, result.stdout
     return None, None
 
 
-def extract_payload(rpm, destination, rpm2cpio, cpio):
-    producer = subprocess.Popen([rpm2cpio, str(rpm)], stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
-    consumer = subprocess.Popen(
-        [cpio, "-idm", "--quiet", "--no-absolute-filenames"],
-        stdin=producer.stdout, stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE, cwd=str(destination))
-    producer.stdout.close()
-    _, consumer_error = consumer.communicate()
-    _, producer_error = producer.communicate()
-    if producer.returncode != 0:
-        raise RuntimeError("rpm2cpio failed: " +
-                           producer_error.decode("utf-8", "replace").strip())
-    if consumer.returncode != 0:
-        raise RuntimeError("cpio failed: " +
-                           consumer_error.decode("utf-8", "replace").strip())
-
-
-def locate(root, module, suffix):
-    pattern = f"libcamera/ipa/{module}.so{suffix}"
-    return sorted(path for path in root.rglob(pattern)
-                  if path.is_file() and not path.is_symlink())
-
-
-def verify_module(module, root, public_der, openssl):
-    modules = locate(root, module, "")
-    if len(modules) != 1:
-        return {"name": module,
-                "status": "missing-module" if not modules else "duplicate-module"}
-    signatures = locate(root, module, ".sign")
-    if len(signatures) != 1:
-        return {"name": module,
-                "status": ("missing-signature" if not signatures
-                           else "duplicate-signature")}
+def verify_module(module, payload_dir, public_der, openssl):
+    base = Path(payload_dir) / PAYLOAD_DIR
+    module_path = base / f"{module}.so"
+    signature_path = base / f"{module}.so.sign"
+    if not module_path.is_file() or module_path.is_symlink():
+        return {"name": module, "status": "missing-module"}
+    if not signature_path.is_file() or signature_path.is_symlink():
+        return {"name": module, "status": "missing-signature"}
     result = subprocess.run(
         [openssl, "dgst", "-sha256", "-verify", str(public_der),
-         "-keyform", "DER", "-signature", str(signatures[0]), str(modules[0])],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+         "-keyform", "DER", "-signature", str(signature_path), str(module_path)],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, check=False, timeout=OPENSSL_TIMEOUT)
     return {
         "name": module,
-        "path": str(modules[0].relative_to(root)),
-        "sha256": sha256_file(modules[0]),
+        "path": str(module_path.relative_to(payload_dir)),
+        "sha256": sha256_file(module_path),
         "status": "valid" if result.returncode == 0 else "invalid",
     }
 
@@ -123,8 +220,7 @@ def verify_module(module, root, public_der, openssl):
 def run(rpm, key):
     openssl = shutil.which("openssl")
     rpm2cpio = shutil.which("rpm2cpio")
-    cpio = shutil.which("cpio")
-    for tool, name in ((openssl, "openssl"), (rpm2cpio, "rpm2cpio"), (cpio, "cpio")):
+    for tool, name in ((openssl, "openssl"), (rpm2cpio, "rpm2cpio")):
         if not tool:
             return error(f"required tool not found: {name}")
     if not rpm.is_file():
@@ -132,20 +228,28 @@ def run(rpm, key):
     if not key.is_file():
         return error(f"key not found: {key}")
 
-    kind, public_der = derive_public_key(key, openssl)
+    try:
+        kind, public_der = derive_public_key(key, openssl)
+    except (OSError, subprocess.SubprocessError) as failure:
+        return error(f"openssl key probe failed: {failure}")
     if public_der is None:
         return error("could not read a public or private key from --key")
 
     try:
         with tempfile.TemporaryDirectory(prefix="verify-ipa-signatures-") as tmp:
             root = Path(tmp)
-            public_path = root / "public.der"
+            key_dir = root / "key"
+            payload_dir = root / "payload"
+            key_dir.mkdir()
+            public_path = key_dir / "public.der"
             public_path.write_bytes(public_der)
-            extract_payload(rpm, root, rpm2cpio, cpio)
-            modules = [verify_module(module, root, public_path, openssl)
+            extract_payload(rpm, payload_dir, rpm2cpio)
+            modules = [verify_module(module, payload_dir, public_path, openssl)
                        for module in MODULES]
     except RuntimeError as failure:
         return error(str(failure))
+    except (OSError, subprocess.SubprocessError) as failure:
+        return error(f"verification failed: {failure}")
 
     failures = [f"{entry['name']}: {entry['status']}"
                 for entry in modules if entry["status"] != "valid"]

@@ -130,15 +130,25 @@ python3 packages/libcamera/validation/test-build-native.py
 ```
 
 `validation/verify-ipa-signatures` is an explicit post-build check for one
-IPA RPM. It unpacks the payload with `rpm2cpio`/`cpio` (no package script is
-run) and verifies the packaged bytes of exactly `ipa_mali_c55`, `ipa_rkisp1`,
-`ipa_rpi_vc4`, `ipa_soft_simple` and `ipa_vimc` with `openssl dgst -sha256`
-against each module's `.so.sign`. `--key` takes the build public key (PEM or
-DER) or the private key, from which it derives the public key without
-printing key material. It prints one JSON document with the module statuses,
-the RPM SHA256 and the public-key SHA256, and exits nonzero if any module is
-missing, has no signature or fails to verify. This reproduced the native.1
-defect: all five modules fail against that build's key.
+IPA RPM. It decodes the payload from `rpm2cpio` with a bounded newc reader
+that writes only the ten expected aarch64 members
+`./usr/lib64/libcamera/ipa/<module>.so[.sign]`; no package script is run,
+and symlinks, non-regular files, duplicates and unexpected names are
+rejected without ever using an archive name as a path. It verifies the
+packaged bytes of exactly `ipa_mali_c55`, `ipa_rkisp1`, `ipa_rpi_vc4`,
+`ipa_soft_simple` and `ipa_vimc` with `openssl dgst -sha256` against each
+module's `.so.sign`. `--key` takes the build public key (PEM or DER) or the
+private key, from which it derives the public key without prompting and
+without printing key material. It prints one JSON document with the module
+statuses, the RPM SHA256 and the public-key SHA256, and exits nonzero if any
+module is missing, has no signature or fails to verify.
+
+Running it on the retained native.1 IPA RPM reports all five modules
+invalid. The key used was the public key embedded in that build's shipped
+`libcamera.so.0.7.2` (the build private key was lost in the phone reboot),
+and the RPM SHA256 matched the build manifest. An unrelated key would also
+report invalid, so this corroborates the recorded defect rather than proving
+it independently.
 
 ```sh
 packages/libcamera/validation/verify-ipa-signatures \
@@ -150,7 +160,9 @@ python3 packages/libcamera/validation/test-verify-ipa-signatures.py
 
 The test builds throwaway RPMs from generated keys and covers a valid
 package, a modified module, a missing module, a missing signature, an empty
-package, a wrong key and public/private/DER key inputs. The verifier is not
+package, a wrong key, public/private/DER key inputs and an encrypted key
+that must not prompt. It also drives the reader directly with crafted
+traversal, key-collision, symlink and duplicate members. The verifier is not
 wired into `build-native` and does not build, install or run a package.
 
 The helper was later run on the phone; the result is recorded under
