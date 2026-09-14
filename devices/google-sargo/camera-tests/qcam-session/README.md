@@ -32,7 +32,8 @@ systemd unit (dedicated VT)
 
 The camera is not started before the gate authorizes the run. Within the
 helper, the strict release gate runs before Phoc or qcam start, and the camera
-is only launched after Phoc's socket exists and the JPEG path is fixed.
+is only launched after Phoc's Wayland socket appears as a listening Unix socket
+and the JPEG path is fixed.
 
 ## Prerequisites
 
@@ -45,6 +46,11 @@ is only launched after Phoc's socket exists and the JPEG path is fixed.
 - **Phoc** installed (pulled in by phosh); `cage` is not in the image.
 - **Root**, for the private DMA-heap mount namespace and the release gate.
 - `magick` (ImageMagick) on `PATH`.
+
+Phoc's `--socket` and `--no-xwayland` options are source-verified from the
+installed Phoc (`src/main.c` option table) and `man phoc`; Phoc creates the
+compositor socket with `wl_display_add_socket` under `XDG_RUNTIME_DIR`. Root
+should still confirm the device build's `phoc --help` natively.
 
 ## Usage
 
@@ -67,7 +73,7 @@ python3 ../wait-for-ready.py --timeout 120 --settle 2 --capture-timeout 180 \
 | `--timeout SEC` | Bound for the whole qcam run, 1..300 (default 90). |
 | `--startup-timeout SEC` | Bound for the Phoc socket, 1..120 (default 20). |
 | `--socket NAME` | Private Wayland socket name under the runtime dir. |
-| `--phoc` / `--gsettings` / `--cam-entry` / `--power-state` / `--magick` | Override the helpers/tools. |
+| `--phoc` / `--cam-entry` / `--power-state` / `--magick` | Override the helpers/tools. A bare name is resolved on `PATH`; an explicit path must be a file. |
 | `--allow-existing-compositor` | Skip the phoc/phosh-in-use refusal. |
 
 `--after-frames` is a calibration parameter, not proof that AE/AF have settled;
@@ -103,6 +109,14 @@ The launcher deliberately does **not** create a private session bus or use
 `gdbus`, so the archived trial's gdbus integer-timeout pitfall does not apply
 here. Phoc is the only compositor and is stopped on every exit path.
 
+Window sizing is **not** managed: the launcher no longer runs a best-effort
+`gsettings set sm.puri.phoc auto-maximize true`, because without a private
+session bus/dconf that cannot be claimed to work. qcam's saved frame is the
+full viewfinder stream resolution regardless of window size, but the visible
+preview may be a non-maximized window. Max-imizing the preview is a pending UI
+step to source-verify (for example a contained session mechanism) and validate
+natively; it is not applied here.
+
 ## Systemd unit
 
 `pocketfed-camera-qcam.service` is a template for a manually armed trial on a
@@ -126,12 +140,16 @@ helper that created its own session) when the service stops. Remove
 python3 test-qcam-session.py
 ```
 
-The tests use stub `phoc`/`qcam`/`power-state`/`magick`/`gsettings` tools in a
-temporary directory and never touch DRM, a compositor, a camera, a gate or
-hardware. They cover a real subprocess happy path, `SIGTERM` cancellation
-killing the owned Phoc and qcam processes without skipping the after release
-gate, a qcam run that exits 0 without saving a JPEG, and an after-release
-failure. They are process/behaviour regressions, not mirrors of the code.
+The tests use stub `phoc`/`qcam`/`power-state`/`magick` tools in a temporary
+directory and never touch DRM, a compositor, a camera, a gate or hardware. They
+cover a real subprocess happy path that resolves bare `phoc`/`magick` on `PATH`
+and requires a real AF_UNIX listening socket; `SIGTERM` cancellation killing the
+owned Phoc and qcam processes without skipping the after release gate; a qcam
+run that exits 0 without saving a JPEG; an after-release failure; a reported
+cleanup survivor failing the run even when release succeeded; a tool timeout
+recorded as a failure with no traceback; and a Phoc start-up that never creates
+its socket being killed and failing closed. They are process/behaviour
+regressions, not mirrors of the code.
 
 ## Native validation (root; not done here)
 
@@ -154,7 +172,8 @@ Native limitations that this host cannot resolve:
   Sargo; if it cannot take the DRM seat, run the same command under the image's
   greetd `[initial_session]` instead.
 - This launcher does not create a private D-Bus session or use gdbus. If Phoc
-  or `gsettings` needs a session bus on the device, that must be added and
-  validated rather than assumed.
+  needs a session bus on the device, that must be added and validated rather
+  than assumed.
+- Preview window sizing/maximisation is not applied (see above).
 - `--after-frames` is a calibration count; the wall-clock bound is the
   launcher's `--timeout` plus the gate's `--capture-timeout`.

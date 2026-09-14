@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Exercise the qcam session's subprocess and cleanup behavior.
 
-Everything runs with stub phoc/qcam/power/magick/gsettings tools in a temporary
-directory; no DRM, compositor, camera, gate, network or hardware is touched.
-run_session is run in a real subprocess (bypassing only the root/preflight
-entry) so cancellation and process-group cleanup are exercised for real.
+Everything runs with stub phoc/qcam/power/magick tools in a temporary directory;
+no DRM, compositor, camera, gate, network or hardware is touched. run_session is
+run in a real subprocess (bypassing only the root/preflight entry) so
+cancellation, socket readiness and process-group cleanup are exercised for real.
 """
 
 import json
@@ -23,15 +23,30 @@ import unittest
 HERE = Path(__file__).resolve().parent
 SCRIPT = HERE / "qcam-session.py"
 
-BOOTSTRAP = (
-    "import runpy, sys\n"
-    "from pathlib import Path\n"
-    "m = runpy.run_path(sys.argv[1])\n"
-    "parser = m['build_parser']()\n"
-    "args = parser.parse_args(sys.argv[2:])\n"
-    "report = m['Reporter'](sys.stdout, Path(args.output) / 'status')\n"
-    "sys.exit(m['run_session'](args, report))\n"
-)
+# The test-only seam injects a cleanup survivor or a tool timeout without
+# touching the launcher itself.
+BOOTSTRAP = textwrap.dedent('''
+    import os, runpy, subprocess, sys
+    from pathlib import Path
+    m = runpy.run_path(sys.argv[1])
+    # runpy returns a copy of the module globals, so patch the dict the
+    # functions actually resolve globals through.
+    g = m["run_session"].__globals__
+    if os.environ.get("STUB_SURVIVOR"):
+        real_terminate = g["terminate_process_tree"]
+        def terminate_with_survivor(process):
+            real_terminate(process)
+            return [999999]
+        g["terminate_process_tree"] = terminate_with_survivor
+    if os.environ.get("STUB_POWER_TIMEOUT"):
+        def power_timeout(*_args, **_kwargs):
+            raise subprocess.TimeoutExpired("power-state", 1)
+        g["power_gate"] = power_timeout
+    parser = m["build_parser"]()
+    args = parser.parse_args(sys.argv[2:])
+    report = m["Reporter"](sys.stdout, Path(args.output) / "status")
+    sys.exit(m["run_session"](args, report))
+''')
 
 
 class Base(unittest.TestCase):
@@ -46,7 +61,6 @@ class Base(unittest.TestCase):
         self.write_qcam_wrapper()
         self.write_power_stub()
         self.write_magick_stub()
-        self.write("true", "#!/bin/sh\nexit 0\n", python=False)
 
     def write(self, name, body, python=True):
         path = self.bin / name
@@ -56,16 +70,17 @@ class Base(unittest.TestCase):
 
     def write_phoc(self):
         self.write("phoc", textwrap.dedent('''
-            import os, sys, time
+            import os, socket, sys, time
             args = sys.argv[1:]
-            socket = "pocketfed-qcam"
-            if "--socket" in args:
-                socket = args[args.index("--socket") + 1]
             runtime = os.environ["XDG_RUNTIME_DIR"]
             open(os.path.join(runtime, "phoc.pid"), "w").write(str(os.getpid()))
-            open(os.path.join(runtime, socket), "w").close()
-            if os.environ.get("STUB_PHOC_FAIL"):
-                sys.exit(3)
+            if not os.environ.get("STUB_PHOC_NOSOCK"):
+                name = "pocketfed-qcam"
+                if "--socket" in args:
+                    name = args[args.index("--socket") + 1]
+                server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                server.bind(os.path.join(runtime, name))
+                server.listen(1)
             time.sleep(3600)
         '''))
 
@@ -121,12 +136,11 @@ class Base(unittest.TestCase):
         return env
 
     def session_args(self, output, extra=()):
+        # --phoc and --magick are left at their bare defaults so the run
+        # resolves them through PATH, the way the systemd unit invokes them.
         return ["--output", str(output),
-                "--phoc", str(self.bin / "phoc"),
-                "--gsettings", str(self.bin / "true"),
                 "--cam-entry", str(self.bin / "cam-system-heap"),
                 "--power-state", str(self.bin / "power-state.py"),
-                "--magick", str(self.bin / "magick"),
                 "--allow-existing-compositor",
                 "--startup-timeout", "5", "--timeout", "30", *extra]
 
@@ -246,6 +260,48 @@ class QcamSessionTests(Base):
         self.assertIs(report["camera_released"], False)
         self.assertIsNotNone(report["release_error"])
         self.assertEqual(counts.read_text(), "2")
+
+    def test_default_path_tools_and_unix_socket(self):
+        # Bare --phoc/--magick defaults must resolve via PATH, and a bound
+        # AF_UNIX listening socket (not a plain file) satisfies readiness.
+        result = self.run_session(self.out)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.read_result(self.out)["status"], "passed")
+
+    def test_surviving_owned_process_fails_even_when_released(self):
+        counts = self.root / "power-count-survivor"
+        result = self.run_session(
+            self.out,
+            env=self.base_env(STUB_SURVIVOR="1", STUB_POWER_COUNT=str(counts)))
+        self.assertEqual(result.returncode, 1)
+        report = self.read_result(self.out)
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("survived", report["error"])
+        self.assertIs(report["camera_released"], True)
+        self.assertEqual(report["remaining_processes"], [999999])
+
+    def test_tool_timeout_is_recorded_not_a_traceback(self):
+        result = self.run_session(
+            self.out, env=self.base_env(STUB_POWER_TIMEOUT="1"))
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("Traceback", result.stderr)
+        report = self.read_result(self.out)
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("power-state", report["error"])
+        self.assertFalse(report["camera_attempted"])
+
+    def test_compositor_socket_timeout_fails_and_cleans_up(self):
+        counts = self.root / "power-count-nosock"
+        result = self.run_session(
+            self.out, ["--startup-timeout", "1"],
+            env=self.base_env(STUB_PHOC_NOSOCK="1", STUB_POWER_COUNT=str(counts)))
+        self.assertEqual(result.returncode, 1)
+        report = self.read_result(self.out)
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("did not appear", report["error"])
+        self.assertFalse(report["camera_attempted"])
+        self.assertEqual(counts.read_text(), "1")  # before gate only
+        self.assert_process_gone(self.out / "runtime" / "phoc.pid")
 
 
 if __name__ == "__main__":

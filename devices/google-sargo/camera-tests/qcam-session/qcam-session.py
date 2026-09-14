@@ -40,6 +40,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -69,7 +70,6 @@ decode_file = session.decode_file
 identify = session.identify
 expected_geometry = session.expected_geometry
 terminate_process_tree = session.terminate_process_tree
-run_command = session.run_command
 write_result = session.write_result
 
 # Explicit viewfinder request; the stable rear id avoids the default front
@@ -116,10 +116,36 @@ def refuse_existing_compositor():
         raise SessionError(f"existing compositor running: {detail}")
 
 
+def resolve_tool(value):
+    """Resolve an option to an executable path the same way everywhere.
+
+    A bare name (for example the default ``phoc`` or ``magick``) is found on
+    PATH; an explicit path is used only when it is a file. Returns None when
+    neither exists, so callers can report a missing tool instead of failing at
+    exec time.
+    """
+    text = str(value)
+    if os.sep in text:
+        if Path(text).is_file() and os.access(text, os.X_OK):
+            return text
+        return None
+    return shutil.which(text)
+
+
 def wait_for_socket(path, process, timeout):
+    """Wait for Phoc's Wayland socket to appear as a real Unix socket.
+
+    A regular file is not a listening socket, so require S_ISSOCK rather than
+    mere existence. Phoc creates it via wl_display_add_socket under
+    XDG_RUNTIME_DIR (source: phoc src/server.c).
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if path.exists():
+        try:
+            mode = path.stat().st_mode
+        except OSError:
+            mode = None
+        if mode is not None and stat.S_ISSOCK(mode):
             return
         if process.poll() is not None:
             raise SessionError(
@@ -150,20 +176,10 @@ def qcam_env(runtime, socket):
     return env
 
 
-def best_effort(helper, reporter, argv, label):
-    try:
-        result = run_command([helper, *argv], timeout=5)
-    except (OSError, subprocess.SubprocessError) as error:
-        reporter.warn(f"{label}-failed {error}")
-        return
-    if result.returncode != 0:
-        reporter.warn(f"{label}-failed exit-{result.returncode}")
-
-
-def build_qcam_command(args, jpeg):
+def build_qcam_command(cam_entry, args, jpeg):
     # ``--tool qcam`` is cam-system-heap's explicit allowlist switch, not an
     # arbitrary command; the remaining tokens are the reviewed qcam options.
-    return [str(args.cam_entry), "--tool", "qcam", "-c", args.camera,
+    return [str(cam_entry), "--tool", "qcam", "-c", args.camera,
             "-r", "qt", f"--stream={args.stream}",
             "--output", str(jpeg), "--after-frames", str(args.after_frames)]
 
@@ -250,36 +266,37 @@ def run_session(args, reporter):
 
     try:
         reporter.state("preflight")
-        if not os.access(args.phoc, os.X_OK):
-            raise SessionError(f"phoc not executable: {args.phoc}")
-        if not os.access(args.cam_entry, os.X_OK):
-            raise SessionError(f"cam entry not executable: {args.cam_entry}")
-        if not Path(args.power_state).is_file():
-            raise SessionError(f"power-state helper missing: {args.power_state}")
+        phoc_tool = resolve_tool(args.phoc)
+        cam_entry = resolve_tool(args.cam_entry)
+        power_state = resolve_tool(args.power_state)
+        magick = resolve_tool(args.magick)
+        if phoc_tool is None:
+            raise SessionError(f"phoc not found: {args.phoc}")
+        if cam_entry is None:
+            raise SessionError(f"cam entry not found: {args.cam_entry}")
+        if power_state is None:
+            raise SessionError(f"power-state helper not found: {args.power_state}")
+        if magick is None:
+            raise SessionError(f"magick not found: {args.magick}")
 
         reporter.state("release-gate", "before")
-        power_gate(Path(args.power_state), output / "power-before.json")
+        power_gate(Path(power_state), output / "power-before.json")
 
         if not args.allow_existing_compositor:
             refuse_existing_compositor()
 
-        reporter.state("compositor-start", args.phoc)
+        reporter.state("compositor-start", phoc_tool)
         phoc, phoc_stream = start_process(
-            [args.phoc, "--no-xwayland", "--socket", args.socket],
+            [phoc_tool, "--no-xwayland", "--socket", args.socket],
             output / "phoc.log", session_env(runtime))
         wait_for_socket(socket_path, phoc, args.startup_timeout)
         reporter.state("compositor-ready", args.socket)
-
-        if args.gsettings:
-            best_effort(args.gsettings, reporter,
-                        ["set", "sm.puri.phoc", "auto-maximize", "true"],
-                        "gsettings")
 
         reporter.state("capture", f"after-frames={args.after_frames}")
         camera_attempted = True
         report["camera_attempted"] = True
         qcam, qcam_stream = start_process(
-            build_qcam_command(args, jpeg), output / "qcam.log",
+            build_qcam_command(cam_entry, args, jpeg), output / "qcam.log",
             qcam_env(runtime, args.socket))
         result = wait_child(qcam, args.timeout)
         report["qcam"] = result
@@ -290,8 +307,8 @@ def run_session(args, reporter):
             raise SessionError("qcam exited without saving a JPEG")
         # A non-empty file is not completion: decode every pixel, then confirm
         # the geometry matches the requested viewfinder.
-        decode_file(args.magick, jpeg)
-        geometry = identify(args.magick, jpeg)
+        decode_file(magick, jpeg)
+        geometry = identify(magick, jpeg)
         width, height = expected_geometry(args.stream)
         if geometry != f"JPEG {width} {height}":
             raise SessionError(f"unexpected JPEG geometry: {geometry}")
@@ -304,7 +321,9 @@ def run_session(args, reporter):
         status = "cancelled"
         primary_error = f"signal {cancel.signum}"
         reporter.state("cancelled", f"signal-{cancel.signum}")
-    except (SessionError, OSError) as error:
+    except (SessionError, OSError, subprocess.SubprocessError) as error:
+        # SubprocessError (for example a tool TimeoutExpired) must become a
+        # recorded failure, never an uncaught traceback.
         status = "failed"
         primary_error = str(error)
         reporter.state("failed", str(error))
@@ -323,7 +342,7 @@ def run_session(args, reporter):
             if camera_attempted:
                 reporter.state("release-gate", "after")
                 try:
-                    power_gate(Path(args.power_state), output / "power-after.json")
+                    power_gate(Path(power_state), output / "power-after.json")
                     released = True
                 except (SessionError, OSError, subprocess.SubprocessError) as error:
                     released = False
@@ -334,15 +353,22 @@ def run_session(args, reporter):
             report["release_error"] = release_error
             if primary_error is not None:
                 report["error"] = primary_error
+            elif release_error is not None:
+                report["error"] = release_error
             elif survivors:
                 report["error"] = ("owned processes survived cleanup: "
                                    + ",".join(str(pid) for pid in survivors))
-            elif release_error is not None:
-                report["error"] = release_error
-            if report["status"] == "passed" and released is not True:
-                # Never return success without a confirmed release.
-                report["status"] = "failed"
-                report["error"] = release_error or "camera release unconfirmed"
+            if report["status"] == "passed":
+                # Never return success without a confirmed release or while an
+                # owned process survived cleanup.
+                if survivors:
+                    report["status"] = "failed"
+                    if report["error"] is None:
+                        report["error"] = ("owned processes survived cleanup: "
+                                           + ",".join(str(pid) for pid in survivors))
+                elif released is not True:
+                    report["status"] = "failed"
+                    report["error"] = release_error or "camera release unconfirmed"
             write_result(output / "result.json", report)
         finally:
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -357,14 +383,10 @@ def run_session(args, reporter):
     return 1
 
 
-def _available(value):
-    return shutil.which(value) is not None or Path(value).exists()
-
-
 def preflight(args):
-    missing = [name for name in
-               (str(args.phoc), str(args.cam_entry), str(args.power_state), args.magick)
-               if not _available(name)]
+    missing = [str(name) for name in
+               (args.phoc, args.cam_entry, args.power_state, args.magick)
+               if resolve_tool(name) is None]
     if missing:
         raise SessionError("missing required tools: " + ", ".join(missing))
 
@@ -388,8 +410,6 @@ def build_parser():
     parser.add_argument("--socket", default=DEFAULT_SOCKET,
                         help="private Wayland socket name under the runtime dir")
     parser.add_argument("--phoc", default="phoc", help="Phoc compositor to start")
-    parser.add_argument("--gsettings", default="gsettings",
-                        help="best-effort auto-maximize helper (empty disables)")
     parser.add_argument("--cam-entry", type=Path,
                         default=CAMERA_TESTS / "cam-system-heap",
                         help="existing private-system-heap cam/qcam wrapper")
