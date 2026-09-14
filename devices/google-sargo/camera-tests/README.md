@@ -90,15 +90,18 @@ perform those lifecycle checks.
 
 ## Capture path and scope
 
-The selected capture path is **libcamera** through the
-[`libcamera-session/`](libcamera-session/README.md) helper: one bounded `cam`
-session (via the sibling `cam-system-heap`) that writes a final-frame JPEG,
-gated by [`wait-for-ready.py`](readiness.md) and bracketed by `power-state.py`.
-It has no on-screen preview, so UI behaviour is not covered by it. The earlier
-`run-libcamera.py` is a bounded multi-frame PPM diagnostic, not the selected
-path. The Megapixels application and its packaging are out of scope for this PR
-(retained only in the local archived branch), so the helpers here do not require
-Phoc, gdbus or any camera app.
+The selected capture stack is **libcamera**. The visible trial uses
+[`qcam-session/`](qcam-session/README.md): Phoc displays the patched qcam
+viewfinder, which saves one JPEG and exits after a bounded frame count.
+[`wait-for-ready.py`](readiness.md) requires a fresh Volume Up press/release;
+Volume Down cancels, and `power-state.py` checks release around capture.
+The patched qcam build and actual preview/capture still need native validation.
+
+The headless [`libcamera-session/`](libcamera-session/README.md) helper provides
+the measured baseline through `cam`: it saved a decoded JPEG and released the
+camera, but that image was overexposed and cyan. `run-libcamera.py` is an older
+multi-frame PPM diagnostic. Megapixels and its packaging are retained only in
+the archived branch and are not dependencies of either libcamera path.
 
 A visible libcamera trial is added under
 [`qcam-session/`](qcam-session/README.md): the same `wait-for-ready.py` and
@@ -147,10 +150,10 @@ fixture uses `/dev/null`; it never opens camera nodes.
 
 ## Libcamera capture helpers and allocator diagnostic
 
-The selected capture path is the
-[`libcamera-session/`](libcamera-session/README.md) helper; the earlier
-`run-libcamera.py` is a bounded multi-frame PPM diagnostic retained here.
-`cam-system-heap` is the shared wrapper both use: it runs `cam` as root in a
+The headless [`libcamera-session/`](libcamera-session/README.md) helper and the
+earlier `run-libcamera.py` provide bounded frame diagnostics.
+`cam-system-heap` is shared with the visible trial: it runs `cam` by default,
+or the explicitly allowlisted `qcam`, as root in a
 private mount namespace exposing only the existing system DMA heap. The real
 device nodes and permissions remain unchanged. This is a diagnostic for
 libcamera's software ISP, which permits system memory but normally selects an

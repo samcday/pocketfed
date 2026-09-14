@@ -113,7 +113,7 @@ Window sizing is **not** managed: the launcher no longer runs a best-effort
 `gsettings set sm.puri.phoc auto-maximize true`, because without a private
 session bus/dconf that cannot be claimed to work. qcam's saved frame is the
 full viewfinder stream resolution regardless of window size, but the visible
-preview may be a non-maximized window. Max-imizing the preview is a pending UI
+preview may be a non-maximized window. Maximizing the preview is a pending UI
 step to source-verify (for example a contained session mechanism) and validate
 natively; it is not applied here.
 
@@ -131,8 +131,8 @@ journalctl -u pocketfed-camera-qcam -f
 It has no `[Install]` section and is not pulled in by any target, so it cannot
 start at boot. `RuntimeDirectory` creates the private work directory before
 `ExecStart`; `KillMode=control-group` contains every descendant (including a
-helper that created its own session) when the service stops. Remove
-`${WORKDIR}/session` between runs, since the helper requires a fresh output.
+helper that created its own session) when the service stops. Use a fresh work
+directory for each run and preserve its images and logs privately.
 
 ## Tests
 
@@ -151,7 +151,14 @@ recorded as a failure with no traceback; and a Phoc start-up that never creates
 its socket being killed and failing closed. They are process/behaviour
 regressions, not mirrors of the code.
 
-## Native validation (root; not done here)
+## Native validation
+
+On the fresh `sargo-camera-camcc-02-20260914` boot, a separate 15-second
+compositor-only preflight using this environment opened Phoc's Wayland display
+and the `DSI-1` panel. The trial then stopped at its explicit time limit. The
+strict camera release check still passed afterward; no camera client ran.
+Phoc warned about missing panel metadata and a session-bus screensaver proxy.
+This validates compositor startup, not qcam preview or saving.
 
 The patched qcam must be compiled and installed on the phone first. After a
 fresh Volume Up (Volume Down cancels), confirm: the release gate passes before
@@ -161,16 +168,15 @@ visible; qcam exits 0 after saving one JPEG; the JPEG fully decodes at
 visually useful, focused and correctly oriented is a separate hardware and
 operator decision; this helper proves mechanism and release only.
 
-Native limitations that this host cannot resolve:
+Remaining native checks:
 
 - Patch 0002 is **not compiled**; a stock `qcam` rejects `--output` and
   `--after-frames` and the run fails closed with no JPEG.
 - The Qt Wayland platform plugin and the Qt JPEG plugin must be present; a
   missing plugin fails qcam start-up or the save, never silently.
-- Standalone root Phoc (`LIBSEAT_BACKEND=noop`, `WLR_BACKENDS=drm,libinput`) on
-  a dedicated VT is the smallest credible seat path but is unverified on
-  Sargo; if it cannot take the DRM seat, run the same command under the image's
-  greetd `[initial_session]` instead.
+- Standalone root Phoc (`LIBSEAT_BACKEND=noop`, `WLR_BACKENDS=drm,libinput`)
+  reached the panel in the preflight; the complete launcher still needs a
+  physical readiness-gated capture.
 - This launcher does not create a private D-Bus session or use gdbus. If Phoc
   needs a session bus on the device, that must be added and validated rather
   than assumed.

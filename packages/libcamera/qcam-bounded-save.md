@@ -51,9 +51,11 @@ With neither option, qcam's interactive behaviour is unchanged.
 
 ## Usage
 
-qcam needs a Wayland compositor; this patch does not add one (Phoc harness is a
-separate iteration). Run it as the single command of the readiness gate under a
-compositor. Pin the **stable rear camera id** so the default front camera is not
+qcam needs a Wayland compositor; the
+[phone trial launcher](../../devices/google-sargo/camera-tests/qcam-session/README.md)
+provides Phoc and the physical readiness gate. Under an existing compositor,
+use the following qcam invocation as the gate's single command. Pin the
+**stable rear camera id** so the default front camera is not
 picked (`main_window.cpp` resolves `-c` through `CameraManager::get`, i.e. an
 exact `Camera::id()` match):
 
@@ -81,7 +83,7 @@ must be confirmed at native build):
 
 ## Provenance and verification
 
-- Source: `/tmp/libcamera-source-20260914` (libcamera `version : '0.7.2'`).
+- Source: libcamera v0.7.2, commit `191e202178f02430b5942397c70d215cdd2056fa`.
 - Touches only `src/apps/qcam/main.cpp`, `src/apps/qcam/main_window.h`,
   `src/apps/qcam/main_window.cpp`.
 - `patch -p1 --dry-run` and `git apply --check` both succeed, and a real apply
@@ -109,6 +111,6 @@ must be confirmed at native build):
 
 ## Non-goals
 
-No orientation patch, no new frontend, no Phoc/compositor harness, and no change
-to the tuning patch or tuning data. This is a separate iteration after the
-currently building tuning-only candidate.
+The patch changes neither orientation nor tuning data. Native iteration 1
+contained only tuning; iteration 2 combines this patch with that same tuning
+and the Fedora IPA signing-path correction.
