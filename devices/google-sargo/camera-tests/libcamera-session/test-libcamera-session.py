@@ -171,9 +171,23 @@ class SourceContractTests(Base):
             12.379012 (29.98 fps) cam0-stream0 seq: 000001 bytesused: 3686400
             \tExposureTime = 1000
         """)
-        count, sequence = MODULE["frame_sequences"](log)
-        self.assertEqual(count, 2)
-        self.assertEqual(sequence, 1)
+        count, low, high = MODULE["frame_sequences"](log)
+        self.assertEqual((count, low, high), (2, 0, 1))
+
+    def test_frame_count_is_not_derived_from_sequence_max(self):
+        # Sequences can start above zero and skip values; the count is the
+        # number of completed-request lines, not max+1. Metadata control lines
+        # (tab-indented, no "bytesused:") must not be counted.
+        log = "\n".join([
+            "1.000000 (30.00 fps) cam0-stream0 seq: 000005 bytesused: 1",
+            "\tExposureTime = 1000",
+            "2.000000 (30.00 fps) cam0-stream0 seq: 000007 bytesused: 1",
+            "3.000000 (30.00 fps) cam0-stream0 seq: 000008 bytesused: 1",
+        ])
+        count, low, high = MODULE["frame_sequences"](log)
+        self.assertEqual(count, 3)
+        self.assertNotEqual(count, high + 1)
+        self.assertEqual((low, high), (5, 8))
 
     def test_display_option_is_not_offered(self):
         self.assertEqual(set(MODULE["CAM_OPTIONS"]),
@@ -209,7 +223,11 @@ class SessionTests(Base):
         self.assertEqual(report["status"], "passed")
         self.assertEqual(report["capture_total"], 3)
         self.assertEqual(report["frames_captured"], 3)
+        self.assertEqual(report["sequence_min"], 0)
         self.assertEqual(report["sequence_max"], 2)
+        self.assertTrue(report["camera_attempted"])
+        self.assertIs(report["camera_released"], True)
+        self.assertIsNone(report["release_error"])
         self.assertEqual(report["ppm"], str(self.out / "frame.ppm"))
         self.assertTrue(Path(report["jpeg"]).is_file())
         self.assertEqual(report["geometry"], "JPEG 1280 960")
@@ -249,14 +267,83 @@ class SessionTests(Base):
         self.assertFalse(cam_args.exists(), "cam must not start without release")
 
     def test_post_release_failure_fails_after_capture(self):
+        counts = self.root / "power-count"
         result = self.run_session(
             self.out, ["--warmup", "1"],
-            env=self.base_env(STUB_POWER_FAIL="after",
-                              STUB_POWER_COUNT=str(self.root / "power-count")))
+            env=self.base_env(STUB_POWER_FAIL="after", STUB_POWER_COUNT=str(counts)))
         self.assertEqual(result.returncode, 1)
         report = self.read_result(self.out)
         self.assertEqual(report["status"], "failed")
-        self.assertIsNotNone(report["jpeg"])
+        self.assertIs(report["camera_released"], False)
+        self.assertIsNotNone(report["release_error"])
+        self.assertEqual(counts.read_text(), "2")
+
+    def test_post_release_runs_after_cam_timeout_and_keeps_cause(self):
+        counts = self.root / "power-count-timeout"
+        result = self.run_session(
+            self.out, ["--warmup", "1", "--timeout", "1"],
+            env=self.base_env(STUB_CAM_DELAY="5", STUB_POWER_FAIL="after",
+                              STUB_POWER_COUNT=str(counts)))
+        self.assertEqual(result.returncode, 1)
+        report = self.read_result(self.out)
+        self.assertEqual(report["cam"]["timed_out"], True)
+        self.assertEqual(report["status"], "failed")
+        self.assertIs(report["camera_released"], False)
+        self.assertIn("cam run failed", report["error"])       # cause retained
+        self.assertIsNotNone(report["release_error"])          # failure recorded
+        self.assertEqual(counts.read_text(), "2")
+
+    def test_post_release_runs_after_decode_failure_and_keeps_cause(self):
+        counts = self.root / "power-count-decode"
+        result = self.run_session(
+            self.out, ["--warmup", "1"],
+            env=self.base_env(STUB_MAGICK_DECODE_FAIL="1", STUB_POWER_FAIL="after",
+                              STUB_POWER_COUNT=str(counts)))
+        self.assertEqual(result.returncode, 1)
+        report = self.read_result(self.out)
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("decode", report["error"])               # cause retained
+        self.assertIs(report["camera_released"], False)
+        self.assertIsNotNone(report["release_error"])
+        self.assertEqual(counts.read_text(), "2")
+
+    def test_repeated_sigterm_does_not_skip_release_or_cleanup(self):
+        counts = self.root / "power-count-cancel"
+        cam_pid_file = self.root / "cam-pid-cancel"
+        process = self.run_session(
+            self.out, ["--warmup", "4", "--timeout", "60"],
+            env=self.base_env(STUB_CAM_DELAY="5", STUB_CAM_PID=str(cam_pid_file),
+                              STUB_POWER_COUNT=str(counts)),
+            wait=False)
+        try:
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline and not cam_pid_file.exists():
+                if process.poll() is not None:
+                    self.fail("helper exited before cam started: "
+                              + process.stdout.read())
+                time.sleep(0.05)
+            self.assertTrue(cam_pid_file.exists(), "cam never started")
+            cam_pid = int(cam_pid_file.read_text())
+            process.send_signal(signal.SIGTERM)
+            time.sleep(0.1)
+            process.send_signal(signal.SIGTERM)      # repeated cancellation
+            process.wait(timeout=20)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            if process.stdout is not None:
+                process.stdout.close()
+        self.assertEqual(process.returncode, 143)
+        report = self.read_result(self.out)
+        self.assertEqual(report["status"], "cancelled")
+        self.assertTrue(report["camera_attempted"])
+        self.assertIs(report["camera_released"], True)   # release still ran
+        self.assertEqual(counts.read_text(), "2")
+        state = Path(f"/proc/{cam_pid}/stat")
+        if state.exists():
+            self.assertIn(state.read_text().rsplit(")", 1)[1].split()[0], {"Z", "X"},
+                          "cam survived repeated cancellation")
 
     def test_sigterm_cancels_and_kills_cam(self):
         cam_pid_file = self.root / "cam-pid"

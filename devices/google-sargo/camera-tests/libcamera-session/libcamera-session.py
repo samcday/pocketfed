@@ -55,8 +55,10 @@ DEFAULT_TIMEOUT = 60
 # Exactly the cam options used, all present in the device's `cam --help`.
 CAM_OPTIONS = ("-c", "--stream", "--capture", "--file", "--metadata")
 
-# camera_session.cpp prints one of these per completed request.
-SEQUENCE_PATTERN = re.compile(r"seq:\s*(\d+)")
+# camera_session.cpp prints one of these per completed request:
+#   "<ts> (<fps> fps) <stream> seq: <000123> bytesused: <bytes>"
+# Anchoring on "bytesused:" avoids the tab-indented metadata control lines.
+SEQUENCE_PATTERN = re.compile(r"seq:\s*(\d+)\s+bytesused:")
 
 
 class SessionError(RuntimeError):
@@ -216,9 +218,15 @@ def run_cam(command, log_path, timeout):
 
 
 def frame_sequences(text):
-    """Return the completed-frame count and highest sequence in a cam log."""
+    """Return (completed-frame count, min sequence, max sequence) from a cam log.
+
+    The count is the number of completed-request lines, never derived from the
+    maximum sequence: sequences can start above zero or contain gaps.
+    """
     sequences = [int(match.group(1)) for match in SEQUENCE_PATTERN.finditer(text)]
-    return len(sequences), (max(sequences) if sequences else None)
+    if not sequences:
+        return 0, None, None
+    return len(sequences), min(sequences), max(sequences)
 
 
 def power_gate(power_state, output, timeout=10):
@@ -298,7 +306,11 @@ def run_session(args, reporter):
         "warmup": args.warmup,
         "capture_total": args.warmup + 1,
         "frames_captured": None,
+        "sequence_min": None,
         "sequence_max": None,
+        "camera_attempted": False,
+        "camera_released": None,
+        "release_error": None,
         "ppm": None,
         "jpeg": None,
         "geometry": None,
@@ -306,11 +318,23 @@ def run_session(args, reporter):
         "error": None,
     }
 
+    cleanup_started = False
+    cancel_signum = None
+
     def handler(signum, _frame):
+        nonlocal cancel_signum
+        if cleanup_started:
+            return
+        cancel_signum = signum
         raise Cancelled(signum)
 
-    previous_term = signal.signal(signal.SIGTERM, handler)
-    previous_int = signal.signal(signal.SIGINT, handler)
+    signal.signal(signal.SIGTERM, handler)
+    signal.signal(signal.SIGINT, handler)
+    status = None
+    primary_error = None
+    camera_attempted = False
+    released = None
+    release_error = None
     try:
         reporter.state("preflight")
         if not os.access(args.cam_entry, os.X_OK):
@@ -323,13 +347,17 @@ def run_session(args, reporter):
         frame_file = output / "frame.ppm"
         command = build_cam_command(args, total, frame_file)
         reporter.state("capture", f"warmup-frames={args.warmup} total={total}")
+        camera_attempted = True
+        report["camera_attempted"] = True
         cam = run_cam(command, output / "cam.log", args.timeout)
         report["cam"] = cam
         if cam["timed_out"] or cam["returncode"] != 0 or cam["remaining"]:
             raise SessionError("cam run failed or did not stop cleanly")
-        captured, sequence = frame_sequences((output / "cam.log").read_text())
+        captured, sequence_min, sequence_max = frame_sequences(
+            (output / "cam.log").read_text())
         report["frames_captured"] = captured
-        report["sequence_max"] = sequence
+        report["sequence_min"] = sequence_min
+        report["sequence_max"] = sequence_max
         if captured < total:
             raise SessionError(
                 f"cam reported {captured} completed frames, expected {total}")
@@ -349,24 +377,57 @@ def run_session(args, reporter):
             raise SessionError(f"unexpected JPEG geometry: {jpeg_geometry}")
         report["jpeg"] = str(jpeg)
         report["geometry"] = jpeg_geometry
-        reporter.state("release-gate", "after")
-        power_gate(Path(args.power_state), output / "power-after.json")
-        report["status"] = "passed"
-        reporter.state("complete", f"{jpeg} frames={captured}")
-        return 0
+        status = "passed"
     except Cancelled as cancel:
-        report["status"] = "cancelled"
-        report["error"] = f"signal {cancel.signum}"
+        cancel_signum = cancel.signum
+        status = "cancelled"
+        primary_error = f"signal {cancel.signum}"
         reporter.state("cancelled", f"signal-{cancel.signum}")
-        return 130 if cancel.signum == signal.SIGINT else 143
     except (SessionError, OSError) as error:
-        report["error"] = str(error)
+        status = "failed"
+        primary_error = str(error)
         reporter.state("failed", str(error))
-        return 1
     finally:
-        write_result(output / "result.json", report)
-        signal.signal(signal.SIGTERM, previous_term)
-        signal.signal(signal.SIGINT, previous_int)
+        # Block further cancellation while cleaning up so repeated Volume Down
+        # cannot skip the release gate or the result write. The first delivered
+        # signal is the one already captured above.
+        previous_mask = signal.pthread_sigmask(
+            signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
+        cleanup_started = True
+        try:
+            if camera_attempted:
+                reporter.state("release-gate", "after")
+                try:
+                    power_gate(Path(args.power_state), output / "power-after.json")
+                    released = True
+                except (SessionError, OSError, subprocess.SubprocessError) as error:
+                    released = False
+                    release_error = str(error)
+                    reporter.warn(f"post-release-gate-failed {release_error}")
+            report["status"] = status or "failed"
+            report["camera_released"] = released
+            report["release_error"] = release_error
+            if primary_error is not None:
+                report["error"] = primary_error
+            elif release_error is not None:
+                report["error"] = release_error
+            if report["status"] == "passed" and released is not True:
+                # Never return success without a confirmed release.
+                report["status"] = "failed"
+                report["error"] = release_error or "camera release unconfirmed"
+            write_result(output / "result.json", report)
+        finally:
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+
+    if report["status"] == "passed":
+        reporter.state("complete",
+                       f"{report['jpeg']} frames={report['frames_captured']}")
+        return 0
+    if report["status"] == "cancelled":
+        return 130 if cancel_signum == signal.SIGINT else 143
+    return 1
 
 
 def preflight(args):

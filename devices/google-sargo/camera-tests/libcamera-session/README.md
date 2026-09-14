@@ -36,9 +36,24 @@ wait-for-ready.py                 # fresh Volume Up authorizes; Volume Down canc
         │                  --capture=<warmup+1> --metadata --file=<out>/frame.ppm
         ├─ verify completed frames from cam.log `seq:` lines (>= warmup+1)
         ├─ decode frame.ppm, convert to final.jpg, strictly decode JPEG, check geometry
-        ├─ power-state.py --require-released            (after)
+        ├─ power-state.py --require-released            (after, always once cam was attempted)
         └─ result.json (private)
 ```
+
+## Release, failure and cancellation
+
+- The after release gate runs in `finally` whenever the camera launch was
+  attempted, including cam timeout, capture error, decode/conversion failure and
+  cancellation. The original cause is kept in `result.json:error`; a failed
+  release is recorded separately as `camera_released: false` and
+  `release_error`. A run is never reported as `passed` unless the after release
+  is confirmed, so the helper cannot return 0 without a decode-verified JPEG.
+- `frames_captured` is the number of completed-request lines, never derived from
+  the maximum sequence (sequences can start above zero or contain gaps);
+  `sequence_min`/`sequence_max` are recorded only as observations.
+- Repeated cancellation cannot skip cleanup: on the first `SIGINT`/`SIGTERM`
+  the runner records the signal, then blocks further `SIGTERM`/`SIGINT` while it
+  stops cam and runs the after release gate and result write.
 
 ## Warm-up honesty
 
@@ -82,7 +97,8 @@ never reported as survivors. No process-name-wide kills.
 
 `frame.ppm` (fixed final frame), `final.jpg`, `cam.log` (`--metadata` retained),
 `power-before.json`, `power-after.json`, `status`, `result.json`
-(`frames_captured`, `sequence_max`, `jpeg`, `geometry`, `error`).
+(`frames_captured`, `sequence_min`, `sequence_max`, `camera_attempted`,
+`camera_released`, `release_error`, `jpeg`, `geometry`, `error`).
 
 ## Tests
 
@@ -90,13 +106,16 @@ never reported as survivors. No process-name-wide kills.
 python3 test-libcamera-session.py
 ```
 
-Thirteen tests use stub `cam`/`power-state`/`magick` tools and never touch a
+Seventeen tests use stub `cam`/`power-state`/`magick` tools and never touch a
 camera, DRM, gate or hardware. They cover the source-derived contracts (fixed
 `.ppm` with no `#`, the `cam<idx>-stream<idx>-<seq>` expansion that breaks
-`frame-<digits>` matching, the `seq:` log parser, and that `--display` is not
-offered), plus a bounded warm-up happy path with frame-count verification, a
-frame-count shortfall, decode/geometry failures, pre/post release failures, real
-`SIGTERM` cancellation killing cam, preflight, and the root guard.
+`frame-<digits>` matching, the `seq:` log parser including gaps and non-zero
+starts, and that `--display` is not offered), a bounded warm-up happy path with
+frame-count verification, a frame-count shortfall, decode/geometry failures,
+pre/post release failures, the after release gate running and recording its
+failure after cam timeout and after decode failure, real `SIGTERM` and repeated
+`SIGTERM` cancellation killing cam without skipping release, preflight, and the
+root guard.
 
 ## Hardware validation (root)
 
