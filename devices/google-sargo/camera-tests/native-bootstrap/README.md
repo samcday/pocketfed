@@ -117,7 +117,7 @@ Build tooling: `rpm-build`, `redhat-rpm-config`, `systemd-rpm-macros`, `meson`,
 
 Spec `pkgconfig()` build requirements mapped to Fedora packages: `libtiff-devel`
 (libdng), `libconfig-devel` (libmegapixels), and `gtk4-devel`,
-`libfeedback-devel`, `zbar-devel`, `libepoxy-devel`, `libjpeg-turbo-devel`,
+`feedbackd-devel`, `zbar-devel`, `libepoxy-devel`, `libjpeg-turbo-devel`,
 `pulseaudio-libs-devel`, `wayland-devel`, `libX11-devel`, `libXrandr-devel`
 (megapixels).
 

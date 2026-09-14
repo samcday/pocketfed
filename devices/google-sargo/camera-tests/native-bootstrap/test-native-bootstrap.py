@@ -35,7 +35,7 @@ PKGCONFIG_TO_PACKAGE = {
     "pkgconfig(libtiff-4)": "libtiff-devel",
     "pkgconfig(libconfig)": "libconfig-devel",
     "pkgconfig(gtk4)": "gtk4-devel",
-    "pkgconfig(libfeedback-0.0)": "libfeedback-devel",
+    "pkgconfig(libfeedback-0.0)": "feedbackd-devel",
     "pkgconfig(zbar)": "zbar-devel",
     "pkgconfig(epoxy)": "libepoxy-devel",
     "pkgconfig(libjpeg)": "libjpeg-turbo-devel",

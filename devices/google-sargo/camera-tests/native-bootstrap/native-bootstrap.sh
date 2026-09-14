@@ -22,7 +22,7 @@ readonly BUILD_PACKAGES=(
     rpm-build redhat-rpm-config systemd-rpm-macros meson gcc git gzip
     python3 pkgconf-pkg-config scdoc gperf desktop-file-utils
     libappstream-glib
-    libtiff-devel libconfig-devel gtk4-devel libfeedback-devel zbar-devel
+    libtiff-devel libconfig-devel gtk4-devel feedbackd-devel zbar-devel
     libepoxy-devel libjpeg-turbo-devel pulseaudio-libs-devel wayland-devel
     libX11-devel libXrandr-devel
 )
