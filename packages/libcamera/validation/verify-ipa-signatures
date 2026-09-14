@@ -66,7 +66,8 @@ def derive_public_key(key, openssl):
     for kind, template in KEY_ATTEMPTS:
         command = [openssl]
         command += [str(key) if item == "{key}" else item for item in template]
-        result = subprocess.run(command, stdout=subprocess.PIPE,
+        result = subprocess.run(command, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL, check=False)
         if result.returncode == 0 and result.stdout:
             return kind, result.stdout
