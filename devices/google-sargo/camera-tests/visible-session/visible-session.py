@@ -175,6 +175,20 @@ def run_shell(shell, command, env, timeout):
                           text=True, timeout=timeout, check=False)
 
 
+def cli_int(value):
+    """Format a seconds value as the integer token gdbus and friends expect.
+
+    gdbus' ``--timeout`` is parsed as an integer; passing ``20.0`` prints usage
+    and fails before the app is ever queried.
+    """
+    return str(int(round(float(value))))
+
+
+def gdbus_wait_command(args):
+    return [args.gdbus, "wait", "--session", "--timeout",
+            cli_int(args.startup_timeout), args.app_name]
+
+
 def gdbus_activate(args, action):
     return [args.gdbus, "call", "--session", "--dest", args.app_name,
             "--object-path", args.object_path, "--method",
@@ -242,8 +256,7 @@ def wait_for_socket(path, compositor, timeout):
 def wait_for_app(args, app, env, reporter):
     try:
         result = run_command(
-            [args.gdbus, "wait", "--session", "--timeout", str(args.startup_timeout),
-             args.app_name], env, args.startup_timeout + 5)
+            gdbus_wait_command(args), env, args.startup_timeout + 5)
     except subprocess.TimeoutExpired:
         result = None
     if result is not None and result.returncode == 0:

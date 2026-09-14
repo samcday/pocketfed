@@ -8,6 +8,8 @@ no DRM device, compositor, camera, session bus, SSH or network is touched.
 import json
 import os
 from pathlib import Path
+import runpy
+import shutil
 import signal
 import stat
 import subprocess
@@ -227,6 +229,36 @@ class VisibleSessionTests(unittest.TestCase):
         report = json.loads((output / "result.json").read_text())
         self.assertEqual(report["status"], "cancelled")
         self.assert_processes_gone(output)
+
+    def test_gdbus_wait_command_uses_an_integer_timeout(self):
+        module = runpy.run_path(str(SCRIPT))
+        args = module["build_parser"]().parse_args(
+            ["--output", str(self.root / "contract"), "--startup-timeout", "20.0"])
+        argv = module["gdbus_wait_command"](args)
+        self.assertIn("--timeout", argv)
+        token = argv[argv.index("--timeout") + 1]
+        self.assertEqual(token, "20")
+        self.assertNotIn(".", token)
+
+    @unittest.skipUnless(shutil.which("dbus-run-session") and shutil.which("gdbus"),
+                         "real gdbus/dbus-run-session not installed")
+    def test_real_gdbus_wait_accepts_integer_timeout(self):
+        module = runpy.run_path(str(SCRIPT))
+        args = module["build_parser"]().parse_args(
+            ["--output", str(self.root / "contract"), "--startup-timeout", "1.0"])
+        argv = module["gdbus_wait_command"](args)
+        self.assertEqual(argv[argv.index("--timeout") + 1], "1")
+        runtime = self.root / "contract-runtime"
+        runtime.mkdir(mode=0o700, exist_ok=True)
+        result = subprocess.run(
+            ["dbus-run-session", "--", *argv],
+            env=dict(os.environ, XDG_RUNTIME_DIR=str(runtime)),
+            capture_output=True, text=True, timeout=20)
+        combined = result.stdout + result.stderr
+        # The real CLI must parse our argv, not print its usage text. A missing
+        # name then times out non-fatally for the launcher to diagnose.
+        self.assertNotIn("Usage", combined)
+        self.assertNotEqual(result.returncode, 0)
 
     def test_check_prints_plan_without_creating_output(self):
         output = self.root / "out-check"

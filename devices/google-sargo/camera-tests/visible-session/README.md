@@ -160,8 +160,11 @@ cleanup, Phoc failing before the socket, SIGTERM during preview cancelling and
 stopping owned children, a lingering same-group helper surviving its leader and
 still being reaped, `--check`/preflight behavior, and that the systemd unit runs
 the gate before the session, creates the work directory, includes libinput,
-bounds the gate, and has no `[Install]`. No DRM device, compositor, camera,
-session bus, SSH or network is touched.
+bounds the gate, and has no `[Install]`. One test runs the real installed
+`gdbus wait` under `dbus-run-session` to prove the integer `--timeout` token is
+accepted (a float token makes `gdbus` print usage and abort before the app is
+queried). No DRM device, compositor, camera, session bus, SSH or network is
+touched by the other tests.
 
 ## Remaining hardware validation
 
