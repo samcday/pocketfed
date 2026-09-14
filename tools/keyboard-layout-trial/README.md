@@ -12,7 +12,8 @@ wherever the matching toolchain already exists; the ephemeral device trial in
 later user-run session.
 
 - Pins: [`sources.json`](sources.json)
-- Recipe: [`trial-bundle.py`](trial-bundle.py) (`build` and `audit`)
+- Recipe: [`trial-bundle.py`](trial-bundle.py) (`build`, `audit`, `selftest`)
+- Validation: [`VALIDATION.md`](VALIDATION.md)
 
 ## Pinned sources
 
@@ -31,10 +32,11 @@ Public pull requests:
 
 Compatibility notes carried in `sources.json`:
 
-- The Stevia commit changes the native test stand-in only, so the compiled C
-  binary is unchanged from the tested parent
+- The Stevia commit changes the native test stand-in only, so the runtime C
+  source is unchanged from the tested parent
   `8f8b6bdc649b520cfa4210dc9c22e0af7b76039a` (whose own parent is the exporter
-  `e688e6a2d48eec1bf26c55e102061cfbac8c025b`).
+  `e688e6a2d48eec1bf26c55e102061cfbac8c025b`). Build output hashes are
+  path-dependent and are not expected to match across build directories.
 - Verbisage `d701212` is a documentation-only child of the tested
   `34f2a1ca7160812fa8d47565dcc0ddf664c4906b`.
 - `drift-type` is private and may only be consumed locally by authorized users.
@@ -156,9 +158,10 @@ not match `sources.json`. It does not rebuild or modify the bundle.
 
 ## Ephemeral device trial (user-run, later)
 
-This is a plan, not executed or validated here. It is intentionally transient:
-`rpm-ostree usroverlay` gives a writable `/usr` overlay that a reboot discards.
-No image, package or saved keyboard setting is changed. Do not reuse
+This is a plan, not executed or validated here. The bundle is meant to be
+applied over a transient writable `/usr` so a reboot discards it, but do not
+assume that: confirm the state below and restore backups explicitly. No image,
+package or saved keyboard setting is changed. Do not reuse
 `swipe-live-2/live-swipe.py`: its allowlisted stable/prototype hashes predate
 this work, and this bundle does not ship it.
 
@@ -167,23 +170,41 @@ Preflight (record, do not change):
 1. Confirm the bundle architecture matches the device: `uname -m` must equal the
    bundle's manifest `arch`.
 2. Snapshot deployment state: `rpm-ostree status` to a file.
-3. Record the then-current installed binaries and schema:
-   `readlink -f` and `sha256sum` for `/usr/bin/phosh-osk-stevia`,
-   `/usr/bin/verbisaged`, `/usr/bin/verbisage` (where present) and
-   `/usr/share/glib-2.0/schemas/{mobi.phosh.osk.gschema.xml,gschemas.compiled}`.
-4. Back those files up to a persistent directory, for example
+3. Record the then-current installed binaries: `readlink -f` and `sha256sum` for
+   `/usr/bin/phosh-osk-stevia`, `/usr/bin/verbisaged`, `/usr/bin/verbisage`
+   (where present).
+4. Record the current global schema inputs and compiled output:
+   `/usr/share/glib-2.0/schemas/mobi.phosh.osk.gschema.xml`,
+   `/usr/share/glib-2.0/schemas/mobi.phosh.osk.enums.xml` (if present) and
+   `/usr/share/glib-2.0/schemas/gschemas.compiled`, with `sha256sum`.
+5. Record the current runtime identities: the owning process(es) of the keyboard
+   and language service (`pgrep -af`, `readlink -f /proc/<pid>/exe`) and the
+   session units that own them (`systemctl --user status`).
+6. Record overlay ownership before touching anything:
+   `findmnt -no SOURCE,FSTYPE,OPTIONS /usr` (or `mount | grep ' /usr '`). If
+   `/usr` is already a writable overlay owned by another experiment, do not run
+   `usroverlay` a second time; coordinate with that experiment and reuse its
+   overlay only if agreed.
+7. Back the files above up to a persistent directory, for example
    `~/pocketfed-keyboard-trial/backup-<timestamp>/`.
-5. Dump stored keyboard settings: `gsettings list-recursively mobi.phosh.osk`.
-6. Confirm no other live experiment currently owns those paths; coordinate
+8. Dump stored keyboard settings: `gsettings list-recursively mobi.phosh.osk`.
+9. Confirm no other live experiment currently owns those paths; coordinate
    before replacing anything.
 
 Apply (transient):
 
-1. `sudo rpm-ostree usroverlay` and confirm `/usr` is writable.
-2. Install the bundle binaries over the backups with `install -m 0755`, and copy
-   the schema XML into `/usr/share/glib-2.0/schemas/`, then
-   `sudo glib-compile-schemas /usr/share/glib-2.0/schemas`.
-3. Restart the affected session keyboard/language units through the user's
+1. If `/usr` is not already a writable overlay, run `sudo rpm-ostree usroverlay`
+   and confirm `/usr` is writable. If it already is, reuse it; do not stack a
+   second overlay.
+2. Install the bundle binaries over the backups with `install -m 0755`.
+3. Copy only the schema XMLs from the bundle into the global schema directory:
+   `/usr/share/glib-2.0/schemas/mobi.phosh.osk.gschema.xml` and
+   `.../mobi.phosh.osk.enums.xml`, then run
+   `sudo glib-compile-schemas /usr/share/glib-2.0/schemas`. Do **not** copy the
+   bundle's `gschemas.compiled` over the global compiled file: that bundle was
+   compiled from this schema alone and does not contain the rest of the system
+   schemas. Always recompile the global directory.
+4. Restart the affected session keyboard/language units through the user's
    normal session means; read the actual unit names from the installed system
    rather than assuming them. Verify the running processes are the new files by
    comparing `/proc/<pid>/exe` against the bundle.
@@ -196,10 +217,17 @@ edit.
 
 Rollback:
 
-1. Restore the backed-up binaries and schema, or simply reboot: the transient
-   `/usr` overlay and every file written into it are discarded.
-2. After reboot, re-run the preflight `sha256sum`/`rpm-ostree status` checks to
-   confirm the originals are back, and re-read the `mobi.phosh.osk` settings.
+1. Restore the backed-up binaries and schema XMLs and re-run
+   `glib-compile-schemas` on the global schema directory, or reboot only if you
+   confirmed at preflight that this is a plain transient overlay a reboot will
+   discard.
+2. Do not assume a reboot is lossless for other experiments: a `/usr` overlay
+   may have been opened by another experiment and could carry changes it
+   intends to keep. If `/usr` was already unlocked at preflight, restore files
+   explicitly and coordinate rather than relying on the reboot.
+3. After rollback, re-run the preflight `sha256sum`, `rpm-ostree status` and
+   process-identity checks to confirm the originals are back, and re-read the
+   `mobi.phosh.osk` settings.
 
 ## Boundaries
 

@@ -27,7 +27,7 @@
       "role": "C Meson client; produces phosh-osk-stevia and the mobi.phosh.osk GSettings schema",
       "public_pr": "https://github.com/samcday/stevia/pull/1",
       "retrieval": "https://github.com/samcday/stevia.git",
-      "note": "This commit only changes the Python native test stand-in. The compiled C binary is byte-comparable to the tested parent 8f8b6bdc649b520cfa4210dc9c22e0af7b76039a; that parent's own parent is the exporter commit e688e6a2d48eec1bf26c55e102061cfbac8c025b."
+      "note": "This commit only changes the Python native test stand-in, so the runtime C source is unchanged from the tested parent 8f8b6bdc649b520cfa4210dc9c22e0af7b76039a (whose own parent is the exporter e688e6a2d48eec1bf26c55e102061cfbac8c025b). Build output hashes are path-dependent and are not expected to match across different build directories."
     },
     "verbisage": {
       "path": "verbisage",
