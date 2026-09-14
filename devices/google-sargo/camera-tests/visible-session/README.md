@@ -99,6 +99,7 @@ Environment=POCKETFED_CAMERA_VISIBLE_REPO=/path/to/pocketfed
 Environment=POCKETFED_CAMERA_VISIBLE_WORKDIR=/run/pocketfed-camera-visible
 RuntimeDirectory=pocketfed-camera-visible
 RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
 TTYPath=/dev/tty3
 StandardInput=tty
 Environment=WLR_BACKENDS=drm,libinput
@@ -108,7 +109,8 @@ KillMode=control-group
 ```
 
 `RuntimeDirectory` creates the private work directory (and so the gate's
-`capture.log` parent) before `ExecStart`; it is tmpfs and removed on stop.
+`capture.log` parent) before `ExecStart`. It survives service exit for photo
+retrieval and is discarded on reboot. Use a fresh output directory for each trial.
 `KillMode=control-group` keeps every descendant in the unit cgroup, so even a
 helper that creates its own session is cleaned up when the service stops or is
 cancelled. The gate bound is explicit: `--capture-timeout 180` covers startup
