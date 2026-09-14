@@ -12,7 +12,7 @@ including during the countdown and while the capture is running. Repeats and
 keys already held when the gate starts cannot authorize a capture.
 
 This file documents the tool; it does not modify the existing trial harness
-(`README.md`, `run-megapixels.py`, `run-libcamera.py`, `power-state.py`).
+(`README.md`, `run-libcamera.py`, `power-state.py`).
 
 ## What it does and does not do
 
@@ -185,22 +185,6 @@ python3 wait-for-ready.py --timeout 120 --settle 4 --log /var/tmp/ready/cam.log 
 
 Keep the release check (`power-state.py --require-released`) in the surrounding
 harness, before and after this gate. The gate only authorizes the shot.
-
-**Megapixels.** Drive the existing session action from a wrapper, because the
-gate must not build a UI. For example, have the wrapper send the installed
-app's capture action, optionally with the existing `--pointer-tool` activation
-path used by `run-megapixels.py`:
-
-```sh
-cat > /var/tmp/ready/megapixels-shot.sh <<'EOF'
-#!/bin/sh
-exec gdbus call --session --dest me.gapixels.Megapixels \
-  --object-path /me/gapixels/Megapixels --method \
-  org.gtk.Actions.Activate capture '[]' '{}'
-EOF
-chmod +x /var/tmp/ready/megapixels-shot.sh
-python3 wait-for-ready.py --timeout 120 --settle 4 -- /var/tmp/ready/megapixels-shot.sh
-```
 
 A readiness cue for an existing UI can be wired without touching this tool:
 

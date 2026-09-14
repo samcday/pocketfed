@@ -57,7 +57,7 @@ output with the same dependency versions; the 150 DPI PNG is rendered from that 
    shadows rather than claiming quantitative colour accuracy.
 
 Save a record alongside each JPEG: capture time, kernel/userspace versions,
-UI/app name, lens/focus setting, distance/light, paragraph readability,
+capture tool, lens/focus setting, distance/light, paragraph readability,
 smallest readable size, QR result, orientation and colour/exposure findings.
 Do not label generated or re-encoded test fixtures as device captures.
 
@@ -88,43 +88,18 @@ capture, app close/reopen, suspend/resume and reboot. Record those outcomes
 with the device's separate runtime-power checks; this target/checker does not
 perform those lifecycle checks.
 
-## Isolated app capture
+## Capture path and scope
 
-`run-megapixels.py` runs the installed camera app on a private 360x720 Phoc
-output, with a private session bus and disposable XDG settings. It uses the
-real sensors, discovers the Rear camera's configured index, takes two JPEGs,
-quits normally, then repeats after reopening. It checks completed JPEG
-postprocessing, full pixel decoding and rear-mode dimensions. All capture and
-file-completion waits are bounded. Screenshots and scene images stay
-inside the private output directory; do not commit them.
+The selected capture path is **libcamera** through `cam-system-heap` and
+`run-libcamera.py`. The Megapixels application and its packaging are out of
+scope for this PR (retained only in the local archived branch), so the helpers
+here do not require Phoc, gdbus or any camera app.
 
-Run as the desktop user, with Megapixels, its processing dependencies, Phoc,
-`grim`, `dbus-run-session` and `gdbus` installed:
+The acceptance goal is unchanged: a useful saved JPEG of the printed target
+with a decodable QR, manual focus, plausible colour, correct orientation and
+repeated capture, reopen, reboot and suspend/release behaviour.
 
-```sh
-python3 run-megapixels.py --output ./camera-ui-run
-```
-
-Use a new output directory each time. This exercises the actual app actions
-and rendering without unlocking or modifying the normal desktop. It does
-not establish physical touch usability, scene readability or color quality.
-The initial `.8` device attempt timed out without a saved frame; successful
-helper startup alone is not a camera acceptance pass.
-
-For a bounded diagnostic attempt, `--cycles 1 --shots 1 --capture-timeout 8`
-shortens the run. The default remains two captures in each of two app launches;
-the JSON records the requested scope so a short probe cannot be mistaken for
-the full capture/reopen check.
-
-For preview settling, build `packages/stevia/validation/virtual-pointer.c`
-and its adjacent protocol XML natively, then pass the executable with
-`--pointer-tool /path/to/virtual-pointer --preview-seconds 30`. The helper
-clicks empty toolbar space on the private socket to request window activation;
-it never targets the normal desktop. Actual activation and preview settling
-still need to be verified from a rendered frame and control updates. The JSON records this choice.
-Without an active window, upstream discards preview frames and automatic
-focus/exposure/white balance cannot settle before the burst. The harness
-checks required executables before creating its output directory.
+## Camera release checks
 
 Run `power-state.py` as root after closing all camera clients. It discovers
 CAMSS's media node and camera nodes through sysfs, checks open descriptors by
@@ -156,10 +131,10 @@ missing devices, unavailable state, incomplete process visibility, renumbered
 media nodes and holders reached through a different pathname. Its safe alias
 fixture uses `/dev/null`; it never opens camera nodes.
 
-## Libcamera allocator diagnostic
+## Libcamera capture and allocator diagnostic
 
-`cam-system-heap` runs `cam` as root in a private mount namespace exposing only
-the existing system DMA heap. The real device nodes and permissions remain
+This is the selected capture path. `cam-system-heap` runs `cam` as root in a
+private mount namespace exposing only the existing system DMA heap. The real device nodes and permissions remain
 unchanged. This is a diagnostic for libcamera's software ISP, which permits
 system memory but normally selects an available CMA heap first. It is not a
 production launcher or a general fix for pipelines requiring contiguous memory.

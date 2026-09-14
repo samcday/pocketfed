@@ -702,7 +702,7 @@ def main(argv=None):
     parser.add_argument("--log", type=Path, help="private log file for the capture command")
     parser.add_argument("--quiet", action="store_true", help="omit instruction text")
     parser.add_argument("command", nargs=argparse.REMAINDER,
-                        help="single capture command after -- (Megapixels/libcamera wrapper)")
+                        help="single capture command after -- (capture wrapper)")
     args = parser.parse_args(argv)
     if not 0 <= args.settle <= 60:
         parser.error("--settle must be 0..60")
