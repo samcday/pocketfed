@@ -33,7 +33,19 @@ the root filesystem is not that overlay, the script refuses to run.
   deployment, and never performs a power, sleep or boot transition. Only
   `dnf install` (deps, camera packages, freshly built RPMs) and local builds.
 - **Bounded output.** All clones, RPM build trees and logs stay under
-  `--build-root` (default `/var/tmp/pocketfed-camera-native-bootstrap`).
+  `--build-root` (default `/var/tmp/pocketfed-camera-native-bootstrap`). The
+  build root must be an absolute, dedicated direct child of `/var/tmp`, must not
+  be a symlink, and if it already exists must be owned by the build user; a
+  resumable directory previously created by this helper is reused.
+- **Unprivileged build user.** The build user is resolved to a UID and must not
+  be uid 0, so the clone/build phase cannot run as root.
+- **Exact RPM installs.** Each package installs the current spec's expected
+  output RPMs only (derived from the spec and the helper's dist suffix).
+  Debuginfo/debugsource and stale prior versions in the build tree are never
+  installed.
+- **Advanced overrides** (`--machine-arch`, `--cmdline-file`, `--root-fstype`,
+  `--result-file`) are accepted only with `--check`, so they can never bypass an
+  installation guard.
 - `--check` performs every guard and prints the plan without changing anything;
   it is safe to run unprivileged.
 
@@ -130,15 +142,20 @@ clone and aborts on a mismatch:
 | libmegapixels | 0.2.3 | `d50bf166972df4252d127f72f90986892f3cd901` |
 | Megapixels | 2.1.0 | `5fb1f24f1aeef80ea18224ab5829fda85653a4e8` |
 
-The helper writes the native RPMs with a `.native` distribution suffix, and
-this wrapper installs them by explicit path from the build tree.
+The helper writes the native RPMs with a `.native` distribution suffix. The
+wrapper reads that suffix and the helper's output path back from
+`packages/megapixels/build-native`, derives the exact expected RPM paths for
+each package's spec, and installs only those existing files.
 
 ## Validation
 
 `test-native-bootstrap.py` is a static/argument regression. It runs `bash -n`,
-exercises the `--check` guards with simulated command lines and root types, and
-scans the script for forbidden operations and destructive `dnf` verbs. It does
-not run `dnf`, build, or touch a device:
+exercises the `--check` guards with simulated command lines and root types,
+checks that dangerous build roots (outside `/var/tmp`, symlinks, `/var/tmp`
+itself) and install-time overrides are rejected, verifies the build-user UID and
+RPM-selection rules (stale/debug exclusion, missing output), and checks that the
+declared build packages cover every spec `BuildRequires`. It does not run `dnf`,
+build, or touch a device:
 
 ```sh
 python3 devices/google-sargo/camera-tests/native-bootstrap/test-native-bootstrap.py

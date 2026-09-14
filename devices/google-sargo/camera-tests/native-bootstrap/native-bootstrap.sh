@@ -36,6 +36,7 @@ readonly CAMERA_PACKAGES=(
 )
 
 check_mode=0
+test_overrides=0
 build_root=${DEFAULT_BUILD_ROOT}
 build_user=${POCKETFED_BUILD_USER:-${SUDO_USER:-}}
 expect_run_id=
@@ -43,6 +44,8 @@ machine_arch=$(uname -m)
 cmdline_file=/proc/cmdline
 root_fstype_override=
 result_file=/run/pocketfed-liveboot/result.json
+helper_topdir_template=
+helper_dist=
 
 log() { printf '%s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -70,11 +73,16 @@ Options:
                           changing anything. Safe to run unprivileged.
   -h, --help              Show this help.
 
-Advanced (for review and tests, normally auto-detected):
+Advanced (--check only; never usable for an install):
   --machine-arch ARCH     Override \`uname -m\`.
   --cmdline-file PATH     Override /proc/cmdline.
   --root-fstype FSTYPE    Override the root filesystem type probe.
   --result-file PATH      Override /run/pocketfed-liveboot/result.json.
+
+Build root:
+  Must be an absolute, dedicated direct child of /var/tmp, must not be a
+  symlink, and if it already exists must be owned by the build user. A
+  resumable directory previously created by this helper is reused.
 
 Safety:
   * Refuses to act unless the root filesystem is the disposable liveboot
@@ -93,10 +101,10 @@ parse_args() {
             --build-root) [[ $# -ge 2 ]] || die '--build-root needs a value'; build_root=$2; shift ;;
             --build-user) [[ $# -ge 2 ]] || die '--build-user needs a value'; build_user=$2; shift ;;
             --expect-run-id) [[ $# -ge 2 ]] || die '--expect-run-id needs a value'; expect_run_id=$2; shift ;;
-            --machine-arch) [[ $# -ge 2 ]] || die '--machine-arch needs a value'; machine_arch=$2; shift ;;
-            --cmdline-file) [[ $# -ge 2 ]] || die '--cmdline-file needs a value'; cmdline_file=$2; shift ;;
-            --root-fstype) [[ $# -ge 2 ]] || die '--root-fstype needs a value'; root_fstype_override=$2; shift ;;
-            --result-file) [[ $# -ge 2 ]] || die '--result-file needs a value'; result_file=$2; shift ;;
+            --machine-arch) [[ $# -ge 2 ]] || die '--machine-arch needs a value'; machine_arch=$2; test_overrides=1; shift ;;
+            --cmdline-file) [[ $# -ge 2 ]] || die '--cmdline-file needs a value'; cmdline_file=$2; test_overrides=1; shift ;;
+            --root-fstype) [[ $# -ge 2 ]] || die '--root-fstype needs a value'; root_fstype_override=$2; test_overrides=1; shift ;;
+            --result-file) [[ $# -ge 2 ]] || die '--result-file needs a value'; result_file=$2; test_overrides=1; shift ;;
             -h|--help) usage; exit 0 ;;
             *) die "unknown argument: $1 (try --help)" ;;
         esac
@@ -155,6 +163,29 @@ PY
     fi
 }
 
+validate_build_root_path() {
+    local target=$1 canonical base
+    [[ -n $target ]] || die 'build root must not be empty'
+    [[ $target == /* ]] || die "build root must be an absolute path: $target"
+    [[ ! -L $target ]] || die "build root must not be a symlink: $target"
+    canonical=$(realpath -m -- "$target") || die "could not canonicalize build root: $target"
+    [[ $canonical == /var/tmp/* ]] || die "build root must be under /var/tmp: $canonical"
+    [[ $(dirname -- "$canonical") == /var/tmp ]] || die \
+        "build root must be a dedicated direct child of /var/tmp: $canonical"
+    base=$(basename -- "$canonical")
+    [[ -n $base && $base != . && $base != .. ]] || die 'build root must name a dedicated directory'
+}
+
+validate_build_root_owner() {
+    local target=$1 uid=$2 owner
+    [[ -e $target ]] || return 0
+    [[ ! -L $target ]] || die "build root must not be a symlink: $target"
+    [[ -d $target ]] || die "build root exists but is not a directory: $target"
+    owner=$(stat -c %u -- "$target")
+    [[ $owner == "$uid" ]] || die \
+        "existing build root $target is owned by uid $owner, not build user uid $uid"
+}
+
 missing_commands() {
     local command
     for command in "$@"; do
@@ -187,7 +218,7 @@ report_plan() {
 check_missing_tools() {
     local missing
     missing=$(missing_commands dnf rpm rpmbuild rpmspec git gzip python3 findmnt \
-        runuser meson)
+        runuser meson realpath)
     [[ -z $missing ]] || warn "commands not present yet (dnf phase installs some): $(tr '\n' ' ' <<<"$missing")"
 }
 
@@ -196,10 +227,11 @@ require_root() {
 }
 
 require_build_user() {
+    local uid
     [[ -n $build_user ]] || die \
         'no unprivileged build user: pass --build-user or run via sudo (SUDO_USER is used)'
-    [[ $build_user != root ]] || die 'refusing to build as root; name an unprivileged user'
-    id "$build_user" >/dev/null 2>&1 || die "unknown build user '$build_user'"
+    uid=$(id -u "$build_user" 2>/dev/null) || die "unknown build user '$build_user'"
+    [[ $uid -ne 0 ]] || die "build user '$build_user' resolves to uid 0; refusing to build as root"
 }
 
 prepare_build_root() {
@@ -225,21 +257,57 @@ build_native_helper() {
     printf '%s\n' "$helper"
 }
 
+parse_helper_outputs() {
+    local helper=$1
+    helper_topdir_template=$(sed -n 's/.*--define "_topdir \(.*\)".*/\1/p' "$helper")
+    helper_dist=$(sed -n "s/.*--define 'dist \(.*\)'.*/\1/p" "$helper")
+    [[ -n $helper_topdir_template && -n $helper_dist ]] || die \
+        "cannot read the build output path or dist define from $helper"
+}
+
+resolve_expected_rpms() {
+    local spec=$1 rpm_dir=$2 dist=$3 arch=$4 line name version release
+    while IFS= read -r line; do
+        [[ -n $line ]] || continue
+        read -r name version release <<<"$line"
+        case $name in *-debuginfo|*-debugsource) continue ;; esac
+        printf '%s/%s-%s-%s.%s.rpm\n' "$rpm_dir" "$name" "$version" "$release" "$arch"
+    done < <(rpmspec -q --qf '%{NAME} %{VERSION} %{RELEASE}\n' --define "dist $dist" "$spec")
+}
+
+collect_rpms() {
+    local spec=$1 rpm_dir=$2 dist=$3 arch=$4 path missing=0
+    while IFS= read -r path; do
+        [[ -n $path ]] || continue
+        if [[ -f $path ]]; then
+            printf '%s\n' "$path"
+        else
+            warn "expected build output missing: $path"
+            missing=1
+        fi
+    done < <(resolve_expected_rpms "$spec" "$rpm_dir" "$dist" "$arch")
+    (( missing == 0 )) || return 1
+}
+
 build_and_install() {
     local repo_root=$1
-    local helper package rpm
+    local helper spec rpm_dir output package
     local -a rpms
     helper=$(build_native_helper "$repo_root")
+    parse_helper_outputs "$helper"
+    [[ $helper_topdir_template == '$build_root/rpmbuild' ]] || die \
+        "unexpected build output path in $helper: $helper_topdir_template"
+    rpm_dir="$build_root/rpmbuild/RPMS/$machine_arch"
     for package in "${PACKAGE_ORDER[@]}"; do
         log "== build phase: $package (as $build_user, ${BUILD_JOBS} job(s)) =="
         run_as_build_user "$helper" "$build_root" "$package" \
             2>&1 | tee "$build_root/logs/build-$package.log"
-        rpms=()
-        while IFS= read -r rpm; do
-            rpms+=("$rpm")
-        done < <(find "$build_root/rpmbuild/RPMS" -type f \
-                 -name "${package}-*.aarch64.rpm" | sort)
-        (( ${#rpms[@]} )) || die "no aarch64 RPMs produced for $package"
+        spec="$repo_root/packages/$package/$package.spec"
+        if ! output=$(collect_rpms "$spec" "$rpm_dir" "$helper_dist" "$machine_arch"); then
+            die "missing expected build output for $package; refusing to install a stale set"
+        fi
+        [[ -n $output ]] || die "no RPMs resolved for $package"
+        mapfile -t rpms <<<"$output"
         log "== install phase: ${rpms[*]} =="
         dnf install -y "${rpms[@]}" 2>&1 | tee "$build_root/logs/install-$package.log"
     done
@@ -258,9 +326,20 @@ verify_install() {
 }
 
 main() {
+    local repo_root build_uid
     parse_args "$@"
+    if (( test_overrides )) && (( ! check_mode )); then
+        die '--machine-arch/--cmdline-file/--root-fstype/--result-file are only allowed with --check'
+    fi
     validate_arch
     validate_liveboot_identity
+    validate_build_root_path "$build_root"
+    if [[ -n $build_user ]]; then
+        build_uid=$(id -u "$build_user" 2>/dev/null) || die "unknown build user '$build_user'"
+        if [[ -e $build_root ]]; then
+            validate_build_root_owner "$build_root" "$build_uid"
+        fi
+    fi
     report_plan
     if (( check_mode )); then
         check_missing_tools
@@ -269,13 +348,16 @@ main() {
     fi
     require_root
     require_build_user
-    require_commands dnf rpm findmnt id python3 runuser tee
+    require_commands dnf rpm findmnt id python3 runuser tee realpath
     prepare_build_root
     install_system_packages
     require_commands rpmbuild rpmspec git gzip python3 meson cc
-    build_and_install "$(CDPATH='' cd -- "$(dirname -- "$0")/../../../.." && pwd)"
+    repo_root=$(CDPATH='' cd -- "$(dirname -- "$0")/../../../.." && pwd)
+    build_and_install "$repo_root"
     verify_install
     log "bootstrap complete; no frame capture or system transition was performed"
 }
 
-main "$@"
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    main "$@"
+fi
