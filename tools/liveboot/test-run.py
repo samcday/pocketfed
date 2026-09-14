@@ -132,6 +132,9 @@ class PrepareTests(unittest.TestCase):
                 RUN.prepare(args)
             self.assertIn("--no-boot", captured["argv"])
             self.assertEqual(captured["environment"]["RUST_LOG"], RUN.os.environ.get("RUST_LOG", "info"))
+            self.assertIn("--abl-exorcist", captured["argv"])
+            self.assertEqual(captured["argv"][captured["argv"].index("--ramdisk-offset") + 1],
+                             hex(recipe["ramdisk_offset"]))
             schemas = Path(captured["environment"]["FASTBOOP_SCHEMA_PATH"])
             devpro = json.loads(next(schemas.glob("*.json")).read_text())
             self.assertEqual(devpro["probe"], [
@@ -184,6 +187,63 @@ class PrepareTests(unittest.TestCase):
                 RUN.boot(host_args)
             self.assertEqual(dispatch.call_args.args[0], manifest["boot_argv"])
             self.assertEqual(json.loads((args.run_dir / "status.json").read_text())["phase"], "stopped")
+
+    def test_db410c_prepare_omits_pixel_abl_policy_and_uses_pocketboot_gadget(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = root / "fixture"
+            (fixture / "kernel-bundle").mkdir(parents=True)
+            (fixture / "kernel-bundle/bundle.json").write_text(json.dumps({
+                "release": "test", "dtb": {"path": "dtb/qcom/apq8016-sbc.dtb"}}))
+            recipe = json.loads((ROOT / "profiles/apq8016-sbc.json").read_text())
+            (fixture / "fixture.json").write_text(json.dumps({"inputs": {
+                "image": {"reference": recipe["fixture_image"]},
+                "dtb": recipe["devicetree_name"] + ".dtb"}}))
+            for path in [fixture / "rootfs.erofs", fixture / "production-ablx-shim.bin",
+                         fixture / "kernel-bundle/kernel.config", root / "kboop", root / "init"]:
+                path.write_bytes(b"test artifact")
+            seal_test_fixture(fixture)
+            args = argparse.Namespace(
+                run_dir=root / "db410c-preparation", fixture=fixture,
+                profile=ROOT / "profiles/apq8016-sbc.json", device_serial="TEST-DB410C-1",
+                kboop=root / "kboop", init=root / "init", kernel_bundle=None)
+            captured = {}
+
+            def assemble(argv, **kwargs):
+                captured["argv"] = argv
+                captured["environment"] = kwargs["env"]
+                artifacts = args.run_dir / "artifacts"
+                artifacts.mkdir()
+                (artifacts / "boot.img").write_bytes(b"assembled boot image")
+                (artifacts / "modules.ero").write_bytes(b"assembled modules")
+
+            with mock.patch.object(RUN, "verify_required_modules") as gate, \
+                    mock.patch.object(RUN.subprocess, "run", side_effect=assemble), \
+                    mock.patch.object(RUN.os, "open", side_effect=AssertionError("device access")), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                RUN.prepare(args)
+            # Pocketboot parses the boot sections itself, so no Pixel ABLX
+            # shim or ramdisk address belongs on the kboop command line.
+            self.assertTrue({"--abl-exorcist", "--abl-exorcist-mode", "--ramdisk-offset"}.isdisjoint(
+                captured["argv"]))
+            devpro = json.loads(next(
+                Path(captured["environment"]["FASTBOOP_SCHEMA_PATH"]).glob("*.json")).read_text())
+            self.assertEqual(devpro["match"], [{"fastboot": {"vid": 7527, "pid": 260}}])
+            self.assertEqual(devpro["probe"], [
+                {"fastboot.getvar": "product", "equals": "pocketboot"},
+                {"fastboot.getvar": "serialno", "equals": "TEST-DB410C-1"}])
+            bootimg = devpro["boot"]["fastboot_boot"]["android_bootimg"]
+            self.assertEqual(bootimg["header_version"], 2)
+            self.assertNotIn("ramdisk_offset", recipe)
+            # Early modules must come from the msm8916 supplier order, with no
+            # sdm670-family leftovers, and keep the chipidea USB chain intact.
+            modules = gate.call_args.args[1]
+            self.assertLess(modules.index("qcom_scm"), modules.index("extcon_usb_gpio"))
+            self.assertLess(modules.index("gcc_msm8916"), modules.index("phy_qcom_usb_hs"))
+            self.assertIn("ci_hdrc_msm", modules)
+            for sargo_module in ("gcc_sdm845", "qcom_rpmh", "dwc3", "sdhci_msm"):
+                self.assertNotIn(sargo_module, modules)
+            self.assertEqual(json.loads((args.run_dir / "status.json").read_text())["phase"], "prepared")
 
     def candidate_inputs(self, root, *, dtb="sdm670-google-sargo.dtb", config=True):
         fixture = root / "fixture"

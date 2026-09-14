@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "id": "apq8016-sbc",
+  "display_name": "PocketFed DB410c liveboot",
+  "devicetree_name": "qcom/apq8016-sbc",
+  "match": [
+    {
+      "fastboot": {
+        "vid": 7527,
+        "pid": 260
+      }
+    }
+  ],
+  "probe": [
+    {
+      "fastboot.getvar": "product",
+      "equals": "pocketboot"
+    }
+  ],
+  "boot": {
+    "fastboot_boot": {
+      "android_bootimg": {
+        "header_version": 2,
+        "page_size": 4096,
+        "base": 0,
+        "kernel_offset": 0,
+        "dtb_offset": 0,
+        "kernel": {
+          "encoding": "image.gz"
+        }
+      }
+    }
+  },
+  "dracut_config": "tools/liveboot/profiles/apq8016-sbc-initrd.conf",
+  "cmdline": [
+    "console=ttyMSM0,115200n8",
+    "earlycon",
+    "init_on_alloc=0",
+    "sysrq_always_enabled=1",
+    "panic=5",
+    "oops=panic",
+    "systemd.firstboot=off",
+    "systemd.wants=pocketfed-liveboot-check.service",
+    "systemd.wants=pocketfed-liveboot-labels.service",
+    "systemd.unit=multi-user.target"
+  ],
+  "fixture_image": "sha256:59ef70b3f9d57c56e2a86fcbbd8f948ae8655fbed6eb451b45add82b4a1b21b3"
+}

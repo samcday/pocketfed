@@ -130,9 +130,15 @@ def prepare(args):
         argv = [str(tool_dir / "kboop"), "--rootfs", str(fixture / "rootfs.erofs"),
                 "--kernel-bundle", str(bundle), "--work-dir", str(run / "artifacts"),
                 "--init", str(tool_dir / "kboop-init"), "--device-profile", devpro["id"],
-                "--usb-serial", f"pf-{serial}", "--no-serial", "--wait", "120",
-                "--abl-exorcist", str(fixture / "production-ablx-shim.bin"),
-                "--abl-exorcist-mode", "ramdisk", "--ramdisk-offset", hex(recipe["ramdisk_offset"])]
+                "--usb-serial", f"pf-{serial}", "--no-serial", "--wait", "120"]
+        if "ramdisk_offset" in recipe:
+            # Pixel ABL policy: rebuild the payload around the production ABLX
+            # shim and pin the ramdisk address ABL loads. Loaders that parse
+            # the boot sections themselves (Pocketboot kexec) need neither, so
+            # a profile without a ramdisk offset boots without them.
+            argv += ["--abl-exorcist", str(fixture / "production-ablx-shim.bin"),
+                     "--abl-exorcist-mode", "ramdisk",
+                     "--ramdisk-offset", hex(recipe["ramdisk_offset"])]
         if root_mode == "ram":
             argv.append("--resident-root")
         for module in modules:
