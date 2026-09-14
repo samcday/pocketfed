@@ -314,6 +314,13 @@ class PrepareTests(unittest.TestCase):
             self.assertLess(modules.index("qcom_scm"), modules.index("extcon_usb_gpio"))
             self.assertLess(modules.index("gcc_msm8916"), modules.index("phy_qcom_usb_hs"))
             self.assertIn("ci_hdrc_msm", modules)
+            # Builtin SMEM needs the TCSR hwspinlock provider for its hwlocks
+            # and the RPM SMD edge needs the APCS IPC mailbox for its mboxes;
+            # both must be supplied before the SMD RPM transport and USB chain.
+            for provider in ("qcom_hwspinlock", "qcom_apcs_ipc_mailbox"):
+                self.assertIn(provider, modules)
+                self.assertLess(modules.index(provider), modules.index("qcom_smd"))
+                self.assertLess(modules.index(provider), modules.index("phy_qcom_usb_hs"))
             for sargo_module in ("gcc_sdm845", "qcom_rpmh", "dwc3", "sdhci_msm"):
                 self.assertNotIn(sargo_module, modules)
             self.assertEqual(json.loads((args.run_dir / "status.json").read_text())["phase"], "prepared")
