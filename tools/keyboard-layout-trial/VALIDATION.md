@@ -7,10 +7,11 @@ provenance directories are intentionally not published.
 - **18 real-service paired cases passed** (frozen Stevia client + Verbisage
   service).
 - **18 controlled-native cases passed** against the controllable stand-in.
-- Two invalid attempts are preserved, not hidden: one real-service
-  `typed-reselect` that could not start Phoc because the headless Unix socket
-  path was too long, and one stand-in `language-transition-undo` that the
-  stand-in cannot exercise.
+- Invalid native attempts are retained: `typed-reselect` could not start Phoc
+  with an overlong Unix socket path; two stand-in `language-transition-undo`
+  attempts lacked the required correction candidate. Their corrected runs
+  passed. A coordinator error hashing a directory-based Patricia dictionary
+  also stopped one attempt before native startup; the corrected run passed.
 
 These are protocol/geometry and service-integration checks. They do **not**
 establish human spelling, gesture or multilingual accuracy, and no physical
@@ -20,14 +21,15 @@ device has been run.
 
 | Component | Identity |
 | --- | --- |
-| Client source | `samcday/stevia` `7a00a8fff38ac60d7998a8cc7ec88c6111d4f304` (`codex/layout-aware`) |
+| Client source | `samcday/stevia` `7a00a8fff38ac60d7998a8cc7ec88c6111d4f304` (`codex/layout-integration`) |
 | Tested client binary (x86_64) | `f2044971cfdddbbcbc5c4204d3124f62a2966382fce6362226e0eae24de1d020` |
 | Service source / runtime | `samcday/verbisage` `d7012120bfcacb22dc55eb9009c28a3afe985aac` |
 | `verbisaged` / `verbisage` (x86_64) | `008f23c2e67d8b0c70ed430292b91e5067573ddeeb5b1244fd20530ccb816a25` / `a051b2de4eda030623cb2095136b0e8727ebde341f96ee9ac2691c779e05f52c` |
 | Layout library | `samcday/rs-keyboard-layout` `d60e05ce20b77a84ec4ac3a8c38b1c295dfa38fe` |
 | Patricia reader | `samcday/android-patricia-dict` `32121e2b5cb8615d408eecc9cd55eeb8d51bd7b7` |
 | Gesture crate (private) | `f0b2cc7ac1f84d479abfa6c8e4028f473a8c50b3` (source not published) |
-| Native harness `run-context.py` | `e485342aa54f678fe9f9fba2cd97a3ea1bc1c2d1ad4bbe36d0f4a3f178855172` |
+| Controlled-service harness `run-context.py` at7a00a8f | `e485342aa54f678fe9f9fba2cd97a3ea1bc1c2d1ad4bbe36d0f4a3f178855172` |
+| Frozen real-service harness `run-context.py` at8f8b6bd | `b53eff612d02ada539a8598c26061dddfd1fdfb61a2860149cdcc528b91e11d9` |
 | Stand-in `fake-verbisage.py` | `eec6372560e50e1d555329f6f4958802d79fb19c8385e594c598104080b39895` |
 | Probe `gtk4-polish-probe.py` | `0ea2940fdc84f83f79b1e3ee1039698dfdb395735ec21f7b267ca06789602e39` |
 | OSK schema `mobi.phosh.osk.gschema.xml` | `16d91cf9da3b96141d6613ff9f054303f26913d544c75512357d1bd46a76833a` |
@@ -75,7 +77,7 @@ decaying `234850`, cleared `0`.
   `queue-middle-timeout`, `queue-job-deadline-late-playback`,
   `language-routing`, `language-dvorak`.
 
-The stand-in answers `Complete`/`Predict` with an empty list and so is **not a
+The stand-in answers `CompleteWith`/`PredictWith` with an empty list and so is **not a
 language corpus**; its `language-transition-undo` attempt (r14, retried r15)
 deterministically failed with `Completion 'hello' is not offered; visible:
 ['helo']`. That is a stand-in capability limit, not a product defect, and no

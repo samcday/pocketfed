@@ -401,7 +401,8 @@ def command_selftest(args):
 
         def wrong_arch_binary(work):
             path = work / "bin/phosh-osk-stevia"
-            data = minimal_elf(ELF_MACHINE_CODES["aarch64"])
+            other_arch = "aarch64" if args.arch == "x86_64" else "x86_64"
+            data = minimal_elf(ELF_MACHINE_CODES[other_arch])
             path.write_bytes(data)
 
             def recompute(manifest):

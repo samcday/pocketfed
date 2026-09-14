@@ -185,8 +185,14 @@ Preflight (record, do not change):
    `/usr` is already a writable overlay owned by another experiment, do not run
    `usroverlay` a second time; coordinate with that experiment and reuse its
    overlay only if agreed.
-7. Back the files above up to a persistent directory, for example
-   `~/pocketfed-keyboard-trial/backup-<timestamp>/`.
+7. Make a persistent backup directory, for example
+   `~/pocketfed-keyboard-trial/backup-<timestamp>/`. For **each of the three
+   binary destinations and three schema destinations above**, record whether
+   the path exists (including a dangling symlink), its type, resolved target,
+   contents/hash where applicable, and mode/owner. Preserve every existing path
+   with `cp -a --parents` into that directory; explicitly record absent paths
+   too. Keep this inventory with the backup. Do not proceed with an unexpected
+   symlink or destination until its ownership and restore path are understood.
 8. Dump stored keyboard settings: `gsettings list-recursively mobi.phosh.osk`.
 9. Confirm no other live experiment currently owns those paths; coordinate
    before replacing anything.
@@ -196,7 +202,8 @@ Apply (transient):
 1. If `/usr` is not already a writable overlay, run `sudo rpm-ostree usroverlay`
    and confirm `/usr` is writable. If it already is, reuse it; do not stack a
    second overlay.
-2. Install the bundle binaries over the backups with `install -m 0755`.
+2. Install each bundle binary at its recorded `/usr/bin/` destination with
+   `sudo install -m 0755`; leave the persistent backups untouched.
 3. Copy only the schema XMLs from the bundle into the global schema directory:
    `/usr/share/glib-2.0/schemas/mobi.phosh.osk.gschema.xml` and
    `.../mobi.phosh.osk.enums.xml`, then run
@@ -217,10 +224,19 @@ edit.
 
 Rollback:
 
-1. Restore the backed-up binaries and schema XMLs and re-run
-   `glib-compile-schemas` on the global schema directory, or reboot only if you
-   confirmed at preflight that this is a plain transient overlay a reboot will
-   discard.
+1. Use the inventory for every destination: restore previously existing
+   binaries and both schema XMLs from the backups, preserving their original
+   type, contents and metadata. Remove a trial destination only if the inventory
+   says it was originally absent and it still matches this trial's artifact;
+   do not remove another experiment's replacement. If the global schema inputs
+   are unchanged apart from this trial, restore the backed-up global
+   `gschemas.compiled` too (or remove it if it was originally absent). If other
+   schema inputs changed meanwhile, coordinate first, restore this trial's XML
+   paths, and recompile the global directory instead of overwriting those
+   changes with an old compiled file. Restart the identified affected user
+   units and verify their executable identities. A reboot is an alternative
+   only after confirming this is a transient overlay whose contents may be
+   discarded.
 2. Do not assume a reboot is lossless for other experiments: a `/usr` overlay
    may have been opened by another experiment and could carry changes it
    intends to keep. If `/usr` was already unlocked at preflight, restore files
