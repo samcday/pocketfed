@@ -274,7 +274,10 @@ package_source_from_clone() {
 }
 
 build_rpms() {
-    rpmbuild -ba \
+    # rpmbuild removes the build tree after packaging by default (--clean),
+    # so keep it with --noclean; the Meson objects then survive for later
+    # iterations instead of being recompiled from scratch.
+    rpmbuild -ba --noclean \
         --define "_topdir $build_root/rpmbuild" \
         --define "dist $dist" \
         --define "_smp_build_ncpus $BUILD_JOBS" \

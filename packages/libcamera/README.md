@@ -128,22 +128,12 @@ python3 packages/libcamera/validation/test-build-native.py
 The helper is prepared for the phone's native iteration and still needs a real
 run there.
 
-## Incremental repackage
+## Build tree retention
 
-The only packaging change is the IPA re-sign glob in `%__spec_install_post`, so
-a full recompile is not required. When the existing build tree is still present
-(`<build-root>/rpmbuild/BUILD/libcamera-v0.7.2` plus its meson build directory),
-root can produce corrected RPMs on the phone by re-running install and package
-against that tree, skipping `%prep`/`%build`:
-
-    rpmbuild -bb --short-circuit=install --noclean \
-        --define "_topdir <build-root>/rpmbuild" \
-        --define "dist .fc46.native.N" SPECS/libcamera.spec
-
-This re-runs `%install` (including the corrected IPA re-sign) and repackages
-from the already-compiled objects. It requires the build root that produced the
-tree; a fresh root has nothing to install from. This is advice only -- the
-helper always builds from source.
+`rpmbuild` removes the build tree after packaging by default (`--clean` is the
+documented default), so the helper passes `--noclean` and the Meson build tree
+under `<build-root>/rpmbuild/BUILD/` survives the build. The helper still
+builds from source every run and does not offer a resume or repackage mode.
 
 ## Limitations
 
