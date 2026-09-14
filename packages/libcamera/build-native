@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+# Native, unprivileged libcamera RPM iteration from a verified Fedora SRPM and
+# a pinned upstream clone. The clone and compilation stay on the phone; this
+# repository carries only the pins, the Fedora packaging identity and checks.
+set -euo pipefail
+
+readonly SCRIPT_NAME=${0##*/}
+readonly UPSTREAM_COMMIT=191e202178f02430b5942397c70d215cdd2056fa
+readonly UPSTREAM_TAG=v0.7.2
+readonly NATIVE_DIST=.fc46.native
+readonly BUILD_JOBS=2
+readonly IPA_SIGN_MARKER=ipa-sign-install.sh
+readonly SOURCE_ARCHIVE=libcamera-v0.7.2.tar.bz2
+readonly EXPECTED_SUBPACKAGES=(
+    libcamera
+    libcamera-devel
+    libcamera-gstreamer
+    libcamera-ipa
+    libcamera-qcam
+    libcamera-tools
+    libcamera-v4l2
+    python3-libcamera
+)
+
+package_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(cd -- "$package_dir/../.." && pwd)
+
+build_root=
+srpm=
+clone=
+patch_dir="$package_dir/patches"
+check_mode=0
+
+log() { printf '%s\n' "$*"; }
+warn() { printf 'warning: %s\n' "$*" >&2; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+    cat <<EOF
+${SCRIPT_NAME}: build native libcamera RPMs from the exact Fedora source RPM
+and a pinned upstream clone.
+
+Usage:
+  ${SCRIPT_NAME} --build-root DIR --srpm SRPM --clone DIR [--patch-dir DIR] [--check]
+
+Required:
+  --build-root DIR   Dedicated absolute build directory under /var/tmp, outside
+                     the repository (for example
+                     /var/tmp/pocketfed-libcamera-native).
+  --srpm SRPM        Exact Fedora 0.7.2-4 source RPM. Its SHA256 must match
+                     sources.sha256 next to this helper.
+  --clone DIR        Upstream clone whose HEAD is ${UPSTREAM_COMMIT}
+                     (tag ${UPSTREAM_TAG}), worktree clean.
+
+Options:
+  --patch-dir DIR    Task patches applied in name order to the clone source
+                     before packaging (default: ${patch_dir}). None are shipped;
+                     no sensor patches are included while gain proof is pending.
+  --check            Verify inputs, build root and Fedora spec layout, print the
+                     plan, then exit without building.
+  -h, --help         Show this help.
+
+The Fedora spec and its downstream patches are taken unmodified from the
+verified SRPM, so IPA re-signing and the exact subpackage set are preserved.
+EOF
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --build-root) [[ $# -ge 2 ]] || die '--build-root needs a value'; build_root=$2; shift ;;
+            --srpm) [[ $# -ge 2 ]] || die '--srpm needs a value'; srpm=$2; shift ;;
+            --clone) [[ $# -ge 2 ]] || die '--clone needs a value'; clone=$2; shift ;;
+            --patch-dir) [[ $# -ge 2 ]] || die '--patch-dir needs a value'; patch_dir=$2; shift ;;
+            --check) check_mode=1 ;;
+            -h|--help) usage; exit 0 ;;
+            *) die "unknown argument: $1 (try --help)" ;;
+        esac
+        shift
+    done
+}
+
+require_args() {
+    [[ -n $build_root ]] || die '--build-root is required'
+    [[ -n $srpm ]] || die '--srpm is required'
+    [[ -n $clone ]] || die '--clone is required'
+}
+
+sha256_of() {
+    sha256sum -- "$1" | awk '{print $1}'
+}
+
+expected_hash_for() {
+    local wanted=$1
+    local file="$package_dir/sources.sha256"
+    [[ -r $file ]] || die "missing $file"
+    awk -v name="$wanted" '$2 == name { print $1 }' "$file"
+}
+
+verify_file_hash() {
+    local path=$1 expected=$2 actual
+    [[ -f $path ]] || die "missing file: $path"
+    [[ -n $expected ]] || die "no pinned SHA256 for $(basename -- "$path")"
+    actual=$(sha256_of "$path")
+    [[ $actual == "$expected" ]] || die \
+        "SHA256 mismatch for $path: expected $expected, got $actual"
+}
+
+verify_clone() {
+    local dir=$1 expected_commit=$2 tag=$3 commit
+    [[ -e $dir/.git ]] || die "not a git clone: $dir"
+    commit=$(git -C "$dir" rev-parse HEAD 2>/dev/null) || die "cannot read clone HEAD"
+    [[ $commit == "$expected_commit" ]] || die \
+        "clone HEAD is $commit, expected $expected_commit"
+    git -C "$dir" rev-parse --verify -q "refs/tags/$tag^{commit}" >/dev/null || \
+        die "clone lacks tag $tag"
+    [[ $(git -C "$dir" rev-parse "$tag^{commit}") == "$expected_commit" ]] || die \
+        "tag $tag does not point at $expected_commit"
+    [[ -z $(git -C "$dir" status --porcelain) ]] || die \
+        'clone has uncommitted changes; refusing to build from it'
+}
+
+validate_build_root_path() {
+    local target=$1 canonical
+    [[ -n $target ]] || die 'build root must not be empty'
+    [[ $target == /* ]] || die "build root must be an absolute path: $target"
+    [[ ! -L $target ]] || die "build root must not be a symlink: $target"
+    canonical=$(realpath -m -- "$target") || die "cannot canonicalize build root: $target"
+    case $canonical in
+        /var/tmp/*) ;;
+        *) die "build root must be a dedicated directory under /var/tmp: $canonical" ;;
+    esac
+    [[ $canonical != /var/tmp ]] || die 'build root must be under /var/tmp, not /var/tmp itself'
+    case $canonical in
+        "$repo_root"|"$repo_root"/*) die "build root must be outside the repository: $canonical" ;;
+    esac
+}
+
+verify_spec_properties() {
+    local spec=$1 names expected
+    [[ -f $spec ]] || die "missing spec: $spec"
+    grep -qF -- "$IPA_SIGN_MARKER" "$spec" || die \
+        "Fedora spec no longer re-signs IPA modules ($IPA_SIGN_MARKER)"
+    names=$(rpmspec -q --qf '%{NAME}\n' --define "dist $NATIVE_DIST" "$spec" | sort | tr '\n' ' ')
+    expected=$(printf '%s\n' "${EXPECTED_SUBPACKAGES[@]}" | sort | tr '\n' ' ')
+    [[ $names == "$expected" ]] || die \
+        "unexpected subpackage set from spec: $names (expected: $expected)"
+}
+
+require_unprivileged() {
+    [[ $(id -u) -ne 0 ]] || die 'build as an unprivileged user; use root only to install packages'
+}
+
+require_tools() {
+    local tool missing=()
+    for tool in git rpm2cpio cpio rpmbuild rpmspec sha256sum realpath tar bzip2 patch; do
+        command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+    done
+    (( ${#missing[@]} == 0 )) || die "missing required tool(s): ${missing[*]}"
+}
+
+prepare_build_root() {
+    mkdir -p "$build_root"/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+}
+
+extract_fedora_packaging() {
+    local tmp
+    tmp=$(mktemp -d "$build_root/fedora.XXXXXX")
+    ( cd "$tmp" && rpm2cpio "$srpm" | cpio -idm --quiet )
+    cp "$tmp"/*.spec "$build_root/rpmbuild/SPECS/"
+    local file
+    for file in "$tmp"/*.patch "$tmp"/qcam.desktop "$tmp"/qcam.metainfo.xml \
+                "$tmp"/70-libcamera.rules; do
+        [[ -f $file ]] && cp "$file" "$build_root/rpmbuild/SOURCES/"
+    done
+    verify_file_hash "$tmp/$SOURCE_ARCHIVE" "$(expected_hash_for "$SOURCE_ARCHIVE")"
+    rm -rf "$tmp"
+}
+
+package_source_from_clone() {
+    local parent="$build_root/source" prefix="libcamera-${UPSTREAM_TAG}" directory
+    rm -rf "$parent"
+    mkdir -p "$parent"
+    git -C "$clone" archive --format=tar --prefix="$prefix/" "$UPSTREAM_COMMIT" | tar -x -C "$parent"
+    directory="$parent/$prefix"
+    if compgen -G "$patch_dir/*.patch" >/dev/null; then
+        local patch_file
+        for patch_file in "$patch_dir"/*.patch; do
+            log "applying task patch $(basename -- "$patch_file")"
+            patch -d "$directory" -p1 -s < "$patch_file" || die "failed to apply $patch_file"
+        done
+    else
+        log "no task patches; packaging the pinned clone source unchanged"
+    fi
+    tar -C "$parent" --owner=0 --group=0 -cf - "$prefix" | bzip2 \
+        > "$build_root/rpmbuild/SOURCES/$SOURCE_ARCHIVE"
+}
+
+build_rpms() {
+    rpmbuild -ba \
+        --define "_topdir $build_root/rpmbuild" \
+        --define "dist $NATIVE_DIST" \
+        --define "_smp_build_ncpus $BUILD_JOBS" \
+        --define "_smp_mflags -j$BUILD_JOBS" \
+        "$build_root/rpmbuild/SPECS/libcamera.spec"
+}
+
+report_outputs() {
+    log "built RPMs under $build_root/rpmbuild/RPMS:"
+    find "$build_root/rpmbuild/RPMS" -type f -name '*.rpm' -printf '  %p\n' | sort
+    log "install the matching libcamera + libcamera-ipa + libcamera-tools +"
+    log "libcamera-gstreamer RPMs together with dnf install; do not upgrade the"
+    log "rest of the system."
+}
+
+main() {
+    parse_args "$@"
+    require_args
+    require_unprivileged
+    validate_build_root_path "$build_root"
+    require_tools
+    verify_file_hash "$srpm" "$(expected_hash_for "$(basename -- "$srpm")")"
+    verify_clone "$clone" "$UPSTREAM_COMMIT" "$UPSTREAM_TAG"
+    if (( check_mode )); then
+        log "inputs verified: SRPM, clone and build root"
+        log "SRPM:  $srpm"
+        log "clone: $clone ($UPSTREAM_COMMIT)"
+        log "build root: $build_root"
+        log "fedora patches: extracted from the SRPM and applied by %autosetup"
+        log "no source was built"
+        return 0
+    fi
+    prepare_build_root
+    extract_fedora_packaging
+    verify_spec_properties "$build_root/rpmbuild/SPECS/libcamera.spec"
+    package_source_from_clone
+    log "building libcamera ${UPSTREAM_TAG#v} with $BUILD_JOBS jobs"
+    build_rpms
+    report_outputs
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    main "$@"
+fi
