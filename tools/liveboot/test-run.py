@@ -5,7 +5,9 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest import mock
@@ -77,6 +79,76 @@ class FixtureIntegrityTests(unittest.TestCase):
             (root / "rootfs.erofs").write_bytes(b"silently changed")
             with self.assertRaisesRegex(Exception, "artifacts changed"):
                 RUN.verify_fixture(root)
+
+
+class GadgetContractTests(unittest.TestCase):
+    """The DB410c profile must carry Pocketboot's actual gadget identity and a
+    board discriminator. Where the sibling upstream sources exist, the identity
+    is read from them rather than restated, so a profile that merely agrees with
+    its own test cannot pass."""
+
+    @staticmethod
+    def _source(relative, env_var, registry_glob=None):
+        override = os.environ.get(env_var)
+        candidates = [Path(override).expanduser() / relative] if override else []
+        candidates += [base / relative for base in (ROOT, *ROOT.parents)]
+        if registry_glob:
+            candidates += sorted((Path.home() / ".cargo" / "registry" / "src").glob(registry_glob))
+        return next((path for path in candidates if path.is_file()), None)
+
+    @staticmethod
+    def _constant(path, pattern):
+        match = re.search(pattern, path.read_text())
+        if not match:
+            raise AssertionError(f"{pattern!r} not found in {path}")
+        return int(match.group(1), 16)
+
+    def test_profile_matches_the_upstream_gadget_identity(self):
+        recipe = json.loads((ROOT / "profiles/apq8016-sbc.json").read_text())
+        match = recipe["match"][0]["fastboot"]
+        gadgetry = self._source("gadgetry-most-foul/src/gadget.rs",
+                                "GADGETRY_MOST_FOUL_SRC", "*/gadgetry-most-foul-*/src/gadget.rs")
+        pocketboot = self._source("pocketboot/src/gadget.rs", "POCKETBOOT_SRC")
+        if gadgetry is None or pocketboot is None:
+            raise unittest.SkipTest(
+                "gadgetry-most-foul/pocketboot sources not on this host; set "
+                "GADGETRY_MOST_FOUL_SRC/POCKETBOOT_SRC to verify the real gadget contract")
+        # Pocketboot advertises the Linux Foundation composite VID with its own
+        # FunctionFS PID (0x1d6b:0x0104). The earlier profile carried 7527, which
+        # is neither; derive both from the sources that the gadget is built from.
+        self.assertEqual(match["vid"], self._constant(
+            gadgetry, r"LINUX_FOUNDATION_VID:\s*u16\s*=\s*(0x[0-9a-fA-F]+)"), str(gadgetry))
+        self.assertEqual(match["pid"], self._constant(
+            pocketboot, r"PRODUCT_ID:\s*u16\s*=\s*(0x[0-9a-fA-F]+)"), str(pocketboot))
+
+    def test_profile_vendor_id_is_the_linux_foundation_vid(self):
+        recipe = json.loads((ROOT / "profiles/apq8016-sbc.json").read_text())
+        match = recipe["match"][0]["fastboot"]
+        # Guards the decimal transcription even when the sources are unavailable:
+        # 0x1d6b is 7531, not the tempting 7527.
+        self.assertEqual((match["vid"], match["pid"]), (0x1D6B, 0x0104))
+
+    def test_compatible_probe_discriminates_boards(self):
+        """Mirror fastboop's probe: every step must match exactly, so a generic
+        Pocketboot environment on another board cannot select this DTB."""
+        recipe = json.loads((ROOT / "profiles/apq8016-sbc.json").read_text())
+
+        def evaluates(getvars):
+            for step in recipe["probe"]:
+                if "fastboot.getvar" not in step:
+                    return False
+                if getvars.get(step["fastboot.getvar"], "") != step["equals"]:
+                    return False
+            return True
+
+        self.assertTrue(evaluates({"product": "pocketboot", "compatible": "qcom,apq8016-sbc"}))
+        # The same generic Pocketboot environment on other boards must not
+        # select this profile's apq8016-sbc DTB.
+        self.assertFalse(evaluates({"product": "pocketboot", "compatible": "google,sargo"}))
+        self.assertFalse(evaluates({"product": "pocketboot", "compatible": "qcom,apq8016"}))
+        # Pocketboot answers an unreadable live FDT with an empty variable.
+        self.assertFalse(evaluates({"product": "pocketboot", "compatible": ""}))
+        self.assertFalse(evaluates({"product": "pocketboot"}))
 
 
 class ResidentReleaseTests(unittest.TestCase):
@@ -228,9 +300,10 @@ class PrepareTests(unittest.TestCase):
                 captured["argv"]))
             devpro = json.loads(next(
                 Path(captured["environment"]["FASTBOOP_SCHEMA_PATH"]).glob("*.json")).read_text())
-            self.assertEqual(devpro["match"], [{"fastboot": {"vid": 7527, "pid": 260}}])
+            self.assertEqual(devpro["match"], [{"fastboot": {"vid": 7531, "pid": 260}}])
             self.assertEqual(devpro["probe"], [
                 {"fastboot.getvar": "product", "equals": "pocketboot"},
+                {"fastboot.getvar": "compatible", "equals": "qcom,apq8016-sbc"},
                 {"fastboot.getvar": "serialno", "equals": "TEST-DB410C-1"}])
             bootimg = devpro["boot"]["fastboot_boot"]["android_bootimg"]
             self.assertEqual(bootimg["header_version"], 2)

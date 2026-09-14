@@ -23,6 +23,16 @@
     "suspend.target",
     "hibernate.target",
     "hybrid-sleep.target",
-    "suspend-then-hibernate.target"
+    "suspend-then-hibernate.target",
+    "81voltd.service",
+    "clatd.service",
+    "pocketfed-sargo-mcfg.service",
+    "pocketfed-sargo-network-search.service",
+    "pocketfed-sargo-uim-select.service",
+    "pocketfed-swclock-offset.service",
+    "pocketfed-swclock-offset-save.service",
+    "pocketfed-swclock-offset-save.timer",
+    "blob-wrangler.service",
+    "q6voiced.service"
   ]
 }

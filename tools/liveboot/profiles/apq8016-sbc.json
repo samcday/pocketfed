@@ -6,7 +6,7 @@
   "match": [
     {
       "fastboot": {
-        "vid": 7527,
+        "vid": 7531,
         "pid": 260
       }
     }
@@ -15,6 +15,10 @@
     {
       "fastboot.getvar": "product",
       "equals": "pocketboot"
+    },
+    {
+      "fastboot.getvar": "compatible",
+      "equals": "qcom,apq8016-sbc"
     }
   ],
   "boot": {
