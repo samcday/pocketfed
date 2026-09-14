@@ -12,13 +12,20 @@ EVIOCGNAME). This helper never reads or writes GPIO, and never touches
 /sys/kernel/debug/gpio. Optional EVIOCGRAB is off by default and, when enabled,
 is scoped to the capable devices and released on every exit path.
 
+While the authorized capture runs, input is still monitored: a Volume Down or
+an input disconnect cancels and the owned capture process group is cleaned up.
+Key gestures are matched per device, so a press on one node and a release on
+another cannot authorize a capture.
+
 Integration contract, one line per transition on stdout (also serial/log):
 
     pocketfed-camera-readiness: state=<state> detail="<detail>" instruct="<text>"
 
 States: discovering, waiting, settling, authorized, cancelled, timeout,
-capturing, capture-failed, complete. An optional private status file and an
-optional existing-UI notify hook mirror the same state. See readiness.md.
+capturing, capture-failed, complete. Cancellation details end in
+`before-capture` or `during-capture` so the outcome is unambiguous. An optional
+private status file and an optional existing-UI notify hook mirror the same
+state. See readiness.md.
 
 Exit status: 0 authorized (and any capture command succeeded), 2 cancelled,
 3 timed out waiting for readiness, 4 capture command failed, 130 interrupted.
@@ -41,6 +48,7 @@ PREFIX = "pocketfed-camera-readiness"
 
 EV_SYN = 0
 EV_KEY = 1
+SYN_REPORT_CODE = 0
 SYN_DROPPED_CODE = 3
 KEY_VOLUMEDOWN = 114
 KEY_VOLUMEUP = 115
@@ -55,7 +63,6 @@ INPUT_EVENT = struct.Struct("@llHHi")
 INPUT_EVENT_SIZE = INPUT_EVENT.size
 
 TERMINAL_STATES = frozenset(("authorized", "cancelled", "timeout"))
-EXIT_CODES = {"authorized": 0, "cancelled": 2, "timeout": 3}
 
 # The kernel decodes EVIOCGRAB's integer argument directly, not through a
 # pointer, so passing the value as an int is correct.
@@ -137,9 +144,11 @@ class InputEvent:
         return f"InputEvent(type={self.type}, code={self.code}, value={self.value})"
 
 
-# A distinct marker rather than an InputEvent: SYN_DROPPED means every pending
-# gesture is untrustworthy and the caller must resync from EVIOCGKEY.
+# Distinct markers rather than InputEvent values. SYN_DROPPED means pending
+# state is untrustworthy; RESYNC means the drop interval ended at SYN_REPORT and
+# the device must be re-queried with EVIOCGKEY.
 SYN_DROPPED = object()
+RESYNC = object()
 
 
 def parse_events(buffer):
@@ -185,17 +194,39 @@ def open_capable(paths, required=KEY_BITS):
     return devices
 
 
+def probe_initial_state(devices):
+    """Split devices whose current key state could be read from unknown ones.
+
+    A device whose EVIOCGKEY fails has unknown state and must be excluded: an
+    already-held key could otherwise be mistaken for a fresh gesture.
+    """
+    held_by_device = {}
+    usable = []
+    unknown = []
+    for device in devices:
+        try:
+            held_by_device[device.path] = held_keys(device.fd)
+        except OSError:
+            unknown.append(device)
+            continue
+        usable.append(device)
+    return held_by_device, usable, unknown
+
+
 class DeviceDisconnected(Exception):
     pass
 
 
 class EventReader:
-    __slots__ = ("fd", "path", "buffer")
+    __slots__ = ("fd", "path", "buffer", "dropping")
 
     def __init__(self, fd, path=""):
         self.fd = fd
         self.path = path
         self.buffer = b""
+        # After SYN_DROPPED the kernel may still deliver stale events from the
+        # lost interval; ignore them all until the boundary SYN_REPORT.
+        self.dropping = False
 
     def read(self):
         try:
@@ -205,12 +236,29 @@ class EventReader:
         if not data:
             raise DeviceDisconnected(self.path)
         self.buffer += data
-        events, self.buffer = parse_events(self.buffer)
+        parsed, self.buffer = parse_events(self.buffer)
+        events = []
+        for event in parsed:
+            if event is SYN_DROPPED:
+                self.dropping = True
+                events.append(SYN_DROPPED)
+                continue
+            if self.dropping:
+                if (isinstance(event, InputEvent) and event.type == EV_SYN
+                        and event.code == SYN_REPORT_CODE):
+                    self.dropping = False
+                    events.append(RESYNC)
+                continue
+            events.append(event)
         return events
 
 
 class Gate:
-    """Event-driven readiness state machine, independent of file descriptors."""
+    """Event-driven readiness state machine, independent of file descriptors.
+
+    Gestures are tracked per (device, key) so multiple nodes that advertise
+    Volume Up cannot be mixed into one press/release pair.
+    """
 
     def __init__(self, settle=3.0, on_state=None, clock=time.monotonic):
         self.settle = float(settle)
@@ -219,6 +267,7 @@ class Gate:
         self.state = "discovering"
         self.detail = "start"
         self.settle_deadline = None
+        self.capture_started = False
         self._held = set()
         self._pressed = set()
 
@@ -228,54 +277,71 @@ class Gate:
             self.detail = detail
             self.on_state(state, detail)
 
-    def resync(self, current_held):
+    def _cancel(self, reason):
+        phase = "during-capture" if self.capture_started else "before-capture"
+        self._transition("cancelled", f"{reason}-{phase}")
+
+    def resync(self, held_by_device):
         if self.state not in ("discovering", "waiting"):
             return
-        self._held = set(current_held) & KEY_BITS
+        mapping = (held_by_device if isinstance(held_by_device, dict)
+                   else {None: held_by_device})
+        self._held = {(device, code) for device, codes in mapping.items()
+                      for code in codes if code in KEY_BITS}
         self._pressed = set()
         self._transition("waiting", "awaiting-volume-up")
 
+    def resync_device(self, device, held_codes):
+        if self.state not in ("discovering", "waiting"):
+            return
+        self._held = {entry for entry in self._held if entry[0] != device}
+        self._pressed = {entry for entry in self._pressed if entry[0] != device}
+        self._held |= {(device, code) for code in held_codes if code in KEY_BITS}
+
     def disconnected(self):
-        if self.state == "settling":
-            self._transition("cancelled", "input-disconnected")
+        if self.state in ("settling", "authorized"):
+            self._cancel("input-disconnected")
         elif self.state in ("discovering", "waiting"):
             self._transition("waiting", "input-disconnected")
+
+    def fail_closed(self, reason):
+        self._cancel(reason)
 
     def expire(self):
         if self.state in ("discovering", "waiting"):
             self._transition("timeout", "no-fresh-volume-up")
 
-    def feed(self, event):
+    def feed(self, event, device=None):
         if (event is SYN_DROPPED
                 or (isinstance(event, InputEvent) and event.type == EV_SYN
                     and event.code == SYN_DROPPED_CODE)):
-            # Drop any partial gesture. The caller resyncs from EVIOCGKEY; this
-            # path must never authorize a capture.
+            # Drop any partial gesture. The caller re-queries EVIOCGKEY at the
+            # next SYN_REPORT; this path must never authorize a capture.
             self._pressed.clear()
-            if self.state == "settling":
-                self._transition("cancelled", "syn-dropped")
+            if self.state in ("settling", "authorized"):
+                self._cancel("syn-dropped")
             return self.state
         if (not isinstance(event, InputEvent) or event.type != EV_KEY
                 or event.code not in KEY_BITS or event.value == KEY_REPEAT):
             return self.state
-        code, value = event.code, event.value
-        if value == KEY_PRESS:
-            if code in self._held:
+        identity = (device, event.code)
+        if event.value == KEY_PRESS:
+            if identity in self._held:
                 return self.state
-            self._pressed.add(code)
-            if code == KEY_VOLUMEDOWN:
-                self._transition("cancelled", "volume-down")
+            self._pressed.add(identity)
+            if event.code == KEY_VOLUMEDOWN:
+                self._cancel("volume-down")
             return self.state
-        if value == KEY_RELEASE:
-            if code in self._held:
+        if event.value == KEY_RELEASE:
+            if identity in self._held:
                 # Release of a key that was already down at discovery.
-                self._held.discard(code)
-                self._pressed.discard(code)
+                self._held.discard(identity)
+                self._pressed.discard(identity)
                 return self.state
-            if code not in self._pressed:
+            if identity not in self._pressed:
                 return self.state
-            self._pressed.discard(code)
-            if code == KEY_VOLUMEUP and self.state in ("discovering", "waiting"):
+            self._pressed.discard(identity)
+            if event.code == KEY_VOLUMEUP and self.state in ("discovering", "waiting"):
                 self.settle_deadline = self.clock() + self.settle
                 self._transition("settling", f"hold-still-{self.settle:g}s")
         return self.state
@@ -294,9 +360,9 @@ INSTRUCTIONS = {
                 "target, then press Volume Up. Volume Down cancels."),
     "settling": "Authorized. Hold still now; the capture starts shortly. Volume Down cancels.",
     "authorized": "Readiness confirmed.",
-    "cancelled": "Cancelled or input lost; no capture was run.",
+    "cancelled": "Cancelled or input lost; the owned capture was stopped. No new capture.",
     "timeout": "No fresh Volume Up within the timeout; no capture was run.",
-    "capturing": "Running the single capture command.",
+    "capturing": "Running the single capture command; Volume Down still cancels.",
     "capture-failed": "Capture command failed or left live processes.",
     "complete": "Single capture completed.",
 }
@@ -384,43 +450,137 @@ def _terminate_group(group, grace=1.0):
             time.sleep(0.05)
 
 
-def run_capture(command, timeout, log=None):
-    """Run the one authorized command; always reap its private process group."""
-    result = {"timed_out": False, "returncode": None, "remaining_processes": []}
-    stream = subprocess.DEVNULL
-    if log:
-        descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        stream = os.fdopen(descriptor, "w")
-    process = subprocess.Popen(command, stdout=stream, stderr=subprocess.STDOUT,
-                               stdin=subprocess.DEVNULL, start_new_session=True)
-    try:
+class Capture:
+    """Own exactly one capture process group so cleanup stays scoped."""
+
+    def __init__(self, command, timeout, log=None):
+        self.command = command
+        self.timeout = timeout
+        self.log = log
+        self.process = None
+        self.deadline = None
+        self._stream = None
+        self._close_stream = False
+
+    def start(self, clock=time.monotonic):
+        stream = subprocess.DEVNULL
+        if self.log:
+            descriptor = os.open(self.log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            stream = os.fdopen(descriptor, "w")
+            self._close_stream = True
+        self._stream = stream
+        self.process = subprocess.Popen(self.command, stdout=stream,
+                                        stderr=subprocess.STDOUT,
+                                        stdin=subprocess.DEVNULL,
+                                        start_new_session=True)
+        self.deadline = clock() + self.timeout
+        return self
+
+    def poll(self):
+        return None if self.process is None else self.process.poll()
+
+    def expired(self, now):
+        return self.deadline is not None and now >= self.deadline
+
+    def _close(self):
+        if self._close_stream and self._stream is not None:
+            self._stream.close()
+            self._close_stream = False
+
+    def reap(self):
+        """Reap a finished capture and clean any helpers it left behind."""
+        if self.process is None:
+            return None, []
         try:
-            result["returncode"] = process.wait(timeout=timeout)
+            returncode = self.process.wait(timeout=1)
         except subprocess.TimeoutExpired:
-            result["timed_out"] = True
-            _signal_group(process.pid, signal.SIGINT)
-            try:
-                process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                pass
-    finally:
-        _terminate_group(process.pid)
+            returncode = None
+        _terminate_group(self.process.pid)
         try:
-            process.wait(timeout=1)
+            self.process.wait(timeout=1)
         except subprocess.TimeoutExpired:
             pass
-        result["remaining_processes"] = group_members(process.pid)
-        if log:
-            stream.close()
+        remaining = group_members(self.process.pid)
+        self._close()
+        self.process = None
+        return returncode, remaining
+
+    def stop(self):
+        """Stop a running capture group, SIGINT first for libcamera's benefit."""
+        if self.process is None:
+            return []
+        _signal_group(self.process.pid, signal.SIGINT)
+        try:
+            self.process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            pass
+        _terminate_group(self.process.pid)
+        try:
+            self.process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+        remaining = group_members(self.process.pid)
+        self._close()
+        self.process = None
+        return remaining
+
+
+def run_capture(command, timeout, log=None):
+    """Blocking one-shot capture, kept for standalone and test use."""
+    capture = Capture(command, timeout, log).start()
+    result = {"timed_out": False, "returncode": None, "remaining_processes": []}
+    try:
+        result["returncode"] = capture.process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        result["timed_out"] = True
+        result["remaining_processes"] = capture.stop()
+        return result
+    _, remaining = capture.reap()
+    result["remaining_processes"] = remaining
     return result
+
+
+def read_ready(opened, ready, gate, reporter):
+    """Read and feed events from ready devices, handling disconnect and resync."""
+    for reader in list(opened):
+        if reader.fd not in ready:
+            continue
+        try:
+            events = reader.read()
+        except DeviceDisconnected:
+            reporter.warn(f"disconnected {reader.path}")
+            opened.remove(reader)
+            gate.disconnected()
+            continue
+        except OSError as error:
+            if error.errno not in (errno.ENODEV, errno.EIO, errno.ENXIO):
+                raise
+            reporter.warn(f"disconnected {reader.path}: {error.strerror or error}")
+            opened.remove(reader)
+            gate.disconnected()
+            continue
+        for event in events:
+            if event is RESYNC:
+                try:
+                    held = held_keys(reader.fd)
+                except OSError as error:
+                    # Unknown state must fail closed, not look like no keys held.
+                    reporter.warn(f"resync-failed {reader.path}: "
+                                  f"{error.strerror or error}")
+                    gate.fail_closed("resync-failed")
+                    continue
+                gate.resync_device(reader.path, held)
+                continue
+            gate.feed(event, reader.path)
 
 
 def wait_for_readiness(readers, gate, timeout, reporter, *, command=None,
                        capture_timeout=30, log=None, grab=False,
                        select_fn=select.select, clock=time.monotonic,
-                       sleep_fn=time.sleep, capture=run_capture):
+                       sleep_fn=time.sleep, capture_factory=Capture):
     grabbed = []
     opened = list(readers)
+    session = None
     try:
         if grab:
             for reader in readers:
@@ -432,92 +592,87 @@ def wait_for_readiness(readers, gate, timeout, reporter, *, command=None,
                 else:
                     grabbed.append(reader.fd)
         deadline = clock() + timeout
-        while gate.state not in TERMINAL_STATES:
+        while True:
             now = clock()
+            # Monitor the owned capture first so a capture that already exited
+            # is reported as complete rather than as a late cancellation.
+            if session is not None:
+                returncode = session.poll()
+                if returncode is not None:
+                    _, remaining = session.reap()
+                    if remaining:
+                        reporter.state("capture-failed", "left-live-processes")
+                        return 4
+                    if returncode != 0:
+                        reporter.state("capture-failed", f"exit-{returncode}")
+                        return 4
+                    reporter.state("complete", "capture-finished")
+                    return 0
+                if session.expired(now):
+                    session.stop()
+                    reporter.state("capture-failed", "timeout")
+                    return 4
+            if gate.state == "cancelled":
+                if session is not None:
+                    session.stop()
+                return 2
+            if gate.state == "timeout":
+                return 3
+            if gate.state == "authorized":
+                if not command:
+                    return 0
+                if not gate.capture_started:
+                    reporter.state("capturing", "single-capture-command")
+                    session = capture_factory(command, capture_timeout, log)
+                    session.start(clock)
+                    gate.capture_started = True
+                    continue
+            # Compute the wait bound; keep polling quickly while capturing.
             if gate.state in ("discovering", "waiting"):
                 if now >= deadline:
                     gate.expire()
-                    break
+                    return 3
                 wait = deadline - now
+            elif gate.state == "settling":
+                wait = (None if gate.settle_deadline is None
+                        else gate.settle_deadline - now)
             else:
                 wait = None
-            if gate.state == "settling":
-                remaining = (None if gate.settle_deadline is None
-                             else gate.settle_deadline - now)
-                if remaining is not None and remaining <= 0:
-                    gate.tick(now)
-                    continue
-                wait = remaining if wait is None else min(wait, remaining)
+            if session is not None:
+                wait = 0.2 if wait is None else min(wait, 0.2)
+            if wait is not None and wait < 0:
+                wait = 0
             fds = [reader.fd for reader in opened]
             if not fds:
-                sleep_fn(min(0.2, wait if wait else 0.2))
+                delay = (0.1 if session is not None
+                         else 0.2 if wait is None else min(0.2, wait))
+                sleep_fn(delay)
                 gate.tick(clock())
                 continue
             try:
                 ready, _, _ = select_fn(fds, [], [], wait)
             except InterruptedError:
-                continue
-            if not ready:
-                gate.tick(clock())
-                continue
-            for reader in list(opened):
-                if reader.fd not in ready:
-                    continue
+                ready = []
+            if ready:
+                read_ready(opened, ready, gate, reporter)
+            # At countdown expiry, drain anything already pending so a
+            # cancellation or input loss cannot be missed before capture starts.
+            if gate.state == "settling":
                 try:
-                    events = reader.read()
-                except DeviceDisconnected:
-                    reporter.warn(f"disconnected {reader.path}")
-                    opened.remove(reader)
-                    gate.disconnected()
-                    continue
-                except OSError as error:
-                    if error.errno not in (errno.ENODEV, errno.EIO, errno.ENXIO):
-                        raise
-                    reporter.warn(f"disconnected {reader.path}: "
-                                  f"{error.strerror or error}")
-                    opened.remove(reader)
-                    gate.disconnected()
-                    continue
-                for event in events:
-                    gate.feed(event)
-                    if event is SYN_DROPPED and gate.state in ("discovering", "waiting"):
-                        try:
-                            gate.resync(held_keys(reader.fd))
-                        except OSError:
-                            pass
-                gate.tick(clock())
-            if gate.state == "authorized":
-                break
-        if gate.state == "authorized" and command:
-            reporter.state("capturing", "single-capture-command")
-            result = capture(command, capture_timeout, log)
-            if result["timed_out"]:
-                reporter.state("capture-failed", "timeout")
-                return 4
-            if result["remaining_processes"]:
-                reporter.state("capture-failed", "left-live-processes")
-                return 4
-            if result["returncode"] != 0:
-                reporter.state("capture-failed", f"exit-{result['returncode']}")
-                return 4
-            reporter.state("complete", "capture-finished")
-        return EXIT_CODES.get(gate.state, 4)
+                    pending, _, _ = select_fn(fds, [], [], 0)
+                except InterruptedError:
+                    pending = []
+                if pending:
+                    read_ready(opened, pending, gate, reporter)
+            gate.tick(clock())
     finally:
+        if session is not None:
+            session.stop()
         for fd in grabbed:
             try:
                 set_grab(fd, False)
             except OSError:
                 reporter.warn("exclusive-grab-release-failed")
-
-
-def initial_held(devices):
-    held = set()
-    for device in devices:
-        try:
-            held |= held_keys(device.fd)
-        except OSError:
-            pass
-    return held
 
 
 def normalize_command(command):
@@ -560,11 +715,14 @@ def main(argv=None):
                         notify=args.notify, quiet=args.quiet)
     reporter.state("discovering", f"dev-root={args.dev_root}")
     paths = sorted(Path(args.dev_root).glob("event*"))
-    devices = open_capable(paths)
-    reporter.warn(f"capable-devices={len(devices)}")
+    opened_devices = open_capable(paths)
+    reporter.warn(f"capable-devices={len(opened_devices)}")
+    held_by_device, usable, unknown = probe_initial_state(opened_devices)
+    for device in unknown:
+        reporter.warn(f"initial-state-unknown {device.path}: excluded from authorization")
     gate = Gate(settle=args.settle, on_state=reporter.state)
-    gate.resync(initial_held(devices))
-    readers = [EventReader(device.fd, device.path) for device in devices]
+    gate.resync(held_by_device)
+    readers = [EventReader(device.fd, device.path) for device in usable]
     if args.log:
         args.log.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -574,10 +732,10 @@ def main(argv=None):
             capture_timeout=args.capture_timeout,
             log=str(args.log) if args.log else None, grab=args.grab)
     except KeyboardInterrupt:
-        reporter.state("cancelled", "interrupted")
+        reporter.state("cancelled", "interrupted-before-capture")
         return 130
     finally:
-        for device in devices:
+        for device in opened_devices:
             try:
                 os.close(device.fd)
             except OSError:
