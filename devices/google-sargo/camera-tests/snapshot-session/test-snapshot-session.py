@@ -38,6 +38,15 @@ BOOTSTRAP = textwrap.dedent('''
 ''')
 
 
+def load_module():
+    """Import the helper as a module (its main() is guarded)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("pocketfed_snapshot_session", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="sargo-snapshot-")
@@ -207,6 +216,7 @@ class Base(unittest.TestCase):
                 "--pw-dump", str(self.bin / "pw-dump"),
                 "--power-state", str(self.bin / "power-state.py"),
                 "--allow-existing-compositor",
+                "--no-private-system-heap",
                 "--settle", "0",
                 "--retry-interval", "1",
                 "--shutter-retries", "3",
@@ -393,6 +403,49 @@ class SnapshotSessionTests(Base):
         self.assertFalse(report["dbus_run_session"])
         self.assertEqual(report["shutter_presses"], 1)
         self.assert_all_gone()
+
+    def test_wireplumber_rules_disable_front_camera_by_default(self):
+        counts = self.root / "power-count-rules"
+        result = self.run_session(
+            self.out,
+            env=self.base_env(STUB_JPEG_AFTER="1", STUB_POWER_COUNT=str(counts)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = self.read_result(self.out)
+        self.assertEqual(report["disabled_nodes"],
+                         ["libcamera_input._base_soc_0_cci_ac4a000_i2c-bus_1_camera_1a"])
+        self.assertFalse(report["private_system_heap"])
+        rules = Path(report["wireplumber_rules"])
+        self.assertTrue(rules.is_file())
+        self.assertEqual(rules.stat().st_mode & 0o777, 0o600)
+        text = rules.read_text()
+        self.assertIn("monitor.libcamera.rules", text)
+        self.assertIn('node.name = "libcamera_input._base_soc_0_cci_ac4a000_i2c-bus_1_camera_1a"', text)
+        self.assertIn("node.disabled = true", text)
+        self.assertTrue(str(rules).startswith(str(self.out / "runtime" / "config")))
+        self.assert_all_gone()
+
+    def test_empty_disable_node_writes_no_rules(self):
+        counts = self.root / "power-count-norules"
+        result = self.run_session(
+            self.out, extra=("--disable-node", ""),
+            env=self.base_env(STUB_JPEG_AFTER="1", STUB_POWER_COUNT=str(counts)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = self.read_result(self.out)
+        self.assertEqual(report["disabled_nodes"], [])
+        self.assertIsNone(report["wireplumber_rules"])
+        self.assert_all_gone()
+
+    def test_system_heap_command_shape(self):
+        module = load_module()
+        command = module.system_heap_command(["wireplumber"], heap="/dev/null",
+                                             unshare="/usr/bin/unshare")
+        info = os.stat("/dev/null")
+        self.assertEqual(command[:7], ["/usr/bin/unshare", "--mount", "--propagation",
+                                       "private", "--", "sh", "-ec"])
+        self.assertEqual(command[-3:], [str(os.major(info.st_rdev)),
+                                        str(os.minor(info.st_rdev)), "wireplumber"])
+        with self.assertRaises(module.SessionError):
+            module.system_heap_command(["wireplumber"], heap=str(self.out))
 
 
 if __name__ == "__main__":

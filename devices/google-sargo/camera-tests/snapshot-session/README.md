@@ -90,6 +90,15 @@ python3 ../wait-for-ready.py --timeout 180 --settle 2 --capture-timeout 300 \
 | `--phoc` / `--pipewire` / `--wireplumber` / `--snapshot` / `--wtype` / `--pw-dump` / `--power-state` / `--magick` | Override tools. A bare name is resolved on `PATH`; an explicit path must be a file. |
 | `--allow-existing-compositor` | Skip the phoc/phosh-in-use refusal. |
 
+Two more lessons from the second native run (2026-09-15): Snapshot picked the
+front camera node first, and libcamera's software ISP inside WirePlumber failed
+its DMA-buffer allocation on a CMA heap. The helper therefore writes a private
+WirePlumber fragment (`monitor.libcamera.rules`, `node.disabled = true`) for the
+front node (`--disable-node`, repeatable, empty string disables nothing) and runs
+WirePlumber under `unshare --mount` with only `/dev/dma_heap/system` visible
+(`--private-system-heap`, default; `--no-private-system-heap` opts out), the same
+trick as `../cam-system-heap`.
+
 Pass `--no-dbus` on the phone: a private session bus auto-activates
 `xdg-desktop-portal`, Snapshot then takes the portal camera path, and this
 standalone WirePlumber grants that portal remote no camera, so Snapshot reports

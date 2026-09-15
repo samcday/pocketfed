@@ -174,6 +174,52 @@ def libcamera_env(runtime, softisp_mode, libcamera_log):
     return env
 
 
+DEFAULT_FRONT_CAMERA_NODE = "libcamera_input._base_soc_0_cci_ac4a000_i2c-bus_1_camera_1a"
+SYSTEM_HEAP = "/dev/dma_heap/system"
+
+# Executed by `unshare --mount`: hide every DMA heap except the system heap so
+# libcamera's software ISP (running inside WirePlumber) cannot pick the small
+# CMA heaps that fail allocation on Sargo. Mirrors ../cam-system-heap.
+HEAP_NAMESPACE_SCRIPT = (
+    'mount -t tmpfs -o mode=0700 tmpfs /dev/dma_heap && '
+    'mknod -m 0600 /dev/dma_heap/system c "$1" "$2" && shift 2 && exec "$@"'
+)
+
+
+def write_wireplumber_rules(config_home, disabled_nodes):
+    """Write a private WirePlumber fragment that disables the given nodes.
+
+    WirePlumber 0.5 applies ``monitor.libcamera.rules`` to node properties
+    before ``create-node.lua`` runs, so a matched ``node.disabled = true`` means
+    the node is never exported and Snapshot cannot pick it as its default.
+    """
+    fragment_dir = config_home / "wireplumber" / "wireplumber.conf.d"
+    fragment_dir.mkdir(mode=0o700, parents=True)
+    matches = "".join(
+        f'    {{ matches = [ {{ node.name = "{name}" }} ]\n'
+        f'      actions = {{ update-props = {{ node.disabled = true }} }} }}\n'
+        for name in disabled_nodes)
+    text = "monitor.libcamera.rules = [\n" + matches + "]\n"
+    path = fragment_dir / "90-pocketfed-snapshot-session.conf"
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as handle:
+        handle.write(text)
+    return path
+
+
+def system_heap_command(command, heap=SYSTEM_HEAP, unshare="unshare"):
+    """Wrap a command so it sees only the system DMA heap (root only)."""
+    try:
+        info = os.stat(heap)
+    except OSError as error:
+        raise SessionError(f"system DMA heap unavailable: {heap}: {error}") from error
+    if not stat.S_ISCHR(info.st_mode):
+        raise SessionError(f"{heap} is not a character device")
+    return [unshare, "--mount", "--propagation", "private", "--", "sh", "-ec",
+            HEAP_NAMESPACE_SCRIPT, "pocketfed-snapshot-heap",
+            str(os.major(info.st_rdev)), str(os.minor(info.st_rdev)), *command]
+
+
 NO_BUS_ADDRESS = "unix:path=/nonexistent/pocketfed-snapshot-no-bus"
 
 
@@ -492,10 +538,23 @@ def resolve_tools(args):
         raise SessionError("missing required tools: " + ", ".join(missing))
     resolved["magick"] = resolve_tool(args.magick)
     resolved["dbus"] = None if args.no_dbus else shutil.which("dbus-run-session")
+    resolved["unshare"] = None
+    if args.private_system_heap:
+        resolved["unshare"] = resolve_tool(args.unshare)
+        if resolved["unshare"] is None:
+            raise SessionError(f"missing required tools: unshare={args.unshare}")
     return resolved
 
 
+def disabled_nodes(value):
+    """Default to the front camera; an empty entry disables nothing."""
+    if value is None:
+        return [DEFAULT_FRONT_CAMERA_NODE]
+    return [name for name in value if name]
+
+
 def run_session(args, reporter):
+    args.disable_node = disabled_nodes(args.disable_node)
     output = Path(args.output).resolve()
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     runtime = output / "runtime"
@@ -534,6 +593,9 @@ def run_session(args, reporter):
         "camera_released": None,
         "release_error": None,
         "dbus_run_session": False,
+        "wireplumber_rules": None,
+        "private_system_heap": False,
+        "disabled_nodes": list(args.disable_node),
         "phoc": None,
         "pipewire": None,
         "wireplumber": None,
@@ -598,8 +660,20 @@ def run_session(args, reporter):
         pipewire, pipewire_stream = start_process(
             [tools["pipewire"]], output / "pipewire.log", pipeline)
         children.append(("pipewire", pipewire, pipewire_stream))
+        wireplumber_env = dict(pipeline)
+        if args.disable_node:
+            config_home = runtime / "config"
+            config_home.mkdir(mode=0o700)
+            rules = write_wireplumber_rules(config_home, args.disable_node)
+            report["wireplumber_rules"] = str(rules)
+            wireplumber_env["XDG_CONFIG_HOME"] = str(config_home)
+        wireplumber_command = [tools["wireplumber"]]
+        if args.private_system_heap:
+            wireplumber_command = system_heap_command(
+                wireplumber_command, unshare=tools["unshare"])
+            report["private_system_heap"] = True
         wireplumber, wireplumber_stream = start_process(
-            [tools["wireplumber"]], output / "wireplumber.log", pipeline)
+            wireplumber_command, output / "wireplumber.log", wireplumber_env)
         children.append(("wireplumber", wireplumber, wireplumber_stream))
 
         reporter.state("camera-node", args.camera_node)
@@ -775,6 +849,21 @@ def build_parser():
                         help="optional ImageMagick used to measure the JPEG")
     parser.add_argument("--allow-existing-compositor", action="store_true",
                         help="do not refuse when phoc/phosh is already running")
+    parser.add_argument("--disable-node", action="append",
+                        default=None, metavar="NODE_NAME",
+                        help="WirePlumber libcamera node.name to disable before "
+                             "Snapshot enumerates (repeatable; default: the "
+                             "front camera, so the rear node is Snapshot's only "
+                             "choice); pass an empty string to disable nothing")
+    parser.add_argument("--private-system-heap", dest="private_system_heap",
+                        action="store_true", default=True,
+                        help="run WirePlumber in a mount namespace exposing only "
+                             "/dev/dma_heap/system (default; needs root)")
+    parser.add_argument("--no-private-system-heap", dest="private_system_heap",
+                        action="store_false",
+                        help="let libcamera choose any DMA heap")
+    parser.add_argument("--unshare", default="unshare",
+                        help="unshare tool for the private heap namespace")
     parser.add_argument("--no-dbus", action="store_true",
                         help="run snapshot without a session bus so its portal "
                              "request fails fast and it enumerates PipeWire "
