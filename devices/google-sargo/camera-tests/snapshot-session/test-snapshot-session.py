@@ -109,7 +109,8 @@ class Base(unittest.TestCase):
                 print(json.dumps([{
                     "id": 42,
                     "type": "PipeWire:Interface:Node",
-                    "info": {"props": {"media.class": "Video/Source",
+                    "info": {"state": os.environ.get("STUB_NODE_STATE", "running"),
+                             "props": {"media.class": "Video/Source",
                                        "node.name": name}},
                 }]))
             sys.exit(0)
@@ -472,6 +473,28 @@ class SnapshotSessionTests(Base):
         module = load_module()
         with self.assertRaises(module.SessionError):
             module.set_lens_position("/bin/true", "/dev/null", 5000, self.root / "l.log", {})
+
+    def test_stream_never_runs_fails_before_shutter(self):
+        counts = self.root / "power-count-norun"
+        result = self.run_session(
+            self.out, extra=("--stream-timeout", "2"),
+            env=self.base_env(STUB_NODE_STATE="suspended", STUB_JPEG_AFTER="1",
+                              STUB_POWER_COUNT=str(counts)))
+        self.assertNotEqual(result.returncode, 0)
+        report = self.read_result(self.out)
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["shutter_presses"], 0)
+        self.assertIn("never reached running", report["error"])
+        self.assertIs(report["camera_released"], True)
+        self.assert_all_gone()
+
+    def test_lens_failure_text_is_an_error(self):
+        module = load_module()
+        fake = self.bin / "v4l2-ctl-fail"
+        fake.write_text("#!/bin/sh\necho 'Failed to open /dev/v4l-subdev19: Connection timed out'\nexit 0\n")
+        fake.chmod(0o755)
+        with self.assertRaises(module.SessionError):
+            module.set_lens_position(str(fake), "/dev/null", 3072, self.root / "l2.log", {})
 
 
 if __name__ == "__main__":

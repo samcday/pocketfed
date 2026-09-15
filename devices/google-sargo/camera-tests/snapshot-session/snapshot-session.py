@@ -335,6 +335,52 @@ def wait_for_camera_node(args, processes, pw_dump, env, deadline, clock=time.mon
         f"camera node {args.camera_node!r} did not appear within {args.node_timeout:g}s")
 
 
+def node_state(document, node_id):
+    """Return the PipeWire node state string for ``node_id`` from a pw-dump."""
+    if not isinstance(document, list):
+        return None
+    for entry in document:
+        if isinstance(entry, dict) and entry.get("id") == node_id \
+                and entry.get("type") == "PipeWire:Interface:Node":
+            info = entry.get("info")
+            return info.get("state") if isinstance(info, dict) else None
+    return None
+
+
+def wait_for_node_running(node_id, processes, pw_dump, env, timeout, deadline,
+                          clock=time.monotonic):
+    """Poll pw-dump until the camera node is ``running`` (a client streams).
+
+    Snapshot's viewfinder only becomes READY once its pipeline plays, and its
+    take-picture action disables itself before checking readiness, so a press
+    that lands early leaves the shutter dead for the rest of the run. The lens
+    actuator also only powers up once the camera streams (its I2C bus is off
+    while idle), so the focus write waits for the same condition.
+    """
+    end = min(deadline, clock() + timeout)
+    state = None
+    while clock() < end:
+        for name, process in processes:
+            if process.poll() is not None:
+                raise SessionError(
+                    f"{name} exited with {process.returncode} before the stream ran")
+        try:
+            result = subprocess.run(
+                [pw_dump], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, timeout=min(10.0, max(0.1, end - clock())), check=False)
+        except subprocess.TimeoutExpired:
+            continue
+        if result.returncode == 0:
+            try:
+                state = node_state(json.loads(result.stdout), node_id)
+            except json.JSONDecodeError:
+                state = None
+            if state == "running":
+                return state
+        time.sleep(NODE_POLL_INTERVAL)
+    raise SessionError(f"camera node {node_id} never reached running (last: {state})")
+
+
 def newest_jpeg(camera_dir):
     """Return the newest ``*.jpeg`` in the Camera directory, or None."""
     newest = None
@@ -573,9 +619,10 @@ def set_lens_position(v4l2_ctl, subdev, position, log_path, env):
     descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     with os.fdopen(descriptor, "ab") as handle:
         handle.write(result.stdout)
-    if result.returncode != 0:
+    if result.returncode != 0 or b"Failed" in result.stdout or b"error" in result.stdout.lower():
         raise SessionError(f"lens position {position} on {subdev} failed "
-                           f"(rc={result.returncode})")
+                           f"(rc={result.returncode}): "
+                           f"{result.stdout.decode(errors='replace').strip()[:200]}")
     return result.returncode
 
 
@@ -627,6 +674,8 @@ def run_session(args, reporter):
         "release_error": None,
         "dbus_run_session": False,
         "wireplumber_rules": None,
+        "stream_state": None,
+        "stream_timeout": args.stream_timeout,
         "lens_position": args.lens_position,
         "lens_subdev": None,
         "lens_rc": None,
@@ -720,6 +769,22 @@ def run_session(args, reporter):
         report["camera_node_name"] = node["name"]
         reporter.state("camera-node-ready", f"id={node['id']} name={node['name']}")
 
+        command = build_snapshot_command(tools["snapshot"], tools["dbus"])
+        report["dbus_run_session"] = tools["dbus"] is not None
+        reporter.state("snapshot-start", tools["snapshot"])
+        snapshot, snapshot_stream = start_process(
+            command, output / "snapshot.log",
+            snapshot_env(runtime, args.socket, home, args.softisp_mode,
+                         args.libcamera_log, args.no_dbus))
+        children.append(("snapshot", snapshot, snapshot_stream))
+
+        reporter.state("stream-wait", f"node {node['id']} running")
+        report["stream_state"] = wait_for_node_running(
+            node["id"], [("pipewire", pipewire), ("wireplumber", wireplumber),
+                         ("snapshot", snapshot)],
+            tools["pw_dump"], pipeline, args.stream_timeout, deadline)
+        reporter.state("stream-running")
+
         if args.lens_position is not None:
             subdev = args.lens_subdev or find_lens_subdev()
             if subdev is None:
@@ -729,15 +794,6 @@ def run_session(args, reporter):
             report["lens_rc"] = set_lens_position(
                 tools["v4l2_ctl"], subdev, args.lens_position,
                 output / "lens.log", pipeline)
-
-        command = build_snapshot_command(tools["snapshot"], tools["dbus"])
-        report["dbus_run_session"] = tools["dbus"] is not None
-        reporter.state("snapshot-start", tools["snapshot"])
-        snapshot, snapshot_stream = start_process(
-            command, output / "snapshot.log",
-            snapshot_env(runtime, args.socket, home, args.softisp_mode,
-                         args.libcamera_log, args.no_dbus))
-        children.append(("snapshot", snapshot, snapshot_stream))
 
         if args.settle > 0:
             pause = min(deadline, clock() + args.settle) - clock()
@@ -910,6 +966,9 @@ def build_parser():
                         help="let libcamera choose any DMA heap")
     parser.add_argument("--unshare", default="unshare",
                         help="unshare tool for the private heap namespace")
+    parser.add_argument("--stream-timeout", type=float, default=60,
+                        help="seconds to wait for the camera node to report a "
+                             "running stream after Snapshot starts (1..300, default 60)")
     parser.add_argument("--lens-position", type=int, default=None, metavar="DAC",
                         help="set the rear lens focus_absolute (0..4095) through "
                              "v4l2-ctl once the camera node is up; the sweep on "
@@ -929,6 +988,8 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if not 1 <= args.stream_timeout <= 300:
+        raise SystemExit("--stream-timeout must be 1..300")
     if not 0 <= args.settle <= 120:
         raise SystemExit("--settle must be 0..120")
     if not 1 <= args.shutter_retries <= 60:
