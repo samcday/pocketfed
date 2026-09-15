@@ -90,7 +90,13 @@ python3 ../wait-for-ready.py --timeout 180 --settle 2 --capture-timeout 300 \
 | `--phoc` / `--pipewire` / `--wireplumber` / `--snapshot` / `--wtype` / `--pw-dump` / `--power-state` / `--magick` | Override tools. A bare name is resolved on `PATH`; an explicit path must be a file. |
 | `--allow-existing-compositor` | Skip the phoc/phosh-in-use refusal. |
 
-`dbus-run-session` is used to give Snapshot a private session bus when it is on
+Pass `--no-dbus` on the phone: a private session bus auto-activates
+`xdg-desktop-portal`, Snapshot then takes the portal camera path, and this
+standalone WirePlumber grants that portal remote no camera, so Snapshot reports
+"no camera found" (observed on test-sargo, 2026-09-15). Without a bus the portal
+request fails fast and Snapshot enumerates PipeWire directly.
+
+`dbus-run-session` is otherwise used to give Snapshot a private session bus when it is on
 `PATH`; otherwise the launcher runs Snapshot with no bus, which is supported
 because Snapshot falls back to the direct PipeWire provider.
 

@@ -174,8 +174,19 @@ def libcamera_env(runtime, softisp_mode, libcamera_log):
     return env
 
 
-def snapshot_env(runtime, socket, home, softisp_mode, libcamera_log):
-    """Snapshot's private Wayland, HOME and GSettings environment."""
+NO_BUS_ADDRESS = "unix:path=/nonexistent/pocketfed-snapshot-no-bus"
+
+
+def snapshot_env(runtime, socket, home, softisp_mode, libcamera_log,
+                 no_dbus=False):
+    """Snapshot's private Wayland, HOME and GSettings environment.
+
+    With ``no_dbus`` the bus address points at a socket that cannot exist, so
+    Snapshot's portal request fails immediately (not ``NotAllowed``) and it
+    falls back to the direct PipeWire device provider instead of letting a
+    session bus auto-activate xdg-desktop-portal, whose camera remote is not
+    granted by this standalone WirePlumber.
+    """
     env = libcamera_env(runtime, softisp_mode, libcamera_log)
     env.update({
         "HOME": str(home),
@@ -183,6 +194,8 @@ def snapshot_env(runtime, socket, home, softisp_mode, libcamera_log):
         "GDK_BACKEND": "wayland",
         "GSETTINGS_BACKEND": "memory",
     })
+    if no_dbus:
+        env["DBUS_SESSION_BUS_ADDRESS"] = NO_BUS_ADDRESS
     return env
 
 
@@ -478,7 +491,7 @@ def resolve_tools(args):
     if missing:
         raise SessionError("missing required tools: " + ", ".join(missing))
     resolved["magick"] = resolve_tool(args.magick)
-    resolved["dbus"] = shutil.which("dbus-run-session")
+    resolved["dbus"] = None if args.no_dbus else shutil.which("dbus-run-session")
     return resolved
 
 
@@ -603,7 +616,7 @@ def run_session(args, reporter):
         snapshot, snapshot_stream = start_process(
             command, output / "snapshot.log",
             snapshot_env(runtime, args.socket, home, args.softisp_mode,
-                         args.libcamera_log))
+                         args.libcamera_log, args.no_dbus))
         children.append(("snapshot", snapshot, snapshot_stream))
 
         if args.settle > 0:
@@ -618,7 +631,7 @@ def run_session(args, reporter):
         presses, photo, last_wtype = run_shutter(
             args, tools["wtype"],
             snapshot_env(runtime, args.socket, home, args.softisp_mode,
-                         args.libcamera_log),
+                         args.libcamera_log, args.no_dbus),
             camera_dir, snapshot, deadline, reporter)
         report["shutter_presses"] = presses
         if photo is None:
@@ -762,6 +775,11 @@ def build_parser():
                         help="optional ImageMagick used to measure the JPEG")
     parser.add_argument("--allow-existing-compositor", action="store_true",
                         help="do not refuse when phoc/phosh is already running")
+    parser.add_argument("--no-dbus", action="store_true",
+                        help="run snapshot without a session bus so its portal "
+                             "request fails fast and it enumerates PipeWire "
+                             "directly (a bus auto-activates xdg-desktop-portal, "
+                             "whose camera remote this WirePlumber does not grant)")
     return parser
 
 

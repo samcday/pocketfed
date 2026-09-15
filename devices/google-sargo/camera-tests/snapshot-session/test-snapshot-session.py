@@ -382,6 +382,18 @@ class SnapshotSessionTests(Base):
                 self.assertNotEqual(result.returncode, 0,
                                     f"accepted invalid args: {args}")
 
+    def test_no_dbus_skips_bus_and_sets_dead_address(self):
+        counts = self.root / "power-count-nodbus"
+        result = self.run_session(
+            self.out, extra=("--no-dbus",),
+            env=self.base_env(STUB_JPEG_AFTER="1", STUB_POWER_COUNT=str(counts)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = self.read_result(self.out)
+        self.assertEqual(report["status"], "passed")
+        self.assertFalse(report["dbus_run_session"])
+        self.assertEqual(report["shutter_presses"], 1)
+        self.assert_all_gone()
+
 
 if __name__ == "__main__":
     unittest.main()
