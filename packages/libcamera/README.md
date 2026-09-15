@@ -39,8 +39,17 @@ corrects the glob path only and does not verify module signatures.
 
 Patch 0001 adds the pinned postmarketOS IMX363 tuning file; see
 [tuning provenance](tuning-provenance.md). Patch 0002 adds optional bounded
-saving to qcam; see [qcam trial options](qcam-bounded-save.md). The completed
-`.native.1` build contains only patch 0001. Image quality remains unvalidated.
+saving to qcam; see [qcam trial options](qcam-bounded-save.md). Patch 0003
+centres the software-ISP statistics window in the EGL debayer path:
+`DebayerEGL::configure()` anchored the window at (0, 0) of the raw frame while
+feeding the whole buffer to `SwStatsCpu::processFrame()`, so with
+`LIBCAMERA_SOFTISP_MODE=gpu` AGC and AWB measured only the top-left corner of
+the sensor (observed as exposure walking up on a blown-out frame); the CPU path
+feeds lines from inside the centred window and is unaffected. Upstream master
+still carries the bug; the patch is a candidate for submission. `.native.2`
+(patches 0001 and 0002) is the accepted trial stack; `.native.5` (all three,
+IPA signatures verified) was built in an aarch64 container and is not yet
+trialled on the phone.
 Sensor gain conversion, delays and lens mapping are unchanged.
 
 ## Phone workflow
