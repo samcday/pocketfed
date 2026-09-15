@@ -538,12 +538,45 @@ def resolve_tools(args):
         raise SessionError("missing required tools: " + ", ".join(missing))
     resolved["magick"] = resolve_tool(args.magick)
     resolved["dbus"] = None if args.no_dbus else shutil.which("dbus-run-session")
+    resolved["v4l2_ctl"] = None
+    if args.lens_position is not None:
+        resolved["v4l2_ctl"] = resolve_tool(args.v4l2_ctl)
+        if resolved["v4l2_ctl"] is None:
+            raise SessionError(f"missing required tools: v4l2-ctl={args.v4l2_ctl}")
     resolved["unshare"] = None
     if args.private_system_heap:
         resolved["unshare"] = resolve_tool(args.unshare)
         if resolved["unshare"] is None:
             raise SessionError(f"missing required tools: unshare={args.unshare}")
     return resolved
+
+
+def find_lens_subdev(name_prefix="lc898219xi", sysfs=Path("/sys/class/video4linux")):
+    """Return /dev/<subdev> of the lens actuator, or None."""
+    for entry in sorted(sysfs.glob("v4l-subdev*")):
+        try:
+            name = (entry / "name").read_text().strip()
+        except OSError:
+            continue
+        if name.startswith(name_prefix):
+            return f"/dev/{entry.name}"
+    return None
+
+
+def set_lens_position(v4l2_ctl, subdev, position, log_path, env):
+    """Set focus_absolute on the lens; libcamera keeps the actuator open/powered."""
+    if not 0 <= position <= 4095:
+        raise SessionError(f"--lens-position out of range: {position}")
+    result = subprocess.run(
+        [v4l2_ctl, "-d", subdev, "--set-ctrl", f"focus_absolute={position}"],
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
+    descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(descriptor, "ab") as handle:
+        handle.write(result.stdout)
+    if result.returncode != 0:
+        raise SessionError(f"lens position {position} on {subdev} failed "
+                           f"(rc={result.returncode})")
+    return result.returncode
 
 
 def disabled_nodes(value):
@@ -594,6 +627,9 @@ def run_session(args, reporter):
         "release_error": None,
         "dbus_run_session": False,
         "wireplumber_rules": None,
+        "lens_position": args.lens_position,
+        "lens_subdev": None,
+        "lens_rc": None,
         "private_system_heap": False,
         "disabled_nodes": list(args.disable_node),
         "phoc": None,
@@ -683,6 +719,16 @@ def run_session(args, reporter):
         report["camera_node_id"] = node["id"]
         report["camera_node_name"] = node["name"]
         reporter.state("camera-node-ready", f"id={node['id']} name={node['name']}")
+
+        if args.lens_position is not None:
+            subdev = args.lens_subdev or find_lens_subdev()
+            if subdev is None:
+                raise SessionError("lens subdevice not found for --lens-position")
+            report["lens_subdev"] = subdev
+            reporter.state("lens-position", f"{subdev} focus_absolute={args.lens_position}")
+            report["lens_rc"] = set_lens_position(
+                tools["v4l2_ctl"], subdev, args.lens_position,
+                output / "lens.log", pipeline)
 
         command = build_snapshot_command(tools["snapshot"], tools["dbus"])
         report["dbus_run_session"] = tools["dbus"] is not None
@@ -864,6 +910,15 @@ def build_parser():
                         help="let libcamera choose any DMA heap")
     parser.add_argument("--unshare", default="unshare",
                         help="unshare tool for the private heap namespace")
+    parser.add_argument("--lens-position", type=int, default=None, metavar="DAC",
+                        help="set the rear lens focus_absolute (0..4095) through "
+                             "v4l2-ctl once the camera node is up; the sweep on "
+                             "2026-09-15 found 3072 sharpest at ~30 cm")
+    parser.add_argument("--lens-subdev", default=None,
+                        help="lens V4L2 subdevice (default: the subdev whose "
+                             "name starts with lc898219xi)")
+    parser.add_argument("--v4l2-ctl", default="v4l2-ctl",
+                        help="v4l2-ctl tool used for --lens-position")
     parser.add_argument("--no-dbus", action="store_true",
                         help="run snapshot without a session bus so its portal "
                              "request fails fast and it enumerates PipeWire "

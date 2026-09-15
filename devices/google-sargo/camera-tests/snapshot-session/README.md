@@ -99,6 +99,12 @@ WirePlumber under `unshare --mount` with only `/dev/dma_heap/system` visible
 (`--private-system-heap`, default; `--no-private-system-heap` opts out), the same
 trick as `../cam-system-heap`.
 
+`--lens-position DAC` sets the rear lens `focus_absolute` through `v4l2-ctl`
+once the camera node is up (libcamera keeps the actuator open, so the value
+sticks); the 2026-09-15 sweep found 3072 sharpest for the printed target at
+about 30 cm. The simple pipeline exposes no `LensPosition` control, so this is
+the accepted manual-focus path for the trial.
+
 Pass `--no-dbus` on the phone: a private session bus auto-activates
 `xdg-desktop-portal`, Snapshot then takes the portal camera path, and this
 standalone WirePlumber grants that portal remote no camera, so Snapshot reports

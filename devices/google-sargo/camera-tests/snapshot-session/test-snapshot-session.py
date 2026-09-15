@@ -447,6 +447,32 @@ class SnapshotSessionTests(Base):
         with self.assertRaises(module.SessionError):
             module.system_heap_command(["wireplumber"], heap=str(self.out))
 
+    def test_lens_position_applied_after_node(self):
+        counts = self.root / "power-count-lens"
+        lens_log = self.root / "v4l2-ctl-calls"
+        self.write("v4l2-ctl", textwrap.dedent(f'''
+            #!/bin/sh
+            echo "$@" >> {lens_log}
+            exit 0
+        ''').lstrip(), python=False)
+        result = self.run_session(
+            self.out,
+            extra=("--lens-position", "3072", "--lens-subdev", "/dev/v4l-subdev99",
+                   "--v4l2-ctl", str(self.bin / "v4l2-ctl")),
+            env=self.base_env(STUB_JPEG_AFTER="1", STUB_POWER_COUNT=str(counts)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = self.read_result(self.out)
+        self.assertEqual(report["lens_position"], 3072)
+        self.assertEqual(report["lens_subdev"], "/dev/v4l-subdev99")
+        self.assertEqual(report["lens_rc"], 0)
+        self.assertIn("-d /dev/v4l-subdev99 --set-ctrl focus_absolute=3072", lens_log.read_text())
+        self.assert_all_gone()
+
+    def test_lens_position_range_rejected(self):
+        module = load_module()
+        with self.assertRaises(module.SessionError):
+            module.set_lens_position("/bin/true", "/dev/null", 5000, self.root / "l.log", {})
+
 
 if __name__ == "__main__":
     unittest.main()
