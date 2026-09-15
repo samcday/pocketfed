@@ -268,6 +268,41 @@ def start_private_bus(dbus_daemon, runtime, log_path, env):
     return process, stream, address
 
 
+SNAPSHOT_APP_ID = "org.gnome.Snapshot"
+
+
+def activate_toplevel(wlrctl, app_id, env, timeout, deadline, log_path,
+                      clock=time.monotonic):
+    """Focus Snapshot's toplevel through wlr-foreign-toplevel-management.
+
+    Snapshot only starts its camera once the window is active
+    (window.rs: connect_is_active_notify -> camera.start()); under a bare
+    Phoc nothing activates a new toplevel, so without this the viewfinder
+    spins forever. Waits for the toplevel to be listed, then focuses it.
+    Returns the number of list polls it took.
+    """
+    end = min(deadline, clock() + timeout)
+    polls = 0
+    with open(log_path, "ab") as handle:
+        while clock() < end:
+            polls += 1
+            result = subprocess.run(
+                [wlrctl, "toplevel", "list"], env=env, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, timeout=10)
+            handle.write(result.stdout)
+            if result.returncode == 0 and app_id.encode() in result.stdout:
+                focus = subprocess.run(
+                    [wlrctl, "toplevel", "focus", f"app_id:{app_id}"], env=env,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
+                handle.write(focus.stdout)
+                if focus.returncode != 0:
+                    raise SessionError(
+                        f"wlrctl toplevel focus failed (rc={focus.returncode})")
+                return polls
+            time.sleep(0.5)
+    raise SessionError(f"toplevel {app_id} never appeared for activation")
+
+
 def build_snapshot_command(snapshot, dbus):
     # A private session bus is optional: Snapshot's portal path degrades to the
     # direct PipeWire provider, so fall back to no bus when the wrapper is absent.
@@ -607,6 +642,11 @@ def resolve_tools(args):
         raise SessionError("missing required tools: " + ", ".join(missing))
     resolved["magick"] = resolve_tool(args.magick)
     resolved["dbus"] = None if (args.no_dbus or args.private_bus) else shutil.which("dbus-run-session")
+    resolved["wlrctl"] = None
+    if args.activate:
+        resolved["wlrctl"] = resolve_tool(args.wlrctl)
+        if resolved["wlrctl"] is None:
+            raise SessionError(f"missing required tools: wlrctl={args.wlrctl}")
     resolved["dbus_daemon"] = None
     if args.private_bus:
         resolved["dbus_daemon"] = resolve_tool(args.dbus_daemon)
@@ -702,6 +742,8 @@ def run_session(args, reporter):
         "release_error": None,
         "dbus_run_session": False,
         "private_bus": None,
+        "activate": args.activate,
+        "activate_polls": None,
         "wireplumber_rules": None,
         "stream_state": None,
         "stream_timeout": args.stream_timeout,
@@ -816,6 +858,15 @@ def run_session(args, reporter):
             snapshot_env(runtime, args.socket, home, args.softisp_mode,
                          args.libcamera_log, args.no_dbus, bus_address))
         children.append(("snapshot", snapshot, snapshot_stream))
+
+        if args.activate:
+            reporter.state("activate", SNAPSHOT_APP_ID)
+            report["activate_polls"] = activate_toplevel(
+                tools["wlrctl"], SNAPSHOT_APP_ID,
+                snapshot_env(runtime, args.socket, home, args.softisp_mode,
+                             args.libcamera_log, args.no_dbus, bus_address),
+                args.activate_timeout, deadline, output / "wlrctl.log")
+            reporter.state("activated", f"polls={report['activate_polls']}")
 
         reporter.state("stream-wait", f"node {node['id']} running")
         report["stream_state"] = wait_for_node_running(
@@ -1017,6 +1068,15 @@ def build_parser():
                              "name starts with lc898219xi)")
     parser.add_argument("--v4l2-ctl", default="v4l2-ctl",
                         help="v4l2-ctl tool used for --lens-position")
+    parser.add_argument("--activate", dest="activate", action="store_true", default=True,
+                        help="focus Snapshot's toplevel with wlrctl once it appears "
+                             "(default; Snapshot starts its camera only when active)")
+    parser.add_argument("--no-activate", dest="activate", action="store_false",
+                        help="do not focus the toplevel")
+    parser.add_argument("--activate-timeout", type=float, default=30,
+                        help="seconds to wait for the toplevel (1..120, default 30)")
+    parser.add_argument("--wlrctl", default="wlrctl",
+                        help="wlrctl tool used for --activate")
     parser.add_argument("--private-bus", action="store_true",
                         help="start a private dbus-daemon that cannot activate "
                              "services (no portal) and hand it to Snapshot, so its "
@@ -1033,6 +1093,8 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if not 1 <= args.activate_timeout <= 120:
+        raise SystemExit("--activate-timeout must be 1..120")
     if not 1 <= args.stream_timeout <= 300:
         raise SystemExit("--stream-timeout must be 1..300")
     if not 0 <= args.settle <= 120:

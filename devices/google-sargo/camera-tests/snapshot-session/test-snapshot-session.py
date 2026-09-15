@@ -67,6 +67,7 @@ class Base(unittest.TestCase):
         self.write_power_stub()
         self.write_magick_stub()
         self.write_dbus_stub()
+        self.write_wlrctl()
 
     def write(self, name, body, python=True):
         path = self.bin / name
@@ -190,6 +191,19 @@ class Base(unittest.TestCase):
             sys.exit(0)
         '''))
 
+    def write_wlrctl(self):
+        self.write("wlrctl", textwrap.dedent('''
+            import os, sys
+            log = os.environ.get("STUB_WLRCTL_LOG")
+            if log:
+                open(log, "a").write(" ".join(sys.argv[1:]) + "\\n")
+            if sys.argv[1:3] == ["toplevel", "list"]:
+                if os.environ.get("STUB_TOPLEVEL", "1") == "1":
+                    print("org.gnome.Snapshot: Camera")
+                sys.exit(0)
+            sys.exit(0)
+        '''))
+
     def write_dbus_stub(self):
         # Keep the run hermetic: exec the wrapped command without a real bus.
         self.write("dbus-run-session", textwrap.dedent('''
@@ -218,6 +232,7 @@ class Base(unittest.TestCase):
                 "--power-state", str(self.bin / "power-state.py"),
                 "--allow-existing-compositor",
                 "--no-private-system-heap",
+                "--wlrctl", str(self.bin / "wlrctl"),
                 "--settle", "0",
                 "--retry-interval", "1",
                 "--shutter-retries", "3",
@@ -516,6 +531,32 @@ class SnapshotSessionTests(Base):
         self.assertFalse(report["dbus_run_session"])
         self.assertTrue(report["private_bus"].startswith("unix:path="))
         self.assertTrue((self.pid_dir / "dbus.pid").is_file())
+        self.assert_all_gone()
+
+    def test_activation_focuses_snapshot_toplevel(self):
+        counts = self.root / "power-count-activate"
+        log = self.root / "wlrctl.log"
+        result = self.run_session(
+            self.out,
+            env=self.base_env(STUB_JPEG_AFTER="1", STUB_POWER_COUNT=str(counts),
+                              STUB_WLRCTL_LOG=str(log)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = self.read_result(self.out)
+        self.assertTrue(report["activate"])
+        self.assertEqual(report["activate_polls"], 1)
+        self.assertIn("toplevel focus app_id:org.gnome.Snapshot", log.read_text())
+        self.assert_all_gone()
+
+    def test_activation_times_out_without_toplevel(self):
+        counts = self.root / "power-count-noactivate"
+        result = self.run_session(
+            self.out, extra=("--activate-timeout", "2"),
+            env=self.base_env(STUB_TOPLEVEL="0", STUB_JPEG_AFTER="1",
+                              STUB_POWER_COUNT=str(counts)))
+        self.assertNotEqual(result.returncode, 0)
+        report = self.read_result(self.out)
+        self.assertIn("never appeared for activation", report["error"])
+        self.assertIs(report["camera_released"], True)
         self.assert_all_gone()
 
 
