@@ -104,6 +104,13 @@ camera, but that image was overexposed and cyan. `run-libcamera.py` is an older
 multi-frame PPM diagnostic. Megapixels and its packaging are retained only in
 the archived branch and are not dependencies of either libcamera path.
 
+A second visible path, [`snapshot-session/`](snapshot-session/README.md), mirrors
+the same gate and cleanup contract around GNOME Snapshot: Phoc plus
+PipeWire/WirePlumber publish the stable rear libcamera `Video/Source` node and
+Snapshot saves one JPEG after `wtype` injects the `t` shutter accelerator (facts
+cited in `out/camera-snapshot-research-20260915/report.md`). It is covered by
+host-side stub-tool tests and, like the qcam path, still needs native validation.
+
 The acceptance goal is unchanged: a useful saved JPEG of the printed target
 with a decodable QR, manual focus, plausible colour, correct orientation and
 repeated capture, reopen, reboot and suspend/release behaviour.
