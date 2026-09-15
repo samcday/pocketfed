@@ -496,6 +496,28 @@ class SnapshotSessionTests(Base):
         with self.assertRaises(module.SessionError):
             module.set_lens_position(str(fake), "/dev/null", 3072, self.root / "l2.log", {})
 
+    def test_private_bus_starts_daemon_and_passes_address(self):
+        counts = self.root / "power-count-bus"
+        self.write("dbus-daemon", textwrap.dedent('''
+            import os, socket, sys, time
+            addr = [a for a in sys.argv if a.startswith("--address=")][0].split("=", 1)[1]
+            path = addr.split("unix:path=", 1)[1]
+            open(os.path.join(os.environ["STUB_PID_DIR"], "dbus.pid"), "w").write(str(os.getpid()))
+            assert os.environ["XDG_DATA_DIRS"].endswith("no-services"), os.environ["XDG_DATA_DIRS"]
+            s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen(1)
+            while True: time.sleep(0.2)
+        '''))
+        result = self.run_session(
+            self.out, extra=("--private-bus", "--dbus-daemon", str(self.bin / "dbus-daemon")),
+            env=self.base_env(STUB_JPEG_AFTER="1", STUB_POWER_COUNT=str(counts)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = self.read_result(self.out)
+        self.assertEqual(report["status"], "passed")
+        self.assertFalse(report["dbus_run_session"])
+        self.assertTrue(report["private_bus"].startswith("unix:path="))
+        self.assertTrue((self.pid_dir / "dbus.pid").is_file())
+        self.assert_all_gone()
+
 
 if __name__ == "__main__":
     unittest.main()

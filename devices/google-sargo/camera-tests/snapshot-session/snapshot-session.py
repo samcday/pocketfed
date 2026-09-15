@@ -224,7 +224,7 @@ NO_BUS_ADDRESS = "unix:path=/nonexistent/pocketfed-snapshot-no-bus"
 
 
 def snapshot_env(runtime, socket, home, softisp_mode, libcamera_log,
-                 no_dbus=False):
+                 no_dbus=False, bus_address=None):
     """Snapshot's private Wayland, HOME and GSettings environment.
 
     With ``no_dbus`` the bus address points at a socket that cannot exist, so
@@ -242,7 +242,30 @@ def snapshot_env(runtime, socket, home, softisp_mode, libcamera_log,
     })
     if no_dbus:
         env["DBUS_SESSION_BUS_ADDRESS"] = NO_BUS_ADDRESS
+    if bus_address:
+        env["DBUS_SESSION_BUS_ADDRESS"] = bus_address
     return env
+
+
+def start_private_bus(dbus_daemon, runtime, log_path, env):
+    """Start a session bus that cannot activate any service.
+
+    ``XDG_DATA_DIRS`` for the daemon points at a directory with no
+    ``dbus-1/services``, so ``org.freedesktop.portal.Desktop`` is not
+    activatable: Snapshot's portal request then fails at once with a
+    name-has-no-owner error (not ``NotAllowed``) and it falls back to the
+    direct PipeWire device provider, while GTK still gets a bus to register
+    on. Returns (process, stream, address).
+    """
+    socket_path = runtime / "session-bus"
+    address = f"unix:path={socket_path}"
+    bus_env = dict(env)
+    bus_env["XDG_DATA_DIRS"] = str(runtime / "no-services")
+    (runtime / "no-services").mkdir(mode=0o700, exist_ok=True)
+    process, stream = start_process(
+        [dbus_daemon, "--session", "--nofork", "--nopidfile", f"--address={address}"],
+        log_path, bus_env)
+    return process, stream, address
 
 
 def build_snapshot_command(snapshot, dbus):
@@ -583,7 +606,12 @@ def resolve_tools(args):
     if missing:
         raise SessionError("missing required tools: " + ", ".join(missing))
     resolved["magick"] = resolve_tool(args.magick)
-    resolved["dbus"] = None if args.no_dbus else shutil.which("dbus-run-session")
+    resolved["dbus"] = None if (args.no_dbus or args.private_bus) else shutil.which("dbus-run-session")
+    resolved["dbus_daemon"] = None
+    if args.private_bus:
+        resolved["dbus_daemon"] = resolve_tool(args.dbus_daemon)
+        if resolved["dbus_daemon"] is None:
+            raise SessionError(f"missing required tools: dbus-daemon={args.dbus_daemon}")
     resolved["v4l2_ctl"] = None
     if args.lens_position is not None:
         resolved["v4l2_ctl"] = resolve_tool(args.v4l2_ctl)
@@ -673,6 +701,7 @@ def run_session(args, reporter):
         "camera_released": None,
         "release_error": None,
         "dbus_run_session": False,
+        "private_bus": None,
         "wireplumber_rules": None,
         "stream_state": None,
         "stream_timeout": args.stream_timeout,
@@ -769,13 +798,23 @@ def run_session(args, reporter):
         report["camera_node_name"] = node["name"]
         reporter.state("camera-node-ready", f"id={node['id']} name={node['name']}")
 
+        bus_address = None
+        if args.private_bus:
+            bus, bus_stream, bus_address = start_private_bus(
+                tools["dbus_daemon"], runtime, output / "dbus.log",
+                session_env(runtime))
+            children.append(("dbus-daemon", bus, bus_stream))
+            wait_for_socket(runtime / "session-bus", bus,
+                            min(args.startup_timeout, max(0.0, deadline - clock())))
+            report["private_bus"] = bus_address
+            reporter.state("private-bus", bus_address)
         command = build_snapshot_command(tools["snapshot"], tools["dbus"])
         report["dbus_run_session"] = tools["dbus"] is not None
         reporter.state("snapshot-start", tools["snapshot"])
         snapshot, snapshot_stream = start_process(
             command, output / "snapshot.log",
             snapshot_env(runtime, args.socket, home, args.softisp_mode,
-                         args.libcamera_log, args.no_dbus))
+                         args.libcamera_log, args.no_dbus, bus_address))
         children.append(("snapshot", snapshot, snapshot_stream))
 
         reporter.state("stream-wait", f"node {node['id']} running")
@@ -807,7 +846,7 @@ def run_session(args, reporter):
         presses, photo, last_wtype = run_shutter(
             args, tools["wtype"],
             snapshot_env(runtime, args.socket, home, args.softisp_mode,
-                         args.libcamera_log, args.no_dbus),
+                         args.libcamera_log, args.no_dbus, bus_address),
             camera_dir, snapshot, deadline, reporter)
         report["shutter_presses"] = presses
         if photo is None:
@@ -978,6 +1017,12 @@ def build_parser():
                              "name starts with lc898219xi)")
     parser.add_argument("--v4l2-ctl", default="v4l2-ctl",
                         help="v4l2-ctl tool used for --lens-position")
+    parser.add_argument("--private-bus", action="store_true",
+                        help="start a private dbus-daemon that cannot activate "
+                             "services (no portal) and hand it to Snapshot, so its "
+                             "portal request fails fast while GTK still has a bus")
+    parser.add_argument("--dbus-daemon", default="dbus-daemon",
+                        help="dbus-daemon used for --private-bus")
     parser.add_argument("--no-dbus", action="store_true",
                         help="run snapshot without a session bus so its portal "
                              "request fails fast and it enumerates PipeWire "
