@@ -138,13 +138,21 @@ class Base(unittest.TestCase):
                 0xFF, 0xD9,
             ])
             written = False
+            per_press = os.environ.get("STUB_JPEG_PER_PRESS") == "1"
+            emitted = set()
             while True:
-                if not written and counter and os.path.exists(counter):
+                if counter and os.path.exists(counter) and (per_press or not written):
                     try:
                         count = int(open(counter).read() or "0")
                     except ValueError:
                         count = 0
-                    if count >= target:
+                    if per_press and count >= target and count not in emitted:
+                        emitted.add(count)
+                        with open(os.path.join(camera, "Photo from 2026-09-15 12-00-%02d.000000.jpeg" % count), "wb") as handle:
+                            handle.write(frame)
+                        time.sleep(0.05)
+                        continue
+                    if not per_press and count >= target:
                         path = os.path.join(
                             camera, "Photo from 2026-09-15 12-00-00.000000.jpeg")
                         with open(path, "wb") as handle:
@@ -355,7 +363,7 @@ class SnapshotSessionTests(Base):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         report = self.read_result(self.out)
         self.assertEqual(report["status"], "failed")
-        self.assertIn("no JPEG", report["error"])
+        self.assertIn("0 of 1 JPEG", report["error"])
         self.assertEqual(report["shutter_presses"], 3)
         self.assertIs(report["camera_released"], True)
         self.assertEqual(report["remaining_processes"], [])
@@ -581,6 +589,24 @@ class SnapshotSessionTests(Base):
         report = self.read_result(self.out)
         self.assertIn("never appeared for activation", report["error"])
         self.assertIs(report["camera_released"], True)
+        self.assert_all_gone()
+
+    def test_multiple_photos_in_one_session(self):
+        counts = self.root / "power-count-multi"
+        result = self.run_session(
+            self.out, extra=("--photos", "3", "--photo-gap", "0"),
+            env=self.base_env(STUB_JPEG_AFTER="1", STUB_JPEG_PER_PRESS="1",
+                              STUB_POWER_COUNT=str(counts)))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        report = self.read_result(self.out)
+        self.assertEqual(report["status"], "passed")
+        self.assertEqual(report["photos"], 3)
+        self.assertEqual(report["photos_saved"], 3)
+        self.assertEqual(len(set(report["source_jpegs"])), 3)
+        self.assertEqual(len(report["photo_copies"]), 3)
+        for copy in report["photo_copies"]:
+            self.assertTrue(Path(copy).is_file())
+        self.assertTrue(Path(report["photo"]).is_file())
         self.assert_all_gone()
 
 

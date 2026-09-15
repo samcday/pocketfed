@@ -558,6 +558,84 @@ def run_shutter(args, wtype, env, camera_dir, snapshot, deadline, reporter,
     return presses, None, last_code
 
 
+def wait_for_new_jpeg(camera_dir, known, interval, deadline, clock=time.monotonic):
+    """Return a JPEG not in ``known`` once its size is stable, else None."""
+    end = min(deadline, clock() + interval)
+    candidate = None
+    while clock() < end:
+        try:
+            fresh = [path for path in camera_dir.glob("*.jpeg") if path not in known]
+        except OSError:
+            fresh = []
+        if fresh:
+            candidate = max(fresh, key=lambda path: path.stat().st_mtime)
+            break
+        time.sleep(JPEG_POLL_INTERVAL)
+    if candidate is None:
+        return None
+    try:
+        size = candidate.stat().st_size
+    except OSError:
+        return None
+    if size <= 0:
+        return None
+    pause = min(interval, max(0.0, deadline - clock()))
+    if pause:
+        time.sleep(pause)
+    try:
+        return candidate if candidate.stat().st_size == size else None
+    except OSError:
+        return None
+
+
+def run_photos(args, wtype, env, camera_dir, snapshot, deadline, reporter,
+               clock=time.monotonic):
+    """Take ``args.photos`` distinct JPEGs, each through run_shutter's retries.
+
+    Snapshot disables its shutter until the previous picture is stored, so a
+    short ``--photo-gap`` separates consecutive photos. Returns
+    (total_presses, [photo paths in order], last wtype code); the list is
+    shorter than requested when a photo never landed.
+    """
+    seen = set()
+    photos = []
+    total = 0
+    last_code = None
+    for index in range(args.photos):
+        reporter.state("photo", f"{index + 1}/{args.photos}")
+        presses = 0
+        photo = None
+        while presses < args.shutter_retries:
+            if clock() >= deadline:
+                raise SessionError("session timeout before all photos were saved")
+            if snapshot.poll() is not None:
+                raise SessionError(
+                    f"snapshot exited with {snapshot.returncode} before saving a JPEG")
+            try:
+                result = subprocess.run(
+                    [wtype, "t"], env=env, stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT, text=True,
+                    timeout=min(10.0, max(0.1, deadline - clock())), check=False)
+                last_code = result.returncode
+            except subprocess.TimeoutExpired:
+                last_code = None
+            presses += 1
+            total += 1
+            reporter.state("shutter", f"photo={index + 1} press={presses}")
+            candidate = wait_for_new_jpeg(camera_dir, seen, args.retry_interval,
+                                          deadline, clock)
+            if candidate is not None:
+                photo = candidate
+                break
+        if photo is None:
+            break
+        seen.add(photo)
+        photos.append(photo)
+        if index + 1 < args.photos and args.photo_gap > 0:
+            time.sleep(min(args.photo_gap, max(0.0, deadline - clock())))
+    return total, photos, last_code
+
+
 def jpeg_geometry(data):
     """Parse width/height and validate SOI/EOI/SOF without any third party.
 
@@ -772,6 +850,10 @@ def run_session(args, reporter):
         "node_timeout": args.node_timeout,
         "timeout": args.timeout,
         "shutter_presses": 0,
+        "photos": args.photos,
+        "photos_saved": 0,
+        "source_jpegs": [],
+        "photo_copies": [],
         "source_jpeg": None,
         "photo": None,
         "geometry": None,
@@ -944,20 +1026,32 @@ def run_session(args, reporter):
             raise SessionError("session timeout before the shutter")
 
         reporter.state("shutter")
-        presses, photo, last_wtype = run_shutter(
+        presses, photos, last_wtype = run_photos(
             args, tools["wtype"],
             snapshot_env(runtime, args.socket, home, args.softisp_mode,
                          args.libcamera_log, args.no_dbus, bus_address),
             camera_dir, snapshot, deadline, reporter)
         report["shutter_presses"] = presses
-        if photo is None:
+        report["photos_saved"] = len(photos)
+        if len(photos) < args.photos:
             raise SessionError(
-                f"snapshot saved no JPEG after {presses} shutter press(es)")
+                f"snapshot saved {len(photos)} of {args.photos} JPEG(s) "
+                f"after {presses} shutter press(es)")
+        photo = photos[-1]
 
         report["source_jpeg"] = str(photo)
+        report["source_jpegs"] = [str(item) for item in photos]
+        copies = []
+        for index, item in enumerate(photos, start=1):
+            copy = output / (f"photo-{index}.jpeg" if args.photos > 1 else "photo.jpeg")
+            shutil.copyfile(item, copy)
+            os.chmod(copy, 0o600)
+            copies.append(str(copy))
+        report["photo_copies"] = copies
         destination = output / "photo.jpeg"
-        shutil.copyfile(photo, destination)
-        os.chmod(destination, 0o600)
+        if args.photos > 1:
+            shutil.copyfile(photo, destination)
+            os.chmod(destination, 0o600)
 
         width, height, method, magick_code = measure_jpeg(tools["magick"], destination)
         report["magick"] = magick_code
@@ -1063,6 +1157,10 @@ def build_parser():
     parser.add_argument("--settle", type=int, default=DEFAULT_SETTLE,
                         help="seconds to let the window and stream start "
                              "before the first shutter press (0..120, default 8)")
+    parser.add_argument("--photos", type=int, default=1,
+                        help="distinct JPEGs to take in this session (1..20, default 1)")
+    parser.add_argument("--photo-gap", type=float, default=3,
+                        help="seconds between consecutive photos (0..30, default 3)")
     parser.add_argument("--shutter-retries", type=int, default=DEFAULT_SHUTTER_RETRIES,
                         help="shutter presses before giving up (1..60, default 5)")
     parser.add_argument("--retry-interval", type=int, default=DEFAULT_RETRY_INTERVAL,
@@ -1152,6 +1250,10 @@ def build_parser():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if not 1 <= args.photos <= 20:
+        raise SystemExit("--photos must be 1..20")
+    if not 0 <= args.photo_gap <= 30:
+        raise SystemExit("--photo-gap must be 0..30")
     if not 1 <= args.activate_timeout <= 120:
         raise SystemExit("--activate-timeout must be 1..120")
     if not 1 <= args.stream_timeout <= 300:
