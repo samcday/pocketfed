@@ -303,6 +303,41 @@ def activate_toplevel(wlrctl, app_id, env, timeout, deadline, log_path,
     raise SessionError(f"toplevel {app_id} never appeared for activation")
 
 
+def click_toplevel(ydotool, ydotoold, runtime, x, y, env, log_path):
+    """Activate the window the way a finger does: a synthetic click via uinput.
+
+    Foreign-toplevel activation alone did not make Snapshot's window active on
+    Phoc 0.57 in the standalone session, but a pointer click through libinput
+    does (observed on test-sargo, 2026-09-15). Starts ydotoold on a private
+    socket, moves the pointer to (x, y) and clicks. Returns (process, stream).
+    """
+    socket_path = runtime / "ydotool.sock"
+    daemon_env = dict(env)
+    process, stream = start_process(
+        [ydotoold, f"--socket-path={socket_path}", "--socket-perm=0600"],
+        log_path, daemon_env)
+    end = time.monotonic() + 10
+    while time.monotonic() < end and not socket_path.exists():
+        if process.poll() is not None:
+            raise SessionError(f"ydotoold exited with {process.returncode}")
+        time.sleep(0.1)
+    if not socket_path.exists():
+        raise SessionError("ydotoold socket never appeared")
+    time.sleep(1.0)  # let libinput pick up the new uinput devices
+    tool_env = dict(env)
+    tool_env["YDOTOOL_SOCKET"] = str(socket_path)
+    for command in (["mousemove", "--absolute", "-x", str(x), "-y", str(y)],
+                    ["click", "0xC0"]):
+        result = subprocess.run([ydotool, *command], env=tool_env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                timeout=10)
+        if result.returncode != 0:
+            raise SessionError(f"ydotool {command[0]} failed (rc={result.returncode}): "
+                               f"{result.stdout.decode(errors='replace')[:200]}")
+        time.sleep(0.3)
+    return process, stream
+
+
 def build_snapshot_command(snapshot, dbus):
     # A private session bus is optional: Snapshot's portal path degrades to the
     # direct PipeWire provider, so fall back to no bus when the wrapper is absent.
@@ -647,6 +682,12 @@ def resolve_tools(args):
         resolved["wlrctl"] = resolve_tool(args.wlrctl)
         if resolved["wlrctl"] is None:
             raise SessionError(f"missing required tools: wlrctl={args.wlrctl}")
+    resolved["ydotool"] = resolved["ydotoold"] = None
+    if args.activate and args.click:
+        for key in ("ydotool", "ydotoold"):
+            resolved[key] = resolve_tool(getattr(args, key))
+            if resolved[key] is None:
+                raise SessionError(f"missing required tools: {key}={getattr(args, key)}")
     resolved["dbus_daemon"] = None
     if args.private_bus:
         resolved["dbus_daemon"] = resolve_tool(args.dbus_daemon)
@@ -744,6 +785,7 @@ def run_session(args, reporter):
         "private_bus": None,
         "activate": args.activate,
         "activate_polls": None,
+        "clicked": False,
         "wireplumber_rules": None,
         "stream_state": None,
         "stream_timeout": args.stream_timeout,
@@ -867,6 +909,14 @@ def run_session(args, reporter):
                              args.libcamera_log, args.no_dbus, bus_address),
                 args.activate_timeout, deadline, output / "wlrctl.log")
             reporter.state("activated", f"polls={report['activate_polls']}")
+            if args.click:
+                reporter.state("click", f"{args.click_x},{args.click_y}")
+                ydotoold, ydotoold_stream = click_toplevel(
+                    tools["ydotool"], tools["ydotoold"], runtime,
+                    args.click_x, args.click_y, session_env(runtime),
+                    output / "ydotoold.log")
+                children.append(("ydotoold", ydotoold, ydotoold_stream))
+                report["clicked"] = True
 
         reporter.state("stream-wait", f"node {node['id']} running")
         report["stream_state"] = wait_for_node_running(
@@ -1077,6 +1127,15 @@ def build_parser():
                         help="seconds to wait for the toplevel (1..120, default 30)")
     parser.add_argument("--wlrctl", default="wlrctl",
                         help="wlrctl tool used for --activate")
+    parser.add_argument("--click", dest="click", action="store_true", default=True,
+                        help="after focusing, click the window through a uinput "
+                             "pointer (ydotool) so Snapshot's window becomes active "
+                             "(default; --no-click disables)")
+    parser.add_argument("--no-click", dest="click", action="store_false")
+    parser.add_argument("--click-x", type=int, default=540, help="click x (default 540)")
+    parser.add_argument("--click-y", type=int, default=1100, help="click y (default 1100)")
+    parser.add_argument("--ydotool", default="ydotool")
+    parser.add_argument("--ydotoold", default="ydotoold")
     parser.add_argument("--private-bus", action="store_true",
                         help="start a private dbus-daemon that cannot activate "
                              "services (no portal) and hand it to Snapshot, so its "

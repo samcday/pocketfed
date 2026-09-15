@@ -68,6 +68,7 @@ class Base(unittest.TestCase):
         self.write_magick_stub()
         self.write_dbus_stub()
         self.write_wlrctl()
+        self.write_ydotool()
 
     def write(self, name, body, python=True):
         path = self.bin / name
@@ -204,6 +205,23 @@ class Base(unittest.TestCase):
             sys.exit(0)
         '''))
 
+    def write_ydotool(self):
+        self.write("ydotoold", textwrap.dedent('''
+            import os, socket, sys, time
+            path = [a for a in sys.argv if a.startswith("--socket-path=")][0].split("=", 1)[1]
+            open(os.path.join(os.environ["STUB_PID_DIR"], "ydotoold.pid"), "w").write(str(os.getpid()))
+            s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen(1)
+            while True: time.sleep(0.2)
+        '''))
+        self.write("ydotool", textwrap.dedent('''
+            import os, sys
+            log = os.environ.get("STUB_YDOTOOL_LOG")
+            assert os.environ.get("YDOTOOL_SOCKET"), "YDOTOOL_SOCKET unset"
+            if log:
+                open(log, "a").write(" ".join(sys.argv[1:]) + "\\n")
+            sys.exit(0)
+        '''))
+
     def write_dbus_stub(self):
         # Keep the run hermetic: exec the wrapped command without a real bus.
         self.write("dbus-run-session", textwrap.dedent('''
@@ -233,6 +251,8 @@ class Base(unittest.TestCase):
                 "--allow-existing-compositor",
                 "--no-private-system-heap",
                 "--wlrctl", str(self.bin / "wlrctl"),
+                "--ydotool", str(self.bin / "ydotool"),
+                "--ydotoold", str(self.bin / "ydotoold"),
                 "--settle", "0",
                 "--retry-interval", "1",
                 "--shutter-retries", "3",
@@ -536,15 +556,19 @@ class SnapshotSessionTests(Base):
     def test_activation_focuses_snapshot_toplevel(self):
         counts = self.root / "power-count-activate"
         log = self.root / "wlrctl.log"
+        ylog = self.root / "ydotool.log"
         result = self.run_session(
             self.out,
             env=self.base_env(STUB_JPEG_AFTER="1", STUB_POWER_COUNT=str(counts),
-                              STUB_WLRCTL_LOG=str(log)))
+                              STUB_WLRCTL_LOG=str(log), STUB_YDOTOOL_LOG=str(ylog)))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         report = self.read_result(self.out)
         self.assertTrue(report["activate"])
         self.assertEqual(report["activate_polls"], 1)
         self.assertIn("toplevel focus app_id:org.gnome.Snapshot", log.read_text())
+        self.assertTrue(report["clicked"])
+        self.assertIn("click 0xC0", ylog.read_text())
+        self.assertIn("mousemove --absolute -x 540 -y 1100", ylog.read_text())
         self.assert_all_gone()
 
     def test_activation_times_out_without_toplevel(self):
