@@ -56,6 +56,36 @@ try:
         print(f"F01 device control 0x{ctl[0]:02X}: sleep_mode={sleep} ({'normal' if sleep == 0 else 'sleep' if sleep == 1 else 'reserved'}) nosleep={ctl[0] >> 2 & 1} charger={ctl[0] >> 5 & 1} report_rate={ctl[0] >> 6 & 1} configured={ctl[0] >> 7 & 1} interrupt_enable={ctl[1:].hex()}")
         q = read(f01["query"], 21)
         print(f"F01 manufacturer={q[0]} product_id={bytes(q[11:21]).decode(errors='replace').strip(chr(0))}")
+    if f01 and "--controls" in sys.argv:
+        nctrl = 13
+        c12 = fns.get(0x12)
+        if c12:
+            cregs = read(c12["ctrl"], nctrl)
+            print(f"F12 ctrl[0..{nctrl-1}] @0x{c12['ctrl']:02X}: {cregs.hex()}")
+        c01 = read(f01["ctrl"], 8)
+        print(f"F01 ctrl[0..7] @0x{f01['ctrl']:02X}: {c01.hex()}  (ctrl2 doze_interval={c01[2] if len(c01)>2 else '?'} ctrl3 wakeup_thresh={c01[3] if len(c01)>3 else '?'} ctrl4 doze_holdoff={c01[4] if len(c01)>4 else '?'})")
+    if f01 and "--reset-cmd" in sys.argv:
+        import time
+        nirq = sum(d["irqs"] for d in fns.values()); nregs = (nirq + 7) // 8
+        def counts():
+            out = {}
+            for line in open("/proc/interrupts"):
+                if "rmi4-" in line or "rmi4_i2c" in line:
+                    parts = line.split()
+                    name = parts[-1]
+                    out[name] = sum(int(x) for x in parts[1:] if x.isdigit())
+            return out
+        ok = 0
+        for i in range(10):
+            before = counts()
+            write(f01["cmd"], [0x01])
+            time.sleep(2.0)
+            after = counts()
+            delta = {k: after.get(k, 0) - before.get(k, 0) for k in set(before) | set(after)}
+            moved = {k: v for k, v in delta.items() if v}
+            if moved: ok += 1
+            print(f"  reset {i}: delta {moved or 'none'}")
+        print(f"F01 reset-cmd stimulus: {ok}/10 produced an interrupt delta")
     if f01 and "--write-test" in sys.argv:
         write(f01["ctrl"], [0x84])
         rb = read(f01["ctrl"], 1)[0]

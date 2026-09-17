@@ -18,7 +18,6 @@ run() { "$@" 2>&1 | emit; }
 mode=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^hwe\.touch=//p' | head -1)
 [ -n "$mode" ] || mode=monitor
 GPIO=/usr/libexec/hwe-touch/gpio-state
-GPIO_SAMPLE=/usr/libexec/hwe-touch/attn-sample
 GPIO_PULSE=/usr/libexec/hwe-touch/gpio-pulse
 RMI_STATUS=/usr/libexec/hwe-touch/rmi-status
 F12_POLL=/usr/libexec/hwe-touch/f12-poll
@@ -30,6 +29,11 @@ pinconf() { [ "$nogpiodbg" = 0 ] || { note "gpio debugfs skipped (hwe.nogpiodbg)
 regs_after() { grep -E "ts_1p8|ldo6|ldo14|l14|ldo13|l13" /sys/kernel/debug/regulator/regulator_summary 2>/dev/null | emit; }
 
 irq_count() { awk '/rmi4_i2c/ { s=0; for (i=2; i<=NF && $i ~ /^[0-9]+$/; i++) s+=$i; print s; f=1 } END { if (!f) print "none" }' /proc/interrupts; }
+irq_per_fn() { awk '/rmi4-|rmi4_i2c/ { s=0; for (i=2; i<=NF && $i ~ /^[0-9]+$/; i++) s+=$i; printf "%s=%s ", $NF, s } END { print "" }' /proc/interrupts; }
+key_node() { for e in /sys/devices/platform/*gpio-keys*/input/input*/event* /sys/class/input/event*/device/../name; do :; done
+    for d in /sys/class/input/input*; do
+        case "$(cat "$d/name" 2>/dev/null)" in *gpio*key*|*Volume*|*volume*|*"gpio-keys"*) b=$(basename "$d"); for e in "$d"/event*; do [ -e "$e" ] && { echo "/dev/input/$(basename "$e")"; return; }; done;; esac
+    done; echo ""; }
 nogpiodbg=$(grep -c hwe.nogpiodbg /proc/cmdline)
 gpio_state() {
     run $GPIO 3400000.pinctrl 99 125 135
@@ -46,6 +50,8 @@ event_node() {
 regs() { grep -E 'ts_1p8|ldo6|l6b|regulator-name|^ *[a-z]' /sys/kernel/debug/regulator/regulator_summary 2>/dev/null | grep -E 'ts_1p8|ldo6' | emit; }
 mount -t debugfs none /sys/kernel/debug 2>/dev/null || true
 
+section "ATTN level BEFORE any i2c access (a wedged-low line can never give another falling edge)"
+run $GPIO 3400000.pinctrl 125 99 135
 section "hwe-touch-order start mode=$mode"
 run getenforce
 note "cmdline: $(cat /proc/cmdline)"
@@ -54,7 +60,7 @@ run sh -c 'lsmod | grep -E "^(rmi_|msm |panel_samsung)"'
 run grep -E 'rmi4|a84000' /proc/interrupts
 note "rmi4_i2c irq count: $(irq_count)"
 section "device links and deferred probes for 0-0020"
-run sh -c 'ls -d /sys/bus/i2c/devices/$(touch_dev)/supplier:* 2>/dev/null; readlink /sys/bus/i2c/devices/$(touch_dev)/driver 2>/dev/null; cat /sys/kernel/debug/devices_deferred 2>/dev/null'
+run sh -c "ls -d /sys/bus/i2c/devices/$(touch_dev)/supplier:* 2>/dev/null; readlink /sys/bus/i2c/devices/$(touch_dev)/driver 2>/dev/null; cat /sys/kernel/debug/devices_deferred 2>/dev/null"
 section "gpio state at start (tlmm 99 reset, 125 attn, 135 switch; pm660 gpio12 = line 11)"
 gpio_state
 pinconf
@@ -71,7 +77,7 @@ sleep 5
 section "after panel: gpio state, interrupts, links"
 gpio_state
 run grep -E 'rmi4|a84000' /proc/interrupts
-run sh -c 'ls -d /sys/bus/i2c/devices/$(touch_dev)/supplier:* 2>/dev/null; readlink /sys/bus/i2c/devices/$(touch_dev)/driver 2>/dev/null; cat /sys/kernel/debug/devices_deferred 2>/dev/null'
+run sh -c "ls -d /sys/bus/i2c/devices/$(touch_dev)/supplier:* 2>/dev/null; readlink /sys/bus/i2c/devices/$(touch_dev)/driver 2>/dev/null; cat /sys/kernel/debug/devices_deferred 2>/dev/null"
 
 if [ "$mode" = late ]; then
     section "late: modprobe rmi_i2c now"
@@ -88,24 +94,26 @@ section "pinconf and regulators after ${mode} probe"
 pinconf
 regs_after
 section "IC registers over i2c-dev after ${mode} probe (bus $(touch_dev), $(i2c_dev))"
-rmi_status --write-test
+rmi_status --controls
 section "full regulator_summary after ${mode} probe"
 regsum
 run sh -c 'ls -lZ /dev/input; libinput list-devices 2>/dev/null | grep -A3 Synaptics | head -6'
 
 tap_windows() {
-    # $1 = label, $2 = number of 20 s windows. Each window: IRQ delta, event
-    # bytes read from the rmi input node, and ATTN (gpio125) sampled at 100 Hz.
-    section "TAP THE PANEL [$1]: $2 windows x 20 s (irq delta, event bytes, attn samples)"
+    # $1 = label, $2 = number of 20 s windows. Each window reports the per-function
+    # interrupt delta, bytes from the touch event node, and bytes from the gpio-keys
+    # node so a volume press marks the window as "a human was definitely here".
+    section "TAP THE PANEL [$1]: $2 windows x 20 s. Press a volume key in each window to mark it."
+    kn=$(key_node); note "touch node: $(event_node)  key node: ${kn:-none}"
     w=0
     while [ $w -lt "$2" ]; do
-        before=$(irq_count); ev=$(event_node)
-        if [ -n "$ev" ]; then timeout 20 dd if="$ev" bs=24 2>/dev/null | wc -c > /run/hwe-touch-bytes & else sleep 20 & fi
-        attn=$($GPIO_SAMPLE 3400000.pinctrl 125 19 100 2>&1 & HWE_I2C_DEV=$(i2c_dev) HWE_I2C_ADDR=0x20 $F12_POLL 19 10 > /run/hwe-f12 2>&1; wait $!)
+        before=$(irq_per_fn); ev=$(event_node)
+        : > /run/hwe-touch-bytes; : > /run/hwe-key-bytes
+        [ -n "$ev" ] && { timeout 20 dd if="$ev" bs=24 2>/dev/null | wc -c > /run/hwe-touch-bytes & }
+        [ -n "$kn" ] && { timeout 20 dd if="$kn" bs=24 2>/dev/null | wc -c > /run/hwe-key-bytes & }
+        HWE_I2C_DEV=$(i2c_dev) HWE_I2C_ADDR=0x20 $F12_POLL 19 100 > /run/hwe-f12 2>&1
         wait
-        f12=$(cat /run/hwe-f12 2>/dev/null)
-        bytes=$(cat /run/hwe-touch-bytes 2>/dev/null || echo na); : > /run/hwe-touch-bytes
-        note "[$1] window $w up=$(cut -d' ' -f1 /proc/uptime) irq $before -> $(irq_count) event_bytes=$bytes | $attn | $f12"
+        note "[$1] window $w up=$(cut -d' ' -f1 /proc/uptime) | irq before: $before | irq after: $(irq_per_fn) | touch_bytes=$(cat /run/hwe-touch-bytes 2>/dev/null || echo na) key_bytes=$(cat /run/hwe-key-bytes 2>/dev/null || echo na) | $(cat /run/hwe-f12 2>/dev/null)"
         w=$((w+1))
     done
 }
@@ -114,17 +122,18 @@ section "hardware reset pulse on tlmm gpio99 (1 ms low) then unbind/bind rmi4_i2
 gpio_state
 run $GPIO_PULSE 3400000.pinctrl 99 1
 sleep 0.05
-run sh -c 'echo $(touch_dev) > /sys/bus/i2c/drivers/rmi4_i2c/unbind && echo unbound; sleep 1; echo $(touch_dev) > /sys/bus/i2c/drivers/rmi4_i2c/bind && echo rebound'
+td=$(touch_dev)
+run sh -c "echo $td > /sys/bus/i2c/drivers/rmi4_i2c/unbind && echo unbound; sleep 1; echo $td > /sys/bus/i2c/drivers/rmi4_i2c/bind && echo rebound"
 sleep 3
 run sh -c 'dmesg | grep -iE "rmi4|synaptics" | tail -5'
 run grep -E 'rmi4|a84000' /proc/interrupts
 gpio_state
 section "IC registers over i2c-dev after hardware reset"
-rmi_status --write-test
+rmi_status --controls
 pinconf
 tap_windows "after-hw-reset" 6
-section "after taps"
-rmi_status
+section "after taps (write-test and reset stimulus run LAST, they mutate the IC)"
+rmi_status --controls --reset-cmd --write-test
 run grep -E 'rmi4|a84000' /proc/interrupts
 gpio_state
 run sh -c 'dmesg | grep -iE "rmi4|synaptics|avc.*input" | tail -8'
@@ -132,5 +141,5 @@ section "hwe-touch-order main report done; low-rate monitor continues"
 while :; do
     sleep 60
     ev=$(event_node)
-    note "monitor up=$(cut -d' ' -f1 /proc/uptime) irq=$(irq_count) event=${ev:-none} | $($GPIO_SAMPLE 3400000.pinctrl 125 5 100 2>&1)"
+    note "monitor up=$(cut -d' ' -f1 /proc/uptime) | $(irq_per_fn)| touch=${ev:-none} attn=$($GPIO 3400000.pinctrl 125 2>&1 | sed -n 's/.*line 125: value=\([01]\).*/\1/p')"
 done
