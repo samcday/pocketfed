@@ -15,9 +15,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use abl_exorcist_assembler::bootimg;
+use abl_exorcist_assembler::{bootimg, parse_ramdisk, rebuild_ramdisk};
 
 mod cmdline;
+mod cpio;
 
 use cmdline::LivebootCmdline;
 
@@ -53,6 +54,7 @@ struct BootArgs {
     console: Option<String>,
     cow_size: Option<String>,
     extra: Vec<String>,
+    inject_tree: Option<PathBuf>,
 }
 
 fn run_boot(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
@@ -63,6 +65,7 @@ fn run_boot(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     let mut console = None;
     let mut cow_size = None;
     let mut extra = Vec::new();
+    let mut inject_tree = None;
 
     while let Some(arg) = args.next() {
         match arg.to_str() {
@@ -75,6 +78,9 @@ fn run_boot(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
             Some("--console") => console = Some(string(take(&mut args, "--console")?)?),
             Some("--cow-size") => cow_size = Some(string(take(&mut args, "--cow-size")?)?),
             Some("--append") => extra.push(string(take(&mut args, "--append")?)?),
+            Some("--inject-tree") => {
+                inject_tree = Some(PathBuf::from(take(&mut args, "--inject-tree")?))
+            }
             Some(other) => return Err(usage(&format!("unexpected argument: {other}"))),
             None => return Err(usage("argument is not valid UTF-8")),
         }
@@ -88,6 +94,7 @@ fn run_boot(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
         console,
         cow_size,
         extra,
+        inject_tree,
     };
     build(&args)
 }
@@ -113,11 +120,17 @@ fn build(args: &BootArgs) -> Result<(), String> {
     opts.extra = args.extra.clone();
 
     let cmdline = cmdline::apply(&parsed.cmdline, &opts);
+
+    let injected = match &args.inject_tree {
+        Some(tree) => Some(inject(&template, &parsed, tree)?),
+        None => None,
+    };
+
     let image = bootimg::repack(
         &template,
         &bootimg::Repack {
             kernel: None,
-            ramdisk: None,
+            ramdisk: injected.as_deref(),
             cmdline: Some(&cmdline),
             wrap_markers: true,
         },
@@ -136,8 +149,49 @@ fn build(args: &BootArgs) -> Result<(), String> {
     println!("bytes: {}", image.len());
     println!("export_id: {}", args.export_id);
     println!("run_token: {run_token}");
+    if let Some(tree) = &args.inject_tree {
+        println!("injected: {}", tree.display());
+    }
     println!("cmdline: {cmdline}");
     Ok(())
+}
+
+/// Append a directory tree to the boot image's initramfs as a second cpio
+/// archive, and return the rebuilt ABLX ramdisk section.
+///
+/// The image's own initramfs is kept byte for byte: the kernel unpacks
+/// concatenated archives in order and later entries win, so the injected files
+/// land on top without the image's initrd being rebuilt or recompressed. That
+/// matters because the whole point of liveboot is to run the image's own initrd
+/// — rebuilding it would make the run evidence about the rebuild instead.
+fn inject(template: &[u8], parsed: &bootimg::BootImage, tree: &Path) -> Result<Vec<u8>, String> {
+    if !tree.is_dir() {
+        return Err(format!(
+            "--inject-tree is not a directory: {}",
+            tree.display()
+        ));
+    }
+
+    let container = &template[parsed.ramdisk.offset..parsed.ramdisk.offset + parsed.ramdisk.len];
+    let ramdisk = parse_ramdisk(container).map_err(|err| {
+        format!("the boot image's ramdisk is not an ABLX container, so there is nothing to inject into: {err}")
+    })?;
+
+    let entries = cpio::from_tree(tree).map_err(|err| format!("read {}: {err}", tree.display()))?;
+    if entries.is_empty() {
+        return Err(format!("--inject-tree is empty: {}", tree.display()));
+    }
+
+    let mut initrd = ramdisk.initrd.to_vec();
+    initrd.extend_from_slice(&cpio::write(&entries));
+
+    println!(
+        "inject: {} entries, initrd {} -> {} bytes",
+        entries.len(),
+        ramdisk.initrd.len(),
+        initrd.len()
+    );
+    rebuild_ramdisk(&ramdisk, &initrd).map_err(|err| format!("rebuild ABLX ramdisk: {err}"))
 }
 
 /// A token unique to this run, used to tell this boot's console output apart
@@ -184,5 +238,6 @@ fn usage(error: &str) -> String {
 fn usage_text() -> &'static str {
     "usage: pocketfed-liveboot boot --aboot PATH --export-id ID --output PATH\n\
      \x20                          [--run-token TOKEN] [--console ttyMSM0,115200n8]\n\
-     \x20                          [--cow-size 1G] [--append ARG]..."
+     \x20                          [--cow-size 1G] [--append ARG]...\n\
+     \x20                          [--inject-tree DIR]"
 }
