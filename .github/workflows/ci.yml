@@ -61,6 +61,33 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  liveboot-tool:
+    name: Test liveboot tool
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout pocketfed
+        uses: actions/checkout@v7
+        with:
+          # tools/liveboot builds against the vendored abl-exorcist assembler,
+          # currently pinned to a branch commit rather than one reachable from
+          # its default branch, so a shallow submodule fetch would not find it.
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: true
+
+      - name: Check formatting
+        run: cargo fmt --check --manifest-path tools/liveboot/Cargo.toml
+
+      - name: Lint
+        run: >-
+          cargo clippy --manifest-path tools/liveboot/Cargo.toml
+          --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --manifest-path tools/liveboot/Cargo.toml
+
   image-builder:
     name: Build image builder
     runs-on: ubuntu-24.04-arm
