@@ -1,0 +1,10 @@
+/var/home/sam/src/pocketfed/.claude/worktrees/liveboot-v2-handoff-c79c61/tools/liveboot/target/debug/deps/crc32fast-bee87704d42ff6f0.d: /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/lib.rs /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/baseline.rs /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/combine.rs /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/specialized/mod.rs /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/table.rs /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/specialized/pclmulqdq.rs
+
+/var/home/sam/src/pocketfed/.claude/worktrees/liveboot-v2-handoff-c79c61/tools/liveboot/target/debug/deps/libcrc32fast-bee87704d42ff6f0.rmeta: /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/lib.rs /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/baseline.rs /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/combine.rs /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/specialized/mod.rs /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/table.rs /var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/specialized/pclmulqdq.rs
+
+/var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/lib.rs:
+/var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/baseline.rs:
+/var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/combine.rs:
+/var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/specialized/mod.rs:
+/var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/table.rs:
+/var/home/sam/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crc32fast-1.5.2/src/specialized/pclmulqdq.rs:

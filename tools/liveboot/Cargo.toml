@@ -1,0 +1,22 @@
+[package]
+name = "pocketfed-liveboot"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Build a PocketFed liveboot image from a device image's own boot image"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[[bin]]
+name = "pocketfed-liveboot"
+path = "src/main.rs"
+
+[dependencies]
+# TODO: re-pin vendor/abl-exorcist to main once samcday/abl-exorcist#3 merges.
+# It currently tracks the claude/bootimg-api branch for `bootimg::{repack, verify}`.
+abl-exorcist-assembler = { path = "../../vendor/abl-exorcist/abl-exorcist-assembler" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
