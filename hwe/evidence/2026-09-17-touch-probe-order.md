@@ -56,6 +56,7 @@ read from the rmi input node and 100 Hz samples of the ATTN line.
 | 05-08 | 05, `hwe.touch=late`, ATTN sampled at 100 Hz | Same late probe at 95 s. Six windows: IRQ 0, 0 bytes, ATTN sampled ~1830 times per window, never low. Then a 1 ms low pulse on tlmm 99 and unbind/bind: IRQ went 0 to 3 during the re-probe (reset attention edges), then six more windows with IRQ stuck at 3, 0 bytes, ATTN never low. |
 | 08-03 | 08 (`panel = <&panel>` overlay), `hwe.touch=monitor`, `rmi_i2c` in the initrd as before | `0-0020` gained `supplier:mipi-dsi:ae94000.dsi.0`; `rmi4_i2c` probed at 42.56 s, 0.1 s after `[drm] Initialized msm` at 42.46 s, instead of at 15 s: fw_devlink held the probe until the panel bound. IRQ 0, 0 bytes, ATTN never low across six windows; hardware reset pulse plus rebind gave IRQ 3, then six more silent windows. i2c-dev dump after both probes: PDT F01/F12/F34 on page 0, device status 0x00 (no error, not unconfigured), interrupt enable 0x07, **device control 0x00** although `rmi_f01` writes 0x84 (CONFIGURED plus NOSLEEP) at probe. |
 | 08-04 | 08, `hwe.touch=monitor`, plus a userspace ctrl0 write-back test | Same ordering (rmi4 after the panel). `ts_1p8_supply` use count 1 after probe. Writing 0x84 to F01 ctrl0 from userspace reads back 0x04: the CONFIGURED bit is not readable on this firmware and the DT's `syna,nosleep-mode = <1>` means "allow sleep" (enum: 0 default, 1 off, 2 on), so ctrl0 = 0x00 is the driver's intended state, not a lost write. 12 silent windows, IRQ 0 then 3 after the reset pulse. |
+| 08-06 | 08, `hwe.touch=monitor`, full regulator summary | **First confirmed taps.** Six silent windows before the reset pulse (no taps then). Reset pulse plus rebind: IRQ 0 to 2. Sam tapped during the fourth window after the pulse: IRQ 2 to 39, 4080 bytes from the event node, F12 poll saw a finger (type 1 at 918,2127). Touch works on the stock kernel in this state (panel-ordered probe **and** a hardware reset pulse); which of the two matters is the open question. |
 | 11-01, 11-02 | fixture's own PocketFed `.11` kernel (`7.1.2-0.pocketfed.sdm670.11`), msm in the initrd, `hwe.touch=monitor` | Reference on the known-good kernel. Both runs soft-locked (`watchdog: BUG: soft lockup`, RCU stalls, a kworker in `bpf_prog_free_deferred`/`__text_poke`) right after the service read the PMIC GPIO through the character device and `/sys/kernel/debug/gpio`; the stock kernel handled the same reads fine. Rebooted over SysRq. |
 | 11-05 | `.11` kernel, PMIC GPIO/debugfs reads skipped | msm at 6.7 s, rmi4 at 8.4 s. IC registers identical to the stock kernel (PDT F01/F12/F34, status 0x00, ctrl0 0x00, interrupt enable 0x07, write-back 0x04). tlmm 99/125/135 read 1/1/0 like the stock kernel. IRQ 136 already at 30 when the service started at 71 s, then no further IRQs, ATTN never low, F12 saw no finger in the windows; 11-01 and 11-03 had 0 at the same point, so those 30 look like taps during boot rather than IC self-activity. Full `regulator_summary` saved as `out/hwe/A9/regsum-11.txt`. |
 
@@ -80,7 +81,11 @@ is dead in the late-probe or panel-ordered configurations.
   `ts_1p8_supply` state, and the regulator summaries differ only in wifi,
   Bluetooth, audio, camera and Type-C consumers that the stock profile does
   not enable (`out/hwe/A9/regsum-11.txt` vs `regsum-stock-08-06.txt`).
-- What remains untested without a finger on the glass: whether ATTN goes low
+- 08-06 proved the stock kernel can take touch: after the `panel`-ordered probe and
+  a 1 ms reset pulse plus rebind, taps produced 37 IRQs and events. Untested:
+  taps before the pulse on candidate 08 (phandle alone), and taps after the
+  pulse on candidate 05 (pulse alone). Runs 08-07 and 05-10 are prepared for that.
+- What remained untested before 08-06: whether ATTN goes low
   at all on the stock kernel (the 100 Hz sampler answers that in one tap),
   and whether the `.11` liveboot itself takes touch (11-05 counted 30 IRQs
   before the service started, which is what a few taps during boot would
