@@ -1,0 +1,9 @@
+[Unit]
+Description=HW enablement touch probe-order experiment (stock kernel liveboot)
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/hwe-touch/hwe-touch-order
+StandardOutput=journal
+StandardError=journal

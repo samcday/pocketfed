@@ -1,0 +1,136 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Touch probe-order experiment for the stock-kernel liveboot (pocketfed #64).
+# Mode comes from the kernel command line:
+#   hwe.touch=late     rmi_i2c is kept out of the initrd and blacklisted for
+#                      udev; this service loads it only after the DSI panel
+#                      has bound, then monitors IRQ 125 and the event node.
+#   hwe.touch=monitor  rmi_i2c loads normally; only report and monitor.
+# Output goes to the debug UART and /run/hwe-touch-order.txt.
+set -u
+report=/run/hwe-touch-order.txt
+: > "$report"
+if [ -w /dev/ttyMSM0 ]; then exec 3>/dev/ttyMSM0; else exec 3>&1; fi
+emit() { tee -a "$report" >&3; }
+section() { printf '## %s (up %s)\n' "$1" "$(cut -d' ' -f1 /proc/uptime)" | emit; }
+note() { printf '%s\n' "$1" | emit; }
+run() { "$@" 2>&1 | emit; }
+mode=$(tr ' ' '\n' < /proc/cmdline | sed -n 's/^hwe\.touch=//p' | head -1)
+[ -n "$mode" ] || mode=monitor
+GPIO=/usr/libexec/hwe-touch/gpio-state
+GPIO_SAMPLE=/usr/libexec/hwe-touch/attn-sample
+GPIO_PULSE=/usr/libexec/hwe-touch/gpio-pulse
+RMI_STATUS=/usr/libexec/hwe-touch/rmi-status
+F12_POLL=/usr/libexec/hwe-touch/f12-poll
+touch_dev() { for d in /sys/bus/i2c/devices/*-0020; do case "$(readlink -f "$d")" in *a84000.i2c*) basename "$d"; return;; esac; done; }
+i2c_dev() { td=$(touch_dev); [ -n "$td" ] && echo "/dev/i2c-${td%%-*}"; }
+rmi_status() { modprobe i2c-dev 2>/dev/null; HWE_I2C_DEV=$(i2c_dev) HWE_I2C_ADDR=0x20 run $RMI_STATUS "$@"; }
+regsum() { cat /sys/kernel/debug/regulator/regulator_summary 2>/dev/null | emit; }
+pinconf() { [ "$nogpiodbg" = 0 ] || { note "gpio debugfs skipped (hwe.nogpiodbg)"; return; }; grep -h -A14 'pmic@0:gpio@c000' /sys/kernel/debug/gpio 2>/dev/null | grep -E 'gpio-?1[12]\b|gpio12|gpiochip' | emit; grep -h -E 'gpio-(75|99|125|135) ' /sys/kernel/debug/gpio 2>/dev/null | emit; grep -h 'gpio12' /sys/kernel/debug/pinctrl/*pmic@0*gpio@c000*/pinconf-groups 2>/dev/null | emit; for pin in "GPIO_99\|gpio99 " "GPIO_125\|gpio125 " "GPIO_135\|gpio135 " "GPIO_75\|gpio75 "; do grep -h "pin .*($pin)\|^pin [0-9]* ($pin" /sys/kernel/debug/pinctrl/3400000.pinctrl/pinconf-pins 2>/dev/null; done | emit; grep -h "gpio12\b\|gpio12)" /sys/kernel/debug/pinctrl/*pmic@0*gpio@c000*/pinconf-pins 2>/dev/null | emit; grep -h "gpio12\b\|gpio12)" /sys/kernel/debug/pinctrl/*pmic@0*gpio@c000*/pins 2>/dev/null | emit; }
+regs_after() { grep -E "ts_1p8|ldo6|ldo14|l14|ldo13|l13" /sys/kernel/debug/regulator/regulator_summary 2>/dev/null | emit; }
+
+irq_count() { awk '/rmi4_i2c/ { s=0; for (i=2; i<=NF && $i ~ /^[0-9]+$/; i++) s+=$i; print s; f=1 } END { if (!f) print "none" }' /proc/interrupts; }
+nogpiodbg=$(grep -c hwe.nogpiodbg /proc/cmdline)
+gpio_state() {
+    run $GPIO 3400000.pinctrl 99 125 135
+    [ "$nogpiodbg" = 0 ] && run $GPIO pmic@0:gpio@c000 11
+}
+panel_bound() { ls /sys/bus/mipi-dsi/devices/*/driver >/dev/null 2>&1; }
+event_node() {
+    td=$(touch_dev)
+    for e in /sys/bus/i2c/devices/${td:-0-0020}/rmi4-*/input/input*/event*; do
+        [ -e "$e" ] && { echo "/dev/input/$(basename "$e")"; return; }
+    done
+    echo ""
+}
+regs() { grep -E 'ts_1p8|ldo6|l6b|regulator-name|^ *[a-z]' /sys/kernel/debug/regulator/regulator_summary 2>/dev/null | grep -E 'ts_1p8|ldo6' | emit; }
+mount -t debugfs none /sys/kernel/debug 2>/dev/null || true
+
+section "hwe-touch-order start mode=$mode"
+run getenforce
+note "cmdline: $(cat /proc/cmdline)"
+section "modules and interrupts at start"
+run sh -c 'lsmod | grep -E "^(rmi_|msm |panel_samsung)"'
+run grep -E 'rmi4|a84000' /proc/interrupts
+note "rmi4_i2c irq count: $(irq_count)"
+section "device links and deferred probes for 0-0020"
+run sh -c 'ls -d /sys/bus/i2c/devices/$(touch_dev)/supplier:* 2>/dev/null; readlink /sys/bus/i2c/devices/$(touch_dev)/driver 2>/dev/null; cat /sys/kernel/debug/devices_deferred 2>/dev/null'
+section "gpio state at start (tlmm 99 reset, 125 attn, 135 switch; pm660 gpio12 = line 11)"
+gpio_state
+pinconf
+section "regulator_summary (ts_1p8, ldo6)"
+regs
+section "kernel log so far (rmi|synaptics|msm|dsi|panel|s6e3fa7|deferred)"
+run sh -c 'dmesg | grep -iE "rmi4|synaptics|msm_dpu|Initialized msm|dsi|panel|s6e3fa7|deferr" | tail -25'
+
+section "waiting for the DSI panel to bind (max 180 s)"
+i=0
+while ! panel_bound && [ $i -lt 180 ]; do sleep 1; i=$((i+1)); done
+if panel_bound; then note "panel bound after ${i}s wait: $(ls /sys/bus/mipi-dsi/devices/)"; else note "panel NOT bound after ${i}s"; fi
+sleep 5
+section "after panel: gpio state, interrupts, links"
+gpio_state
+run grep -E 'rmi4|a84000' /proc/interrupts
+run sh -c 'ls -d /sys/bus/i2c/devices/$(touch_dev)/supplier:* 2>/dev/null; readlink /sys/bus/i2c/devices/$(touch_dev)/driver 2>/dev/null; cat /sys/kernel/debug/devices_deferred 2>/dev/null'
+
+if [ "$mode" = late ]; then
+    section "late: modprobe rmi_i2c now"
+    run sh -c 'lsmod | grep -E "^rmi_" || echo "rmi modules not loaded (expected)"'
+    run modprobe -v rmi_i2c
+    sleep 4
+fi
+section "rmi state after ${mode} step"
+run sh -c 'dmesg | grep -iE "rmi4|synaptics" | tail -8'
+run grep -E 'rmi4|a84000' /proc/interrupts
+gpio_state
+ev=$(event_node); note "event node: ${ev:-none}"
+section "pinconf and regulators after ${mode} probe"
+pinconf
+regs_after
+section "IC registers over i2c-dev after ${mode} probe (bus $(touch_dev), $(i2c_dev))"
+rmi_status --write-test
+section "full regulator_summary after ${mode} probe"
+regsum
+run sh -c 'ls -lZ /dev/input; libinput list-devices 2>/dev/null | grep -A3 Synaptics | head -6'
+
+tap_windows() {
+    # $1 = label, $2 = number of 20 s windows. Each window: IRQ delta, event
+    # bytes read from the rmi input node, and ATTN (gpio125) sampled at 100 Hz.
+    section "TAP THE PANEL [$1]: $2 windows x 20 s (irq delta, event bytes, attn samples)"
+    w=0
+    while [ $w -lt "$2" ]; do
+        before=$(irq_count); ev=$(event_node)
+        if [ -n "$ev" ]; then timeout 20 dd if="$ev" bs=24 2>/dev/null | wc -c > /run/hwe-touch-bytes & else sleep 20 & fi
+        attn=$($GPIO_SAMPLE 3400000.pinctrl 125 19 100 2>&1 & HWE_I2C_DEV=$(i2c_dev) HWE_I2C_ADDR=0x20 $F12_POLL 19 10 > /run/hwe-f12 2>&1; wait $!)
+        wait
+        f12=$(cat /run/hwe-f12 2>/dev/null)
+        bytes=$(cat /run/hwe-touch-bytes 2>/dev/null || echo na); : > /run/hwe-touch-bytes
+        note "[$1] window $w up=$(cut -d' ' -f1 /proc/uptime) irq $before -> $(irq_count) event_bytes=$bytes | $attn | $f12"
+        w=$((w+1))
+    done
+}
+tap_windows "${mode}-probe" 6
+section "hardware reset pulse on tlmm gpio99 (1 ms low) then unbind/bind rmi4_i2c"
+gpio_state
+run $GPIO_PULSE 3400000.pinctrl 99 1
+sleep 0.05
+run sh -c 'echo $(touch_dev) > /sys/bus/i2c/drivers/rmi4_i2c/unbind && echo unbound; sleep 1; echo $(touch_dev) > /sys/bus/i2c/drivers/rmi4_i2c/bind && echo rebound'
+sleep 3
+run sh -c 'dmesg | grep -iE "rmi4|synaptics" | tail -5'
+run grep -E 'rmi4|a84000' /proc/interrupts
+gpio_state
+section "IC registers over i2c-dev after hardware reset"
+rmi_status --write-test
+pinconf
+tap_windows "after-hw-reset" 6
+section "after taps"
+rmi_status
+run grep -E 'rmi4|a84000' /proc/interrupts
+gpio_state
+run sh -c 'dmesg | grep -iE "rmi4|synaptics|avc.*input" | tail -8'
+section "hwe-touch-order main report done; low-rate monitor continues"
+while :; do
+    sleep 60
+    ev=$(event_node)
+    note "monitor up=$(cut -d' ' -f1 /proc/uptime) irq=$(irq_count) event=${ev:-none} | $($GPIO_SAMPLE 3400000.pinctrl 125 5 100 2>&1)"
+done

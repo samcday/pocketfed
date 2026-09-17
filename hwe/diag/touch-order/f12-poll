@@ -1,0 +1,30 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+# Poll F12 data (finger 0) over i2c-dev. Does not read F01 interrupt status, so ATTN is left alone.
+# usage: HWE_I2C_DEV=/dev/i2c-N HWE_I2C_ADDR=0x20 f12-poll <seconds> <hz>
+import ctypes, fcntl, os, sys, time
+g = {}
+src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "rmi-status")).read()
+exec(src.split("try:")[0], g)
+read = g["read"]; write = g["write"]
+secs, hz = float(sys.argv[1]), float(sys.argv[2])
+try:
+    write(0xFF, [0]); fns = {}
+    for a in range(0xE9, 0x0A, -6):
+        e = read(a, 6)
+        if e[5] == 0: break
+        fns[e[5]] = e
+    f12 = fns.get(0x12); f01 = fns.get(0x01)
+    if not f12 or not f01:
+        print("f12-poll: F12/F01 not found"); sys.exit(1)
+    n = objs = 0; seen = set(); irqst = set(); maxfingers = 0
+    end = time.monotonic() + secs
+    while time.monotonic() < end:
+        d = read(f12[3], 8)           # first finger: type, x lo, x hi, y lo, y hi, z, wx, wy
+        n += 1
+        if d[0]: objs += 1; seen.add((d[0], d[1] | d[2] << 8, d[3] | d[4] << 8))
+        time.sleep(1.0 / hz)
+    ex = " ".join(f"type{t}@{x},{y}" for t, x, y in sorted(seen)[:4])
+    print(f"f12 poll: samples={n} finger_samples={objs} distinct={len(seen)} {ex}")
+except OSError as e:
+    print(f"f12-poll: i2c error {e.errno} {e.strerror}")

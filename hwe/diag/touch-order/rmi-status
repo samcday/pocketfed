@@ -1,0 +1,70 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+# Dump the RMI4 page-0 PDT and the F01 status/control registers of the touch IC
+# through i2c-dev, without touching the kernel driver's state.
+# usage: rmi-status [/dev/i2c-N] [addr]
+import ctypes, fcntl, os, sys
+
+I2C_RDWR = 0x0707
+I2C_M_RD = 0x0001
+
+class Msg(ctypes.Structure):
+    _fields_ = [("addr", ctypes.c_uint16), ("flags", ctypes.c_uint16),
+                ("len", ctypes.c_uint16), ("buf", ctypes.POINTER(ctypes.c_uint8))]
+class RdwrData(ctypes.Structure):
+    _fields_ = [("msgs", ctypes.POINTER(Msg)), ("nmsgs", ctypes.c_uint32)]
+
+dev = os.environ.get("HWE_I2C_DEV", "/dev/i2c-0")
+addr = int(os.environ.get("HWE_I2C_ADDR", "0x20"), 0)
+fd = open(dev, "rb+", buffering=0)
+
+def xfer(msgs):
+    arr = (Msg * len(msgs))(*msgs)
+    fcntl.ioctl(fd, I2C_RDWR, RdwrData(arr, len(msgs)))
+
+def read(reg, n):
+    wbuf = (ctypes.c_uint8 * 1)(reg); rbuf = (ctypes.c_uint8 * n)()
+    xfer([Msg(addr, 0, 1, wbuf), Msg(addr, I2C_M_RD, n, rbuf)])
+    return bytes(rbuf)
+
+def write(reg, data):
+    b = (ctypes.c_uint8 * (1 + len(data)))(reg, *data)
+    xfer([Msg(addr, 0, len(b), b)])
+
+try:
+    write(0xFF, [0x00])  # page 0
+    fns = {}
+    for a in range(0xE9, 0x0A, -6):
+        e = read(a, 6)
+        if e[5] == 0:
+            break
+        fns[e[5]] = {"query": e[0], "cmd": e[1], "ctrl": e[2], "data": e[3],
+                     "irqs": e[4] & 7, "ver": (e[4] >> 5) & 3}
+    print("pdt page0:", " ".join(f"F{fn:02X}(q{d['query']:02X} c{d['cmd']:02X} ctl{d['ctrl']:02X} d{d['data']:02X} irqs{d['irqs']})" for fn, d in sorted(fns.items())))
+    f01 = fns.get(0x01)
+    if f01:
+        st = read(f01["data"], 1)[0]
+        code = st & 0x0F
+        codes = {0: "no error", 1: "reset occurred", 2: "invalid configuration", 3: "device failure",
+                 4: "configuration CRC failure", 5: "firmware CRC failure", 6: "CRC in progress"}
+        print(f"F01 device status 0x{st:02X}: unconfigured={st >> 7 & 1} flash_prog={st >> 6 & 1} code={code} ({codes.get(code, '?')})")
+        nirq = sum(d["irqs"] for d in fns.values()); nregs = (nirq + 7) // 8
+        ist = read(f01["data"] + 1, nregs)
+        print(f"F01 interrupt status: {ist.hex()}")
+        ctl = read(f01["ctrl"], 1 + nregs)
+        sleep = ctl[0] & 3
+        print(f"F01 device control 0x{ctl[0]:02X}: sleep_mode={sleep} ({'normal' if sleep == 0 else 'sleep' if sleep == 1 else 'reserved'}) nosleep={ctl[0] >> 2 & 1} charger={ctl[0] >> 5 & 1} report_rate={ctl[0] >> 6 & 1} configured={ctl[0] >> 7 & 1} interrupt_enable={ctl[1:].hex()}")
+        q = read(f01["query"], 21)
+        print(f"F01 manufacturer={q[0]} product_id={bytes(q[11:21]).decode(errors='replace').strip(chr(0))}")
+    if f01 and "--write-test" in sys.argv:
+        write(f01["ctrl"], [0x84])
+        rb = read(f01["ctrl"], 1)[0]
+        import time; time.sleep(1.0)
+        rb2 = read(f01["ctrl"], 1)[0]; st2 = read(f01["data"], 1)[0]
+        print(f"F01 ctrl0 write 0x84 test: readback now=0x{rb:02X} after 1s=0x{rb2:02X} status after=0x{st2:02X}")
+    f12 = fns.get(0x12)
+    if f12:
+        d = read(f12["data"], 1)
+        print(f"F12 data0 (object type of first finger) 0x{d[0]:02X}")
+except OSError as e:
+    print(f"rmi-status: i2c error {e.errno} {e.strerror}")

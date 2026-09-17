@@ -1,0 +1,29 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+# Sample one GPIO line as-is at a fixed rate and summarise levels/transitions.
+# usage: attn-sample <chip-label-substring> <offset> <seconds> <hz>
+import ctypes, fcntl, glob, os, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+g = {}
+exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "gpio-state")).read().split("def main")[0], g)
+sub, off, secs, hz = sys.argv[1], int(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4])
+dev, label, _ = g["find_chip"](sub)
+if not dev:
+    print(f"attn-sample: no chip {sub!r}"); sys.exit(1)
+with open(dev, "rb") as f:
+    req = g["LineRequest"](); req.offsets[0] = off; req.num_lines = 1
+    req.consumer = b"hwe-attn"; req.config.flags = 0
+    fcntl.ioctl(f, g["GET_LINE"], req)
+lv = g["LineValues"](); lv.mask = 1
+n = low = trans = 0; prev = None; first_low = None
+t0 = time.monotonic(); end = t0 + secs; step = 1.0 / hz
+while time.monotonic() < end:
+    fcntl.ioctl(req.fd, g["GET_VALUES"], lv); v = lv.bits & 1; n += 1
+    if v == 0:
+        low += 1
+        if first_low is None: first_low = time.monotonic() - t0
+    if prev is not None and v != prev: trans += 1
+    prev = v
+    time.sleep(step)
+os.close(req.fd)
+print(f"attn line {off}: samples={n} low={low} transitions={trans} first_low={'%.2fs' % first_low if first_low is not None else 'never'} final={prev}")

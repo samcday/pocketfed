@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Sargo: declare that the Synaptics S3706B touchscreen is power sequenced with
+ * the display panel. The generic touchscreen binding's "panel" phandle makes
+ * fw_devlink treat the panel as a supplier of the touchscreen, so rmi4_i2c
+ * only probes once the samsung-s6e3fa7 panel has bound, whatever order the
+ * distro kernel's modules load in. Test overlay for hwe/evidence; the real fix
+ * belongs in sdm670-google-common.dtsi.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/soc@0/geniqup@ac0000/i2c@a84000/synaptics-rmi4-i2c@20} {
+	panel = <&panel>;
+};

@@ -1,0 +1,79 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+# Print direction/consumer/value of GPIO lines using the v2 character-device
+# ABI without changing any line's configuration (as-is request, flags=0).
+# usage: gpio-state <chip-label-substring> <offset>...
+import ctypes, fcntl, glob, os, struct, sys
+
+class LineAttr(ctypes.Structure):
+    _fields_ = [("id", ctypes.c_uint32), ("padding", ctypes.c_uint32), ("value", ctypes.c_uint64)]
+class LineConfigAttr(ctypes.Structure):
+    _fields_ = [("attr", LineAttr), ("mask", ctypes.c_uint64)]
+class LineConfig(ctypes.Structure):
+    _fields_ = [("flags", ctypes.c_uint64), ("num_attrs", ctypes.c_uint32),
+                ("padding", ctypes.c_uint32 * 5), ("attrs", LineConfigAttr * 10)]
+class LineRequest(ctypes.Structure):
+    _fields_ = [("offsets", ctypes.c_uint32 * 64), ("consumer", ctypes.c_char * 32),
+                ("config", LineConfig), ("num_lines", ctypes.c_uint32),
+                ("event_buffer_size", ctypes.c_uint32), ("padding", ctypes.c_uint32 * 5),
+                ("fd", ctypes.c_int32)]
+class LineValues(ctypes.Structure):
+    _fields_ = [("bits", ctypes.c_uint64), ("mask", ctypes.c_uint64)]
+class LineInfo(ctypes.Structure):
+    _fields_ = [("name", ctypes.c_char * 32), ("consumer", ctypes.c_char * 32),
+                ("offset", ctypes.c_uint32), ("num_attrs", ctypes.c_uint32),
+                ("flags", ctypes.c_uint64), ("attrs", LineAttr * 10), ("padding", ctypes.c_uint32 * 4)]
+class ChipInfo(ctypes.Structure):
+    _fields_ = [("name", ctypes.c_char * 32), ("label", ctypes.c_char * 32), ("lines", ctypes.c_uint32)]
+
+def _IOWR(nr, size): return (3 << 30) | (size << 16) | (0xB4 << 8) | nr
+def _IOR(nr, size): return (2 << 30) | (size << 16) | (0xB4 << 8) | nr
+GET_CHIPINFO = _IOR(0x01, ctypes.sizeof(ChipInfo))
+GET_LINEINFO = _IOWR(0x05, ctypes.sizeof(LineInfo))
+GET_LINE = _IOWR(0x07, ctypes.sizeof(LineRequest))
+GET_VALUES = _IOWR(0x0E, ctypes.sizeof(LineValues))
+FLAGS = {1: "used", 2: "active-low", 4: "input", 8: "output", 0x10: "edge-rising",
+         0x20: "edge-falling", 0x40: "open-drain", 0x80: "open-source",
+         0x100: "pull-up", 0x200: "pull-down", 0x400: "bias-disabled"}
+
+def find_chip(sub):
+    for dev in sorted(glob.glob("/dev/gpiochip*")):
+        try:
+            with open(dev, "rb") as f:
+                ci = ChipInfo(); fcntl.ioctl(f, GET_CHIPINFO, ci)
+        except OSError as e:
+            print(f"  {dev}: {e.strerror}"); continue
+        if sub in ci.label.decode() or sub in ci.name.decode():
+            return dev, ci.label.decode(), ci.lines
+    return None, None, 0
+
+def main():
+    sub = sys.argv[1]; offsets = [int(x) for x in sys.argv[2:]]
+    dev, label, nlines = find_chip(sub)
+    if not dev:
+        print(f"gpio-state: no gpiochip matching {sub!r}"); return 1
+    print(f"chip {dev} label={label} lines={nlines}")
+    with open(dev, "rb") as f:
+        for off in offsets:
+            li = LineInfo(); li.offset = off
+            try:
+                fcntl.ioctl(f, GET_LINEINFO, li)
+                flags = " ".join(n for b, n in FLAGS.items() if li.flags & b) or "none"
+                info = f"name={li.name.decode() or '-'} consumer={li.consumer.decode() or '-'} flags=[{flags}]"
+            except OSError as e:
+                info = f"lineinfo error {e}"
+            val = "?"
+            req = LineRequest(); req.offsets[0] = off; req.num_lines = 1
+            req.consumer = b"hwe-touch"; req.config.flags = 0
+            try:
+                fcntl.ioctl(f, GET_LINE, req)
+                lv = LineValues(); lv.mask = 1
+                fcntl.ioctl(req.fd, GET_VALUES, lv)
+                val = lv.bits & 1
+                os.close(req.fd)
+            except OSError as e:
+                val = f"error {e.errno} {e.strerror}"
+            print(f"  line {off}: value={val} {info}")
+    return 0
+
+sys.exit(main())
