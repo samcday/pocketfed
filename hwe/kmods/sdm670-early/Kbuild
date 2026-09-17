@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# External build of the three SDM670 drivers Fedora leaves unbuilt.
+# Sources under src/ are verbatim copies from kernel-ark; see PROVENANCE.md.
+
+obj-m += pinctrl-sdm670.o
+obj-m += qnoc-sdm670.o
+obj-m += panel-samsung-s6e3fa7.o
+
+pinctrl-sdm670-y := src/pinctrl-sdm670.o
+qnoc-sdm670-y := src/sdm670.o
+panel-samsung-s6e3fa7-y := src/panel-samsung-s6e3fa7.o
+
+ccflags-y += -I$(src)/src
