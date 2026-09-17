@@ -72,6 +72,35 @@ fastboot boot out/google-sargo/liveboot.img
 The image is verified before and after: a template that already fails its own
 integrity checks is rejected up front, so a bad boot is never blamed on liveboot.
 
+## Getting the smoo module onto the device
+
+A device image's initramfs does not carry `smoo-gadget`, and sargo's
+`dracut.conf` is `hostonly_mode=strict` with none of the datapath drivers in
+`force_drivers`, so it has no ublk or gadget modules either. Waiting for the
+dracut module to land, reach the COPR and get into an image is a long road for a
+boot trial, so `--inject-tree` appends what is needed to the image's own
+initramfs as a second cpio archive. The image's initrd is carried through byte
+for byte — the kernel unpacks concatenated archives in order and later entries
+win.
+
+`stage-inject-tree.sh` lays out that tree: exactly what dracut's
+`module-setup.sh` would have installed, plus the kernel modules the image's
+initramfs leaves out, taken from the image's own module tree and decompressed
+(`insmod` cannot be relied on to decompress) and loaded by a `pre-udev` hook.
+
+```sh
+tools/liveboot/stage-inject-tree.sh \
+    --smoo ../smoo \
+    --gadget ../smoo/target/aarch64-unknown-linux-musl/release/smoo-gadget \
+    --modules /mnt/pfroot/ostree/deploy/pocketfed/deploy/<commit>.0/usr/lib/modules/<kver> \
+    --out /tmp/inject-tree
+```
+
+On sargo's 7.1.2 kernel this stages `ublk_drv`, `loop`, `libcomposite` and
+`usb_f_fs`; `dm_mod`, `dm_snapshot` and `configfs` are built in
+(`CONFIG_BLK_DEV_DM=y`, `CONFIG_DM_SNAPSHOT=y`, `CONFIG_CONFIGFS_FS=y`) and
+correctly absent.
+
 ## Getting the export id
 
 `smoo-host` derives it from the file it serves — an FNV-1a hash over
