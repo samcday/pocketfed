@@ -1,0 +1,13 @@
+# Kconfig symbols the external SDM670 modules link against or are gated by.
+# check-config.sh accepts =y or =m for each; comments and blanks are ignored.
+# Derived from the drivers' Kconfig entries and the symbols their .ko files use.
+PINCTRL_MSM
+INTERCONNECT_QCOM
+INTERCONNECT_QCOM_RPMH
+INTERCONNECT_QCOM_BCM_VOTER
+DRM
+DRM_KMS_HELPER
+DRM_MIPI_DSI
+DRM_PANEL
+BACKLIGHT_CLASS_DEVICE
+OF

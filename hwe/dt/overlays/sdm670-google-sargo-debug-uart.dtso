@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * SDM670 debug UART (uart12, QUP1 SE4) for the Google Pixel 3a (sargo).
+ *
+ * Fedora's sdm670-google-sargo.dtb was built with plain `make dtbs`, so it has
+ * `chosen/stdout-path = "serial0:115200n8"` but no `serial0` alias and no
+ * serial@a90000 node: the SDM670 debug UART is still a downstream patch. This
+ * overlay adds it (node contents mirror downstream sdm670.dtsi) and is applied
+ * to the symbolised Fedora blob.
+ *
+ * qupv3_id_1, tlmm, gcc, rpmhpd and the three interconnect providers all have
+ * labels in the symbolised base, so the interconnect properties are kept.
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/clock/qcom,gcc-sdm845.h>
+#include <dt-bindings/interconnect/qcom,sdm670-rpmh.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/power/qcom,rpmhpd.h>
+
+&qupv3_id_1 {
+	serial@a90000 {
+		compatible = "qcom,geni-debug-uart";
+		reg = <0 0x00a90000 0 0x4000>;
+		clock-names = "se";
+		clocks = <&gcc GCC_QUPV3_WRAP1_S4_CLK>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&qup_uart12_default>;
+		interrupts = <GIC_SPI 357 IRQ_TYPE_LEVEL_HIGH>;
+		power-domains = <&rpmhpd SDM670_CX>;
+		interconnects = <&aggre2_noc MASTER_BLSP_2 0 &config_noc SLAVE_BLSP_2 0>,
+				<&gladiator_noc MASTER_AMPSS_M0 0 &config_noc SLAVE_BLSP_2 0>;
+		interconnect-names = "qup-core", "qup-config";
+		status = "okay";
+	};
+};
+
+&tlmm {
+	qup_uart12_default: qup-uart12-default-state {
+		qup_uart12_tx: tx-pins {
+			pins = "gpio51";
+			function = "qup12";
+		};
+
+		qup_uart12_rx: rx-pins {
+			pins = "gpio52";
+			function = "qup12";
+		};
+	};
+};
+
+&{/aliases} {
+	serial0 = "/soc@0/geniqup@ac0000/serial@a90000";
+};

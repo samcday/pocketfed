@@ -1,0 +1,12 @@
+# Kbuild outputs from hwe/tools/build-kmods-arm64.sh
+kmods/**/*.ko
+kmods/**/*.o
+kmods/**/*.mod
+kmods/**/*.mod.c
+kmods/**/*.cmd
+kmods/**/.*.cmd
+kmods/**/modules.order
+kmods/**/Module.symvers
+kmods/**/.tmp_versions/
+tools/__pycache__/
+dt/tools/__pycache__/
