@@ -100,6 +100,16 @@ fn run_boot(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
 }
 
 fn build(args: &BootArgs) -> Result<(), String> {
+    // Writing over the template destroys the image builder's output, and it is
+    // the one input a liveboot run cannot regenerate without rebuilding the
+    // whole device image.
+    if same_file(&args.aboot, &args.output) {
+        return Err(format!(
+            "--output would overwrite the boot image it reads: {}",
+            args.aboot.display()
+        ));
+    }
+
     let template = read(&args.aboot)?;
 
     // Verify before touching it: a template that already fails its own integrity
@@ -192,6 +202,18 @@ fn inject(template: &[u8], parsed: &bootimg::BootImage, tree: &Path) -> Result<V
         initrd.len()
     );
     rebuild_ramdisk(&ramdisk, &initrd).map_err(|err| format!("rebuild ABLX ramdisk: {err}"))
+}
+
+/// Whether two paths name the same existing file.
+///
+/// Compared after canonicalisation so `./boot.img` and an absolute path to it
+/// are recognised as the same file. An output that does not exist yet cannot
+/// collide, so a failure to canonicalise it means "different".
+fn same_file(left: &Path, right: &Path) -> bool {
+    match (fs::canonicalize(left), fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 /// A token unique to this run, used to tell this boot's console output apart
