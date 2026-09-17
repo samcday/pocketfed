@@ -11,3 +11,4 @@
 /out/
 /linux/
 /.env
+/tools/*/target/
