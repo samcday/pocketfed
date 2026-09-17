@@ -65,6 +65,18 @@ mkdir -p \
 
 install -m0755 "$gadget" "$out/usr/bin/smoo-gadget"
 
+# Everything staged here ends up inside a boot image that `fastboot boot` has to
+# download into RAM, so the gadget's debug symbols are worth roughly a third of
+# its size. Strip when a cross-capable strip is available, and carry on when it
+# is not: a larger image still boots.
+for strip in llvm-strip aarch64-linux-gnu-strip strip; do
+    if command -v "$strip" > /dev/null 2>&1 \
+        && "$strip" "$out/usr/bin/smoo-gadget" 2> /dev/null; then
+        printf 'stage-inject-tree: stripped smoo-gadget with %s\n' "$strip" >&2
+        break
+    fi
+done
+
 install -m0755 "$moddir/smoo-lib.sh" "$out/usr/libexec/smoo/smoo-lib"
 install -m0755 "$moddir/smoo-gadget-initrd-start.sh" \
     "$out/usr/libexec/smoo/smoo-gadget-initrd-start"
