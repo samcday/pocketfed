@@ -10,7 +10,7 @@
 # then wraps it into an Android v2 boot image.
 #
 # The recipe is deliberately mechanical. It was validated on the DB410c in the
-# liveboot lanes; the mechanics (read-only loop mount, podman --rootfs :O,
+# liveboot trials; the mechanics (read-only loop mount, podman --rootfs :O,
 # module-tree overlay + depmod, DRACUT_NO_XATTR=1, strict hostonly confdir,
 # stripped display closure) are required and should not be "simplified".
 #
@@ -48,7 +48,7 @@ PFROOT_MNT=${PFROOT_MNT:-/mnt/pfroot-ro}
 CPIO=${CPIO:-/usr/bin/cpio}
 STRIP=${STRIP:-aarch64-linux-gnu-strip}
 
-# Modules the board needs before switch-root. This list came out of the lane 42
+# Modules the board needs before switch-root. This list came out of the DB410c
 # trial and is kept verbatim; dracut normalises the dash/underscore spellings.
 ADD_DRIVERS='qcom_hwspinlock qcom_apcs_ipc_mailbox qcom_smd rpm_proc smd_rpm clk_smd_rpm qnoc_msm8916 icc_smd_rpm qcom_spmi_regulator qcom_smd_regulator rtc_pm8xxx ulpi phy_qcom_usb_hs ci_hdrc ci_hdrc_msm extcon_usb_gpio gpio_keys ublk_drv brd libcomposite usb_f_fs msm adv7511 display_connector i2c_qup'
 # Display roots whose modprobe closure is stripped into the module overlay.
