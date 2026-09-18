@@ -86,6 +86,7 @@ mkdir -p \
     "$out/usr/lib/smoo/modules" \
     "$out/usr/lib/dracut/hooks/cmdline" \
     "$out/usr/lib/dracut/hooks/pre-udev" \
+    "$out/usr/lib/dracut/hooks/pre-pivot" \
     "$out/usr/lib/dracut/hooks/shutdown" \
     "$out/usr/lib/systemd/system/initrd-root-device.target.wants"
 : > "$out/$marker"
@@ -112,6 +113,8 @@ install -m0755 "$moddir/smoo-root-setup.sh" "$out/usr/libexec/smoo/smoo-root-set
 # Hook file names carry the priority dracut's inst_hook would have applied.
 install -m0755 "$moddir/parse-smoo.sh" \
     "$out/usr/lib/dracut/hooks/cmdline/20-parse-smoo.sh"
+install -m0755 "$moddir/smoo-pre-pivot.sh" \
+    "$out/usr/lib/dracut/hooks/pre-pivot/50-smoo-pre-pivot.sh"
 install -m0755 "$moddir/smoo-gadget-initrd-stop.sh" \
     "$out/usr/lib/dracut/hooks/shutdown/90-smoo-gadget-initrd-stop.sh"
 
