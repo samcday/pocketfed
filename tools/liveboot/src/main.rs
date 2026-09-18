@@ -251,14 +251,28 @@ impl FileIdentity {
 /// output can be checked against it even through a hard link.
 ///
 /// Only a regular file is read: a boot image is at most tens of megabytes,
-/// while a device or FIFO given by mistake has no end to read to.
+/// while a device or FIFO given by mistake has no end to read to. Opening a
+/// FIFO for reading would already block until a writer turns up, so the path
+/// is checked first and the open is non-blocking; the handle is checked again
+/// afterwards in case the path changed in between.
 fn read_template(path: &Path) -> Result<(Vec<u8>, FileIdentity), String> {
-    let file = fs::File::open(path).map_err(|err| format!("open {}: {err}", path.display()))?;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let not_regular = || format!("--aboot {} is not a regular file", path.display());
+    let on_disk = fs::metadata(path).map_err(|err| format!("stat {}: {err}", path.display()))?;
+    if !on_disk.is_file() {
+        return Err(not_regular());
+    }
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(O_NONBLOCK)
+        .open(path)
+        .map_err(|err| format!("open {}: {err}", path.display()))?;
     let metadata = file
         .metadata()
         .map_err(|err| format!("stat {}: {err}", path.display()))?;
     if !metadata.is_file() {
-        return Err(format!("--aboot {} is not a regular file", path.display()));
+        return Err(not_regular());
     }
     let identity = FileIdentity::of(&metadata);
     let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
@@ -316,9 +330,11 @@ fn write_output(path: &Path, image: &[u8], template: &FileIdentity) -> Result<()
         .map_err(|err| format!("write {}: {err}", path.display()))
 }
 
-/// `O_NOFOLLOW` from asm-generic/fcntl.h, which every Linux architecture this
-/// tool runs on shares; spelled out to avoid a libc dependency.
+/// `O_NOFOLLOW` and `O_NONBLOCK` from asm-generic/fcntl.h, which every Linux
+/// architecture this tool runs on shares; spelled out to avoid a libc
+/// dependency.
 const O_NOFOLLOW: i32 = 0o400000;
+const O_NONBLOCK: i32 = 0o4000;
 
 fn same_file(left: &Path, right: &Path) -> bool {
     match (fs::canonicalize(left), fs::canonicalize(right)) {
@@ -431,6 +447,17 @@ mod tests {
             read_template(Path::new("/dev/null")).is_err(),
             "a device is not a template"
         );
+        let fifo = dir.join("template.fifo");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false),
+            "mkfifo"
+        );
+        // Must return, not block waiting for a writer.
+        assert!(read_template(&fifo).is_err(), "a FIFO is not a template");
 
         // A hard link is the same inode under another name: canonical paths
         // differ, O_NOFOLLOW is happy, only the identity check catches it.
