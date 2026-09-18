@@ -70,7 +70,9 @@ Outputs go to `--out`: `initrd-<run-token>.img`, `liveboot-<run-token>.img`,
 
 `smoo-host` opens the gadget's USB device, so on hosts that run it as a normal
 user the device needs a permissive udev rule. The gadget uses vendor id `0xDEAD`
-and the pinned product id (default product `0xBEE1`, i.e. `bee1`):
+and the pinned product id (default product `0xBEE1`, i.e. `bee1`); if you build
+with another `--product-id`, replace `bee1` below with that value in lower-case
+hex, or the rule will not match the gadget:
 
 ```
 # /etc/udev/rules.d/99-smoo-gadget.rules

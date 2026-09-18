@@ -402,6 +402,7 @@ _parts=(
 )
 [ -n "$EDID_OVERRIDE" ] && _parts+=("drm.edid_firmware=HDMI-A-1:$EDID_OVERRIDE")
 [ "$ZRAM" = 1 ] || _parts+=(rd.pocketfed.zram=0)
+[ "$AUTOLOGIN_ROOT" = 1 ] || _parts+=(rd.pocketfed.autologin=0)
 _parts+=(systemd.mask=systemd-coredump.socket)
 CMD_LINE="${_parts[*]}"
 printf '%s\n' "$CMD_LINE" > "$CMD_LINE_FILE"

@@ -10,6 +10,7 @@
 command -v getarg > /dev/null || . /lib/dracut-lib.sh
 
 getargbool 0 rd.smoo || exit 0
+getargbool 1 rd.pocketfed.autologin || exit 0
 [ -n "$NEWROOT" ] || exit 0
 
 dropin="$NEWROOT/etc/systemd/system/serial-getty@ttyMSM0.service.d"

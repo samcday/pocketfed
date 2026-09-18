@@ -16,7 +16,9 @@ It also installs a pre-udev hook (`pocketfed-liveboot-zram.sh`) that loads
 `zram` with its lz4 back ends from the initrd. The served root cannot modprobe
 this kernel's modules, and zram-generator only modprobes when
 `/sys/class/zram-control` is missing, so this is what gives the 1 GB board swap.
-`rd.pocketfed.zram=0` skips it.
+`rd.pocketfed.zram=0` skips it, and `rd.pocketfed.autologin=0` skips the autologin
+hook; `build-initrd.sh` emits these for `--no-zram` and `--no-autologin-root`, so
+the module can be present for one feature without arming the other.
 
 Both hooks are no-ops unless `rd.smoo` is present on the kernel command line, so
 they cannot arm a normal installed system even if the module were copied in. The module is
