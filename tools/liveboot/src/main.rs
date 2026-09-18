@@ -237,7 +237,7 @@ fn append_archive(initrd: &mut Vec<u8>, archive: &[u8]) {
 /// handle rather than the path, and symlinks are not followed, so the file
 /// cannot be swapped between the check and the write.
 fn write_output(path: &Path, image: &[u8]) -> Result<(), String> {
-    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
     let mut file = fs::OpenOptions::new()
         .write(true)
@@ -252,6 +252,16 @@ fn write_output(path: &Path, image: &[u8]) -> Result<(), String> {
     if !metadata.is_file() {
         return Err(format!(
             "--output {} is not a regular file; refusing to write to it",
+            path.display()
+        ));
+    }
+    // Belt and braces for O_NOFOLLOW: the path itself must be that same
+    // regular file, not a link to it.
+    let on_disk =
+        fs::symlink_metadata(path).map_err(|err| format!("stat {}: {err}", path.display()))?;
+    if !on_disk.is_file() || (on_disk.dev(), on_disk.ino()) != (metadata.dev(), metadata.ino()) {
+        return Err(format!(
+            "--output {} is a link, not a file; refusing to write through it",
             path.display()
         ));
     }
