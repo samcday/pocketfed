@@ -3,8 +3,9 @@
 
 Copies each .ko into the bundle's module tree under updates/<name>/, xz-compresses
 it, reruns depmod with the bundle's own System.map, refreshes bundle.json's
-module_files inventory and regenerates early-modules.txt. The helper functions
-and bundle layout come from fedora-kernel-bundle.py / build-kernel.py.
+module_files inventory and, when given --early-modules, regenerates
+early-modules.txt. The shared helpers come from the self-contained hwe_common
+module and the bundle layout from fedora-kernel-bundle.py.
 
 The source bundle is never modified: the whole tree is copied to --output first.
 """
@@ -24,6 +25,12 @@ import sys
 
 
 TOOLS = Path(__file__).resolve().parent
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
+
+import hwe_common
+
+build_kernel = hwe_common
 
 
 def load_module(name: str, filename: str):
@@ -34,7 +41,6 @@ def load_module(name: str, filename: str):
 
 
 bundler = load_module("fedora_kernel_bundle", TOOLS / "fedora-kernel-bundle.py")
-build_kernel = bundler.build_kernel
 BundleError = bundler.BundleError
 
 
@@ -114,7 +120,8 @@ def provenance_entry(ko: Path, release_root: Path, name: str, source_key: str,
 
 
 def add_kmods(bundle: Path, output: Path, kmods: list[Path], name: str, sources: dict,
-              depmod: str = "depmod", modinfo: str = "modinfo") -> Path:
+              depmod: str = "depmod", modinfo: str = "modinfo",
+              early_modules: Path | None = None) -> Path:
     manifest_path = resolve_bundle(bundle)
     source_dir = manifest_path.parent
     manifest = json.loads(manifest_path.read_text())
@@ -163,12 +170,16 @@ def add_kmods(bundle: Path, output: Path, kmods: list[Path], name: str, sources:
     manifest["module_files"] = build_kernel.inventory(output / "modules")
     build_kernel.write_json(output / "bundle.json", manifest)
 
-    report = bundler.early_module_report(release_root, bundler.REPO / bundler.EARLY_MODULE_CONFIG)
-    (output / "early-modules.txt").write_text("".join(f"{mod} {status}\n" for mod, status in report))
-    counts = {status: sum(1 for _, value in report if value == status)
-              for status in ("present", "builtin", "absent")}
-    print(f"early-modules: {counts['present']} present, {counts['builtin']} builtin, "
-          f"{counts['absent']} absent ({len(report)} total)", flush=True)
+    if early_modules is None:
+        print("early-modules: skipped (no --early-modules config supplied)", flush=True)
+    else:
+        report = bundler.early_module_report(release_root, early_modules)
+        (output / "early-modules.txt").write_text(
+            "".join(f"{mod} {status}\n" for mod, status in report))
+        counts = {status: sum(1 for _, value in report if value == status)
+                  for status in ("present", "builtin", "absent")}
+        print(f"early-modules: {counts['present']} present, {counts['builtin']} builtin, "
+              f"{counts['absent']} absent ({len(report)} total)", flush=True)
 
     provenance_path = output / "provenance.json"
     provenance = json.loads(provenance_path.read_text()) if provenance_path.is_file() else {}
@@ -197,6 +208,8 @@ def main() -> int:
     parser.add_argument("--kmod", type=Path, action="append", default=[], help="one built .ko; repeatable")
     parser.add_argument("--name", default="sdm670-early", help="updates/<name>/ destination")
     parser.add_argument("--sources", type=Path, help="sources.json with source blob ids")
+    parser.add_argument("--early-modules", type=Path,
+                        help="dracut conf with force_drivers/add_drivers; omit to skip early-modules.txt")
     parser.add_argument("--depmod", default="depmod")
     parser.add_argument("--modinfo", default="modinfo")
     args = parser.parse_args()
@@ -204,7 +217,7 @@ def main() -> int:
         kmods = collect_kmods(args.kmods_dir, args.kmod)
         sources = load_sources(args.sources)
         print(add_kmods(args.bundle, args.output.absolute(), kmods, args.name, sources,
-                        args.depmod, args.modinfo))
+                        args.depmod, args.modinfo, args.early_modules))
     except (BundleError, build_kernel.BuildError, OSError, ValueError,
             subprocess.CalledProcessError) as error:
         print(f"bundle-add-kmods: {error}", file=sys.stderr)

@@ -21,6 +21,12 @@ import sys
 
 
 TOOLS = Path(__file__).resolve().parent
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
+
+import hwe_common
+
+build_kernel = hwe_common
 
 
 def load_module(name: str, filename: str):
@@ -31,7 +37,6 @@ def load_module(name: str, filename: str):
 
 
 bundler = load_module("fedora_kernel_bundle", TOOLS / "fedora-kernel-bundle.py")
-build_kernel = bundler.build_kernel
 BundleError = bundler.BundleError
 
 

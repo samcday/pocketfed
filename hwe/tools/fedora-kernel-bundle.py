@@ -3,9 +3,10 @@
 
 Nothing is installed on the host: the kernel and modules are unpacked into a new
 candidate directory, depmod runs against the bundle's own System.map, and the
-finished bundle is validated with the same checks build-kernel.py applies. The
-kernel/DTB/depmod/module helpers are imported from tools/liveboot rather than
-copied. Fedora ships an EFI zboot vmlinuz; prepare-fixture.py already decodes it.
+finished bundle is validated with the same checks hwe_common.verify_kernel /
+verify_modules apply. The kernel/DTB/depmod/module helpers are imported from the
+self-contained hwe_common module. Fedora ships an EFI zboot vmlinuz;
+hwe_common.canonical_kernel decodes it.
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import gzip
-import importlib.util
 import os
 from pathlib import Path
 import posixpath
@@ -23,8 +23,15 @@ import sys
 import tempfile
 
 
-LIVEBOOT = Path(__file__).resolve().parents[2] / "tools" / "liveboot"
-REPO = Path(__file__).resolve().parents[2]
+TOOLS = Path(__file__).resolve().parent
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
+
+import hwe_common
+
+build_kernel = hwe_common
+prepare_fixture = hwe_common
+
 COMPONENTS = (
     "kernel-core",
     "kernel-modules-core",
@@ -33,23 +40,10 @@ COMPONENTS = (
     "kernel-modules-internal",
 )
 OPTIONAL_COMPONENTS = ("kernel-devel",)
-EARLY_MODULE_CONFIG = "tools/liveboot/profiles/google-sargo-initrd.conf"
 
 
 class BundleError(Exception):
     pass
-
-
-def load_helper(name: str, filename: str):
-    spec = importlib.util.spec_from_file_location(name, LIVEBOOT / filename)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-build_kernel = load_helper("build_kernel", "build-kernel.py")
-prepare_fixture = load_helper("prepare_fixture", "prepare-fixture.py")
-liveboot_run = load_helper("liveboot_run", "run.py")
 
 
 def parse_rpm_filename(path: Path) -> dict:
@@ -260,15 +254,14 @@ def classify_early_modules(names: list[str], installed: set[str], builtin: set[s
 
 
 def early_module_report(release_root: Path, config: Path) -> list[tuple[str, str]]:
-    names = liveboot_run.early_modules(
-        {"dracut_config": config.resolve().relative_to(REPO).as_posix()}, REPO)
+    names = hwe_common.early_modules(config)
     installed = installed_module_names(release_root / "modules.dep")
     builtin = builtin_module_names(release_root / "modules.builtin")
     return classify_early_modules(names, installed, builtin)
 
 
 def encode_image_gz(vmlinuz: bytes) -> bytes:
-    """Decode Fedora's EFI zboot vmlinuz with prepare-fixture.py, then re-gzip it."""
+    """Decode Fedora's EFI zboot vmlinuz with hwe_common.canonical_kernel, then re-gzip it."""
     raw = prepare_fixture.canonical_kernel(vmlinuz)
     return gzip.compress(raw, mtime=0)
 
@@ -374,17 +367,22 @@ def produce(args: argparse.Namespace) -> Path:
         module_files = verify_bundle(output, release, dtb, install, commands)
         manifest = bundle_manifest(release, output, f"dtb/{dtb}", module_files)
         build_kernel.write_json(output / "bundle.json", manifest)
-        report = early_module_report(destination, REPO / EARLY_MODULE_CONFIG)
-        (output / "early-modules.txt").write_text(
-            "".join(f"{name} {status}\n" for name, status in report))
-        counts = {status: sum(1 for _, value in report if value == status)
-                  for status in ("present", "builtin", "absent")}
-        print(f"early-modules: {counts['present']} present, {counts['builtin']} builtin, "
-              f"{counts['absent']} absent ({len(report)} total)", flush=True)
+        provenance["early_modules_config"] = str(args.early_modules) if args.early_modules else None
+        if args.early_modules is None:
+            print("early-modules: skipped (no --early-modules config supplied)", flush=True)
+        else:
+            report = early_module_report(destination, args.early_modules)
+            (output / "early-modules.txt").write_text(
+                "".join(f"{name} {status}\n" for name, status in report))
+            counts = {status: sum(1 for _, value in report if value == status)
+                      for status in ("present", "builtin", "absent")}
+            print(f"early-modules: {counts['present']} present, {counts['builtin']} builtin, "
+                  f"{counts['absent']} absent ({len(report)} total)", flush=True)
         provenance["module_count"] = len(module_files)
         provenance["artifacts"] = {name: build_kernel.sha256(output / name) for name in
                                    ("bundle.json", "Image.gz", "kernel.config", "System.map",
-                                    "early-modules.txt", "build.log")}
+                                    "early-modules.txt", "build.log")
+                                   if (output / name).is_file()}
         provenance["completed_at"] = datetime.now(timezone.utc).isoformat()
         build_kernel.write_json(output / "provenance.json", provenance)
     except (BundleError, build_kernel.BuildError, prepare_fixture.FixtureError,
@@ -406,6 +404,8 @@ def main() -> int:
                         help="new, immutable candidate directory")
     parser.add_argument("--dtb", required=True,
                         help="e.g. qcom/sdm670-google-sargo.dtb (below the release dtb/ directory)")
+    parser.add_argument("--early-modules", type=Path,
+                        help="dracut conf with force_drivers/add_drivers; omit to skip early-modules.txt")
     parser.add_argument("--depmod", default="depmod")
     args = parser.parse_args()
     try:

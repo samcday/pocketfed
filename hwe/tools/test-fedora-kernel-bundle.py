@@ -74,6 +74,27 @@ class EarlyModuleTests(unittest.TestCase):
             self.assertEqual(builtin, {"inline"})
 
 
+class CommonHelperTests(unittest.TestCase):
+    def test_early_modules_parses_and_deduplicates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = Path(temporary) / "initrd.conf"
+            config.write_text(
+                'force_drivers+=" \\\n    alpha \\\n    beta"\n'
+                'add_drivers+=" \\\n    beta \\\n    gamma"\n')
+            self.assertEqual(bundler.hwe_common.early_modules(config),
+                             ["alpha", "beta", "gamma"])
+
+    def test_early_module_report_uses_the_given_config(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "modules.dep").write_text("kernel/alpha.ko.xz:\n")
+            (root / "modules.builtin").write_text("kernel/beta.ko\n")
+            config = root / "initrd.conf"
+            config.write_text('force_drivers+="alpha beta gamma"\n')
+            self.assertEqual(bundler.early_module_report(root, config),
+                             [("alpha", "present"), ("beta", "builtin"), ("gamma", "absent")])
+
+
 class OrderTests(unittest.TestCase):
     def test_translates_installed_modules_order_to_build_style_entries(self):
         with tempfile.TemporaryDirectory() as temporary:

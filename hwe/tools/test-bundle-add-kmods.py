@@ -64,14 +64,19 @@ class AddKmodTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.base = Path(self.tmp.name)
 
-    def run_add(self, sources=None):
+    def run_add(self, sources=None, early_modules=True):
         bundle, release = make_bundle(self.base)
         ko = make_ko(self.base)
         sources = sources if sources is not None else {"files": {}, "modules": {}}
+        config = None
+        if early_modules:
+            config = self.base / "early.conf"
+            config.write_text('force_drivers+="regular"\n')
         with mock.patch.object(bundle_add, "module_vermagic",
                                return_value=release + " SMP preempt mod_unload aarch64"), \
                 mock.patch.object(bundle_add, "run_depmod", side_effect=fake_depmod):
-            result = bundle_add.add_kmods(bundle, self.base / "out", [ko], "test", sources)
+            result = bundle_add.add_kmods(bundle, self.base / "out", [ko], "test", sources,
+                                          early_modules=config)
         return bundle, release, ko, result
 
     def test_compresses_places_and_updates_manifest_and_provenance(self):
@@ -120,6 +125,15 @@ class AddKmodTests(unittest.TestCase):
             with self.assertRaisesRegex(bundle_add.BundleError, "lacks a blob"):
                 bundle_add.add_kmods(bundle, self.base / "out", [ko], "test", sources)
         self.assertFalse((self.base / "out").exists())
+
+    def test_skips_early_modules_without_a_config(self):
+        bundle, release = make_bundle(self.base)
+        ko = make_ko(self.base)
+        with mock.patch.object(bundle_add, "module_vermagic",
+                               return_value=release + " SMP preempt mod_unload aarch64"), \
+                mock.patch.object(bundle_add, "run_depmod", side_effect=fake_depmod):
+            bundle_add.add_kmods(bundle, self.base / "out", [ko], "test", {"files": {}, "modules": {}})
+        self.assertEqual((self.base / "out" / "early-modules.txt").read_text(), "")
 
     def test_collect_kmods_rejects_missing_or_wrong_files(self):
         with self.assertRaisesRegex(bundle_add.BundleError, "no .ko modules"):

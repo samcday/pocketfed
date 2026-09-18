@@ -26,7 +26,7 @@ Known from the 2026-09-15/16 inspection:
 | --- | --- |
 | Kernel under test | `kernel-7.3.0-0.rc3.260914g704340f1cd0d.32.fc46` (koji), source tag kernel-ark `kernel-7.3.0-0.rc3.704340f1cd0d.32` |
 | RPMs | kernel-core, kernel-modules-core, kernel-modules, kernel-modules-extra, kernel-modules-internal, kernel-devel already downloaded to the session scratchpad |
-| vmlinuz format | EFI zboot, zstd payload; `tools/liveboot/prepare-fixture.py` already decodes this to `Image.gz` |
+| vmlinuz format | EFI zboot, zstd payload; `hwe/tools/hwe_common.py` (copied from the old `tools/liveboot/prepare-fixture.py`) decodes this to `Image.gz` |
 | Modules | `.ko.xz`; kboop accepts `.ko.zst/.ko.xz/.ko.gz/.ko` |
 | Early modules | `profiles/google-sargo-initrd.conf` lists `qcom_pmic_typec_smb2` and `qcom_fg`, which do not exist upstream; kboop only warns ("assuming built-in") |
 | DTB | Fedora's blob has display, touch, USB, storage, PMIC basics; no remoteproc, wifi, audio, venus, camss, Type-C, fingerprint, haptics |
@@ -43,14 +43,15 @@ Expected to work: console, storage (`sdhci_msm`), display (`msm` +
 - **A1 bundle tool** (worker): `hwe/tools/fedora-kernel-bundle.py`. Input: a
   koji NVR or a directory of the five RPMs. Output: a kboop version-1 candidate
   bundle under `out/liveboot/candidates/<name>/` with `Image.gz` (decoded from
-  zboot via the existing `prepare-fixture.py` decoder), `dtb/qcom/sdm670-google-sargo.dtb`,
+  zboot via `hwe_common.canonical_kernel`), `dtb/qcom/sdm670-google-sargo.dtb`,
   the complete module tree with depmod run for that release, `kernel.config`,
   `System.map`, and `provenance.json` (NEVRAs, RPM sha256, koji build id).
-  Validate with the same checks `build-kernel.py` applies (gzip stream, arm64
-  Image magic, release banner, module vermagic, completeness) rather than
-  reimplementing them. Also emit `early-modules.txt`: for each module in
-  `google-sargo-initrd.conf`, present / built-in / absent in this kernel.
-  Add a host test next to the other `tools/liveboot/test-*.py` style tests.
+  Validate with the same checks `hwe_common.verify_kernel` /
+  `hwe_common.verify_modules` apply (gzip stream, arm64 Image magic, release
+  banner, module vermagic, completeness) rather than reimplementing them. Also
+  emit `early-modules.txt` when `--early-modules` names the dracut conf: for each
+  module, present / built-in / absent in this kernel. Add a host test next to
+  the other `hwe/tools/test-*.py` style tests.
 - **A2 fixture** (worker): `just liveboot-fixture` from
   `localhost/sargo-premouth:20260913` (resolve to the full image ID) into
   `out/liveboot/fixtures/sargo-premouth-20260913`, default overlay, `--reuse`.
@@ -87,6 +88,10 @@ per-kmod packaging described in the #64 comment land here.
 
 ## Working agreements
 
+- The hwe tools are self-contained: shared kernel/bundle helpers live in
+  `hwe/tools/hwe_common.py` (with their original source commit noted in its
+  header). Nothing under `hwe/` imports or depends on `tools/liveboot`, which no
+  longer exists on `origin/main`.
 - Branch `claude/hwe-stock-kernel` in the `pocketfed-hwe` worktree; the shared
   `pocketfed` checkout stays untouched. Workers write only under `hwe/` and
   `out/`.
