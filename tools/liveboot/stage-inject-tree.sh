@@ -174,14 +174,19 @@ is_builtin() {
     grep -qE "(^|/)$_pattern\.ko$" "$builtin"
 }
 
-# Ordered load list: each module's dependencies first, as modules.dep lists
-# them right to left, then the module itself. Duplicates keep their first
-# position.
+# Ordered load list: each module's dependencies first, then the module
+# itself. depmod already flattens indirect dependencies into each line, but
+# walking them recursively costs nothing and does not rely on that. The seen
+# guard keeps the first position of a duplicate and terminates cycles.
 order=()
 seen=
 add_module() {
     case " $seen " in *" $1 "*) return ;; esac
     seen="$seen $1"
+    _deps=$(sed -n "s|^$1: *||p" "$depfile")
+    for _dep in $(printf '%s\n' "$_deps" | tr ' ' '\n' | tac); do
+        add_module "$_dep"
+    done
     order+=("$1")
 }
 
@@ -195,10 +200,6 @@ for name in "${want[@]}"; do
         missing+=("$name")
         continue
     fi
-    deps=$(sed -n "s|^$path: *||p" "$depfile")
-    for dep in $(printf '%s\n' "$deps" | tr ' ' '\n' | tac); do
-        add_module "$dep"
-    done
     add_module "$path"
 done
 
@@ -228,7 +229,8 @@ done
 if [ "${#missing[@]}" -gt 0 ]; then
     die "not in modules.dep or modules.builtin: ${missing[*]}"
 fi
-[ "$found" -gt 0 ] || die "no datapath modules resolved under $modules"
+# Every wanted module being built in is a valid outcome: the hook then has
+# nothing to load.
 
 {
     cat << 'HOOK'
@@ -245,7 +247,7 @@ command -v getarg > /dev/null || . /lib/dracut-lib.sh
 getargbool 0 rd.smoo || return 0
 
 HOOK
-    printf 'for mod in %s; do\n' "${load_order[*]}"
+    printf 'for mod in %s; do\n' "${load_order[*]:-}"
     cat << 'HOOK'
     ko=/usr/lib/smoo/modules/$mod.ko
     [ -f "$ko" ] || continue
@@ -262,7 +264,7 @@ return 0
 HOOK
 } > "$out/usr/lib/dracut/hooks/pre-udev/10-smoo-modules.sh"
 chmod 0755 "$out/usr/lib/dracut/hooks/pre-udev/10-smoo-modules.sh"
-printf 'stage-inject-tree: module load order: %s\n' "${load_order[*]}" >&2
+printf 'stage-inject-tree: module load order: %s\n' "${load_order[*]:-(none, all built in)}" >&2
 
 printf 'stage-inject-tree: staged %s files and %s modules into %s\n' \
     "$(find "$out" -type f | wc -l)" "$found" "$out"

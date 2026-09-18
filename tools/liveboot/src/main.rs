@@ -9,7 +9,8 @@
 use std::{
     env,
     ffi::OsString,
-    fs, io,
+    fs,
+    io::Write,
     path::{Path, PathBuf},
     process::ExitCode,
     time::{SystemTime, UNIX_EPOCH},
@@ -117,7 +118,6 @@ fn build(args: &BootArgs) -> Result<(), String> {
             args.aboot.display()
         ));
     }
-    refuse_special_output(&args.output)?;
 
     let template = read(&args.aboot)?;
 
@@ -161,8 +161,7 @@ fn build(args: &BootArgs) -> Result<(), String> {
     if let Some(parent) = args.output.parent() {
         fs::create_dir_all(parent).map_err(|err| format!("create {}: {err}", parent.display()))?;
     }
-    fs::write(&args.output, &image)
-        .map_err(|err| format!("write {}: {err}", args.output.display()))?;
+    write_output(&args.output, &image)?;
 
     println!("image: {}", args.output.display());
     println!("bytes: {}", image.len());
@@ -231,20 +230,40 @@ fn append_archive(initrd: &mut Vec<u8>, archive: &[u8]) {
 /// Compared after canonicalisation so `./boot.img` and an absolute path to it
 /// are recognised as the same file. An output that does not exist yet cannot
 /// collide, so a failure to canonicalise it means "different".
-/// The image is only ever handed to `fastboot boot`, so `--output` has no
-/// business being a block device: a slip like `/dev/sda` would be a disk wipe.
-/// A new path or an existing regular file is fine.
-fn refuse_special_output(path: &Path) -> Result<(), String> {
-    match fs::metadata(path) {
-        Ok(metadata) if metadata.is_file() => Ok(()),
-        Ok(_) => Err(format!(
-            "--output {} exists and is not a regular file; refusing to write to it",
+/// Write the image to `--output`, which must be a new path or a regular file.
+///
+/// The image is only ever handed to `fastboot boot`, so a block device here
+/// is a slip (`/dev/sda` would be a disk wipe). The check is made on the open
+/// handle rather than the path, and symlinks are not followed, so the file
+/// cannot be swapped between the check and the write.
+fn write_output(path: &Path, image: &[u8]) -> Result<(), String> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .custom_flags(O_NOFOLLOW)
+        .open(path)
+        .map_err(|err| format!("open {}: {err}", path.display()))?;
+    let metadata = file
+        .metadata()
+        .map_err(|err| format!("stat {}: {err}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!(
+            "--output {} is not a regular file; refusing to write to it",
             path.display()
-        )),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(format!("stat {}: {err}", path.display())),
+        ));
     }
+    file.set_len(0)
+        .and_then(|()| file.write_all(image))
+        .and_then(|()| file.sync_all())
+        .map_err(|err| format!("write {}: {err}", path.display()))
 }
+
+/// `O_NOFOLLOW` from asm-generic/fcntl.h, which every Linux architecture this
+/// tool runs on shares; spelled out to avoid a libc dependency.
+const O_NOFOLLOW: i32 = 0o400000;
 
 fn same_file(left: &Path, right: &Path) -> bool {
     match (fs::canonicalize(left), fs::canonicalize(right)) {
@@ -323,19 +342,33 @@ mod tests {
     }
 
     #[test]
-    fn output_may_be_new_or_a_regular_file_but_not_a_device() {
+    fn output_may_be_new_or_a_regular_file_but_not_a_device_or_symlink() {
         let dir = std::env::temp_dir().join(format!("liveboot-out-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
-        assert!(refuse_special_output(&dir.join("new.img")).is_ok());
-        fs::write(dir.join("old.img"), b"x").unwrap();
-        assert!(refuse_special_output(&dir.join("old.img")).is_ok());
+        write_output(&dir.join("new.img"), b"new").unwrap();
+        assert_eq!(fs::read(dir.join("new.img")).unwrap(), b"new");
 
-        assert!(refuse_special_output(&dir).is_err(), "a directory");
+        fs::write(dir.join("old.img"), b"longer old contents").unwrap();
+        write_output(&dir.join("old.img"), b"x").unwrap();
+        assert_eq!(fs::read(dir.join("old.img")).unwrap(), b"x", "truncated");
+
+        assert!(write_output(&dir, b"x").is_err(), "a directory");
         assert!(
-            refuse_special_output(Path::new("/dev/null")).is_err(),
+            write_output(Path::new("/dev/null"), b"x").is_err(),
             "a device"
+        );
+
+        std::os::unix::fs::symlink(dir.join("old.img"), dir.join("link.img")).unwrap();
+        assert!(
+            write_output(&dir.join("link.img"), b"y").is_err(),
+            "a symlink"
+        );
+        assert_eq!(
+            fs::read(dir.join("old.img")).unwrap(),
+            b"x",
+            "target untouched"
         );
 
         fs::remove_dir_all(&dir).unwrap();

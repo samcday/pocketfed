@@ -16,7 +16,14 @@ const BLOCK_SIZE: u32 = 512;
 /// The export id `smoo-host --file <path>` will announce.
 pub fn for_file(path: &Path) -> io::Result<u32> {
     let canonical = fs::canonicalize(path)?;
-    let len = fs::metadata(&canonical)?.len();
+    let metadata = fs::metadata(&canonical)?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not a regular file", canonical.display()),
+        ));
+    }
+    let len = metadata.len();
     let identity = format!("file:{}", canonical.display());
     Ok(derive(&identity, BLOCK_SIZE, len / u64::from(BLOCK_SIZE)))
 }
@@ -74,6 +81,11 @@ mod tests {
             for_file(&relative).unwrap(),
             expected,
             "the path is canonicalised first"
+        );
+        assert_eq!(
+            for_file(&dir).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput,
+            "a directory is not a root image"
         );
 
         fs::remove_dir_all(&dir).unwrap();
