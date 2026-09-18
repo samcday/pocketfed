@@ -96,6 +96,17 @@ tools/liveboot/stage-inject-tree.sh \
     --out /tmp/inject-tree
 ```
 
+Then pass the tree to the builder; without it the boot stalls waiting for a
+root device that nothing is serving:
+
+```sh
+cargo run -p pocketfed-liveboot -- boot \
+    --aboot out/google-sargo/aboot.img \
+    --export-id 2863311530 \
+    --inject-tree /tmp/inject-tree \
+    --output out/google-sargo/liveboot.img
+```
+
 On sargo's 7.1.2 kernel this stages `ublk_drv`, `loop`, `libcomposite` and
 `usb_f_fs`; `dm_mod`, `dm_snapshot` and `configfs` are built in
 (`CONFIG_BLK_DEV_DM=y`, `CONFIG_DM_SNAPSHOT=y`, `CONFIG_CONFIGFS_FS=y`) and

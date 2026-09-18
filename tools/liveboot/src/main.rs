@@ -9,7 +9,7 @@
 use std::{
     env,
     ffi::OsString,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
     process::ExitCode,
     time::{SystemTime, UNIX_EPOCH},
@@ -109,6 +109,7 @@ fn build(args: &BootArgs) -> Result<(), String> {
             args.aboot.display()
         ));
     }
+    refuse_special_output(&args.output)?;
 
     let template = read(&args.aboot)?;
 
@@ -209,6 +210,21 @@ fn inject(template: &[u8], parsed: &bootimg::BootImage, tree: &Path) -> Result<V
 /// Compared after canonicalisation so `./boot.img` and an absolute path to it
 /// are recognised as the same file. An output that does not exist yet cannot
 /// collide, so a failure to canonicalise it means "different".
+/// The image is only ever handed to `fastboot boot`, so `--output` has no
+/// business being a block device: a slip like `/dev/sda` would be a disk wipe.
+/// A new path or an existing regular file is fine.
+fn refuse_special_output(path: &Path) -> Result<(), String> {
+    match fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => Ok(()),
+        Ok(_) => Err(format!(
+            "--output {} exists and is not a regular file; refusing to write to it",
+            path.display()
+        )),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("stat {}: {err}", path.display())),
+    }
+}
+
 fn same_file(left: &Path, right: &Path) -> bool {
     match (fs::canonicalize(left), fs::canonicalize(right)) {
         (Ok(left), Ok(right)) => left == right,
@@ -262,4 +278,28 @@ fn usage_text() -> &'static str {
      \x20                          [--run-token TOKEN] [--console ttyMSM0,115200n8]\n\
      \x20                          [--cow-size 1G] [--append ARG]...\n\
      \x20                          [--inject-tree DIR]"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_may_be_new_or_a_regular_file_but_not_a_device() {
+        let dir = std::env::temp_dir().join(format!("liveboot-out-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        assert!(refuse_special_output(&dir.join("new.img")).is_ok());
+        fs::write(dir.join("old.img"), b"x").unwrap();
+        assert!(refuse_special_output(&dir.join("old.img")).is_ok());
+
+        assert!(refuse_special_output(&dir).is_err(), "a directory");
+        assert!(
+            refuse_special_output(Path::new("/dev/null")).is_err(),
+            "a device"
+        );
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
 }

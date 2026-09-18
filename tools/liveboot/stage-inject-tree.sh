@@ -53,7 +53,28 @@ case "$(file -b "$gadget")" in
     *) die "$gadget is not an aarch64 binary; the phone will not run it" ;;
 esac
 
-rm -rf -- "$out"
+# `rm -rf` on the output is only safe when the output is ours. Refuse an
+# output that is, contains, or lives inside an input, and refuse to clear an
+# existing directory that this script did not create.
+marker=.stage-inject-tree
+overlaps() {
+    # $1 and $2 overlap if either is a prefix of the other.
+    case "$1/" in "$2"/*) return 0 ;; esac
+    case "$2/" in "$1"/*) return 0 ;; esac
+    return 1
+}
+out_abs=$(realpath -m -- "$out")
+for input in "$smoo" "$modules" "$gadget"; do
+    input_abs=$(realpath -- "$input")
+    if overlaps "$out_abs" "$input_abs"; then
+        die "--out $out overlaps input $input; refusing to delete it"
+    fi
+done
+if [ -e "$out" ]; then
+    [ -f "$out/$marker" ] \
+        || die "$out exists and was not created by this script; remove it yourself"
+    rm -rf -- "$out"
+fi
 mkdir -p \
     "$out/usr/bin" \
     "$out/usr/libexec/smoo" \
@@ -62,6 +83,7 @@ mkdir -p \
     "$out/usr/lib/dracut/hooks/pre-udev" \
     "$out/usr/lib/dracut/hooks/shutdown" \
     "$out/usr/lib/systemd/system/initrd-root-device.target.wants"
+: > "$out/$marker"
 
 install -m0755 "$gadget" "$out/usr/bin/smoo-gadget"
 

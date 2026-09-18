@@ -132,8 +132,15 @@ pub fn from_tree(root: &Path) -> io::Result<Vec<Entry>> {
         } else if metadata.is_symlink() {
             let target = fs::read_link(&path)?;
             entries.push(Entry::symlink(name, target.to_string_lossy().into_owned()));
-        } else {
+        } else if metadata.is_file() {
             entries.push(Entry::file(name, perms, fs::read(&path)?));
+        } else {
+            // A FIFO would block the read forever and a device node has no
+            // end; neither belongs in an initramfs anyway.
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("not a regular file: {}", path.display()),
+            ));
         }
     }
     Ok(entries)
@@ -239,6 +246,20 @@ mod tests {
         assert_eq!(Entry::file("f", 0o644, Vec::new()).mode, 0o100644);
         assert_eq!(Entry::symlink("l", "t").mode, 0o120777);
         assert_eq!(Entry::symlink("l", "target").data, b"target".to_vec());
+    }
+
+    #[test]
+    fn a_tree_with_a_special_file_is_refused() {
+        let dir = std::env::temp_dir().join(format!("liveboot-cpio-sock-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let socket = std::os::unix::net::UnixListener::bind(dir.join("sock")).unwrap();
+
+        let err = from_tree(&dir).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::Unsupported, "{err}");
+
+        drop(socket);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
