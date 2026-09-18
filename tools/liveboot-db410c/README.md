@@ -35,7 +35,7 @@ tools/liveboot-db410c/build-initrd.sh \
 `rd.smoo.root=`. Common options: `--deployment <hash>` (auto-detected when the
 image has a single deployment), `--run-token`, `--product-id` (default
 `0xBEE1`), `--cow-size`, `--edid-override`, `--autologin-root` (on by default),
-`--initrd-root-password`, `--drop-dm-udev-rules` and `--dry-run`. Run
+`--initrd-root-password-file`, `--drop-dm-udev-rules` and `--dry-run`. Run
 `build-initrd.sh --help` for the full list. `--dry-run` prints the resolved plan
 without mounting or building anything.
 

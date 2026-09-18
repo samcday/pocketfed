@@ -40,7 +40,7 @@ PRODUCT_ID="0xBEE1"
 RUN_TOKEN="lb-db410c"
 AUTOLOGIN_ROOT=1
 EDID_OVERRIDE="edid/1280x720.bin"
-INITRD_ROOT_PASSWORD=""
+INITRD_ROOT_PASSWORD_FILE=""
 DROP_DM_UDEV_RULES=0
 DRY_RUN=0
 
@@ -93,10 +93,11 @@ Common options:
   --autologin-root         Install the liveboot dracut module that drops a root
                            autologin on the serial console (default on).
   --no-autologin-root      Do not install that module.
-  --initrd-root-password <pw>
-                           Set the initrd /etc/shadow root hash (emergency
-                           sulogin). Omitted by default: the password is then
-                           whatever the served image shipped.
+  --initrd-root-password-file <path>
+                           Set the initrd's root password from the first line
+                           of <path> (never from the command line) so the
+                           dracut emergency shell is usable over the console.
+                           Only the initrd is affected.
   --drop-dm-udev-rules     Delete the device-mapper udev rules from the initrd.
                            Not needed with current smoo (smoo#59); off by
                            default and only here for older smoo revisions.
@@ -106,7 +107,8 @@ EOF
 }
 
 need_value() {
-    [ "$#" -ge 2 ] && [ -n "$2" ] || die "option $1 requires a value"
+    [ "$#" -ge 2 ] && [ -n "$2" ] && [ "${2#-}" = "$2" ] \
+        || die "option $1 requires a value"
 }
 
 # ---- argument parsing -------------------------------------------------------
@@ -124,7 +126,7 @@ while [ "$#" -gt 0 ]; do
         --product-id)       need_value "$@"; PRODUCT_ID=$2; shift 2 ;;
         --run-token)        need_value "$@"; RUN_TOKEN=$2; shift 2 ;;
         --edid-override)    need_value "$@"; EDID_OVERRIDE=$2; shift 2 ;;
-        --initrd-root-password) need_value "$@"; INITRD_ROOT_PASSWORD=$2; shift 2 ;;
+        --initrd-root-password-file) need_value "$@"; INITRD_ROOT_PASSWORD_FILE=$2; shift 2 ;;
         --autologin-root)   AUTOLOGIN_ROOT=1; shift ;;
         --no-autologin-root) AUTOLOGIN_ROOT=0; shift ;;
         --drop-dm-udev-rules) DROP_DM_UDEV_RULES=1; shift ;;
@@ -210,7 +212,7 @@ $PROG plan (dry run, nothing mounted or built)
   display closure  modprobe --show-depends $DISPLAY_ROOTS, stripped with $STRIP --strip-debug
   confdir          hostonly_mode=strict, add_dracutmodules+=" ostree "
   drop dm rules    $DROP_DM_UDEV_RULES
-  shadow password  $([ -n "$INITRD_ROOT_PASSWORD" ] && echo 'set' || echo 'unchanged')
+  shadow password  $([ -n "$INITRD_ROOT_PASSWORD_FILE" ] && echo 'set' || echo 'unchanged')
   run token        $RUN_TOKEN
   product id       $PRODUCT_ID
   cow size         $COW_SIZE
@@ -350,24 +352,25 @@ sudo -n chmod 644 "$INITRD_PRE"
 
 # 5. Post-process the initrd: optional dm udev-rule removal and optional
 #    initrd root password. With neither requested, adopt dracut's output as is.
-if [ "$DROP_DM_UDEV_RULES" = 1 ] || [ -n "$INITRD_ROOT_PASSWORD" ]; then
-    sudo -n sh -c "zstd -dc '$INITRD_PRE' > '$DRACUT_TMP/tree.cpio' 2>/dev/null" \
-        || sudo -n sh -c "$ZSTD -dc '$INITRD_PRE' > '$DRACUT_TMP/tree.cpio'"
-    sudo -n sh -c "rm -rf '$DRACUT_TMP/tree' && mkdir -p '$DRACUT_TMP/tree' && \
-        cd '$DRACUT_TMP/tree' && $CPIO -idmu < '$DRACUT_TMP/tree.cpio' >/dev/null 2>&1"
+if [ "$DROP_DM_UDEV_RULES" = 1 ] || [ -n "$INITRD_ROOT_PASSWORD_FILE" ]; then
+    sudo -n sh -c '"$1" -dc "$2" > "$3"' _ "$ZSTD" "$INITRD_PRE" "$DRACUT_TMP/tree.cpio"
+    sudo -n sh -c 'rm -rf "$1" && mkdir -p "$1" && cd "$1" && "$2" -idmu < "$3" >/dev/null 2>&1' \
+        _ "$DRACUT_TMP/tree" "$CPIO" "$DRACUT_TMP/tree.cpio"
     if [ "$DROP_DM_UDEV_RULES" = 1 ]; then
         # Only needed for smoo revisions before smoo#59: the dm udev rules
         # interfered with the /dev/smoo-root trigger.
-        sudo -n sh -c "cd '$DRACUT_TMP/tree' && rm -f \
+        sudo -n sh -c 'cd "$1" && rm -f \
             usr/lib/udev/rules.d/10-dm.rules usr/lib/udev/rules.d/13-dm-disk.rules \
-            usr/lib/udev/rules.d/95-dm-notify.rules etc/udev/rules.d/11-dm.rules"
+            usr/lib/udev/rules.d/95-dm-notify.rules etc/udev/rules.d/11-dm.rules' \
+            _ "$DRACUT_TMP/tree"
     fi
-    if [ -n "$INITRD_ROOT_PASSWORD" ]; then
-        ROOT_HASH=$(openssl passwd -6 "$INITRD_ROOT_PASSWORD")
-        sudo -n sed -i "s|^root:[^:]*:|root:$ROOT_HASH:|" "$DRACUT_TMP/tree/etc/shadow"
+    if [ -n "$INITRD_ROOT_PASSWORD_FILE" ]; then
+        [ -r "$INITRD_ROOT_PASSWORD_FILE" ] || die "cannot read $INITRD_ROOT_PASSWORD_FILE"
+        ROOT_HASH=$(head -n 1 -- "$INITRD_ROOT_PASSWORD_FILE" | openssl passwd -6 -stdin)
+        sudo -n sh -c 'sed -i "s|^root:[^:]*:|root:$1:|" "$2"' _ "$ROOT_HASH" "$DRACUT_TMP/tree/etc/shadow"
     fi
-    sudo -n sh -c "cd '$DRACUT_TMP/tree' && find . | $CPIO -o -H newc 2>/dev/null | \
-        $ZSTD -T0 -19 > '$INITRD'"
+    sudo -n sh -c 'cd "$1" && find . | "$2" -o -H newc 2>/dev/null | "$3" -T0 -19 > "$4"' \
+        _ "$DRACUT_TMP/tree" "$CPIO" "$ZSTD" "$INITRD"
     sudo -n chmod 644 "$INITRD"
 else
     sudo -n cp "$INITRD_PRE" "$INITRD"
