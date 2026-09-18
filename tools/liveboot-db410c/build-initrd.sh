@@ -366,8 +366,11 @@ if [ "$DROP_DM_UDEV_RULES" = 1 ] || [ -n "$INITRD_ROOT_PASSWORD_FILE" ]; then
     fi
     if [ -n "$INITRD_ROOT_PASSWORD_FILE" ]; then
         [ -r "$INITRD_ROOT_PASSWORD_FILE" ] || die "cannot read $INITRD_ROOT_PASSWORD_FILE"
-        ROOT_HASH=$(head -n 1 -- "$INITRD_ROOT_PASSWORD_FILE" | openssl passwd -6 -stdin)
-        sudo -n sh -c 'sed -i "s|^root:[^:]*:|root:$1:|" "$2"' _ "$ROOT_HASH" "$DRACUT_TMP/tree/etc/shadow"
+        # The hash never appears in a process argument list: it travels to the
+        # privileged shell over its standard input.
+        head -n 1 -- "$INITRD_ROOT_PASSWORD_FILE" | openssl passwd -6 -stdin \
+            | sudo -n sh -c 'IFS= read -r hash && sed -i "s|^root:[^:]*:|root:$hash:|" "$1"' \
+                _ "$DRACUT_TMP/tree/etc/shadow"
     fi
     sudo -n sh -c 'cd "$1" && find . | "$2" -o -H newc 2>/dev/null | "$3" -T0 -19 > "$4"' \
         _ "$DRACUT_TMP/tree" "$CPIO" "$ZSTD" "$INITRD"
