@@ -10,3 +10,5 @@ kmods/**/Module.symvers
 kmods/**/.tmp_versions/
 tools/__pycache__/
 dt/tools/__pycache__/
+# liveboot profiles/overlays stay out of this branch (harness under rework); local copies live in out/hwe/liveboot
+liveboot
