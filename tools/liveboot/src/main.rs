@@ -249,14 +249,19 @@ impl FileIdentity {
 
 /// Read the template boot image and remember which inode it came from, so the
 /// output can be checked against it even through a hard link.
+///
+/// Only a regular file is read: a boot image is at most tens of megabytes,
+/// while a device or FIFO given by mistake has no end to read to.
 fn read_template(path: &Path) -> Result<(Vec<u8>, FileIdentity), String> {
     let file = fs::File::open(path).map_err(|err| format!("open {}: {err}", path.display()))?;
-    let identity = FileIdentity::of(
-        &file
-            .metadata()
-            .map_err(|err| format!("stat {}: {err}", path.display()))?,
-    );
-    let mut bytes = Vec::new();
+    let metadata = file
+        .metadata()
+        .map_err(|err| format!("stat {}: {err}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("--aboot {} is not a regular file", path.display()));
+    }
+    let identity = FileIdentity::of(&metadata);
+    let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
     (&file)
         .read_to_end(&mut bytes)
         .map_err(|err| format!("read {}: {err}", path.display()))?;
@@ -416,6 +421,15 @@ mod tests {
             fs::read(dir.join("old.img")).unwrap(),
             b"x",
             "target untouched"
+        );
+
+        assert!(
+            read_template(&dir).is_err(),
+            "a directory is not a template"
+        );
+        assert!(
+            read_template(Path::new("/dev/null")).is_err(),
+            "a device is not a template"
         );
 
         // A hard link is the same inode under another name: canonical paths
