@@ -93,8 +93,14 @@ tools/liveboot/stage-inject-tree.sh \
     --smoo ../smoo \
     --gadget ../smoo/target/aarch64-unknown-linux-musl/release/smoo-gadget \
     --modules /mnt/pfroot/ostree/deploy/pocketfed/deploy/<commit>.0/usr/lib/modules/<kver> \
+    --extra /tmp/inject-extra \
     --out /tmp/inject-tree
 ```
+
+`--extra` is a directory copied onto the tree as-is, for binaries the image's
+initramfs does not carry: on sargo that is `usr/sbin/dmsetup` and
+`usr/lib64/libdevmapper.so.1.02`, taken from the same deployment. The COW
+device is a `brd` RAM disk, so no loop device or sparse-file tooling is needed.
 
 Then pass the tree to the builder; without it the boot stalls waiting for a
 root device that nothing is serving:
@@ -104,8 +110,15 @@ cargo run -p pocketfed-liveboot -- boot \
     --aboot out/google-sargo/aboot.img \
     --export-id 2863311530 \
     --inject-tree /tmp/inject-tree \
+    --append enforcing=0 \
     --output out/google-sargo/liveboot.img
 ```
+
+`enforcing=0` is needed until the image carries smoo's SELinux module
+(`selinux/smoo.cil` in the smoo repo): the gadget starts in the initrd as
+`kernel_t`, and once the served system loads its policy every ublk io_uring
+command is denied, which stalls root I/O a few seconds after switch-root. The
+2026-09-18 test-sargo runs hung exactly there with SELinux enforcing.
 
 On sargo's 7.1.2 kernel this stages `ublk_drv`, `loop`, `libcomposite` and
 `usb_f_fs`; `dm_mod`, `dm_snapshot` and `configfs` are built in

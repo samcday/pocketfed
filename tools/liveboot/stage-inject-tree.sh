@@ -14,6 +14,8 @@
 #   --smoo     smoo checkout, for dracut/modules.d/90smoo
 #   --gadget   aarch64 smoo-gadget binary
 #   --modules  the image's /usr/lib/modules/<kver> directory (needs modules.dep)
+#   --extra    optional directory overlaid onto the tree as-is, for binaries
+#              the image's initramfs lacks (dmsetup and libdevmapper, say)
 #   --out      tree to create (removed first)
 
 set -euo pipefail
@@ -26,6 +28,7 @@ die() {
 smoo=
 gadget=
 modules=
+extra=
 out=
 
 while [ "$#" -gt 0 ]; do
@@ -33,6 +36,7 @@ while [ "$#" -gt 0 ]; do
         --smoo) smoo=${2:?--smoo needs a value}; shift 2 ;;
         --gadget) gadget=${2:?--gadget needs a value}; shift 2 ;;
         --modules) modules=${2:?--modules needs a value}; shift 2 ;;
+        --extra) extra=${2:?--extra needs a value}; shift 2 ;;
         --out) out=${2:?--out needs a value}; shift 2 ;;
         *) die "unexpected argument: $1" ;;
     esac
@@ -47,6 +51,7 @@ moddir=$smoo/dracut/modules.d/90smoo
 [ -d "$moddir" ] || die "no 90smoo module in $smoo"
 [ -f "$gadget" ] || die "no gadget binary at $gadget"
 [ -d "$modules" ] || die "no module directory at $modules"
+[ -z "$extra" ] || [ -d "$extra" ] || die "no extra directory at $extra"
 
 case "$(file -b "$gadget")" in
     *aarch64*) ;;
@@ -64,7 +69,7 @@ overlaps() {
     return 1
 }
 out_abs=$(realpath -m -- "$out")
-for input in "$smoo" "$modules" "$gadget"; do
+for input in "$smoo" "$modules" "$gadget" ${extra:+"$extra"}; do
     input_abs=$(realpath -- "$input")
     if overlaps "$out_abs" "$input_abs"; then
         die "--out $out overlaps input $input; refusing to delete it"
@@ -122,6 +127,11 @@ for unit in smoo-root-storage.service smoo-root-setup.service; do
         "$out/usr/lib/systemd/system/initrd-root-device.target.wants/$unit"
 done
 
+if [ -n "$extra" ]; then
+    cp -a "$extra/." "$out/"
+    printf 'stage-inject-tree: overlaid %s\n' "$extra" >&2
+fi
+
 # sargo's dracut.conf is hostonly_mode=strict and lists none of the datapath
 # modules, so the image's initramfs has no ublk, gadget or device-mapper
 # drivers. Carry them from the image's own module tree, decompressed, because
@@ -136,8 +146,12 @@ want=(
     ublk_drv
     dm-mod
     dm-snapshot
-    loop
+    brd
 )
+
+# Staged but left out of the pre-udev hook: brd takes its size as a load
+# parameter, so smoo-root-setup loads it itself.
+deferred=(brd)
 
 depfile=$modules/modules.dep
 [ -f "$depfile" ] || die "no modules.dep under $modules; --modules must be the /usr/lib/modules/<kver> directory"
@@ -201,8 +215,11 @@ for path in "${order[@]}"; do
         *) die "unrecognised module compression: $src" ;;
     esac
     chmod 0644 "$dest"
-    load_order+=("$name")
     found=$((found + 1))
+    case " ${deferred[*]} " in
+        *" ${name//_/-} "* | *" ${name//-/_} "*) continue ;;
+    esac
+    load_order+=("$name")
 done
 
 if [ "${#missing[@]}" -gt 0 ]; then
