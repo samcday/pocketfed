@@ -194,7 +194,7 @@ fn inject(template: &[u8], parsed: &bootimg::BootImage, tree: &Path) -> Result<V
     }
 
     let mut initrd = ramdisk.initrd.to_vec();
-    initrd.extend_from_slice(&cpio::write(&entries));
+    append_archive(&mut initrd, &cpio::write(&entries));
 
     println!(
         "inject: {} entries, initrd {} -> {} bytes",
@@ -203,6 +203,19 @@ fn inject(template: &[u8], parsed: &bootimg::BootImage, tree: &Path) -> Result<V
         initrd.len()
     );
     rebuild_ramdisk(&ramdisk, &initrd).map_err(|err| format!("rebuild ABLX ramdisk: {err}"))
+}
+
+/// Append a cpio archive to an initrd image.
+///
+/// The kernel walks concatenated archives and only recognises an uncompressed
+/// one that starts on a 4-byte boundary: after a compressed archive it skips
+/// NUL bytes, then expects the `070701` magic at an aligned offset, and fails
+/// the whole unpack with "invalid magic at start of compressed archive"
+/// otherwise. A compressed initrd's length is arbitrary, so pad first.
+fn append_archive(initrd: &mut Vec<u8>, archive: &[u8]) {
+    let padding = initrd.len().next_multiple_of(4) - initrd.len();
+    initrd.resize(initrd.len() + padding, 0);
+    initrd.extend_from_slice(archive);
 }
 
 /// Whether two paths name the same existing file.
@@ -283,6 +296,23 @@ fn usage_text() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn appended_archives_start_on_a_four_byte_boundary() {
+        // The real sargo initrd is 25_779_059 bytes: 3 mod 4. That is exactly
+        // the case the first hardware run failed on.
+        for initrd_len in [0usize, 1, 2, 3, 4, 25_779_059 % 64] {
+            let mut initrd = vec![0xffu8; initrd_len];
+            append_archive(&mut initrd, b"070701rest");
+            let magic = initrd.windows(6).position(|w| w == b"070701").unwrap();
+            assert_eq!(magic % 4, 0, "initrd of {initrd_len} bytes");
+            assert!(
+                initrd[initrd_len..magic].iter().all(|b| *b == 0),
+                "padding is NUL"
+            );
+            assert_eq!(&initrd[..initrd_len], vec![0xffu8; initrd_len].as_slice());
+        }
+    }
 
     #[test]
     fn output_may_be_new_or_a_regular_file_but_not_a_device() {
