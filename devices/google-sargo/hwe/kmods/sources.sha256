@@ -1,0 +1,6 @@
+b71e3a226d6a1c035cb3b69707ce05161fb2cfdfe3641bfefd274a97fe6c5a8f  drivers/pinctrl/qcom/pinctrl-sdm670.c
+68e7845e7f785a84c476b03b347b09fbf6789de991f4d0684b81d2af6354d814  drivers/pinctrl/qcom/pinctrl-msm.h
+a59864cb4b2407ccd0c5f79b67ed18cba9fd61b7d81c4b742ce4c53813e35d12  drivers/interconnect/qcom/sdm670.c
+b00589728269910851f9434b2ac055f35dc214679b11891d49411e022c8a61a6  drivers/interconnect/qcom/icc-rpmh.h
+cab0337de2a9f282f390b380e196bf9974c79825fd70d29279fe48e20aeafb1e  drivers/interconnect/qcom/bcm-voter.h
+07d2bb283d3efdb5a9e9ea830b9377bb4b1c01a26333a5a149a1849be938b631  drivers/gpu/drm/panel/panel-samsung-s6e3fa7.c

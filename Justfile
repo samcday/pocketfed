@@ -10,6 +10,8 @@ base_erofs := env("PF_BASE_EROFS", base_output / "rootfs.ero")
 base_oci_dir := env("PF_BASE_OCI_DIR", base_output / "pocketfed-base.oci")
 
 tag := env("PF_TAG", "rawhide")
+kernel := env("PF_KERNEL", "copr")
+fedora_kernel := env("PF_FEDORA_KERNEL", "7.3.0-0.rc3.260914g704340f1cd0d.32.fc46")
 owner := env("PF_OWNER", "samcday")
 base_image := env("PF_BASE_IMAGE", "ghcr.io/" + owner + "/pocketfed-base:" + tag)
 oci_output := env("PF_OCI_OUTPUT", "oci:" + base_oci_dir + ":" + tag)
@@ -145,6 +147,8 @@ device:
         --jobs=1 \
         --arch arm64 \
         --build-arg "BASE_IMAGE=$base" \
+        --build-arg "KERNEL={{kernel}}" \
+        --build-arg "FEDORA_KERNEL={{fedora_kernel}}" \
         -f "$containerfile" \
         -t "$image" \
         .
@@ -270,6 +274,8 @@ vars:
     @printf 'base_erofs=%s\n' "{{base_erofs}}"
     @printf 'base_oci_dir=%s\n' "{{base_oci_dir}}"
     @printf 'base_image=%s\n' "{{base_image}}"
+    @printf 'kernel=%s\n' "{{kernel}}"
+    @printf 'fedora_kernel=%s\n' "{{fedora_kernel}}"
     @printf 'owner=%s\n' "{{owner}}"
     @printf 'desktop=%s\n' "{{desktop}}"
     @printf 'desktop_base=%s\n' "{{desktop_base}}"

@@ -3,10 +3,60 @@ ARG FEDORA_IMAGE=quay.io/fedora/fedora:rawhide
 ARG RUST_IMAGE=docker.io/library/rust:1.96-bookworm
 ARG BLOB_WRANGLER_NEVRA=blob-wrangler-v0.0.1-1.20260909081322171050.pr16.6.gd941987.fc45.aarch64
 ARG Q6VOICED_NEVRA=q6voiced-0.3.1-1788567722.fc46.aarch64
+ARG KERNEL=copr
+ARG FEDORA_KERNEL=
+
+# Fedora's own rawhide kernel leaves PINCTRL_SDM670, INTERCONNECT_QCOM_SDM670
+# and DRM_PANEL_SAMSUNG_S6E3FA7 unset. For PF_KERNEL=fedora, build those three
+# drivers out of tree from verbatim kernel-ark sources. The stage is a no-op for
+# the default copr variant.
+FROM ${FEDORA_IMAGE} AS hwe-kmods
+ARG KERNEL=copr
+ARG FEDORA_KERNEL=
+COPY devices/google-sargo/hwe/kmods/ /build/
+RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-hwe-kmods,target=/var/cache,sharing=locked \
+    set -eux; \
+    mkdir -p /out; \
+    if [ "$KERNEL" != "fedora" ]; then \
+        echo "PF_KERNEL=$KERNEL: skipping hwe kmods"; \
+        exit 0; \
+    fi; \
+    dnf install -y \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        "kernel-devel-${FEDORA_KERNEL}.aarch64" \
+        gcc make elfutils-libelf-devel kmod xz flex bison openssl-devel curl; \
+    kver="${FEDORA_KERNEL}.aarch64"; \
+    tag="kernel-$(printf '%s' "$FEDORA_KERNEL" | sed -E 's/\.fc[0-9]+$//; s/\.([0-9]{6})g([0-9a-f]+)\./\.\2./')"; \
+    raw="https://gitlab.com/cki-project/kernel-ark/-/raw/$tag"; \
+    mkdir -p /build/src; \
+    while IFS= read -r path; do \
+        [ -n "$path" ] || continue; \
+        name="${path##*/}"; \
+        curl -fsSL "$raw/$path" -o "/build/src/$name"; \
+        expected="$(awk -v p="$path" '$2 == p { print $1 }' /build/sources.sha256)"; \
+        actual="$(sha256sum "/build/src/$name" | cut -d' ' -f1)"; \
+        if [ "$expected" != "$actual" ]; then \
+            printf 'kernel-ark source mismatch for %s\n' "$path" >&2; \
+            printf 'expected %s, got %s\n' "$expected" "$actual" >&2; \
+            printf 're-pin devices/google-sargo/hwe/kmods/sources.sha256 (see hwe/README.md)\n' >&2; \
+            exit 1; \
+        fi; \
+    done < /build/sources.txt; \
+    make -C "/usr/src/kernels/$kver" M=/build modules; \
+    for module in pinctrl-sdm670 qnoc-sdm670 panel-samsung-s6e3fa7; do \
+        sh /build/check-exports.sh "/build/$module.ko" "/usr/src/kernels/$kver/Module.symvers"; \
+        install -d "/out/lib/modules/$kver/updates/sdm670-hwe"; \
+        xz --check=crc32 --lzma2=dict=1MiB -T0 -c "/build/$module.ko" \
+            > "/out/lib/modules/$kver/updates/sdm670-hwe/$module.ko.xz"; \
+    done
 
 FROM ${BASE_IMAGE} AS device-root
 ARG BLOB_WRANGLER_NEVRA
 ARG Q6VOICED_NEVRA
+ARG KERNEL=copr
+ARG FEDORA_KERNEL=
+COPY --from=hwe-kmods /out /tmp/pocketfed-hwe-kmods
 COPY devices/google-sargo/samcday-kernel-sdm670-mainline.repo /etc/yum.repos.d/
 COPY devices/google-sargo/samcday-pocketfed.repo /etc/yum.repos.d/
 COPY devices/google-sargo/samcday-usb-signaller.repo /etc/yum.repos.d/
@@ -133,12 +183,35 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
     grep -Fq 'device-add|device-delete)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
     grep -Fq 'qmapmux*|rmnet*)' /usr/lib/NetworkManager/dispatcher.d/50-clatd; \
     grep -Fq 'priority mangle + 1; }' /usr/bin/clatd; \
-    dnf install -y \
-        --refresh \
-        --from-repo='copr:copr.fedorainfracloud.org:samcday:kernel-sdm670-mainline' \
-        --setopt=install_weak_deps=False \
-        --setopt=keepcache=True \
-        kernel; \
+    printf '%s\n' "$KERNEL" > /usr/lib/pocketfed/kernel-variant; \
+    if [ "$KERNEL" = "fedora" ]; then \
+        kernel_kver="${FEDORA_KERNEL}.aarch64"; \
+        dnf install -y \
+            --refresh \
+            --setopt=install_weak_deps=False \
+            --setopt=keepcache=True \
+            "kernel-$kernel_kver" \
+            "kernel-core-$kernel_kver" \
+            "kernel-modules-$kernel_kver" \
+            "kernel-modules-core-$kernel_kver" \
+            "kernel-modules-extra-$kernel_kver" \
+            "kernel-modules-internal-$kernel_kver"; \
+        printf '%s\n' "$kernel_kver" > /usr/lib/pocketfed/kernel-release; \
+        install -d "/usr/lib/modules/$kernel_kver/updates/sdm670-hwe"; \
+        cp /tmp/pocketfed-hwe-kmods/lib/modules/"$kernel_kver"/updates/sdm670-hwe/*.ko.xz \
+            "/usr/lib/modules/$kernel_kver/updates/sdm670-hwe/"; \
+        depmod -a "$kernel_kver"; \
+        install -m0644 "/usr/lib/modules/$kernel_kver/dtb/qcom/sdm670-google-sargo.dtb" \
+            /usr/lib/pocketfed/device-base.dtb; \
+    else \
+        dnf install -y \
+            --refresh \
+            --from-repo='copr:copr.fedorainfracloud.org:samcday:kernel-sdm670-mainline' \
+            --setopt=install_weak_deps=False \
+            --setopt=keepcache=True \
+            kernel; \
+    fi; \
+    rm -rf /tmp/pocketfed-hwe-kmods; \
     /usr/libexec/pocketfed-verify-kernel; \
     find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
     systemctl enable \
@@ -175,12 +248,74 @@ RUN rpm -q plymouth-theme-spinner fedora-logos
 COPY devices/google-sargo/plymouthd.defaults /usr/share/plymouth/plymouthd.defaults
 COPY --chmod=0755 devices/google-sargo/pocketfed-verify-plymouth-initrd /usr/libexec/
 
+# Fedora's sdm670-google-sargo.dtb has no serial0 alias and no serial@a90000.
+# Recompile the tag's DTS with dtc -@, prove it equivalent to Fedora's blob,
+# inject __symbols__ into the untouched blob and apply the debug-UART overlay.
+FROM ${FEDORA_IMAGE} AS hwe-dtb
+ARG KERNEL=copr
+ARG FEDORA_KERNEL=
+COPY tools/hwe/dtb-symbolise.py tools/hwe/compose-dtb.py /tools/
+COPY devices/google-sargo/dt/sdm670-google-sargo-debug-uart.dtso /tools/
+COPY --from=device-root /usr/lib/pocketfed /in-pocketfed
+RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-hwe-dtb,target=/var/cache,sharing=locked \
+    set -eux; \
+    mkdir -p /out; \
+    if [ "$KERNEL" != "fedora" ]; then \
+        echo "PF_KERNEL=$KERNEL: skipping composed devicetree"; \
+        exit 0; \
+    fi; \
+    dnf install -y \
+        --setopt=install_weak_deps=False \
+        --setopt=keepcache=True \
+        dtc python3-libfdt gcc curl tar gzip; \
+    tag="kernel-$(printf '%s' "$FEDORA_KERNEL" | sed -E 's/\.fc[0-9]+$//; s/\.([0-9]{6})g([0-9a-f]+)\./\.\2./')"; \
+    archive="https://gitlab.com/cki-project/kernel-ark/-/archive/$tag/kernel-ark-$tag.tar.gz"; \
+    raw="https://gitlab.com/cki-project/kernel-ark/-/raw/$tag"; \
+    tree=/src/kernel-tree; \
+    mkdir -p "$tree" /work; \
+    curl -fsSL "$archive?path=arch/arm64/boot/dts/qcom" -o /tmp/dts.tar.gz; \
+    tar -xzf /tmp/dts.tar.gz -C "$tree" --strip-components=1; \
+    curl -fsSL "$archive?path=include/dt-bindings" -o /tmp/dt-bindings.tar.gz; \
+    tar -xzf /tmp/dt-bindings.tar.gz -C "$tree" --strip-components=1; \
+    mkdir -p "$tree/include/uapi/linux"; \
+    curl -fsSL "$raw/include/uapi/linux/input-event-codes.h" \
+        -o "$tree/include/uapi/linux/input-event-codes.h"; \
+    /usr/bin/python3 /tools/dtb-symbolise.py \
+        --base /in-pocketfed/device-base.dtb \
+        --kernel-tree "$tree" \
+        --dts qcom/sdm670-google-sargo.dts \
+        --source-tag "$tag" \
+        --output /work/sdm670-google-sargo.symbolised.dtb \
+        --report /work/symbolise.json; \
+    cpp -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
+        -I "$tree/include" \
+        -I "$tree/arch/arm64/boot/dts" \
+        -I "$tree/arch/arm64/boot/dts/qcom" \
+        /tools/sdm670-google-sargo-debug-uart.dtso -o /work/overlay.pre.dts; \
+    dtc -@ -I dts -O dtb \
+        -i "$tree/include" \
+        -i "$tree/arch/arm64/boot/dts" \
+        -i "$tree/arch/arm64/boot/dts/qcom" \
+        -o /work/sdm670-google-sargo-debug-uart.dtbo /work/overlay.pre.dts; \
+    /usr/bin/python3 /tools/compose-dtb.py \
+        --base /in-pocketfed/device-base.dtb \
+        --symbolised /work/sdm670-google-sargo.symbolised.dtb \
+        --overlay /work/sdm670-google-sargo-debug-uart.dtbo \
+        --output /out/sdm670-google-sargo.pocketfed.dtb \
+        --sidecar /out/sdm670-google-sargo.pocketfed.json \
+        --symbolise-report /work/symbolise.json
+
 FROM device-root AS initrd
+ARG KERNEL=copr
+COPY --from=hwe-dtb /out /tmp/pocketfed-hwe-dtb
 RUN set -eu; \
     set -- /usr/lib/modules/*; \
     [ "$#" -eq 1 ]; \
     [ -d "$1" ]; \
     kver="${1##*/}"; \
+    if [ "$KERNEL" = "fedora" ]; then \
+        sed -i -e '/qcom_pmic_typec_smb2/d' -e '/qcom_fg/d' /etc/dracut.conf.d/60-google-sargo.conf; \
+    fi; \
     install -d /out && \
     dracut \
         --force \
@@ -191,7 +326,11 @@ RUN set -eu; \
         /out/initramfs.img "$kver" && \
     /usr/libexec/pocketfed-verify-plymouth-initrd /out/initramfs.img && \
     install -m0644 "/usr/lib/modules/$kver/vmlinuz" /out/vmlinuz && \
-    install -m0644 "/usr/lib/modules/$kver/dtb/qcom/sdm670-google-sargo.dtb" /out/sdm670-google-sargo.dtb && \
+    if [ "$KERNEL" = "fedora" ]; then \
+        install -m0644 /tmp/pocketfed-hwe-dtb/sdm670-google-sargo.pocketfed.dtb /out/sdm670-google-sargo.dtb; \
+    else \
+        install -m0644 "/usr/lib/modules/$kver/dtb/qcom/sdm670-google-sargo.dtb" /out/sdm670-google-sargo.dtb; \
+    fi && \
     printf '%s\n' "$kver" >/out/kver
 
 FROM ${RUST_IMAGE} AS abl-exorcist-build
@@ -215,6 +354,7 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-cargo-registry,target=/us
     install -m0755 target/release/abl-exorcist-assembler /out/abl-exorcist-assembler
 
 FROM ${FEDORA_IMAGE} AS bootimg
+ARG KERNEL=copr
 RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-dnf,target=/var/cache,sharing=locked \
     dnf install -y --setopt=keepcache=True android-tools dtc gzip
 COPY --from=initrd /out /in
@@ -223,17 +363,21 @@ COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/local/bin/abl-ex
 COPY devices/google-sargo/aboot-kargs /in/aboot-kargs
 # Check the actual DTB embedded in aboot.img, including the conservative PD
 # policy. Neither a different DTB nor a mismatched kernel may slip into release.
+# Fedora's own devicetree carries none of the COPR PD policy or bluetooth nodes,
+# so for PF_KERNEL=fedora the COPR-specific checks are skipped.
 RUN install -d /out && \
-    connector='/soc@0/spmi@c440000/pmic@0/typec@1300/connector' && \
-    test "$(fdtget /in/sdm670-google-sargo.dtb "$connector" power-role)" = dual && \
-    test "$(fdtget /in/sdm670-google-sargo.dtb "$connector" data-role)" = dual && \
-    test "$(fdtget /in/sdm670-google-sargo.dtb "$connector" try-power-role)" = sink && \
-    test "$(fdtget -t bx /in/sdm670-google-sargo.dtb "$connector" pd-revision)" = '2 0 1 2' && \
-    test "$(fdtget -t x /in/sdm670-google-sargo.dtb "$connector" source-pdos)" = 26019032 && \
-    test "$(fdtget -t x /in/sdm670-google-sargo.dtb "$connector" sink-pdos)" = 2601912c && \
-    ! fdtget /in/sdm670-google-sargo.dtb "$connector" pd-disable >/dev/null 2>&1 && \
-    test "$(fdtget /in/sdm670-google-sargo.dtb /soc@0/usb@a6f8800/usb@a600000 maximum-speed)" = high-speed && \
-    test "$(fdtget -t bx /in/sdm670-google-sargo.dtb /soc@0/geniqup@8c0000/serial@898000/bluetooth local-bd-address)" = '0 0 0 0 0 0' && \
+    { if [ "$KERNEL" = "copr" ]; then \
+        connector='/soc@0/spmi@c440000/pmic@0/typec@1300/connector' && \
+        test "$(fdtget /in/sdm670-google-sargo.dtb "$connector" power-role)" = dual && \
+        test "$(fdtget /in/sdm670-google-sargo.dtb "$connector" data-role)" = dual && \
+        test "$(fdtget /in/sdm670-google-sargo.dtb "$connector" try-power-role)" = sink && \
+        test "$(fdtget -t bx /in/sdm670-google-sargo.dtb "$connector" pd-revision)" = '2 0 1 2' && \
+        test "$(fdtget -t x /in/sdm670-google-sargo.dtb "$connector" source-pdos)" = 26019032 && \
+        test "$(fdtget -t x /in/sdm670-google-sargo.dtb "$connector" sink-pdos)" = 2601912c && \
+        ! fdtget /in/sdm670-google-sargo.dtb "$connector" pd-disable >/dev/null 2>&1 && \
+        test "$(fdtget /in/sdm670-google-sargo.dtb /soc@0/usb@a6f8800/usb@a600000 maximum-speed)" = high-speed && \
+        test "$(fdtget -t bx /in/sdm670-google-sargo.dtb /soc@0/geniqup@8c0000/serial@898000/bluetooth local-bd-address)" = '0 0 0 0 0 0'; \
+      fi; } && \
     aboot_kargs="$(cat /in/aboot-kargs)" && \
     gzip -n -9 -c /tmp/abl-exorcist.bin >/tmp/abl-exorcist.bin.gz && \
     abl-exorcist-assembler --ramdisk /in/vmlinuz /in/initramfs.img >/tmp/ablx-ramdisk.img && \

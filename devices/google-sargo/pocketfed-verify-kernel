@@ -6,15 +6,33 @@ fail() {
     exit 1
 }
 
+variant=unknown
+if [ -f /usr/lib/pocketfed/kernel-variant ]; then
+    variant="$(cat /usr/lib/pocketfed/kernel-variant)"
+fi
+
 set -- /usr/lib/modules/*
 [ "$#" -eq 1 ] || fail "expected one module directory, found $#"
 [ -d "$1" ] || fail "module directory is missing: $1"
 module_dir="$1"
 kver="${module_dir##*/}"
 
-case "$kver" in
-    7.1.2-0.pocketfed.sdm670.8.fc*.aarch64) ;;
-    *) fail "unexpected release: $kver" ;;
+case "$variant" in
+    copr)
+        case "$kver" in
+            7.1.2-0.pocketfed.sdm670.8.fc*.aarch64) ;;
+            *) fail "unexpected release: $kver" ;;
+        esac
+        ;;
+    fedora)
+        expected="$(cat /usr/lib/pocketfed/kernel-release 2>/dev/null || true)"
+        [ -n "$expected" ] || fail 'kernel-release is missing for the fedora variant'
+        [ "$kver" = "$expected" ] ||
+            fail "release $kver does not match pinned $expected"
+        ;;
+    *)
+        fail "unknown kernel variant: $variant"
+        ;;
 esac
 
 rpm_kver="$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core)" ||
@@ -31,6 +49,23 @@ vermagic="$(modinfo -F vermagic "$module")" ||
 uts_release="${vermagic%% *}"
 [ "$uts_release" = "$kver" ] ||
     fail "sdhci_msm vermagic $uts_release does not match module directory $kver"
+
+if [ "$variant" = "fedora" ]; then
+    for hwe_module in pinctrl-sdm670 qnoc-sdm670 panel-samsung-s6e3fa7; do
+        hwe_path="$(find "$module_dir/updates/sdm670-hwe" \
+            -type f -name "$hwe_module.ko*" -print -quit 2>/dev/null)"
+        [ -n "$hwe_path" ] || fail "$hwe_module module is missing"
+
+        hwe_vermagic="$(modinfo -F vermagic "$hwe_path")" ||
+            fail "cannot read vermagic from $hwe_path"
+        [ "${hwe_vermagic%% *}" = "$kver" ] ||
+            fail "$hwe_module vermagic ${hwe_vermagic%% *} does not match module directory $kver"
+    done
+
+    printf 'fedora variant: rmnet is not built by Fedora, skipping modem checks\n'
+    printf 'verified pocketfed fedora kernel release %s\n' "$kver"
+    exit 0
+fi
 
 rmnet_module="$(find "$module_dir/kernel/drivers/net/ethernet/qualcomm/rmnet" \
     -type f -name 'rmnet.ko*' -print -quit 2>/dev/null)"
