@@ -39,6 +39,7 @@ EXPORT_ID=""
 PRODUCT_ID="0xBEE1"
 RUN_TOKEN="lb-db410c"
 AUTOLOGIN_ROOT=1
+ZRAM=1
 EDID_OVERRIDE="edid/1280x720.bin"
 INITRD_ROOT_PASSWORD_FILE=""
 DROP_DM_UDEV_RULES=0
@@ -93,6 +94,9 @@ Common options:
   --autologin-root         Install the liveboot dracut module that drops a root
                            autologin on the serial console (default on).
   --no-autologin-root      Do not install that module.
+  --zram                   Load zram (+lz4) from the initrd so the served root's
+                           zram-generator can make swap (default on).
+  --no-zram                Leave zram out; the RAM COW is then the only headroom.
   --initrd-root-password-file <path>
                            Set the initrd's root password from the first line
                            of <path> (never from the command line) so the
@@ -129,6 +133,8 @@ while [ "$#" -gt 0 ]; do
         --initrd-root-password-file) need_value "$@"; INITRD_ROOT_PASSWORD_FILE=$2; shift 2 ;;
         --autologin-root)   AUTOLOGIN_ROOT=1; shift ;;
         --no-autologin-root) AUTOLOGIN_ROOT=0; shift ;;
+        --zram)             ZRAM=1; shift ;;
+        --no-zram)          ZRAM=0; shift ;;
         --drop-dm-udev-rules) DROP_DM_UDEV_RULES=1; shift ;;
         --dry-run)          DRY_RUN=1; shift ;;
         -h|--help)          usage; exit 0 ;;
@@ -182,7 +188,7 @@ DRACUT_TMP="$OUT_DIR/dracut-tmp"
 CONFDIR="$OUT_DIR/dracut-confdir"
 LOGS="$OUT_DIR/logs"
 
-if [ "$AUTOLOGIN_ROOT" = 1 ]; then
+if [ "$AUTOLOGIN_ROOT" = 1 ] || [ "$ZRAM" = 1 ]; then
     ADD_MODULES="smoo pocketfed-liveboot ostree"
 else
     ADD_MODULES="smoo ostree"
@@ -218,6 +224,7 @@ $PROG plan (dry run, nothing mounted or built)
   cow size         $COW_SIZE
   export id        $EXPORT_ID
   edid override    ${EDID_OVERRIDE:-<none>}
+  zram from initrd $ZRAM
   cmdline          (ostree= auto-derived from $PFROOT_MNT/ostree/boot.1/*/*/0)
   outputs          $INITRD
                    $BOOT_IMAGE
@@ -394,6 +401,7 @@ _parts=(
     "rd.smoo.product=$PRODUCT_ID" rd.smoo.root_timeout=120
 )
 [ -n "$EDID_OVERRIDE" ] && _parts+=("drm.edid_firmware=HDMI-A-1:$EDID_OVERRIDE")
+[ "$ZRAM" = 1 ] || _parts+=(rd.pocketfed.zram=0)
 _parts+=(systemd.mask=systemd-coredump.socket)
 CMD_LINE="${_parts[*]}"
 printf '%s\n' "$CMD_LINE" > "$CMD_LINE_FILE"
@@ -426,6 +434,7 @@ product id         $PRODUCT_ID
 cow size           $COW_SIZE
 autologin root     $AUTOLOGIN_ROOT
 edid override      ${EDID_OVERRIDE:-<none>}
+zram from initrd   $ZRAM
 drop dm udev rules $DROP_DM_UDEV_RULES
 cmdline            $CMD_LINE
 EOF

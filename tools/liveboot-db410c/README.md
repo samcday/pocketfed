@@ -34,7 +34,7 @@ tools/liveboot-db410c/build-initrd.sh \
 `--export-id` is the id `smoo-host` prints for the served image and becomes
 `rd.smoo.root=`. Common options: `--deployment <hash>` (auto-detected when the
 image has a single deployment), `--run-token`, `--product-id` (default
-`0xBEE1`), `--cow-size`, `--edid-override`, `--autologin-root` (on by default),
+`0xBEE1`), `--cow-size`, `--edid-override`, `--autologin-root` and `--zram` (both on by default),
 `--initrd-root-password-file`, `--drop-dm-udev-rules` and `--dry-run`. Run
 `build-initrd.sh --help` for the full list. `--dry-run` prints the resolved plan
 without mounting or building anything.
@@ -87,10 +87,11 @@ instead.
 
 ## Known limits
 
-- **1 GB RAM, no zram/swap.** The served root is the *other* board's userspace,
-  so it cannot load this kernel's modules and cannot bring up zram. The RAM
-  copy-on-write layer (`--cow-size`) is therefore the only headroom; keep it
-  modest.
+- **1 GB RAM.** The served root is the *other* board's userspace, so it cannot
+  load this kernel's modules. The liveboot dracut module therefore loads zram
+  (+lz4) from the initrd before udev; the served root's own zram-generator then
+  makes swap after switch-root. Without it (`--no-zram`) the RAM copy-on-write
+  layer (`--cow-size`) is the only headroom and the greeter gets OOM-killed.
 - **EDID override may be required.** Sinks that do not report HPD get no mode
   from the binder; the default `drm.edid_firmware=HDMI-A-1:edid/1280x720.bin`
   forces 720p. Pass `--edid-override none` for sinks that do advertise HPD.
