@@ -19,6 +19,7 @@ use abl_exorcist_assembler::{bootimg, parse_ramdisk, rebuild_ramdisk};
 
 mod cmdline;
 mod cpio;
+mod export_id;
 
 use cmdline::LivebootCmdline;
 
@@ -74,6 +75,13 @@ fn run_boot(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
             Some("--export-id") => {
                 export_id = Some(parse_export_id(&take(&mut args, "--export-id")?)?)
             }
+            Some("--root-image") => {
+                let path = PathBuf::from(take(&mut args, "--root-image")?);
+                export_id = Some(
+                    export_id::for_file(&path)
+                        .map_err(|err| format!("--root-image {}: {err}", path.display()))?,
+                );
+            }
             Some("--run-token") => run_token = Some(string(take(&mut args, "--run-token")?)?),
             Some("--console") => console = Some(string(take(&mut args, "--console")?)?),
             Some("--cow-size") => cow_size = Some(string(take(&mut args, "--cow-size")?)?),
@@ -89,7 +97,7 @@ fn run_boot(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     let args = BootArgs {
         aboot: aboot.ok_or_else(|| usage("--aboot is required"))?,
         output: output.ok_or_else(|| usage("--output is required"))?,
-        export_id: export_id.ok_or_else(|| usage("--export-id is required"))?,
+        export_id: export_id.ok_or_else(|| usage("--root-image or --export-id is required"))?,
         run_token,
         console,
         cow_size,
@@ -287,7 +295,7 @@ fn usage(error: &str) -> String {
 }
 
 fn usage_text() -> &'static str {
-    "usage: pocketfed-liveboot boot --aboot PATH --export-id ID --output PATH\n\
+    "usage: pocketfed-liveboot boot --aboot PATH --root-image PATH|--export-id ID --output PATH\n\
      \x20                          [--run-token TOKEN] [--console ttyMSM0,115200n8]\n\
      \x20                          [--cow-size 1G] [--append ARG]...\n\
      \x20                          [--inject-tree DIR]"
