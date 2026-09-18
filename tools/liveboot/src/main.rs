@@ -10,7 +10,7 @@ use std::{
     env,
     ffi::OsString,
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::ExitCode,
     time::{SystemTime, UNIX_EPOCH},
@@ -119,7 +119,7 @@ fn build(args: &BootArgs) -> Result<(), String> {
         ));
     }
 
-    let template = read(&args.aboot)?;
+    let (template, template_file) = read_template(&args.aboot)?;
 
     // Verify before touching it: a template that already fails its own integrity
     // checks would produce a liveboot image that fails on the device for reasons
@@ -161,7 +161,7 @@ fn build(args: &BootArgs) -> Result<(), String> {
     if let Some(parent) = args.output.parent() {
         fs::create_dir_all(parent).map_err(|err| format!("create {}: {err}", parent.display()))?;
     }
-    write_output(&args.output, &image)?;
+    write_output(&args.output, &image, &template_file)?;
 
     println!("image: {}", args.output.display());
     println!("bytes: {}", image.len());
@@ -230,14 +230,48 @@ fn append_archive(initrd: &mut Vec<u8>, archive: &[u8]) {
 /// Compared after canonicalisation so `./boot.img` and an absolute path to it
 /// are recognised as the same file. An output that does not exist yet cannot
 /// collide, so a failure to canonicalise it means "different".
-/// Write the image to `--output`, which must be a new path or a regular file.
+/// A file's identity on disk, for telling two paths to the same inode apart.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FileIdentity {
+    dev: u64,
+    ino: u64,
+}
+
+impl FileIdentity {
+    fn of(metadata: &fs::Metadata) -> Self {
+        use std::os::unix::fs::MetadataExt;
+        Self {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+        }
+    }
+}
+
+/// Read the template boot image and remember which inode it came from, so the
+/// output can be checked against it even through a hard link.
+fn read_template(path: &Path) -> Result<(Vec<u8>, FileIdentity), String> {
+    let file = fs::File::open(path).map_err(|err| format!("open {}: {err}", path.display()))?;
+    let identity = FileIdentity::of(
+        &file
+            .metadata()
+            .map_err(|err| format!("stat {}: {err}", path.display()))?,
+    );
+    let mut bytes = Vec::new();
+    (&file)
+        .read_to_end(&mut bytes)
+        .map_err(|err| format!("read {}: {err}", path.display()))?;
+    Ok((bytes, identity))
+}
+
+/// Write the image to `--output`, which must be a new path or a regular file
+/// other than the template.
 ///
 /// The image is only ever handed to `fastboot boot`, so a block device here
-/// is a slip (`/dev/sda` would be a disk wipe). The check is made on the open
-/// handle rather than the path, and symlinks are not followed, so the file
-/// cannot be swapped between the check and the write.
-fn write_output(path: &Path, image: &[u8]) -> Result<(), String> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+/// is a slip (`/dev/sda` would be a disk wipe). The checks are made on the
+/// open handle rather than the path, symlinks are not followed, and the inode
+/// is compared with the template's so a hard link to it cannot be truncated.
+fn write_output(path: &Path, image: &[u8], template: &FileIdentity) -> Result<(), String> {
+    use std::os::unix::fs::OpenOptionsExt;
 
     let mut file = fs::OpenOptions::new()
         .write(true)
@@ -259,9 +293,15 @@ fn write_output(path: &Path, image: &[u8]) -> Result<(), String> {
     // regular file, not a link to it.
     let on_disk =
         fs::symlink_metadata(path).map_err(|err| format!("stat {}: {err}", path.display()))?;
-    if !on_disk.is_file() || (on_disk.dev(), on_disk.ino()) != (metadata.dev(), metadata.ino()) {
+    if !on_disk.is_file() || FileIdentity::of(&on_disk) != FileIdentity::of(&metadata) {
         return Err(format!(
             "--output {} is a link, not a file; refusing to write through it",
+            path.display()
+        ));
+    }
+    if FileIdentity::of(&metadata) == *template {
+        return Err(format!(
+            "--output {} is the boot image being read (same inode); refusing to overwrite it",
             path.display()
         ));
     }
@@ -315,10 +355,6 @@ fn string(value: OsString) -> Result<String, String> {
         .map_err(|_| usage("argument is not valid UTF-8"))
 }
 
-fn read(path: &Path) -> Result<Vec<u8>, String> {
-    fs::read(path).map_err(|err| format!("read {}: {err}", path.display()))
-}
-
 fn usage(error: &str) -> String {
     format!("{error}\n{}", usage_text())
 }
@@ -357,28 +393,42 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
-        write_output(&dir.join("new.img"), b"new").unwrap();
+        let other = FileIdentity { dev: 0, ino: 0 };
+        write_output(&dir.join("new.img"), b"new", &other).unwrap();
         assert_eq!(fs::read(dir.join("new.img")).unwrap(), b"new");
 
         fs::write(dir.join("old.img"), b"longer old contents").unwrap();
-        write_output(&dir.join("old.img"), b"x").unwrap();
+        write_output(&dir.join("old.img"), b"x", &other).unwrap();
         assert_eq!(fs::read(dir.join("old.img")).unwrap(), b"x", "truncated");
 
-        assert!(write_output(&dir, b"x").is_err(), "a directory");
+        assert!(write_output(&dir, b"x", &other).is_err(), "a directory");
         assert!(
-            write_output(Path::new("/dev/null"), b"x").is_err(),
+            write_output(Path::new("/dev/null"), b"x", &other).is_err(),
             "a device"
         );
 
         std::os::unix::fs::symlink(dir.join("old.img"), dir.join("link.img")).unwrap();
         assert!(
-            write_output(&dir.join("link.img"), b"y").is_err(),
+            write_output(&dir.join("link.img"), b"y", &other).is_err(),
             "a symlink"
         );
         assert_eq!(
             fs::read(dir.join("old.img")).unwrap(),
             b"x",
             "target untouched"
+        );
+
+        // A hard link is the same inode under another name: canonical paths
+        // differ, O_NOFOLLOW is happy, only the identity check catches it.
+        let (template, identity) = read_template(&dir.join("old.img")).unwrap();
+        assert_eq!(template, b"x");
+        fs::hard_link(dir.join("old.img"), dir.join("hard.img")).unwrap();
+        let err = write_output(&dir.join("hard.img"), b"z", &identity).unwrap_err();
+        assert!(err.contains("same inode"), "{err}");
+        assert_eq!(
+            fs::read(dir.join("old.img")).unwrap(),
+            b"x",
+            "template untouched"
         );
 
         fs::remove_dir_all(&dir).unwrap();
