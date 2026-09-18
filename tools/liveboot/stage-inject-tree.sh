@@ -13,7 +13,7 @@
 #
 #   --smoo     smoo checkout, for dracut/modules.d/90smoo
 #   --gadget   aarch64 smoo-gadget binary
-#   --modules  the image's /usr/lib/modules/<kver> directory
+#   --modules  the image's /usr/lib/modules/<kver> directory (needs modules.dep)
 #   --out      tree to create (removed first)
 
 set -euo pipefail
@@ -125,25 +125,73 @@ done
 # sargo's dracut.conf is hostonly_mode=strict and lists none of the datapath
 # modules, so the image's initramfs has no ublk, gadget or device-mapper
 # drivers. Carry them from the image's own module tree, decompressed, because
-# insmod cannot be relied on to decompress.
+# insmod cannot be relied on to decompress. Dependencies are resolved from the
+# tree's modules.dep: the first hardware run shipped libcomposite without
+# udc-core and the gadget never came up.
 want=(
     configfs
+    dwc3-qcom
     libcomposite
     usb_f_fs
     ublk_drv
-    dm_mod
-    dm_snapshot
+    dm-mod
+    dm-snapshot
     loop
 )
 
-found=0
+depfile=$modules/modules.dep
+[ -f "$depfile" ] || die "no modules.dep under $modules; --modules must be the /usr/lib/modules/<kver> directory"
+builtin=$modules/modules.builtin
+
+# The relative path of a module in modules.dep, matching either spelling of
+# its name: modules.dep uses the file name (dm-mod.ko), the kernel the
+# module name (dm_mod).
+module_path() {
+    _pattern=$(printf '%s' "$1" | sed 's/[-_]/[-_]/g')
+    sed -n "s|^\(\([^:]*/\)\?$_pattern\.ko[^:]*\):.*|\1|p" "$depfile" | head -n 1
+}
+
+is_builtin() {
+    [ -f "$builtin" ] || return 1
+    _pattern=$(printf '%s' "$1" | sed 's/[-_]/[-_]/g')
+    grep -qE "(^|/)$_pattern\.ko$" "$builtin"
+}
+
+# Ordered load list: each module's dependencies first, as modules.dep lists
+# them right to left, then the module itself. Duplicates keep their first
+# position.
+order=()
+seen=
+add_module() {
+    case " $seen " in *" $1 "*) return ;; esac
+    seen="$seen $1"
+    order+=("$1")
+}
+
 missing=()
 for name in "${want[@]}"; do
-    src=$(find "$modules" -name "$name.ko*" -print -quit 2> /dev/null || true)
-    if [ -z "$src" ]; then
+    path=$(module_path "$name")
+    if [ -z "$path" ]; then
+        if is_builtin "$name"; then
+            continue
+        fi
         missing+=("$name")
         continue
     fi
+    deps=$(sed -n "s|^$path: *||p" "$depfile")
+    for dep in $(printf '%s\n' "$deps" | tr ' ' '\n' | tac); do
+        add_module "$dep"
+    done
+    add_module "$path"
+done
+
+found=0
+load_order=()
+for path in "${order[@]}"; do
+    src=$modules/$path
+    [ -f "$src" ] || die "modules.dep names $path but it is not under $modules"
+    base=$(basename "$path")
+    name=${base%%.ko*}
     dest=$out/usr/lib/smoo/modules/$name.ko
     case "$src" in
         *.ko.xz) xz -dc "$src" > "$dest" ;;
@@ -153,43 +201,48 @@ for name in "${want[@]}"; do
         *) die "unrecognised module compression: $src" ;;
     esac
     chmod 0644 "$dest"
+    load_order+=("$name")
     found=$((found + 1))
 done
 
-# A missing module is not always fatal: several are commonly built in, and the
-# loader tolerates that. Report it so a failed boot can be explained.
 if [ "${#missing[@]}" -gt 0 ]; then
-    printf 'stage-inject-tree: not found (may be built in): %s\n' "${missing[*]}" >&2
+    die "not in modules.dep or modules.builtin: ${missing[*]}"
 fi
-[ "$found" -gt 0 ] || die "no datapath modules found under $modules"
+[ "$found" -gt 0 ] || die "no datapath modules resolved under $modules"
 
-cat > "$out/usr/lib/dracut/hooks/pre-udev/10-smoo-modules.sh" << 'HOOK'
+{
+    cat << 'HOOK'
 #!/bin/sh
 # Load the datapath modules carried in the injected tree.
 #
 # They are not in the image's initramfs, and they are staged as plain .ko files
-# with no modules.dep, so modprobe cannot find them. Order matters: dm_snapshot
-# needs dm_mod, and usb_f_fs needs libcomposite.
+# with no modules.dep, so modprobe cannot find them. The list is already in
+# dependency order; it was resolved from the image's modules.dep when the tree
+# was staged.
 
 command -v getarg > /dev/null || . /lib/dracut-lib.sh
 
 getargbool 0 rd.smoo || return 0
 
-for mod in configfs libcomposite usb_f_fs ublk_drv dm_mod dm_snapshot loop; do
-    modprobe -q "$mod" 2> /dev/null && continue
+HOOK
+    printf 'for mod in %s; do\n' "${load_order[*]}"
+    cat << 'HOOK'
     ko=/usr/lib/smoo/modules/$mod.ko
     [ -f "$ko" ] || continue
     if insmod "$ko" 2> /dev/null; then
         info "smoo: loaded $mod from the injected tree"
     else
-        # Already loaded or built in: both are fine, and both look like failure.
+        # Already loaded (the image's initramfs may carry some of these) or
+        # built in: both are fine, and both look like failure.
         info "smoo: $mod not inserted (already present, or built in)"
     fi
 done
 
 return 0
 HOOK
+} > "$out/usr/lib/dracut/hooks/pre-udev/10-smoo-modules.sh"
 chmod 0755 "$out/usr/lib/dracut/hooks/pre-udev/10-smoo-modules.sh"
+printf 'stage-inject-tree: module load order: %s\n' "${load_order[*]}" >&2
 
 printf 'stage-inject-tree: staged %s files and %s modules into %s\n' \
     "$(find "$out" -type f | wc -l)" "$found" "$out"
