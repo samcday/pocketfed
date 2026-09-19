@@ -6,7 +6,9 @@
 # password, so a getty alone is no way in. This installs a pre-pivot hook that
 # drops an autologin drop-in for the console getty onto the copy-on-write root,
 # and a pre-udev hook that loads zram from the initrd so the served root (which
-# cannot load this kernel's modules) still gets swap on the 1 GB board.
+# cannot load this kernel's modules) still gets swap on the 1 GB board. When the
+# builder staged an EDID override it is installed as firmware and copied to
+# /run before the pivot (see pocketfed-liveboot-edid-fw.sh).
 
 check() {
     return 0
@@ -28,5 +30,10 @@ installkernel() {
 
 install() {
     inst_hook pre-udev 40 "$moddir/pocketfed-liveboot-zram.sh"
+    # build-initrd.sh generates the EDID override into the staged module dir.
+    if [ -f "$moddir/edid/1280x720.bin" ]; then
+        inst_simple "$moddir/edid/1280x720.bin" /usr/lib/firmware/edid/1280x720.bin
+        inst_hook pre-pivot 98 "$moddir/pocketfed-liveboot-edid-fw.sh"
+    fi
     inst_hook pre-pivot 99 "$moddir/pocketfed-liveboot-autologin.sh"
 }

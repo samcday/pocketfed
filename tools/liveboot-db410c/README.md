@@ -16,8 +16,11 @@ image.
   read-only, runs dracut in a `podman --rootfs <deployment>:O` container,
   strips the display module closure, post-processes the initrd, and calls
   `mkbootimg`.
-- `dracut/95pocketfed-liveboot/` — the liveboot-only dracut module that enables
-  root autologin on the serial console (see its README).
+- `gen-edid.py` — writes the 1280x720@60 EDID block the builder ships as the
+  `drm.edid_firmware` override (generated so the timings stay reviewable).
+- `dracut/95pocketfed-liveboot/` — the liveboot-only dracut module: root
+  autologin on the serial console, zram from the initrd, and the EDID staging
+  hook (see its README).
 
 ## Building
 
@@ -95,8 +98,18 @@ instead.
   makes swap after switch-root. Without it (`--no-zram`) the RAM copy-on-write
   layer (`--cow-size`) is the only headroom and the greeter gets OOM-killed.
 - **EDID override may be required.** Sinks that do not report HPD get no mode
-  from the binder; the default `drm.edid_firmware=HDMI-A-1:edid/1280x720.bin`
-  forces 720p. Pass `--edid-override none` for sinks that do advertise HPD.
+  from the bridge; the default `drm.edid_firmware=HDMI-A-1:edid/1280x720.bin`
+  forces 720p from a block that `gen-edid.py` writes into the initrd's
+  `/usr/lib/firmware`. The served root has no copy, so the dracut module also
+  stages it in `/run/pocketfed-fw` before the pivot and the command line adds
+  `firmware_class.path=/run/pocketfed-fw`; otherwise every re-probe after
+  switch-root loses the EDID. Pass `--edid-override none` for sinks that do
+  advertise HPD.
+- **511-character command line.** Pocketboot's boot-image loader passes only the
+  512-byte cmdline field and ignores `extra_cmdline`, so a longer line is
+  silently cut (that is how `firmware_class.path` went missing in early
+  trials). The builder refuses to produce one; drop options rather than
+  exceeding it.
 - **`enforcing=0`.** The command line disables SELinux until smoo's SELinux
   module ships (see samcday/smoo#59). Do not flip it on before then.
 - **The kernel bundle is out of scope.** This tooling takes a directory with
