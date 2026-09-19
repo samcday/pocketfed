@@ -57,8 +57,8 @@ DISPLAY_ROOTS='msm adv7511 display_connector i2c_qup'
 # Firmware needed by the freedreno/msm display path; optional for probe but
 # present in the served root and small.
 FIRMWARE='/usr/lib/firmware/qcom/a300_pm4.fw.xz /usr/lib/firmware/qcom/a300_pfp.fw.xz'
-# Subsystems the boot does not need; keeps the initrd small enough for the
-# 54 MiB fastboot window.
+# Subsystems the boot does not need; keeps the initrd (and the RAM it costs on
+# the 1 GB board) small. Pocketboot itself accepts downloads up to 256 MiB.
 OMIT_MODULES='plymouth network nfs iscsi fcoe lvm mdraid crypt multipath btrfs xfs resume i18n bluetooth cifs'
 
 # ---- helpers ----------------------------------------------------------------
