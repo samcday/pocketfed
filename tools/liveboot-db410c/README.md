@@ -208,6 +208,9 @@ the tested kernel with a normal MMC-root initrd, matching modules in a copied
 deployment, and serial root autologin. It is a local diagnostic image, not a
 rebuilt A5 release. The SD root's full 8 GiB readback matches the prepared
 image, its boot files match their inputs, and both filesystem checks passed.
-The first reboot after installing Pocketboot did not re-enumerate fastboot
-within 45 seconds. Boot from internal storage, SD boot, and greeter validation
-remain pending; the next step is a carkit UART capture of startup.
+UART showed that the first installed boot stopped in Pocketpreboot with
+`bad payload`, before Linux. Correcting A5's configured preboot load address
+to `0x80080000` in Pocketboot #26 allowed boot through Samsung ABL into the
+UART shell with all four CPUs online. The installed resident discovered the
+PocketFed SD entry as directly bootable. SD handoff and greeter validation
+remain pending.
