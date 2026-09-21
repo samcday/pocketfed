@@ -50,8 +50,10 @@ CPIO=${CPIO:-/usr/bin/cpio}
 STRIP=${STRIP:-aarch64-linux-gnu-strip}
 
 # Modules the board needs before switch-root. This list came out of the DB410c
-# trial and is kept verbatim; dracut normalises the dash/underscore spellings.
-ADD_DRIVERS='qcom_hwspinlock qcom_apcs_ipc_mailbox qcom_smd rpm_proc smd_rpm clk_smd_rpm qnoc_msm8916 icc_smd_rpm qcom_spmi_regulator qcom_smd_regulator rtc_pm8xxx ulpi phy_qcom_usb_hs ci_hdrc ci_hdrc_msm extcon_usb_gpio gpio_keys ublk_drv brd libcomposite usb_f_fs msm adv7511 display_connector i2c_qup'
+# trial; dracut normalises the dash/underscore spellings. Current upstream DTs
+# link the RPM mailbox to the A53 PLL, so its modular clock providers must be
+# available before USB and display regulators can probe.
+ADD_DRIVERS='qcom_hwspinlock a53_pll apcs_msm8916 qcom_apcs_ipc_mailbox qcom_smd rpm_proc smd_rpm clk_smd_rpm qnoc_msm8916 icc_smd_rpm qcom_spmi_regulator qcom_smd_regulator rtc_pm8xxx ulpi phy_qcom_usb_hs ci_hdrc ci_hdrc_msm extcon_usb_gpio gpio_keys ublk_drv brd libcomposite usb_f_fs msm adv7511 display_connector i2c_qup'
 # Display roots whose modprobe closure is stripped into the module overlay.
 DISPLAY_ROOTS='msm adv7511 display_connector i2c_qup'
 # Firmware needed by the freedreno/msm display path; optional for probe but
@@ -338,6 +340,14 @@ sudo -n podman run --rm --security-opt label=disable -e DRACUT_NO_XATTR=1 \
 while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     target="$MODTREE_MERGED/$rel"
+    # Fedora RPMs already contain stripped, signed and compressed modules.
+    # Preserve those packaged bytes; strip only the raw build-tree modules.
+    case "$rel" in
+        *.ko.xz|*.ko.zst|*.ko.gz)
+            printf 'preserved packaged module: %s\n' "$rel" >> "$LOGS/display-strip.txt"
+            continue
+            ;;
+    esac
     before=$(stat -c%s "$target")
     "$STRIP" --strip-debug "$target"
     after=$(stat -c%s "$target")
