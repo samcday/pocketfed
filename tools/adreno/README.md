@@ -2,7 +2,8 @@
 
 A synthetic GTK4 workload for investigating [pocketfed#80](https://github.com/samcday/pocketfed/issues/80).
 It animates twelve text tiles with gradients, rounded corners, shadows and opacity.
-It needs GJS and GTK4, runs for approximately 90 seconds, and prints progress every
+It needs GJS and GTK4 and runs 450 updates scheduled at 200 ms intervals: at least
+90 seconds after startup, potentially longer under load. It prints progress every
 50 timer callbacks. Timer progress alone does not prove that the GPU rendered frames.
 
 Run inside the target Wayland session:

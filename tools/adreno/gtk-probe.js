@@ -1,6 +1,7 @@
 #!/usr/bin/gjs
 // Small, synthetic GTK4 rendering workload for pocketfed#80.
 imports.gi.versions.Gtk = '4.0';
+imports.gi.versions.Gdk = '4.0';
 const {Gdk, Gio, GLib, Gtk} = imports.gi;
 
 const app = new Gtk.Application({
