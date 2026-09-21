@@ -37,13 +37,24 @@ tools/liveboot-db410c/build-initrd.sh \
 `--export-id` is the id `smoo-host` prints for the served image and becomes
 `rd.smoo.root=`. Common options: `--deployment <hash>` (auto-detected when the
 image has a single deployment), `--run-token`, `--product-id` (default
-`0xBEE1`), `--cow-size`, `--edid-override`, `--autologin-root` and `--zram` (both on by default),
+`0xBEE1`), `--cow-size`, `--max-io`, `--edid-override`, `--autologin-root` and `--zram` (both on by default),
 `--initrd-root-password-file`, `--drop-dm-udev-rules` and `--dry-run`. Run
 `build-initrd.sh --help` for the full list. `--dry-run` prints the resolved plan
 without mounting or building anything.
 
 Outputs go to `--out`: `initrd-<run-token>.img`, `liveboot-<run-token>.img`,
 `cmdline.txt` and build logs.
+
+For Fedora RPM kernels, populate the bundle from one build's kernel, DTB and
+module packages. Extract the ARM64 Image from the EFI-zboot wrapper before
+compressing it as `Image.gz`. Packaged compressed modules are preserved without
+stripping. The initrd includes the A53 PLL/APCS clock providers needed by current
+upstream device trees and the simple-ondemand GPU devfreq governor.
+
+`--max-io 16384` limits smoo requests for testing stock DB410c kernels whose USB
+controller path truncates larger transfers. It leaves the kernel unchanged;
+omitting the option retains smoo's default. The root filesystem type is detected
+automatically to leave room for this option in the 511-character command line.
 
 ## Running liveboot
 
