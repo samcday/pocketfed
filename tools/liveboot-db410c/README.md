@@ -206,4 +206,8 @@ verified by reading back the physical partition. The internal postmarketOS
 userdata installation was erased at the owner's request. The SD trial reuses
 the tested kernel with a normal MMC-root initrd, matching modules in a copied
 deployment, and serial root autologin. It is a local diagnostic image, not a
-rebuilt A5 release. SD boot and greeter validation remain pending.
+rebuilt A5 release. The SD root's full 8 GiB readback matches the prepared
+image, its boot files match their inputs, and both filesystem checks passed.
+The first reboot after installing Pocketboot did not re-enumerate fastboot
+within 45 seconds. Boot from internal storage, SD boot, and greeter validation
+remain pending; the next step is a carkit UART capture of startup.
