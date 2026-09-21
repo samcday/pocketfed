@@ -120,3 +120,54 @@ instead.
 
 - [samcday/pocketfed#74](https://github.com/samcday/pocketfed/pull/74) — liveboot v2 tooling
 - [samcday/smoo#59](https://github.com/samcday/smoo/pull/59) — smoo SELinux module and the dm udev-rule fix
+
+## Samsung Galaxy A5U diagnostic profile
+
+`--device samsung-a5u-eur` selects the A5 DTB, native DSI panel, touchscreen,
+MUIC and regulator drivers. It omits the DB410c HDMI mode and EDID override,
+and adds `oops=panic` for panic recovery. The default remains `db410c`.
+This profile is a temporary diagnostic recipe; released fastboop integration
+is tracked in [#74](https://github.com/samcday/pocketfed/issues/74).
+
+The kernel bundle must contain `qcom/msm8916-samsung-a5u-eur.dtb` and matching
+modules, including `panel-samsung-ea8061v-ams497ee01`. The tested 7.1.0-rc6+
+bundle uses the six [MSM8916 patches](https://github.com/samcday/pocketboot/tree/main/patches/kernel/msm8916)
+and Fedora configuration from the DB410c trial, plus:
+
+```text
+CONFIG_ARM64_SPIN_TABLE_KEXEC=y
+CONFIG_DRM_PANEL_SAMSUNG_EA8061V_AMS497EE01=m
+CONFIG_PSTORE=y
+CONFIG_PSTORE_RAM=y
+CONFIG_PSTORE_CONSOLE=y
+```
+
+The destination DT must retain the A5 firmware memory reservations and
+ECC-protected ramoops region, with unused secure IOMMU contexts disabled as
+in Pocketboot's A5 overlay. Keep GPU and GPU-IOMMU enablement consistent.
+Pocketboot propagates the running spin-table CPU contract during kexec.
+Do not substitute the DB410c DTB.
+
+```sh
+tools/liveboot-db410c/build-initrd.sh \
+  --device samsung-a5u-eur \
+  --root-image <pfroot.img> --kernel-bundle <a5-kernel-bundle> \
+  --smoo-dracut <smoo-checkout>/dracut --smoo-gadget <aarch64-smoo-gadget> \
+  --out <a5-output> --export-id <export-id> \
+  --product-id 0xBEE2 --run-token lb-a5
+```
+
+Use a separate `smoo-host --product-id 0xBEE2 --file <pfroot.img>` so an
+existing DB410c session on `0xBEE1` remains independently served. With a
+verified A5 Pocketboot resident running, send the generated Android v2 image
+using `fastboot -s <a5-serial> boot ...`. This RAM-boot operation does not
+write partitions; the generated image is not the Pocketboot resident that
+belongs in Android `boot`.
+
+Further hardware diagnosis now uses an installed SD root and carkit UART.
+See the [A5 bring-up record](../../devices/samsung-a5u-eur/BRINGUP.md) for
+verified results and limitations, and [#88](https://github.com/samcday/pocketfed/issues/88)
+for remaining integration work. The user confirmed that a power-key press
+unblanked the installed software-rendered trial, revealing Phrog and
+phosh-first-boot, with working touch and autorotation. GPU acceleration and
+the display-enabled Pocketboot UI remain unverified.
