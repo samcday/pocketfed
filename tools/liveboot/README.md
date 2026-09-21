@@ -16,7 +16,8 @@ existing Android boot image. It does not flash partitions.
 
 - `bundle` and `image` work without USB, mounting, or root privileges.
 - `boot` uses the same fastboop preparation path, then boots and serves the root.
-  Hardware validation of this consumer is still pending.
+  [DB410c direct-U-Boot validation](DB410C.md) reached the visible greeter and
+  verified disposable writes. Other device paths still need hardware validation.
 - **Sargo consumes draft [fastboop #139](https://github.com/samcday/fastboop/pull/139)**
   for supplied-initrd shim composition. Pass `--shim` with the raw device shim;
   `image` and `boot` refuse Sargo bundles without it. Other shim-requiring devices
