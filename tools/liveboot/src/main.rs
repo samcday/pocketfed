@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-const FASTBOOP_REV: &str = "d59240287ae4960a98907694ce5cb6def0863bb7";
+const FASTBOOP_REV: &str = "1e6d64b3c375d46f2029122902f4564d36f5498b";
 
 #[derive(Parser)]
 #[command(about = "PocketFed image preparation and native fastboop liveboot")]
@@ -69,7 +69,10 @@ struct BundleArgs {
     /// New output directory; existing directories are never overwritten.
     #[arg(long)]
     out: PathBuf,
-    /// Preserve inputs for a shim-requiring target; refuse image/boot until upstream supports it.
+    /// Raw device ABLX shim; composed by fastboop with the supplied kernel and initrd.
+    #[arg(long)]
+    shim: Option<PathBuf>,
+    /// Mark an additional target as requiring --shim (Sargo is recognized automatically).
     #[arg(long)]
     requires_shim: bool,
     /// Match a supplied gadget that uses fastboot-style interface descriptors.
@@ -83,6 +86,7 @@ struct Bundle {
     device_profile: String,
     serial: String,
     requires_shim: bool,
+    has_shim: bool,
     impersonate_fastboot: bool,
 }
 
@@ -114,6 +118,7 @@ fn bundle(args: BundleArgs) -> Result<()> {
     let kernel = regular_file(&args.kernel)?;
     let initrd = regular_file(&args.initrd)?;
     let dtb = regular_file(&args.dtb)?;
+    let shim = args.shim.as_deref().map(regular_file).transpose()?;
     let mut device: DeviceProfile = serde_yaml::from_slice(&fs::read(&args.device_profile)?)
         .context("parse fastboop device profile")?;
     if args.serial.trim().is_empty() {
@@ -152,6 +157,9 @@ fn bundle(args: BundleArgs) -> Result<()> {
     }
     fs::create_dir(&args.out).context("--out must be a new directory")?;
     let out = fs::canonicalize(&args.out)?;
+    if let Some(shim) = &shim {
+        fs::copy(shim, out.join("shim.bin"))?;
+    }
     let staging = tempfile::tempdir_in(&out)?;
     fs::copy(&kernel, staging.path().join("kernel"))?;
     fs::copy(&initrd, staging.path().join("initrd"))?;
@@ -215,12 +223,13 @@ fn bundle(args: BundleArgs) -> Result<()> {
             device_profile: device.id,
             serial: args.serial,
             requires_shim,
+            has_shim: shim.is_some(),
             impersonate_fastboot: args.impersonate_fastboot,
         })?,
     )?;
     println!("bundle: {}", out.display());
-    if requires_shim {
-        println!("inputs prepared; image/boot waits for fastboop supplied-initrd shim support");
+    if requires_shim && shim.is_none() {
+        println!("inputs prepared; supply --shim in a new bundle before image/boot");
     }
     Ok(())
 }
@@ -231,9 +240,9 @@ async fn run(path: PathBuf, output: Option<PathBuf>, wait: u64) -> Result<()> {
     if bundle.fastboop_rev != FASTBOOP_REV {
         bail!("bundle was made with another fastboop revision; regenerate it");
     }
-    if bundle.requires_shim {
+    if bundle.requires_shim && !bundle.has_shim {
         bail!(
-            "this target requires shim composition, which fastboop boot:initrd does not support yet; inputs are preserved for that follow-up"
+            "this target requires shim composition; regenerate the bundle with --shim pointing to its raw ABLX device shim"
         );
     }
     if load_local_device_profiles(&resolve_devpro_dirs()?)?.contains_key(&bundle.device_profile) {
@@ -244,6 +253,7 @@ async fn run(path: PathBuf, output: Option<PathBuf>, wait: u64) -> Result<()> {
     let mut stage0 = NativeBootStage0Config::from_raw_ostree(path.join("channel.fb"), None)?;
     stage0.device_profile = Some(bundle.device_profile);
     stage0.impersonate_fastboot = bundle.impersonate_fastboot;
+    stage0.abl_exorcist = bundle.has_shim.then(|| path.join("shim.bin"));
     // Reserve the output before preparation. create_new rejects existing files,
     // links, and device nodes instead of risking an input or installed disk.
     let mut destination = output

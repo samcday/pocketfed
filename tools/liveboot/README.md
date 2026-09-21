@@ -17,10 +17,11 @@ existing Android boot image. It does not flash partitions.
 - `bundle` and `image` work without USB, mounting, or root privileges.
 - `boot` uses the same fastboop preparation path, then boots and serves the root.
   Hardware validation of this consumer is still pending.
-- **Sargo is blocked on upstream supplied-initrd shim composition.** Its inputs
-  can be bundled, but `image` and `boot` refuse to proceed. Other shim-requiring
-  devices must be identified with `--requires-shim`. Removing the flag is not a
-  substitute for supplying a shim.
+- **Sargo consumes draft [fastboop #139](https://github.com/samcday/fastboop/pull/139)**
+  for supplied-initrd shim composition. Pass `--shim` with the raw device shim;
+  `image` and `boot` refuse Sargo bundles without it. Other shim-requiring devices
+  must be identified with `--requires-shim`. This dependency is not yet merged or
+  hardware-proven.
 - Input extraction from an image and smoo/dracut initrd construction are not
   implemented in this first patch. An existing prepared initrd is required.
   The image recipes in [#75](https://github.com/samcday/pocketfed/pull/75) and its
@@ -30,7 +31,7 @@ existing Android boot image. It does not flash partitions.
 
 Linux host requirements: Rust 1.91 or newer, a C compiler, pkg-config, libusb
 development headers, and `mkfs.ext4` (e2fsprogs). The host tests also need Python 3
-and `dtc` (device-tree-compiler).
+and `dtc` (device-tree-compiler), plus liblz4 for independent ABLX payload decoding.
 
 ```sh
 cd tools/liveboot
@@ -41,12 +42,16 @@ python3 tests/host.py
 ```
 
 The draft pins fastboop Git revision
-`d59240287ae4960a98907694ce5cb6def0863bb7` (the supplied-initrd API), with
+`1e6d64b3c375d46f2029122902f4564d36f5498b` (supplied-initrd shim support), with
 explicit gibblox Git patches in this consumer's manifest. Cargo does not inherit
 a Git dependency's workspace patches. `Cargo.lock` also fixes the transitive Git
 and registry dependency graph; smoo uses the published `0.0.2-rc.7` crates. Use
 `--locked`. Switch to released crates in a separate update once the upstream
 release graph is usable.
+
+For real multi-gigabyte images, build with `cargo build --release --locked` and
+use `target/release/pocketfed-liveboot`. Compiling the profile hashes the entire
+root image; an unoptimized build is substantially slower.
 
 ## Inputs and runtime contract
 
@@ -61,7 +66,7 @@ Prepare these inputs for the same device and image deployment:
 4. A fastboop DevPro YAML matching the **actual bootloader**, including Android
    header geometry and kernel encoding. A stock DB410c profile is not a profile
    for DB410c running Pocketboot. Start with the profiles at the pinned
-   [fastboop revision](https://github.com/samcday/fastboop/tree/d59240287ae4960a98907694ce5cb6def0863bb7/devprofiles.d)
+   [fastboop revision](https://github.com/samcday/fastboop/tree/1e6d64b3c375d46f2029122902f4564d36f5498b/devprofiles.d)
    and use the profile appropriate to the bootloader in use.
 5. A text file with the image's kernel arguments: the actual `ostree=...` path,
    `rootfstype=ext4`, `rd.smoo.cow.size=...`, and device/debug arguments as needed.
@@ -99,6 +104,13 @@ target/debug/pocketfed-liveboot image trial --output trial.img
 target/debug/pocketfed-liveboot boot trial --wait 30
 ```
 
+For Sargo, add `--shim /path/to/raw-device-shim.bin` to `bundle`. Use the
+DevPro from the pinned revision, including its `0x04000000` ramdisk offset.
+Fastboop encodes the shim in the Android kernel section and places the real
+kernel and unchanged initrd in an `ABLXRD1` ramdisk; it owns the `<S>`/`<E>`
+command-line markers too. Do not supply marker strings in the command line.
+The raw shim is copied into the bundle as `shim.bin`.
+
 `bundle` copies the three small boot inputs into `boot-artifacts.ext4` and
 compiles a fastboop `boot: initrd` channel. `profile.yaml`, `device.yaml` and
 `bundle.json` record the selected inputs and device; `channel.fb` is the binary
@@ -123,12 +135,13 @@ target per host during trials.
 `tests/host.py` builds real ext4 fixtures and runs the compiled consumer through
 fastboop's profile resolver and supplied-initrd preparation. It independently
 checks Android v2 geometry, kernel encoding, unchanged initrd/DTB contents,
+and ABLX shim/container placement with independent LZ4 decompression,
 generated root/COW arguments, and the unchanged source root. It also checks
 output refusal, conflicting arguments, DevPro shadowing and the shim gate.
 The synthetic kernel and initrd are deliberately not bootable; this is host
 integration coverage, not hardware proof.
 
-Keep subsequent work separate: upstream shim composition, image/initrd input
-preparation, a controlled device trial, and the registry dependency switch.
+Keep subsequent work separate: image/initrd input preparation, acceptance of the upstream shim dependency,
+a controlled device trial, and the registry dependency switch.
 The first hardware trial should establish root handoff and disposable writes
 before device-specific desktop, display, or modem work is added.
