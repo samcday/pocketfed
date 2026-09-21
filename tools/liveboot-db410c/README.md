@@ -223,3 +223,12 @@ This boot also faulted in the thermal driver's deferred call to the discarded
 faulted in `adreno_remove`. A next-boot display isolation trial is prepared with
 `msm.skip_gpu=1 module_blacklist=qcom_tsens`; those temporary diagnostic options
 are not fixes for either underlying issue. Keep raw UART captures local.
+
+That display-only boot registers native MSM DRM and a connected DSI output
+at 720×1280. With the GPU skipped, the default compositor renderer fails EGL
+initialization; explicitly selecting `WLR_RENDERER=pixman` and
+`GSK_RENDERER=cairo` lets Phrog start and own the active output without
+restarting. Physical screen confirmation remains pending. This boot has no
+kernel Oops with TSENS excluded; a replacement module for the
+[deferred-probe fix](https://github.com/samcday/linux/pull/4) builds and retains
+its callbacks in normal text, but has not yet been tested on the device.
