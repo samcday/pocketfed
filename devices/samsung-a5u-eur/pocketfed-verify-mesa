@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+version=$(cat /usr/lib/pocketfed/mesa-version)
+for package in mesa-filesystem mesa-dri-drivers mesa-libEGL mesa-libgbm mesa-libGL; do
+    test "$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}' "$package")" = "$version" || {
+        printf 'Mesa trial: missing or mismatched %s\n' "$package" >&2
+        exit 1
+    }
+done
+
+# Also catch optional Mesa subpackages inherited from the rolling Phosh base.
+# Match the source RPM, so unrelated mesa-demos/mesa-libGLU packages are excluded.
+rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE}.%{ARCH} %{SOURCERPM}\n' |
+    awk -v expected="$version" '
+        $3 ~ /^mesa-[0-9]/ && $2 != expected {
+            print "Mesa trial: mismatched package " $1 " " $2 > "/dev/stderr"
+            failed = 1
+        }
+        END { exit failed }
+    '
+# Confirm that the packaged loader, megadriver and msm DRI entry are present.
+test -s /usr/lib64/libEGL_mesa.so.0
+test -s /usr/lib64/libgbm.so.1
+test -s "/usr/lib64/libgallium-${version%%-*}.so"
+test -s /usr/lib64/dri/msm_dri.so
+printf 'verified A5 Mesa trial %s\n' "$version"

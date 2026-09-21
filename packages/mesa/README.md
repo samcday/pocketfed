@@ -15,7 +15,9 @@ The release `6.2.pocketfed.a3xxfs` supersedes the old COPR WFI experiment
 ## Reproduce the source RPM
 
 Start at this repository's root on a Fedora host with curl, rpm-build, cpio
-and coreutils. Use a fresh absolute build directory:
+and coreutils. Submission additionally requires `copr-cli`, a configured COPR
+API token in `~/.config/copr`, and build permission on the trial project.
+Use a fresh absolute build directory:
 
 ```sh
 package_dir="$PWD/packages/mesa"
@@ -42,6 +44,20 @@ It applies to this tarball with zero fuzz and an eleven-line offset.
 Its commit message predates the final DB410c runs; the linked issue evidence
 below supersedes the older hardware-validation paragraph.
 
+## A5 image integration
+
+`devices/samsung-a5u-eur/mesa-version` pins every installed subpackage built
+from the Mesa source RPM, plus the required EGL/GBM/GL/DRI packages. The
+transaction explicitly permits downgrades: Rawhide has already moved to 26.2.3,
+while the hardware evidence is for this 26.2.2 source. It selects packages only
+from the trial COPR, verifies signatures, and fails if the exact version is
+unavailable. The COPR remains disabled for ordinary package transactions.
+
+`pocketfed-verify-mesa` rejects missing core packages or mixed versions,
+including optional Mesa packages inherited from the Phosh base. It also checks
+the EGL, GBM, Gallium and msm DRI files. The final A5 OCI verifier calls it again.
+The shared Phosh image and other device images are not changed.
+
 ## Evidence and remaining checks
 
 The [exact Patch A experiment](https://github.com/samcday/pocketfed/issues/80#issuecomment-5758800870)
@@ -52,8 +68,10 @@ were performed on the equivalent V2/V3 knob builds, not on this RPM build.
 still hang; do not repeat stock GMEM merely to obtain a reference image.
 
 [COPR build 11018894](https://copr.fedorainfracloud.org/coprs/build/11018894)
-is compiling for `fedora-rawhide-aarch64`; RPM verification and an A5 image
-pin are in progress. This is not yet
+is compiling for `fedora-rawhide-aarch64`; verification of the resulting RPMs
+is pending. Completed checks: source checksums, zero-fuzz patch application,
+SRPM creation, shell syntax/ShellCheck, rejection of stock 26.2.3 by the image
+verifier, and failure of the exact install transaction while the pin is absent. This is not yet
 A5 GPU validation: its earlier working greeter used Pixman/Cairo with
 `msm.skip_gpu=1`. The next accelerated trial also needs the GPU IOMMU enabled,
 working firmware/driver initialization, and removal of those software-rendering
