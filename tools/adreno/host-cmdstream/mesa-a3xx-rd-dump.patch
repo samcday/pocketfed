@@ -1,0 +1,30 @@
+diff --git a/src/freedreno/drm/msm/msm_ringbuffer.c b/src/freedreno/drm/msm/msm_ringbuffer.c
+--- a/src/freedreno/drm/msm/msm_ringbuffer.c
++++ b/src/freedreno/drm/msm/msm_ringbuffer.c
+@@ -350,6 +350,8 @@ msm_submit_flush(struct fd_submit *submit, int in_fence_fd,
+ 
+    DEBUG_MSG("nr_cmds=%u, nr_bos=%u", req.nr_cmds, req.nr_bos);
+ 
++   msm_dump_rd(submit->pipe, &req);
++
+    ret = drmCommandWriteRead(submit->pipe->dev->fd, DRM_MSM_GEM_SUBMIT, &req,
+                              sizeof(req));
+    if (ret) {
+@@ -487,6 +489,8 @@ msm_ringbuffer_emit_reloc(struct fd_ringbuffer *ring,
+       pipe = msm_ring->u.submit->pipe;
+    }
+ 
++   *ring->cur = (uint32_t)reloc->iova;
++
+    APPEND(msm_ring->cmd, relocs,
+           (struct drm_msm_gem_submit_reloc){
+              .reloc_idx = reloc_idx,
+@@ -500,6 +504,8 @@ msm_ringbuffer_emit_reloc(struct fd_ringbuffer *ring,
+    ring->cur++;
+ 
+    if (pipe->is_64bit) {
++      *ring->cur = (uint32_t)(reloc->iova >> 32);
++
+       APPEND(msm_ring->cmd, relocs,
+              (struct drm_msm_gem_submit_reloc){
+                 .reloc_idx = reloc_idx,
