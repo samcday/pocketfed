@@ -35,6 +35,7 @@ SMOO_GADGET=""
 OUT_DIR=""
 
 COW_SIZE="512M"
+MAX_IO=""
 EXPORT_ID=""
 PRODUCT_ID="0xBEE1"
 RUN_TOKEN="lb-db410c"
@@ -50,8 +51,10 @@ CPIO=${CPIO:-/usr/bin/cpio}
 STRIP=${STRIP:-aarch64-linux-gnu-strip}
 
 # Modules the board needs before switch-root. This list came out of the DB410c
-# trial and is kept verbatim; dracut normalises the dash/underscore spellings.
-ADD_DRIVERS='qcom_hwspinlock qcom_apcs_ipc_mailbox qcom_smd rpm_proc smd_rpm clk_smd_rpm qnoc_msm8916 icc_smd_rpm qcom_spmi_regulator qcom_smd_regulator rtc_pm8xxx ulpi phy_qcom_usb_hs ci_hdrc ci_hdrc_msm extcon_usb_gpio gpio_keys ublk_drv brd libcomposite usb_f_fs msm adv7511 display_connector i2c_qup'
+# trial; dracut normalises the dash/underscore spellings. Current upstream DTs
+# link the RPM mailbox to the A53 PLL, so its modular clock providers must be
+# available before USB and display regulators can probe.
+ADD_DRIVERS='qcom_hwspinlock a53_pll apcs_msm8916 qcom_apcs_ipc_mailbox qcom_smd rpm_proc smd_rpm clk_smd_rpm qnoc_msm8916 icc_smd_rpm qcom_spmi_regulator qcom_smd_regulator rtc_pm8xxx ulpi phy_qcom_usb_hs ci_hdrc ci_hdrc_msm extcon_usb_gpio gpio_keys ublk_drv brd libcomposite usb_f_fs governor_simpleondemand msm adv7511 display_connector i2c_qup'
 # Display roots whose modprobe closure is stripped into the module overlay.
 DISPLAY_ROOTS='msm adv7511 display_connector i2c_qup'
 # Firmware needed by the freedreno/msm display path; optional for probe but
@@ -86,6 +89,8 @@ Common options:
   --deployment <hash>      OSTree deployment hash, e.g. 10b8340a...a7a (or the
                            full <hash>.0). Auto-detected when unambiguous.
   --cow-size <size>        RAM copy-on-write size (default $COW_SIZE).
+  --max-io <bytes>         Limit smoo I/O requests (e.g. 16384 for stock
+                           DB410c kernels); otherwise use smoo's default.
   --product-id <id>        Pinned gadget USB product id (default $PRODUCT_ID).
   --run-token <token>      pocketfed.liveboot= token and output filename stem
                            (default $RUN_TOKEN).
@@ -128,6 +133,7 @@ while [ "$#" -gt 0 ]; do
         --out)              need_value "$@"; OUT_DIR=$2; shift 2 ;;
         --export-id)        need_value "$@"; EXPORT_ID=$2; shift 2 ;;
         --cow-size)         need_value "$@"; COW_SIZE=$2; shift 2 ;;
+        --max-io)           need_value "$@"; MAX_IO=$2; shift 2 ;;
         --product-id)       need_value "$@"; PRODUCT_ID=$2; shift 2 ;;
         --run-token)        need_value "$@"; RUN_TOKEN=$2; shift 2 ;;
         --edid-override)    need_value "$@"; EDID_OVERRIDE=$2; shift 2 ;;
@@ -163,6 +169,7 @@ done
 [[ "$PRODUCT_ID" =~ ^(0x[0-9A-Fa-f]{1,4}|[0-9]+)$ ]] || die "--product-id must be hex (0xBEE1) or decimal"
 [[ "$COW_SIZE" =~ ^[0-9]+[KMGkmg]$ ]]       || die "--cow-size must look like 512M, 2G, ..."
 [[ "$RUN_TOKEN" =~ ^[A-Za-z0-9._-]+$ ]]     || die "--run-token may only contain [A-Za-z0-9._-]"
+[[ -z "$MAX_IO" || "$MAX_IO" =~ ^[1-9][0-9]*$ ]] || die "--max-io must be a positive byte count"
 
 if [ "$EDID_OVERRIDE" = none ]; then
     EDID_OVERRIDE=""
@@ -223,6 +230,7 @@ $PROG plan (dry run, nothing mounted or built)
   run token        $RUN_TOKEN
   product id       $PRODUCT_ID
   cow size         $COW_SIZE
+  max I/O bytes    ${MAX_IO:-<smoo default>}
   export id        $EXPORT_ID
   edid override    ${EDID_OVERRIDE:-<none>}
   zram from initrd $ZRAM
@@ -338,6 +346,14 @@ sudo -n podman run --rm --security-opt label=disable -e DRACUT_NO_XATTR=1 \
 while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     target="$MODTREE_MERGED/$rel"
+    # Fedora RPMs already contain stripped, signed and compressed modules.
+    # Preserve those packaged bytes; strip only the raw build-tree modules.
+    case "$rel" in
+        *.ko.xz|*.ko.zst|*.ko.gz)
+            printf 'preserved packaged module: %s\n' "$rel" >> "$LOGS/display-strip.txt"
+            continue
+            ;;
+    esac
     before=$(stat -c%s "$target")
     "$STRIP" --strip-debug "$target"
     after=$(stat -c%s "$target")
@@ -403,7 +419,7 @@ fi
 # shellcheck disable=SC2054
 _parts=(
     rw "ostree=$OSTREE_PATH"
-    root=/dev/smoo-root rootfstype=ext4 rd.smoo=1
+    root=/dev/smoo-root rd.smoo=1
     "rd.smoo.root=$EXPORT_ID" "rd.smoo.cow.size=$COW_SIZE"
     "pocketfed.liveboot=$RUN_TOKEN"
     console=ttyMSM0,115200n8 sysrq_always_enabled=1
@@ -414,6 +430,7 @@ _parts=(
 if [ -n "$EDID_OVERRIDE" ]; then
     _parts+=("drm.edid_firmware=HDMI-A-1:$EDID_OVERRIDE" firmware_class.path=/run/pocketfed-fw)
 fi
+[ -z "$MAX_IO" ] || _parts+=("rd.smoo.max_io=$MAX_IO")
 [ "$ZRAM" = 1 ] || _parts+=(rd.pocketfed.zram=0)
 [ "$AUTOLOGIN_ROOT" = 1 ] || _parts+=(rd.pocketfed.autologin=0)
 _parts+=(systemd.mask=systemd-coredump.socket)
@@ -448,6 +465,7 @@ run token          $RUN_TOKEN
 export id          $EXPORT_ID
 product id         $PRODUCT_ID
 cow size           $COW_SIZE
+max I/O bytes      ${MAX_IO:-<smoo default>}
 autologin root     $AUTOLOGIN_ROOT
 edid override      ${EDID_OVERRIDE:-<none>}
 zram from initrd   $ZRAM
