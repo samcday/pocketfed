@@ -212,5 +212,14 @@ UART showed that the first installed boot stopped in Pocketpreboot with
 `bad payload`, before Linux. Correcting A5's configured preboot load address
 to `0x80080000` in Pocketboot #26 allowed boot through Samsung ABL into the
 UART shell with all four CPUs online. The installed resident discovered the
-PocketFed SD entry as directly bootable. SD handoff and greeter validation
-remain pending.
+PocketFed SD entry as directly bootable. The installed SD trial subsequently
+reached Fedora with a root UART shell and all four CPUs online. Phrog and its
+compositor started, but native MSM DRM failed to bind: the trial DT enables
+Adreno while its GPU IOMMU remains disabled. Only simpledrm registered, so a
+working panel/greeter is still unverified.
+
+This boot also faulted in the thermal driver's deferred call to the discarded
+`init_common` init section. Attempting to unload MSM after its failed GPU bind
+faulted in `adreno_remove`. A next-boot display isolation trial is prepared with
+`msm.skip_gpu=1 module_blacklist=qcom_tsens`; those temporary diagnostic options
+are not fixes for either underlying issue. Keep raw UART captures local.
