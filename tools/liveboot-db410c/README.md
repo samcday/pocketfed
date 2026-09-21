@@ -121,19 +121,18 @@ instead.
 - [samcday/pocketfed#74](https://github.com/samcday/pocketfed/pull/74) — liveboot v2 tooling
 - [samcday/smoo#59](https://github.com/samcday/smoo/pull/59) — smoo SELinux module and the dm udev-rule fix
 
-## Samsung Galaxy A5U trial
+## Samsung Galaxy A5U diagnostic profile
 
 `--device samsung-a5u-eur` selects the A5 DTB, native DSI panel, touchscreen,
 MUIC and regulator drivers. It omits the DB410c HDMI mode and EDID override,
 and adds `oops=panic` for panic recovery. The default remains `db410c`.
-This is an experimental RAM-boot path; A5 PocketFed greeter boot is not yet
-validated. It builds on [#75](https://github.com/samcday/pocketfed/pull/75) and
-[the DB410c results](https://github.com/samcday/pocketfed/issues/79).
+This profile is a temporary diagnostic recipe; released fastboop integration
+is tracked in [#74](https://github.com/samcday/pocketfed/issues/74).
 
 The kernel bundle must contain `qcom/msm8916-samsung-a5u-eur.dtb` and matching
-modules, including `panel-samsung-ea8061v-ams497ee01`. Use the same six
-[MSM8916 patches](https://github.com/samcday/pocketboot/tree/main/patches/kernel/msm8916)
-as the DB410c trial. In addition to its Fedora configuration, enable:
+modules, including `panel-samsung-ea8061v-ams497ee01`. The tested 7.1.0-rc6+
+bundle uses the six [MSM8916 patches](https://github.com/samcday/pocketboot/tree/main/patches/kernel/msm8916)
+and Fedora configuration from the DB410c trial, plus:
 
 ```text
 CONFIG_ARM64_SPIN_TABLE_KEXEC=y
@@ -143,10 +142,11 @@ CONFIG_PSTORE_RAM=y
 CONFIG_PSTORE_CONSOLE=y
 ```
 
-The destination DT must retain the A5 firmware memory reservations, disable
-unused secure IOMMU contexts, and reserve the ECC-protected ramoops region as
-in Pocketboot's A5 overlay. Pocketboot propagates the running spin-table CPU
-contract during kexec. Do not substitute the DB410c DTB.
+The destination DT must retain the A5 firmware memory reservations and
+ECC-protected ramoops region, with unused secure IOMMU contexts disabled as
+in Pocketboot's A5 overlay. Keep GPU and GPU-IOMMU enablement consistent.
+Pocketboot propagates the running spin-table CPU contract during kexec.
+Do not substitute the DB410c DTB.
 
 ```sh
 tools/liveboot-db410c/build-initrd.sh \
@@ -158,77 +158,14 @@ tools/liveboot-db410c/build-initrd.sh \
 ```
 
 Use a separate `smoo-host --product-id 0xBEE2 --file <pfroot.img>` so an
-existing DB410c session on `0xBEE1` remains independently served. Start from
-lk2nd and RAM-boot an A5 Pocketboot resident first; only then send the generated
-Android v2 image to Pocketboot with `fastboot -s <a5-serial> boot ...`.
-No partition writes are needed.
+existing DB410c session on `0xBEE1` remains independently served. With a
+verified A5 Pocketboot resident running, send the generated Android v2 image
+using `fastboot -s <a5-serial> boot ...`. This RAM-boot operation does not
+write partitions; the generated image is not the Pocketboot resident that
+belongs in Android `boot`.
 
-There is no attached UART in this trial. Serial autologin alone does not
-provide host access; physical display confirmation and another diagnostic
-transport are still needed. Preserve ramoops after a failure using the
-[Pocketboot recovery procedure](https://github.com/samcday/pocketboot/blob/main/docs/a5u-ramoops.md),
-substituting the connected device's verified serial. Keep raw captures local.
-
-On 2026-09-21 the connected A5 identified as `samsung,a5u-eur` in lk2nd.
-Read-only queries and crash-log retrieval succeeded, but the resident image
-upload stalled before the boot command. A USB connection reset restored
-queries; a bounded 16 KiB transfer also stalled after passing 1 MiB. This is
-an upload failure, not evidence of destination kernel entry.
-
-After a physical port change and firmware reboot, the same resident uploaded
-in under a second and started Pocketboot with four CPUs online and 16/16
-completed display flips. The user nevertheless confirmed a blank panel with
-lit touchkeys, and the USB connection subsequently disappeared. No Fedora
-destination has been booted in this trial yet. Recover the retained log and
-resolve this resident failure before treating it as an installation candidate.
-
-Gzip packaging reduces the same resident kernel/preboot payload to about
-5 MiB. A compressed resident with the display-subsystem node disabled booted
-and remained responsive through 54 seconds; its subsequent kexec also returned
-successfully. This isolates a useful headless path, but does not yet establish
-the cause of the displayed resident’s failure. The physical boot partition
-was backed up before considering installation.
-
-
-The A5 Fedora kernel and matching modules subsequently built successfully.
-The 43 MiB Android v2 image passed kernel/ramdisk/DTB byte comparisons; its
-initramfs contains the panel, MUIC, touch input, regulator, zram and smoo
-components. Pocketboot accepted it, and the destination exposed `dead:bee2`
-and connected to its dedicated root server. The screen remained blank;
-successful smoo heartbeats established responsiveness but did not establish
-that Fedora reached the greeter. Reproducible resident compression is tracked in
-[Pocketboot #26](https://github.com/samcday/pocketboot/pull/26).
-
-Further A5 diagnosis is moving to an installed SD root and the carkit UART.
-Composite USB diagnostics are left to fastboop. The compressed headless
-Pocketboot resident has been installed in internal boot and its payload
-verified by reading back the physical partition. The internal postmarketOS
-userdata installation was erased at the owner's request. The SD trial reuses
-the tested kernel with a normal MMC-root initrd, matching modules in a copied
-deployment, and serial root autologin. It is a local diagnostic image, not a
-rebuilt A5 release. The SD root's full 8 GiB readback matches the prepared
-image, its boot files match their inputs, and both filesystem checks passed.
-UART showed that the first installed boot stopped in Pocketpreboot with
-`bad payload`, before Linux. Correcting A5's configured preboot load address
-to `0x80080000` in Pocketboot #26 allowed boot through Samsung ABL into the
-UART shell with all four CPUs online. The installed resident discovered the
-PocketFed SD entry as directly bootable. The installed SD trial subsequently
-reached Fedora with a root UART shell and all four CPUs online. Phrog and its
-compositor started, but native MSM DRM failed to bind: the trial DT enables
-Adreno while its GPU IOMMU remains disabled. Only simpledrm registered, so a
-working panel/greeter is still unverified.
-
-This boot also faulted in the thermal driver's deferred call to the discarded
-`init_common` init section. Attempting to unload MSM after its failed GPU bind
-faulted in `adreno_remove`. A next-boot display isolation trial is prepared with
-`msm.skip_gpu=1 module_blacklist=qcom_tsens`; those temporary diagnostic options
-are not fixes for either underlying issue. Keep raw UART captures local.
-
-That display-only boot registers native MSM DRM and a connected DSI output
-at 720×1280. With the GPU skipped, the default compositor renderer fails EGL
-initialization; explicitly selecting `WLR_RENDERER=pixman` and
-`GSK_RENDERER=cairo` lets Phrog start and own the active output without
-restarting. Physical screen confirmation remains pending. This boot has no
-kernel Oops with TSENS excluded; a replacement module for the
-[deferred-probe fix](https://github.com/samcday/linux/pull/4) builds and retains
-its callbacks in normal text, but has not yet been tested on the device.
+Further hardware diagnosis now uses an installed SD root and carkit UART.
+See the [A5 bring-up record](../../devices/samsung-a5u-eur/BRINGUP.md) for
+verified results and limitations, and [#88](https://github.com/samcday/pocketfed/issues/88)
+for remaining integration work. The physical panel is still blank; a running
+compositor is not a verified visible greeter.
