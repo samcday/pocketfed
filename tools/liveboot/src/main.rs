@@ -254,16 +254,21 @@ async fn run(path: PathBuf, output: Option<PathBuf>, wait: u64) -> Result<()> {
     stage0.device_profile = Some(bundle.device_profile);
     stage0.impersonate_fastboot = bundle.impersonate_fastboot;
     stage0.abl_exorcist = bundle.has_shim.then(|| path.join("shim.bin"));
-    // Reserve the output before preparation. create_new rejects existing files,
-    // links, and device nodes instead of risking an input or installed disk.
+    // Keep incomplete images private. The final publish is atomic and refuses
+    // replacement even if another process creates the destination during preparation.
     let mut destination = output
         .as_ref()
-        .map(|p| {
-            fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(p)
-                .with_context(|| format!("output must be a new file: {}", p.display()))
+        .map(|p| -> Result<tempfile::NamedTempFile> {
+            match fs::symlink_metadata(p) {
+                Ok(_) => bail!("output must be a new file: {}", p.display()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e).context("inspect output path"),
+            }
+            let parent = p
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            tempfile::NamedTempFile::new_in(parent).context("create temporary output")
         })
         .transpose()?;
     let shutdown = CancellationToken::new();
@@ -291,7 +296,12 @@ async fn run(path: PathBuf, output: Option<PathBuf>, wait: u64) -> Result<()> {
         let prepared = preparation?;
         if let Some(file) = destination.as_mut() {
             file.write_all(&prepared.boot_image)?;
-            file.sync_all()?;
+            file.as_file().sync_all()?;
+            destination
+                .take()
+                .unwrap()
+                .persist_noclobber(output.as_ref().unwrap())
+                .context("publish output without replacing an existing file")?;
             println!(
                 "image: {} ({} bytes)",
                 output.as_ref().unwrap().display(),
@@ -315,10 +325,5 @@ async fn run(path: PathBuf, output: Option<PathBuf>, wait: u64) -> Result<()> {
     }
     .await;
     interrupt.abort();
-    if result.is_err() && destination.is_some() {
-        drop(destination);
-        // Only this invocation's create_new output can reach here.
-        let _ = fs::remove_file(output.unwrap());
-    }
     result
 }
