@@ -1,0 +1,25 @@
+# Direct U-Boot fastboot with a PSCI-capable DB410c kernel and matching initrd.
+# This is not the stock LK bootloader or the Pocketboot kexec resident profile.
+id: uboot-db410c
+display_name: DragonBoard 410c (U-Boot fastboot)
+devicetree_name: qcom/apq8016-sbc
+match:
+  - fastboot:
+      vid: 0x18d1
+      pid: 0xd00d
+probe:
+  - fastboot.getvar: product
+    equals: sbc
+boot:
+  fastboot_boot:
+    android_bootimg:
+      header_version: 2
+      page_size: 4096
+      base: 0
+      kernel_offset: 0
+      ramdisk_offset: 0
+      second_offset: 0
+      tags_offset: 0x100
+      dtb_offset: 0
+      kernel:
+        encoding: image.gz
