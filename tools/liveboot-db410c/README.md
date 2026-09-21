@@ -174,3 +174,26 @@ Read-only queries and crash-log retrieval succeeded, but the resident image
 upload stalled before the boot command. A USB connection reset restored
 queries; a bounded 16 KiB transfer also stalled after passing 1 MiB. This is
 an upload failure, not evidence of destination kernel entry.
+
+After a physical port change and firmware reboot, the same resident uploaded
+in under a second and started Pocketboot with four CPUs online and 16/16
+completed display flips. The user nevertheless confirmed a blank panel with
+lit touchkeys, and the USB connection subsequently disappeared. No Fedora
+destination has been booted in this trial yet. Recover the retained log and
+resolve this resident failure before treating it as an installation candidate.
+
+Gzip packaging reduces the same resident kernel/preboot payload to about
+5 MiB. A compressed resident with the display-subsystem node disabled booted
+and remained responsive through 54 seconds; its subsequent kexec also returned
+successfully. This isolates a useful headless path, but does not yet establish
+the cause of the displayed resident’s failure. The physical boot partition
+was backed up before considering installation.
+
+
+The A5 Fedora kernel and matching modules subsequently built successfully.
+The 43 MiB Android v2 image passed kernel/ramdisk/DTB byte comparisons; its
+initramfs contains the panel, MUIC, touch input, regulator, zram and smoo
+components. Pocketboot accepted it, and the destination exposed `dead:bee2`
+and connected to its dedicated root server. Greeter and physical display
+success are still unverified. Reproducible resident compression is tracked in
+[Pocketboot #26](https://github.com/samcday/pocketboot/pull/26).
