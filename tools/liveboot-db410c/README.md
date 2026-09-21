@@ -120,3 +120,57 @@ instead.
 
 - [samcday/pocketfed#74](https://github.com/samcday/pocketfed/pull/74) — liveboot v2 tooling
 - [samcday/smoo#59](https://github.com/samcday/smoo/pull/59) — smoo SELinux module and the dm udev-rule fix
+
+## Samsung Galaxy A5U trial
+
+`--device samsung-a5u-eur` selects the A5 DTB, native DSI panel, touchscreen,
+MUIC and regulator drivers. It omits the DB410c HDMI mode and EDID override,
+and adds `oops=panic` for panic recovery. The default remains `db410c`.
+This is an experimental RAM-boot path; A5 PocketFed greeter boot is not yet
+validated. It builds on [#75](https://github.com/samcday/pocketfed/pull/75) and
+[the DB410c results](https://github.com/samcday/pocketfed/issues/79).
+
+The kernel bundle must contain `qcom/msm8916-samsung-a5u-eur.dtb` and matching
+modules, including `panel-samsung-ea8061v-ams497ee01`. Use the same six
+[MSM8916 patches](https://github.com/samcday/pocketboot/tree/main/patches/kernel/msm8916)
+as the DB410c trial. In addition to its Fedora configuration, enable:
+
+```text
+CONFIG_ARM64_SPIN_TABLE_KEXEC=y
+CONFIG_DRM_PANEL_SAMSUNG_EA8061V_AMS497EE01=m
+CONFIG_PSTORE=y
+CONFIG_PSTORE_RAM=y
+CONFIG_PSTORE_CONSOLE=y
+```
+
+The destination DT must retain the A5 firmware memory reservations, disable
+unused secure IOMMU contexts, and reserve the ECC-protected ramoops region as
+in Pocketboot's A5 overlay. Pocketboot propagates the running spin-table CPU
+contract during kexec. Do not substitute the DB410c DTB.
+
+```sh
+tools/liveboot-db410c/build-initrd.sh \
+  --device samsung-a5u-eur \
+  --root-image <pfroot.img> --kernel-bundle <a5-kernel-bundle> \
+  --smoo-dracut <smoo-checkout>/dracut --smoo-gadget <aarch64-smoo-gadget> \
+  --out <a5-output> --export-id <export-id> \
+  --product-id 0xBEE2 --run-token lb-a5
+```
+
+Use a separate `smoo-host --product-id 0xBEE2 --file <pfroot.img>` so an
+existing DB410c session on `0xBEE1` remains independently served. Start from
+lk2nd and RAM-boot an A5 Pocketboot resident first; only then send the generated
+Android v2 image to Pocketboot with `fastboot -s <a5-serial> boot ...`.
+No partition writes are needed.
+
+There is no attached UART in this trial. Serial autologin alone does not
+provide host access; physical display confirmation and another diagnostic
+transport are still needed. Preserve ramoops after a failure using the
+[Pocketboot recovery procedure](https://github.com/samcday/pocketboot/blob/main/docs/a5u-ramoops.md),
+substituting the connected device's verified serial. Keep raw captures local.
+
+On 2026-09-21 the connected A5 identified as `samsung,a5u-eur` in lk2nd.
+Read-only queries and crash-log retrieval succeeded, but the resident image
+upload stalled before the boot command. A USB connection reset restored
+queries; a bounded 16 KiB transfer also stalled after passing 1 MiB. This is
+an upload failure, not evidence of destination kernel entry.
