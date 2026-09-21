@@ -68,11 +68,10 @@ were performed on the equivalent V2/V3 knob builds, not on this RPM build.
 still hang; do not repeat stock GMEM merely to obtain a reference image.
 
 [COPR build 11018894](https://copr.fedorainfracloud.org/coprs/build/11018894)
-is compiling for `fedora-rawhide-aarch64`; verification of the resulting RPMs
-is pending. Completed checks: source checksums, zero-fuzz patch application,
-SRPM creation, shell syntax/ShellCheck, rejection of stock 26.2.3 by the image
-verifier, and failure of the exact install transaction while the pin is absent. This is not yet
-A5 GPU validation: its earlier working greeter used Pixman/Cairo with
+targets `fedora-rawhide-aarch64`. Package installation, loader checks and image
+CI results are tracked in [PR #90](https://github.com/samcday/pocketfed/pull/90).
+Those checks do not establish A5 GPU validation: its earlier working greeter
+used Pixman/Cairo with
 `msm.skip_gpu=1`. The next accelerated trial also needs the GPU IOMMU enabled,
 working firmware/driver initialization, and removal of those software-rendering
 overrides. Retain UART and a known-working software image for recovery.
