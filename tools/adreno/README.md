@@ -11,7 +11,12 @@ Run inside the target Wayland session:
 ```sh
 GDK_BACKEND=wayland GSK_RENDERER=gl GDK_DEBUG=opengl gjs gtk-probe.js
 FD_MESA_DEBUG=flush GDK_BACKEND=wayland GSK_RENDERER=gl GDK_DEBUG=opengl gjs gtk-probe.js
+FD_MESA_DEBUG=sysmem GDK_BACKEND=wayland GSK_RENDERER=gl GDK_DEBUG=opengl gjs gtk-probe.js
+FD_MESA_DEBUG=sysmem,flush GDK_BACKEND=wayland GSK_RENDERER=gl GDK_DEBUG=opengl gjs gtk-probe.js
 ```
+
+The sysmem pair holds direct rendering to system memory constant while toggling
+flush-after-every-draw. Keep a working UART/recovery path available during hang tests.
 
 Record the actual kernel and Mesa/GTK versions, display state, GPU runtime power
 state, hardware EGL initialization, GPU fence progress and kernel hangchecks.
