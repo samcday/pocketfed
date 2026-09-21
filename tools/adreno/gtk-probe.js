@@ -9,6 +9,9 @@ if (!['animated', 'static', 'opacity', 'text'].includes(mode))
 const tiles = Number(GLib.getenv('PROBE_TILES') || 12);
 if (!Number.isInteger(tiles) || tiles < 1 || tiles > 12)
     throw new Error('PROBE_TILES must be an integer from 1 to 12');
+const style = GLib.getenv('PROBE_STYLE') || 'original';
+if (!['original', 'noshadow', 'plain'].includes(style))
+    throw new Error(`Unknown PROBE_STYLE: ${style}`);
 
 const app = new Gtk.Application({
     application_id: 'org.pocketfed.AdrenoProbe',
@@ -17,10 +20,11 @@ const app = new Gtk.Application({
 
 app.connect('activate', () => {
     const css = new Gtk.CssProvider();
-    css.load_from_string(`
+    css.load_from_string(style === 'plain' ? '' : `
         .probe { background: linear-gradient(135deg, #24578a, #a24076);
                  border-radius: 18px; padding: 12px; margin: 4px;
-                 box-shadow: 2px 3px 6px alpha(black, 0.5); color: white; }
+                 ${style === 'original' ? 'box-shadow: 2px 3px 6px alpha(black, 0.5);' : ''}
+                 color: white; }
     `);
     Gtk.StyleContext.add_provider_for_display(
         Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -37,7 +41,7 @@ app.connect('activate', () => {
         application: app, title: 'Adreno GTK probe',
         default_width: 640, default_height: 480, child: grid,
     });
-    print(`probe mode=${mode} tiles=${tiles}`);
+    print(`probe mode=${mode} tiles=${tiles} style=${style}`);
     window.present();
 
     if (mode === 'static') {
