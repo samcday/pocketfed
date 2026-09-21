@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the actual fastboop consumer without USB, mounting, or root privileges."""
+import ctypes
+import ctypes.util
 import gzip
 import hashlib
 import json
@@ -27,7 +29,11 @@ class HostTests(unittest.TestCase):
         subprocess.run(["mkfs.ext4", "-q", "-F", "-b", "4096", str(self.root), "4096"],
                        check=True, capture_output=True)
         self.root_hash = hashlib.sha256(self.root.read_bytes()).digest()
-        self.kernel = b"synthetic arm64 kernel\0" * 4000
+        kernel = bytearray(b"synthetic arm64 kernel\0" * 4000)
+        kernel[:2] = b"MZ"
+        struct.pack_into("<Q", kernel, 16, len(kernel))
+        kernel[56:60] = b"ARM\x64"
+        self.kernel = bytes(kernel)
         (self.path / "Image").write_bytes(self.kernel)
         self.initrd = gzip.compress(b"opaque supplied initrd; never execute stage0", mtime=0)
         (self.path / "initrd").write_bytes(self.initrd)
@@ -131,6 +137,58 @@ class HostTests(unittest.TestCase):
         result = self.bundle(success=False)
         self.assertIn("relative path", result.stderr)
         self.assertFalse((self.path / "bundle").exists())
+
+    def test_supplied_shim_reaches_fastboop_ablx_composition(self):
+        shim = bytearray(b"\x5a" * 128)
+        struct.pack_into("<Q", shim, 16, len(shim))
+        shim[56:60] = b"ARM\x64"
+        (self.path / "shim").write_bytes(shim)
+        self.profile["devicetree_name"] = "qcom/sdm670-google-sargo"
+        geometry = self.profile["boot"]["fastboot_boot"]["android_bootimg"]
+        geometry["base"] = 0
+        geometry["ramdisk_offset"] = 0x04000000
+        (self.path / "device.yaml").write_text(json.dumps(self.profile))
+        self.bundle("--shim", self.path / "shim")
+        self.assertEqual((self.path / "bundle/shim.bin").read_bytes(), shim)
+        out = self.path / "boot.img"
+        self.cli("image", self.path / "bundle", "--output", out)
+        image = out.read_bytes()
+        u32 = lambda offset: struct.unpack_from("<I", image, offset)[0]
+        self.assertEqual(u32(20), 0x04000000)
+        self.assertEqual(gzip.decompress(image[4096:4096 + u32(8)]), shim)
+        start = 4096 + ((u32(8) + 4095) // 4096) * 4096
+        ramdisk = image[start:start + u32(16)]
+        self.assertEqual(ramdisk[:8], b"ABLXRD1\0")
+        self.assertEqual(struct.unpack_from("<II", ramdisk, 8), (72, 2))
+        field = lambda offset: struct.unpack_from("<Q", ramdisk, offset)[0]
+        self.assertEqual(field(32), len(self.kernel))
+        self.assertEqual(field(56), len(self.initrd))
+        self.assertEqual(ramdisk[field(48):field(48) + field(56)], self.initrd)
+        # Independent decoder: system liblz4, rather than fastboop's Rust encoder.
+        lz4 = ctypes.CDLL(ctypes.util.find_library("lz4"))
+        decompress = lz4.LZ4_decompress_safe
+        decompress.argtypes = [ctypes.c_char_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+        decompress.restype = ctypes.c_int
+        decoded = ctypes.create_string_buffer(field(32))
+        compressed = ramdisk[field(16):field(16) + field(24)]
+        self.assertEqual(decompress(compressed, decoded, len(compressed), len(decoded)), len(self.kernel))
+        self.assertEqual(decoded.raw, self.kernel)
+        cmdline = (image[64:576].split(b"\0")[0] + image[608:1632].split(b"\0")[0]).decode()
+        self.assertTrue(cmdline.startswith("<S> console=ttyTEST0 "), cmdline)
+        self.assertTrue(cmdline.endswith(" <E>"), cmdline)
+        self.assertEqual(cmdline.count("<S>"), 1)
+        self.assertEqual(cmdline.count("<E>"), 1)
+        self.assertIn("root=/dev/smoo-root", cmdline)
+        self.assertIn("rd.smoo.cow=1", cmdline)
+        self.assertEqual(hashlib.sha256(self.root.read_bytes()).digest(), self.root_hash)
+
+    def test_invalid_shim_does_not_produce_an_image(self):
+        (self.path / "shim").write_bytes(b"not a raw ARM64 shim")
+        self.bundle("--requires-shim", "--shim", self.path / "shim")
+        out = self.path / "boot.img"
+        result = self.cli("image", self.path / "bundle", "--output", out, success=False)
+        self.assertIn("prepare supplied initrd", result.stderr)
+        self.assertFalse(out.exists())
 
     def test_local_profile_cannot_override_serial_probe(self):
         self.bundle()

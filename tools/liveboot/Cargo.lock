@@ -5,7 +5,8 @@ version = 4
 [[package]]
 name = "abl-exorcist-assembler"
 version = "0.0.1"
-source = "git+https://github.com/samcday/abl-exorcist#9adb7f8e6d8aefd7231bd884d14413c33a14c2b5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77bf29fdf09d944f48dd0e214ca6d853ed596b379f543f991de5a6801a44b977"
 dependencies = [
  "lz4_flex",
 ]
@@ -460,7 +461,7 @@ dependencies = [
 [[package]]
 name = "fastboop-bootpro"
 version = "0.0.1-rc.21"
-source = "git+https://github.com/samcday/fastboop?rev=d59240287ae4960a98907694ce5cb6def0863bb7#d59240287ae4960a98907694ce5cb6def0863bb7"
+source = "git+https://github.com/samcday/fastboop?rev=1e6d64b3c375d46f2029122902f4564d36f5498b#1e6d64b3c375d46f2029122902f4564d36f5498b"
 dependencies = [
  "anyhow",
  "fastboop-core",
@@ -484,7 +485,7 @@ dependencies = [
 [[package]]
 name = "fastboop-core"
 version = "0.0.1-rc.21"
-source = "git+https://github.com/samcday/fastboop?rev=d59240287ae4960a98907694ce5cb6def0863bb7#d59240287ae4960a98907694ce5cb6def0863bb7"
+source = "git+https://github.com/samcday/fastboop?rev=1e6d64b3c375d46f2029122902f4564d36f5498b#1e6d64b3c375d46f2029122902f4564d36f5498b"
 dependencies = [
  "async-trait",
  "fastboop-schema",
@@ -502,7 +503,7 @@ dependencies = [
 [[package]]
 name = "fastboop-environment-std"
 version = "0.0.1-rc.21"
-source = "git+https://github.com/samcday/fastboop?rev=d59240287ae4960a98907694ce5cb6def0863bb7#d59240287ae4960a98907694ce5cb6def0863bb7"
+source = "git+https://github.com/samcday/fastboop?rev=1e6d64b3c375d46f2029122902f4564d36f5498b#1e6d64b3c375d46f2029122902f4564d36f5498b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -538,7 +539,7 @@ dependencies = [
 [[package]]
 name = "fastboop-fastboot-rusb"
 version = "0.0.1-rc.21"
-source = "git+https://github.com/samcday/fastboop?rev=d59240287ae4960a98907694ce5cb6def0863bb7#d59240287ae4960a98907694ce5cb6def0863bb7"
+source = "git+https://github.com/samcday/fastboop?rev=1e6d64b3c375d46f2029122902f4564d36f5498b#1e6d64b3c375d46f2029122902f4564d36f5498b"
 dependencies = [
  "fastboop-core",
  "futures-channel",
@@ -550,7 +551,7 @@ dependencies = [
 [[package]]
 name = "fastboop-schema"
 version = "0.0.1-rc.21"
-source = "git+https://github.com/samcday/fastboop?rev=d59240287ae4960a98907694ce5cb6def0863bb7#d59240287ae4960a98907694ce5cb6def0863bb7"
+source = "git+https://github.com/samcday/fastboop?rev=1e6d64b3c375d46f2029122902f4564d36f5498b#1e6d64b3c375d46f2029122902f4564d36f5498b"
 dependencies = [
  "gibblox-pipeline",
  "serde",
@@ -559,7 +560,7 @@ dependencies = [
 [[package]]
 name = "fastboop-smoo-gibblox"
 version = "0.0.1-rc.21"
-source = "git+https://github.com/samcday/fastboop?rev=d59240287ae4960a98907694ce5cb6def0863bb7#d59240287ae4960a98907694ce5cb6def0863bb7"
+source = "git+https://github.com/samcday/fastboop?rev=1e6d64b3c375d46f2029122902f4564d36f5498b#1e6d64b3c375d46f2029122902f4564d36f5498b"
 dependencies = [
  "async-trait",
  "gibblox-core",
@@ -569,7 +570,7 @@ dependencies = [
 [[package]]
 name = "fastboop-stage0-generator"
 version = "0.0.1-rc.21"
-source = "git+https://github.com/samcday/fastboop?rev=d59240287ae4960a98907694ce5cb6def0863bb7#d59240287ae4960a98907694ce5cb6def0863bb7"
+source = "git+https://github.com/samcday/fastboop?rev=1e6d64b3c375d46f2029122902f4564d36f5498b#1e6d64b3c375d46f2029122902f4564d36f5498b"
 dependencies = [
  "abl-exorcist-assembler",
  "dtoolkit",

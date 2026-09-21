@@ -17,9 +17,9 @@ tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-util = "0.7"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-fastboop-core = { git = "https://github.com/samcday/fastboop", rev = "d59240287ae4960a98907694ce5cb6def0863bb7" }
-fastboop-bootpro = { git = "https://github.com/samcday/fastboop", rev = "d59240287ae4960a98907694ce5cb6def0863bb7" }
-fastboop-environment-std = { git = "https://github.com/samcday/fastboop", rev = "d59240287ae4960a98907694ce5cb6def0863bb7" }
+fastboop-core = { git = "https://github.com/samcday/fastboop", rev = "1e6d64b3c375d46f2029122902f4564d36f5498b" }
+fastboop-bootpro = { git = "https://github.com/samcday/fastboop", rev = "1e6d64b3c375d46f2029122902f4564d36f5498b" }
+fastboop-environment-std = { git = "https://github.com/samcday/fastboop", rev = "1e6d64b3c375d46f2029122902f4564d36f5498b" }
 
 # Temporary development graph. Git dependency workspaces do not export their
 # patch tables to consumers. Pin the same gibblox snapshot as fastboop; published
