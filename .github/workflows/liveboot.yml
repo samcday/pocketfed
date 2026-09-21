@@ -1,0 +1,41 @@
+name: Liveboot consumer
+
+on:
+  pull_request:
+    paths:
+      - tools/liveboot/**
+      - .github/workflows/liveboot.yml
+  push:
+    branches: [main]
+    paths:
+      - tools/liveboot/**
+      - .github/workflows/liveboot.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: tools/liveboot
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --assume-yes --no-install-recommends \
+            libusb-1.0-0-dev pkg-config e2fsprogs device-tree-compiler
+      - name: Set up Rust
+        run: |
+          rustup toolchain install 1.91.0 --profile minimal --component rustfmt --component clippy
+          rustup override set 1.91.0
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo build --locked
+      - run: python3 tests/host.py
