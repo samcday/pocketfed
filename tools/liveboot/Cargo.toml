@@ -1,0 +1,46 @@
+[package]
+name = "pocketfed-liveboot"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+publish = false
+license = "GPL-3.0-only"
+description = "Prepare PocketFed liveboot inputs and run them through fastboop"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tokio-util = "0.7"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+fastboop-core = { git = "https://github.com/samcday/fastboop", rev = "d59240287ae4960a98907694ce5cb6def0863bb7" }
+fastboop-bootpro = { git = "https://github.com/samcday/fastboop", rev = "d59240287ae4960a98907694ce5cb6def0863bb7" }
+fastboop-environment-std = { git = "https://github.com/samcday/fastboop", rev = "d59240287ae4960a98907694ce5cb6def0863bb7" }
+
+# Temporary development graph. Git dependency workspaces do not export their
+# patch tables to consumers. Pin the same gibblox snapshot as fastboop; published
+# rc.4 currently fails to compile in gobblytes-fat. smoo rc.7 is already released.
+[patch.crates-io]
+gibblox-android-sparse = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-cache = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-cache-store-std = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-casync = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-casync-std = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-core = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-ext4 = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-file = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-http = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-mbr = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-optimizer = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-pipeline = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-schema = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-tar = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-xz = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gibblox-zip = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gobblytes-core = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gobblytes-erofs = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
+gobblytes-fat = { git = "https://github.com/samcday/gibblox", rev = "777a8781547a6d1941e880022a61feb1f4ea5dfe" }
