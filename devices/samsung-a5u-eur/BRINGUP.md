@@ -1,9 +1,11 @@
 # Samsung Galaxy A5U bring-up
 
 Current integration work is tracked in [#88](https://github.com/samcday/pocketfed/issues/88).
-The 2026-09-21 trial establishes installed boot and SD-root startup. The
-physical screen remains blank, including with a running software-rendered
-Phrog greeter. Display/GPU diagnosis continues separately in Pocketboot.
+The 2026-09-21 trial establishes installed boot and SD-root startup. The user subsequently pressed the power key and confirmed a visible Phrog
+greeter and phosh-first-boot, working touch, and working autorotation. The
+earlier blank-screen observation did not establish a broken Fedora panel.
+This success uses the diagnostic software-rendering configuration below;
+GPU acceleration and the display-enabled Pocketboot UI remain unverified.
 
 ## Verified boot path
 
@@ -39,8 +41,8 @@ breakpoint. Those settings are not normal installation defaults.
 
 | Area | Evidence | Remaining work |
 | --- | --- | --- |
-| Native display | With `msm.skip_gpu=1`, MSM DRM replaces simpledrm and reports connected, active DSI at 720×1280. | Panel remains physically blank. Investigate resident initialization and kexec handoff without assuming causality. |
-| Greeter | `WLR_RENDERER=pixman GSK_RENDERER=cairo` lets Phrog own the output without restarting. | A visible, usable greeter and input are unverified. Default rendering fails EGL with the GPU skipped. |
+| Native display | With `msm.skip_gpu=1`, MSM DRM replaces simpledrm and reports connected, active DSI at 720×1280. | User confirmed the panel unblanked on a power-key press. Repeatable startup/wake behavior and the display-enabled resident remain to be checked. |
+| Greeter | `WLR_RENDERER=pixman GSK_RENDERER=cairo` lets Phrog own the output without restarting. | User confirmed visible Phrog and phosh-first-boot, working touch and autorotation. First-boot completion is not claimed; default rendering fails EGL with the GPU skipped. |
 | GPU | The trial DT enables Adreno but disables its IOMMU, causing `ENODEV` and preventing display component binding. | Reconcile the DT and validate acceleration; unloading after this failed bind also faults in `adreno_remove`. |
 | Thermal | Deferred TSENS probing calls freed `__init` text. The display-only trial excludes `qcom_tsens` and has no Oops. | Validate and package the [callback-lifetime fix](https://github.com/samcday/linux/pull/4), then remove the exclusion. |
 | Installed system | SD root and UART startup work. | Rebuild an A5-native deployment, reconcile module labels/ownership and kernel handoff support, remove trial overrides, and verify repeatable reboot. |

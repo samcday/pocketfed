@@ -167,5 +167,7 @@ belongs in Android `boot`.
 Further hardware diagnosis now uses an installed SD root and carkit UART.
 See the [A5 bring-up record](../../devices/samsung-a5u-eur/BRINGUP.md) for
 verified results and limitations, and [#88](https://github.com/samcday/pocketfed/issues/88)
-for remaining integration work. The physical panel is still blank; a running
-compositor is not a verified visible greeter.
+for remaining integration work. The user confirmed that a power-key press
+unblanked the installed software-rendered trial, revealing Phrog and
+phosh-first-boot, with working touch and autorotation. GPU acceleration and
+the display-enabled Pocketboot UI remain unverified.
