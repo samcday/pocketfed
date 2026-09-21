@@ -194,6 +194,16 @@ The A5 Fedora kernel and matching modules subsequently built successfully.
 The 43 MiB Android v2 image passed kernel/ramdisk/DTB byte comparisons; its
 initramfs contains the panel, MUIC, touch input, regulator, zram and smoo
 components. Pocketboot accepted it, and the destination exposed `dead:bee2`
-and connected to its dedicated root server. Greeter and physical display
-success are still unverified. Reproducible resident compression is tracked in
+and connected to its dedicated root server. The screen remained blank;
+successful smoo heartbeats established responsiveness but did not establish
+that Fedora reached the greeter. Reproducible resident compression is tracked in
 [Pocketboot #26](https://github.com/samcday/pocketboot/pull/26).
+
+Further A5 diagnosis is moving to an installed SD root and the carkit UART.
+Composite USB diagnostics are left to fastboop. The compressed headless
+Pocketboot resident has been installed in internal boot and its payload
+verified by reading back the physical partition. The internal postmarketOS
+userdata installation was erased at the owner's request. The SD trial reuses
+the tested kernel with a normal MMC-root initrd, matching modules in a copied
+deployment, and serial root autologin. It is a local diagnostic image, not a
+rebuilt A5 release. SD boot and greeter validation remain pending.
