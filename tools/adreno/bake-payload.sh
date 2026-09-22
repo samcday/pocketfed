@@ -114,7 +114,7 @@ for var in "$MNT"/ostree/deploy/*/var; do
     cp -a "$PAYLOAD"/. "$dest"/
     if [ "$SUMS" = 1 ]; then
         ( cd "$dest" && rm -f SHA256SUMS \
-            && find . -type f -print0 | sort -z \
+            && find . -type f ! -path ./SHA256SUMS -print0 | sort -z \
             | xargs -0 sha256sum > SHA256SUMS )
     fi
     # OSTree deployments run with SELinux labels from the commit; the trial
