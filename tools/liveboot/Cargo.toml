@@ -21,6 +21,11 @@ fastboop-core = { git = "https://github.com/samcday/fastboop", rev = "1e6d64b3c3
 fastboop-bootpro = { git = "https://github.com/samcday/fastboop", rev = "1e6d64b3c375d46f2029122902f4564d36f5498b" }
 fastboop-environment-std = { git = "https://github.com/samcday/fastboop", rev = "1e6d64b3c375d46f2029122902f4564d36f5498b" }
 
+[dev-dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+lz4 = "1"
+sha2 = "0.10"
+
 # Temporary development graph. Git dependency workspaces do not export their
 # patch tables to consumers. Pin the same gibblox snapshot as fastboop; published
 # rc.4 currently fails to compile in gobblytes-fat. smoo rc.7 is already released.
