@@ -1,0 +1,14 @@
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+@@ -71,6 +71,11 @@
+    assert(num_unit % 2 == 0);
+ 
+    emit_const_asserts(v, regid, sizedwords);
++
++   /* Diagnostic control for Mesa #12634: perform the same CPU preparation
++    * as B2, keeping the original indirect packet and buffer relocation.
++    */
++   fd_bo_cpu_prep(bo, NULL, FD_BO_PREP_READ);
+ 
+    OUT_PKT3(ring, CP_LOAD_STATE, 2);
+    OUT_RING(ring, CP_LOAD_STATE_0_DST_OFF(dst_off) |
