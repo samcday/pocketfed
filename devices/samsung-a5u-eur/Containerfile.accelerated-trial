@@ -1,5 +1,6 @@
 # Local hardware trial; kernel-bundle is an explicit additional build context.
 # See ACCELERATED-TRIAL.md. Production kernel packaging is unchanged.
+ARG TRIAL_BASE_IMAGE=trial-core
 ARG BASE_IMAGE=ghcr.io/samcday/pocketfed-phosh@sha256:b3e8c55e5b1b093bd79da080f715d12a4581e241556414328a41bfd35a4fa53f
 FROM ${BASE_IMAGE} AS device-root-base
 COPY devices/samsung-a5u-eur/ /tmp/a5/
@@ -21,10 +22,6 @@ RUN --mount=type=cache,id=pocketfed-a5-trial-dnf,target=/var/cache,sharing=locke
     install -m0755 /tmp/a5/pocketfed-msm8916-dracut-policy /usr/libexec/; \
     /usr/libexec/pocketfed-msm8916-dracut-policy "$kver"; \
     install -m0644 /tmp/a5/80-pocketfed-samsung-a5u-eur.preset /usr/lib/systemd/system-preset/; \
-    install -m0755 /tmp/a5/pocketfed-verify-accelerated-trial /usr/libexec/; \
-    install -D -m0644 /tmp/a5/60-a5-accelerated.conf /usr/lib/environment.d/60-a5-accelerated.conf; \
-    install -d /usr/lib/systemd/system/phrog.service.d; \
-    printf '%s\n' '[Service]' 'Environment=WLR_RENDERER=gles2 GSK_RENDERER=gl' > /usr/lib/systemd/system/phrog.service.d/60-a5-accelerated.conf; \
     /usr/bin/bootupctl backend generate-update-metadata; \
     rm -rf /usr/lib/ostree-boot/loader; \
     find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
@@ -77,12 +74,19 @@ RUN set -eu; \
         /out/initramfs.img "$kver"; \
     printf '%s\n' "$kver" >/out/kver
 
-FROM device-root-base
+FROM device-root-base AS trial-core
 COPY --from=initrd /out /tmp/pocketfed-device
 RUN set -eu; \
     kver=$(cat /tmp/pocketfed-device/kver); \
     module_dir="/usr/lib/modules/$kver"; \
     [ -d "$module_dir" ]; \
     install -m0644 /tmp/pocketfed-device/initramfs.img "$module_dir/initramfs.img"; \
-    rm -rf /tmp/pocketfed-device; \
-    /usr/libexec/pocketfed-verify-accelerated-trial
+    rm -rf /tmp/pocketfed-device
+
+# Reuse an already composed trial core while iterating only session policy.
+FROM ${TRIAL_BASE_IMAGE}
+COPY devices/samsung-a5u-eur/60-a5-accelerated.conf /etc/environment
+COPY devices/samsung-a5u-eur/60-a5-accelerated.conf /usr/lib/environment.d/60-a5-accelerated.conf
+COPY devices/samsung-a5u-eur/greetd-accelerated.toml /etc/phrog/greetd-config.toml
+COPY --chmod=0755 devices/samsung-a5u-eur/pocketfed-verify-accelerated-trial /usr/libexec/
+RUN rm -f /usr/lib/systemd/system/phrog.service.d/60-a5-accelerated.conf && /usr/libexec/pocketfed-verify-accelerated-trial

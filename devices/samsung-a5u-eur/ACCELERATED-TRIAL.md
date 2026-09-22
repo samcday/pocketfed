@@ -63,9 +63,18 @@ the SD trial, convert sparse boot/root images to raw and map them to the
 verified SD layout; preserve the generated UUIDs and BLS references. Do not
 repartition or flash without checking the currently attached A5 identity.
 
+The final stage installs the renderer settings in both `/etc/environment`
+(PAM login sessions) and `environment.d` (user services), and explicitly prefixes
+the greeter command. greetd 0.10.3 constructs the child environment from PAM;
+variables on the daemon's systemd unit alone do not reach its children.
+`TRIAL_BASE_IMAGE` may select an already built `trial-core` stage for session-only
+iteration without repeating the kernel, Mesa, and initramfs composition.
+
 ## Validation status
 
-Composition and artifact validation are in progress. Hardware acceptance is
+OCI composition and its offline hardware-support assertions passed. The final
+login-environment correction also passed those checks. SD filesystem generation
+and validation are in progress. Hardware acceptance is
 still pending: confirm native MSM KMS and Adreno 306 rendering in both the
 greeter and Phosh, exercise GTK4 applications, and check UART for GPU faults,
 resets, or thermal-probe errors. No fresh A5 boot is claimed here.

@@ -33,7 +33,7 @@ for firmware in a300_pm4.fw a300_pfp.fw; do
     test -s "/usr/lib/firmware/qcom/$firmware.xz" || fail "$firmware missing"
 done
 /usr/libexec/pocketfed-verify-mesa
-for path in /usr/lib/environment.d/60-a5-accelerated.conf /usr/lib/systemd/system/phrog.service.d/60-a5-accelerated.conf; do
+for path in /usr/lib/environment.d/60-a5-accelerated.conf /etc/environment /etc/phrog/greetd-config.toml; do
     grep -Fq WLR_RENDERER=gles2 "$path" || fail 'GLES compositor not selected'
     grep -Fq GSK_RENDERER=gl "$path" || fail 'GL GTK renderer not selected'
 done
