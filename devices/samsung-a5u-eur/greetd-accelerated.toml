@@ -1,0 +1,6 @@
+[terminal]
+vt = 1
+
+[default_session]
+command = "env WLR_RENDERER=gles2 GSK_RENDERER=gl /usr/libexec/phrog-greetd-session"
+user = "greetd"

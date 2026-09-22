@@ -9,6 +9,7 @@ root_label=${PF_ROOT_LABEL:-pfroot}
 stateroot=${PF_STATEROOT:-pocketfed}
 source_ref=${PF_SOURCE_REF:-install}
 arch=${PF_ARCH:-arm64}
+a5_bootloader=${PF_A5_BOOTLOADER:-uefi}
 root_ssh_authorized_keys=${PF_ROOT_SSH_AUTHORIZED_KEYS:-}
 sargo_initramfs_origin_helper=/usr/local/libexec/pocketfed/pocketfed-seed-sargo-initramfs-origin
 
@@ -41,6 +42,8 @@ Environment overrides:
   PF_OUTPUT_DIR      Output directory (default: /out)
   PF_IMAGE_SIZE      Raw userdata image size (default: 8G; A5U maximum is
                      12847136768 bytes)
+  PF_A5_BOOTLOADER   A5 boot path: uefi (default) or pocketboot (direct BLS;
+                     emits an empty ESP and skips EFI/GRUB installation)
   PF_ROOT_SSH_AUTHORIZED_KEYS
                      Path to an authorized_keys file to inject for root
   PF_REGISTRY        Registry for computed image ref (default: ghcr.io)
@@ -445,29 +448,31 @@ validate_split_boot_tree() {
     cmp -s "$boot_mount/${devicetree#/}" "$selected_dtb" ||
         die 'BLS devicetree does not match the selected A5U deployment DTB'
 
-    [[ -s "$boot_mount/grub2/grub.cfg" ]] || die 'missing bootupd GRUB configuration'
-    [[ -s "$boot_mount/grub2/grubenv" ]] || die 'missing GRUB environment block'
-    [[ -s "$boot_mount/grub2/bootuuid.cfg" ]] || die 'missing GRUB boot UUID configuration'
-    [[ -s "$boot_mount/bootupd-state.json" ]] || die 'missing bootupd state'
-    grep -Eq '(^|[[:space:]])blscfg([[:space:]]|$)' "$boot_mount/grub2/grub.cfg" ||
-        die 'bootupd GRUB configuration does not load BLS entries'
-    grep -Fq "BOOT_UUID=\"$boot_uuid\"" "$boot_mount/grub2/bootuuid.cfg" ||
-        die 'GRUB boot UUID does not select the generated /boot filesystem'
-    grep -Fq '"EFI"' "$boot_mount/bootupd-state.json" ||
-        die 'bootupd state does not contain an installed EFI component'
-    grub2-script-check "$boot_mount/grub2/grub.cfg" >/dev/null
+    if [[ "$a5_bootloader" == uefi ]]; then
+        [[ -s "$boot_mount/grub2/grub.cfg" ]] || die 'missing bootupd GRUB configuration'
+        [[ -s "$boot_mount/grub2/grubenv" ]] || die 'missing GRUB environment block'
+        [[ -s "$boot_mount/grub2/bootuuid.cfg" ]] || die 'missing GRUB boot UUID configuration'
+        [[ -s "$boot_mount/bootupd-state.json" ]] || die 'missing bootupd state'
+        grep -Eq '(^|[[:space:]])blscfg([[:space:]]|$)' "$boot_mount/grub2/grub.cfg" ||
+            die 'bootupd GRUB configuration does not load BLS entries'
+        grep -Fq "BOOT_UUID=\"$boot_uuid\"" "$boot_mount/grub2/bootuuid.cfg" ||
+            die 'GRUB boot UUID does not select the generated /boot filesystem'
+        grep -Fq '"EFI"' "$boot_mount/bootupd-state.json" ||
+            die 'bootupd state does not contain an installed EFI component'
+        grub2-script-check "$boot_mount/grub2/grub.cfg" >/dev/null
 
-    for path in \
-        EFI/BOOT/BOOTAA64.EFI \
-        EFI/fedora/grubaa64.efi \
-        EFI/fedora/shimaa64.efi \
-        EFI/fedora/grub.cfg \
-        EFI/fedora/bootuuid.cfg; do
-        [[ -s "$esp_mount/$path" ]] || die "missing ESP payload: $path"
-    done
-    grep -Fq "BOOT_UUID=\"$boot_uuid\"" "$esp_mount/EFI/fedora/bootuuid.cfg" ||
-        die 'ESP GRUB stub does not select the generated /boot filesystem'
-    grub2-script-check "$esp_mount/EFI/fedora/grub.cfg" >/dev/null
+        for path in \
+            EFI/BOOT/BOOTAA64.EFI \
+            EFI/fedora/grubaa64.efi \
+            EFI/fedora/shimaa64.efi \
+            EFI/fedora/grub.cfg \
+            EFI/fedora/bootuuid.cfg; do
+            [[ -s "$esp_mount/$path" ]] || die "missing ESP payload: $path"
+        done
+        grep -Fq "BOOT_UUID=\"$boot_uuid\"" "$esp_mount/EFI/fedora/bootuuid.cfg" ||
+            die 'ESP GRUB stub does not select the generated /boot filesystem'
+        grub2-script-check "$esp_mount/EFI/fedora/grub.cfg" >/dev/null
+    fi
 
     [[ ! -e "$mnt/ostree/root.a" && ! -e "$mnt/ostree/root.b" ]] ||
         die 'split-UEFI artifacts must not contain Android A/B root links'
@@ -566,7 +571,9 @@ build_samsung_a5u_eur() {
     "${bootc_args[@]}"
 
     find_single_deployment "$mnt/ostree/deploy/$stateroot/deploy"
-    install_split_bootloader "$deployment" "$mnt"
+    if [[ "$a5_bootloader" == uefi ]]; then
+        install_split_bootloader "$deployment" "$mnt"
+    fi
     fstab="$deployment/etc/fstab"
     [[ -f "$fstab" ]] || die 'bootc did not create the initial deployment fstab'
     configure_split_fstab "$fstab" "$boot_uuid" "$esp_uuid"
@@ -654,6 +661,10 @@ release=${3:-rawhide}
 [[ -n "$device" ]] || die 'device must not be empty'
 [[ -n "$desktop" ]] || die 'desktop must not be empty'
 [[ -n "$release" ]] || die 'release must not be empty'
+case "$a5_bootloader" in
+    uefi | pocketboot) ;;
+    *) die 'PF_A5_BOOTLOADER must be uefi or pocketboot' ;;
+esac
 
 image_ref=${PF_IMAGE_REF:-$registry/$owner/pocketfed-$desktop-$device:$release}
 source_image_ref=${PF_SOURCE_IMAGE_REF:-$image_ref}

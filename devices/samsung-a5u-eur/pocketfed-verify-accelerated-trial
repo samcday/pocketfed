@@ -1,0 +1,47 @@
+#!/bin/sh
+# Offline assertions for the explicitly supplied 7.1 A5 hardware-trial bundle.
+set -eu
+fail() { printf 'A5 accelerated trial verification failed: %s\n' "$*" >&2; exit 1; }
+kver=7.1.0-rc6+
+module_dir=/usr/lib/modules/$kver
+dtb=$module_dir/devicetree
+set -- /usr/lib/modules/*
+[ "$#" -eq 1 ] && [ "$1" = "$module_dir" ] || fail 'unexpected kernel tree'
+check_hash() {
+    printf '%s  %s\n' "$1" "$2" | sha256sum --check --status || fail "unexpected $2"
+}
+check_hash 5d41a1580170784b1c999424b3830a4bcd93012d06cf500ddb56ede552f70890 "$module_dir/vmlinuz"
+check_hash 3c711541c81a3bbc6b5f2a7029ed14025bbf6462fa67db66b720ac2aa5b51721 "$dtb"
+tsens=$module_dir/kernel/drivers/thermal/qcom/qcom_tsens.ko
+check_hash 06d479374e2e46bf614d993ea733dfbe8a9e98959a4222f441bb28153713924c "$tsens"
+for symbol in init_common init_8226 init_8909 init_8939 init_9607 init_8956 init_tsens_v1_no_rpm init_tsens_v2_no_rpm; do
+    objdump -t "$tsens" | awk -v symbol="$symbol" '$NF == symbol && $4 == ".text" { found=1 } END { exit !found }' || fail "$symbol is not retained in .text"
+done
+for node in /soc/gpu@1c00000 /soc/iommu@1f08000 /soc/display-subsystem@1a00000; do
+    [ "$(fdtget -t s "$dtb" "$node" status)" = okay ] || fail "$node disabled"
+done
+[ "$(fdtget -t x "$dtb" /soc/gpu@1c00000 iommus)" = '5b 1 5b 2' ] || fail 'GPU IOMMU references changed'
+[ "$(fdtget -t x "$dtb" /soc/iommu@1f08000 phandle)" = 5b ] || fail 'GPU IOMMU phandle mismatch'
+for setting in CONFIG_DRM_MSM=m CONFIG_DRM_MSM_KMS=y CONFIG_DRM_MSM_MDP5=y CONFIG_DRM_MSM_DSI=y CONFIG_QCOM_IOMMU=y CONFIG_QCOM_TSENS=m CONFIG_DRM_PANEL_SAMSUNG_EA8061V_AMS497EE01=m; do
+    grep -Fxq "$setting" "$module_dir/config" || fail "$setting missing"
+done
+for driver in msm panel_samsung_ea8061v_ams497ee01 qcom_tsens sdhci_msm; do
+    modprobe --set-version "$kver" --show-depends "$driver" >/dev/null || fail "unresolved $driver"
+    case "$(modinfo -k "$kver" -F vermagic "$driver")" in "$kver "*) ;; *) fail "$driver release mismatch";; esac
+done
+for firmware in a300_pm4.fw a300_pfp.fw; do
+    test -s "/usr/lib/firmware/qcom/$firmware.xz" || fail "$firmware missing"
+done
+/usr/libexec/pocketfed-verify-mesa
+for path in /usr/lib/environment.d/60-a5-accelerated.conf /etc/environment /etc/phrog/greetd-config.toml; do
+    grep -Fq WLR_RENDERER=gles2 "$path" || fail 'GLES compositor not selected'
+    grep -Fq GSK_RENDERER=gl "$path" || fail 'GL GTK renderer not selected'
+done
+if grep -RE 'msm\.skip_gpu|module_blacklist=.*qcom_tsens|WLR_RENDERER=pixman|GSK_RENDERER=cairo|LIBGL_ALWAYS_SOFTWARE' /etc/environment /etc/environment.d /etc/modprobe.d /etc/phrog /etc/kernel /usr/lib/environment.d /usr/lib/modprobe.d /usr/lib/systemd/system/phrog.service.d 2>/dev/null; then
+    fail 'software-only or thermal-disable override present'
+fi
+test -s "$module_dir/initramfs.img" || fail 'initramfs missing'
+lsinitrd -m "$module_dir/initramfs.img" | grep -Fxq ostree || fail 'OSTree initramfs module missing'
+[ "$(systemctl is-enabled phrog.service)" = enabled ] || fail 'greeter not enabled'
+[ "$(systemctl is-enabled bootloader-update.service || :)" = disabled ] || fail 'UEFI updater enabled in Pocketboot trial'
+printf 'verified A5 trial: MSM KMS + Adreno, GPU IOMMU, retained TSENS callbacks, Patch A Mesa, GLES/GL sessions\n'
