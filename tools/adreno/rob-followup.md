@@ -1,6 +1,6 @@
 # A3xx investigation: Rob Clark follow-up
 
-Status: **host-side evidence audit, 2026-09-23**. New board results are recorded
+Status: **diagnostic controls and hardware evidence, 2026-09-23**. Board results are recorded
 in [hardware-20260923.md](hardware-20260923.md). The older B2 patch is an experimental workaround, not a proven
 root-cause fix.
 
@@ -143,8 +143,12 @@ The `FD_BO_NOMAP` check is in
 1. Stock versus **wait-only**: add exactly B2's `fd_bo_cpu_prep(bo, NULL,
    FD_BO_PREP_READ)` before the unchanged indirect emission. Verify the emitted
    stream remains unchanged. The matched control below ignores the return as
-   B2 does; separately instrument errors if the hardware result needs it.
-   **Complete:** both stock and wait-only hang on hardware.
+   B2 does. **Complete for the unmodified call:** both stock and wait-only
+   hang on hardware. The return was not recorded, so this does not establish
+   that prep succeeded. A follow-up must capture failure status and exclude
+   nonzero returns from evidence about a successful READ prep.
+   The [checked follow-up](fd3-const-wait-checked.patch) is built; its hardware
+   result remains pending.
 2. Repeat **direct without prep** with matched instrumentation, ideally
    without per-upload logging, using the known CPU-initialized reproducer.
    Include **direct with prep** to complete the transport/wait comparison.
@@ -155,7 +159,9 @@ The `FD_BO_NOMAP` check is in
    replay with this build remains outstanding.
 4. Check a fresh-source indirect arm if the results still implicate transport:
    copy the whole source BO into a new BO and leave the upload indirect. The
-   matched binary and a separate fixture are prepared; hardware trial pending.
+   matched arm also hangs on hardware, with distinct captured source BOs and
+   the same shader. Its saved ring state differs from the stock failure;
+   see the [hardware ledger](hardware-20260923.md) for the precise limits.
 5. Capture fences, hangchecks and output pixels; prove the override library is
    actually loaded. **Complete for the transport matrix:** hashes, runtime maps,
    environment, fences, hangchecks and pixels captured. Reserve broad
@@ -205,6 +211,27 @@ Before a trial, prove that `/usr/lib64/libEGL_mesa.so.0` resolves Gallium from
 the override directory with `LD_LIBRARY_PATH=... ldd`, and check `ldd -r`.
 Do not inspect only libglvnd's `/usr/lib64/libEGL.so.1`, which loads the vendor
 library dynamically. Do not use a 26.2.2 override against a 26.2.3 soname.
+
+## Checked wait follow-up
+
+[fd3-const-wait-checked.patch](fd3-const-wait-checked.patch) retains the indirect
+emission and existing prep call, but logs and aborts if preparation returns an
+error. A companion change propagates the first error from the existing
+`fd_fence_wait()` loop, which otherwise discards those errors; it still waits
+on and releases every temporary fence reference. No extra wait, fallback or
+successful-upload logging is added. This is a separate diagnostic arm, not a
+retroactive change to the binaries already tested.
+The shared DRM helper change applies to every prep caller in this experimental
+library; the A3xx emitter explicitly aborts on a reported failure.
+
+An error-free run can still take the already-idle fast path. It establishes
+neither that the BO was busy nor that a blocking wait occurred. A failed prep
+must count as a failed diagnostic, not as evidence about successful prep.
+
+The matched release/O3 ARM64 build passes the same static loader ABI gate.
+Stripped library SHA-256:
+`83c0213cb96d3a3606b81d8b525125f565dedb3d7b1e8253c23b5cc608c1e8f2`.
+Hardware testing remains pending.
 
 ## Matched upload controls
 
@@ -307,7 +334,7 @@ d05d68f997ddbef7646fa8bf070db5a343e0134b50abe2f094a55f2fd948a804  sched
 Compare these two to each other, not to the release/O3 transport controls,
 when attributing a change to the scheduler MR.
 
-A new local root-image copy contains all six libraries and the minimal trace.
+The original local root-image copy contains these six libraries and the minimal trace.
 Its boot image preserves the previous kernel, initramfs and device tree; only
 the root export ID and trial identifier change in the command line. Original
 image hashes remain unchanged. The baked payload checksums and a read-only
@@ -317,7 +344,7 @@ replays, pixel comparisons and recovery-clock measurements are recorded in the
 [hardware ledger](hardware-20260923.md).
 
 See [recovery-clocks.md](recovery-clocks.md) for the separate recovery defect:
-both new negative controls incremented all six GPU-owned clock references.
+all three new negative controls incremented all six GPU-owned clock references.
 
 ## Fresh-source indirect diagnostic
 

@@ -2,9 +2,10 @@
 
 Source, binary and hardware evidence, 2026-09-23. This addresses Rob Clark's
 [recovery question](https://gitlab.freedesktop.org/mesa/mesa/-/work_items/12634#note_3674373).
-Two independently booted DB410c sessions now show the same six-clock reference
+Three independently booted DB410c sessions now show the same six-clock reference
 increment after recovery. A separate [draft kernel correction](https://github.com/samcday/linux/pull/5)
-is available for review; it has not been built or tested on hardware.
+is available for review; the complete module builds against the exact Fedora
+configuration and headers, but it has not been loaded or tested on hardware.
 
 There is an ignored-error path in the actual Fedora 7.3-rc3 module that matches
 the measured accumulation of clock references during recovery. This is separate
@@ -47,15 +48,16 @@ these explicit recovery calls.
 
 ## New hardware measurements
 
-The [hardware trial record](hardware-20260923.md) covers both events using the
+The [hardware trial record](hardware-20260923.md) covers all three events using the
 unchanged official Fedora kernel:
 
 | Boot / trial | Mesa arm | Hang / recovery / drain timeout uptime | RPTR/WPTR after reset | Compositor result |
 | --- | --- | --- | --- | --- |
 | B1 / t04 | wait-only, sysmem, minimal trace | 353.776 / 353.798 / 354.870 s | `0/1726` | phoc 1022 crashed with SIGSEGV |
 | B2 / t11 | stock, sysmem, minimal trace | 711.728 / 711.750 / 712.822 s | `0/1EBC` | phoc 1109 crashed with SIGSEGV; replacement PID 3213 appeared |
+| B3 / t12 | fresh-source indirect, sysmem, minimal trace | 162.738 / 162.760 / 163.826 s | `0/180E` | phoc 1059 crashed with SIGSEGV; absent from final process check |
 
-Each event started from its own boot's baseline. In both, these enable **and**
+Each event started from its own boot's baseline. In all three, these enable **and**
 prepare counts changed together:
 
 | GPU bulk clock | Before | After |
@@ -77,9 +79,12 @@ label; the recorded value is still zero.
 Non-hanging controls t01–t03 and t05–t10 preserved their baseline references.
 The B2 controls include full-trace direct-no-wait and direct-wait replays,
 followed by separate PNG captures matching the stock+flush reference exactly.
-Thus the two measured increases are localized to recovery intervals, rather
+Thus the three measured increases are localized to recovery intervals, rather
 than to every replay or direct upload. Process exit 0 and fence retirement
-after t04/t11 do not make those hanging trials passes.
+after t04/t11/t12 do not make those hanging trials passes. In particular,
+`recover_worker()` advances the guilty fence in software before the generation
+recovery callback dumps state; later printed fence equality does not establish
+GPU progress beyond the authoritative pre-recovery devcoredump.
 
 ## Candidate correction and remaining validation
 
@@ -96,12 +101,36 @@ genpd/OXILI power-collapse operation or repair references leaked earlier in a
 boot. The broader handling of PM-resume errors remains unchanged.
 
 The patch applies to the exact base and passes whitespace/checkpatch checks.
-It is still a draft with no build or patched-kernel boot result. Validation
+The affected `adreno_gpu.o`, `a3xx_gpu.o`, and `msm_gpu.o` also cross-compile
+for ARM64 against that base with upstream arm64 defconfig. Logs, configuration,
+compiler provenance and the build script are archived under
+`out/adreno-rob-20260923/recovery-evidence/kernel-cross-compile/`. This bounded
+compile used upstream defconfig, separately from the Fedora module build below.
+
+The complete `msm.ko` now also builds against the exact shipped Fedora
+`kernel-devel` configuration, generated headers and `Module.symvers`, using
+the matching ARM64 GCC/linker in the Fedora container. The configuration and
+symbol table match the fixture byte-for-byte; all 292 relevant source files
+match the Fedora source RPM before applying the recovery patch. The linked
+module has the exact stock vermagic, the same 784 imported symbols and ten
+dependencies, and the intended A3xx-specific suspend branch. These are static
+compatibility checks, not a successful module-load result.
+
+The candidate uses the kernel's XZ CRC32/1-MiB dictionary settings. Its archive
+SHA-256 is `f128ed08e25e826e6c714c1a3aa2e718d1450f3e63356d05c4bc8cfe0ab7bfe1`
+and ELF build ID is `8781436f3c1601233e20bdb11e67be06244fe222`. Build logs,
+configuration, source/package provenance, disassembly and the candidate are
+archived under `out/adreno-rob-20260923/recovery-evidence/fedora-module/`.
+It is an unsigned external module with module BTF generation skipped because
+the development package lacks `vmlinux`; it is not a bit-for-bit Fedora build.
+Runtime signature/lockdown policy still determines whether it can load.
+
+It remains a draft with no patched-kernel boot result. Validation
 requires a fresh boot, an actual hang/recovery, stable clock references across
 repeated recoveries, successful reinitialization/replay, and ordinary runtime
 suspend/resume coverage. The Mesa trigger may remain after recovery accounting
-is fixed. Fresh-source indirect and assertion-enabled scheduler controls are
-separate pending Mesa experiments.
+is fixed. The fresh-source indirect control also hung on hardware; the
+assertion-enabled scheduler pair remains a separate pending Mesa experiment.
 
 ## Read-only measurement recipe
 
