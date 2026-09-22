@@ -59,7 +59,15 @@ The contents of `--payload` become `/opt/adreno` in the guest, with a
 
 `--src` is opened read-only and never modified — the script refuses if
 `--dst` already exists unless you pass `--keep`, and `--dry-run` prints the
-plan without mounting anything. Run it as root; it loop-mounts the copy.
+plan without mounting anything. Keep the source image unchanged throughout the
+copy. Serving it read-only with `smoo-host` is fine; the optional `fuser` check
+only warns about open files and cannot guarantee the absence of writers.
+`--name` must be one path component other than `.` or `..`. Run actual baking
+as root; it loop-mounts the copy. The dry-run name regression needs no root:
+
+```sh
+bash tools/adreno/test-bake-payload.sh
+```
 
 ### The export id changes with the path
 

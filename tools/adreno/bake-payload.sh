@@ -21,14 +21,16 @@ usage: bake-payload.sh --src <root.img> --dst <copy.img> --payload <dir> [option
   --src <root.img>     source PocketFed root image; opened read-only, never modified
   --dst <copy.img>     copy to create and modify; must not already exist
   --payload <dir>      directory whose *contents* become /opt/<name> in the guest
-  --name <name>        install as /opt/<name> (default: basename of --payload)
+  --name <name>        one path component, excluding . and ..
+                       (default: basename of --payload)
   --keep               keep an existing --dst instead of refusing (still never
                        touches --src; use when re-baking into the same copy)
   --no-sums            do not write SHA256SUMS into the installed payload
   --dry-run            print the plan and exit
 
-Requires root (loop mount). Refuses to run if --src is currently open by
-another process, e.g. being served by smoo-host.
+Requires root except for --dry-run (loop mount). Keep --src unchanged throughout
+the copy. Serving it read-only with smoo-host is fine. An open-file check warns
+when available; it does not establish that no other process can modify --src.
 EOF
 }
 
@@ -50,7 +52,13 @@ done
 [ -n "$SRC" ] && [ -n "$DST" ] && [ -n "$PAYLOAD" ] || { usage >&2; exit 2; }
 [ -f "$SRC" ] || { echo "no such image: $SRC" >&2; exit 1; }
 [ -d "$PAYLOAD" ] || { echo "no such payload directory: $PAYLOAD" >&2; exit 1; }
-[ -n "$NAME" ] || NAME=$(basename "$PAYLOAD")
+[ -n "$NAME" ] || NAME=$(basename -- "$PAYLOAD")
+case "$NAME" in
+    ''|.|..|*/*)
+        echo "invalid --name: expected one non-dot path component" >&2
+        exit 2
+        ;;
+esac
 
 SRC=$(readlink -f "$SRC")
 PAYLOAD=$(readlink -f "$PAYLOAD")
@@ -65,11 +73,11 @@ if [ "$DRY" = 0 ] && [ "$(id -u)" != 0 ]; then
     exit 1
 fi
 
-# The source image is usually being served by smoo-host. Copying it while it is
-# served is fine (read-only), but modifying it is not, and mixing the two up is
-# the one mistake that costs a re-provision.
+# The caller must keep the source image immutable throughout the copy. Serving
+# it read-only is fine, but fuser cannot distinguish readers from writers or
+# prevent a writer from opening it after this check.
 if command -v fuser >/dev/null 2>&1 && fuser -s "$SRC" 2>/dev/null; then
-    echo "note: $SRC is open by another process; it will only be read" >&2
+    echo "note: $SRC is open by another process; ensure it stays unchanged during copying" >&2
 fi
 
 echo "src      $SRC"
