@@ -1,13 +1,15 @@
-# A3xx recovery clock hypothesis
+# A3xx recovery clock-reference leak
 
-Read-only source and binary audit, 2026-09-23. This addresses Rob Clark's
+Source, binary and hardware evidence, 2026-09-23. This addresses Rob Clark's
 [recovery question](https://gitlab.freedesktop.org/mesa/mesa/-/work_items/12634#note_3674373).
-No new hardware measurement or kernel change has been made.
+Two independently booted DB410c sessions now show the same six-clock reference
+increment after recovery. A separate [draft kernel correction](https://github.com/samcday/linux/pull/5)
+is available for review; it has not been built or tested on hardware.
 
-There is an ignored-error path in the actual Fedora 7.3-rc3 module that could
-accumulate clock references during recovery. This is separate from the Mesa
-trigger; it does not explain the original hang or establish the cause of the
-hard resets.
+There is an ignored-error path in the actual Fedora 7.3-rc3 module that matches
+the measured accumulation of clock references during recovery. This is separate
+from the Mesa trigger; it does not explain the original hang or establish the
+cause of the hard resets.
 
 ## Verified code path
 
@@ -32,8 +34,10 @@ flow; module SHA-256:
 A software reset may zero hardware RPTR while the software WPTR still describes
 the old submission. The existing [W6 report](https://github.com/samcday/pocketfed/issues/80#issuecomment-5758800870)
 records recovery followed one second later by a ring-drain timeout with
-RPTR/WPTR `0/198A`. This is consistent with the path above; clock counts have
-not yet been measured to complete the causal chain.
+RPTR/WPTR `0/198A`. The new clock measurements below repeat this timeout pattern
+and directly establish reference growth. The callback return itself has not
+been traced, so its exact mechanism remains strongly supported rather than
+directly observed at every step.
 
 Recovery holds a runtime-PM reference and invokes the callbacks directly.
 It does not request genpd runtime suspension, so callback clock gating and
@@ -41,7 +45,65 @@ power-cycling the OXILI GDSC are distinct. `runtime_suspended_time=0` does not
 rule out callback-level suspend/resume, and `power/control=on` does not bypass
 these explicit recovery calls.
 
-## Discriminating measurement
+## New hardware measurements
+
+The [hardware trial record](hardware-20260923.md) covers both events using the
+unchanged official Fedora kernel:
+
+| Boot / trial | Mesa arm | Hang / recovery / drain timeout uptime | RPTR/WPTR after reset | Compositor result |
+| --- | --- | --- | --- | --- |
+| B1 / t04 | wait-only, sysmem, minimal trace | 353.776 / 353.798 / 354.870 s | `0/1726` | phoc 1022 crashed with SIGSEGV |
+| B2 / t11 | stock, sysmem, minimal trace | 711.728 / 711.750 / 712.822 s | `0/1EBC` | phoc 1109 crashed with SIGSEGV; replacement PID 3213 appeared |
+
+Each event started from its own boot's baseline. In both, these enable **and**
+prepare counts changed together:
+
+| GPU bulk clock | Before | After |
+| --- | ---: | ---: |
+| gcc_oxili_gfx3d_clk | 1 | 2 |
+| gcc_oxili_gmem_clk | 1 | 2 |
+| gcc_oxili_ahb_clk | 1 | 2 |
+| gcc_bimc_gfx_clk | 1 | 2 |
+| gcc_bimc_gpu_clk | 1 | 2 |
+| gfx3d_clk_src | 3 | 4 |
+
+The neighboring `bimc_gpu_clk_src`, `gcc_gfx_tcu_clk`, and `gcc_smmu_cfg_clk`
+counts did not change. Rates were unchanged, and hardware-enable readback was
+Y before and after. GPU power policy remained `auto`, runtime status remained
+active, and runtime suspended time remained zero. B2's AFTER t11 suspended-time
+value is on the following UART line because an audit message interrupted its
+label; the recorded value is still zero.
+
+Non-hanging controls t01–t03 and t05–t10 preserved their baseline references.
+The B2 controls include full-trace direct-no-wait and direct-wait replays,
+followed by separate PNG captures matching the stock+flush reference exactly.
+Thus the two measured increases are localized to recovery intervals, rather
+than to every replay or direct upload. Process exit 0 and fence retirement
+after t04/t11 do not make those hanging trials passes.
+
+## Candidate correction and remaining validation
+
+[samcday/linux #5](https://github.com/samcday/linux/pull/5) targets a dedicated
+base at `5dd1818b15d98d4a20806cd00b1b40320b06004f`, matching the measured Fedora
+source. It selects generic `msm_gpu_pm_suspend()` specifically during A3xx
+recovery, after the existing software reset. Normal runtime suspension keeps
+the idle/VBIF drain callback, and other GPU generations retain their callbacks.
+
+The candidate preserves resume and `msm_gpu_hw_init()`: successful resume sets
+`needs_hw_init`, without which hardware init could be skipped after reset.
+It restores balanced callback-level clock disable/enable; it does not add a
+genpd/OXILI power-collapse operation or repair references leaked earlier in a
+boot. The broader handling of PM-resume errors remains unchanged.
+
+The patch applies to the exact base and passes whitespace/checkpatch checks.
+It is still a draft with no build or patched-kernel boot result. Validation
+requires a fresh boot, an actual hang/recovery, stable clock references across
+repeated recoveries, successful reinitialization/replay, and ordinary runtime
+suspend/resume coverage. The Mesa trigger may remain after recovery accounting
+is fixed. Fresh-source indirect and assertion-enabled scheduler controls are
+separate pending Mesa experiments.
+
+## Read-only measurement recipe
 
 On one boot, capture the following before and after a naturally occurring
 recovery, keeping the existing power policy and workload conditions fixed:
@@ -64,13 +126,13 @@ lines. The actual DB410c DTB supplies GPU clocks `gcc_oxili_gfx3d_clk`,
 `gcc_oxili_ahb_clk`, `gcc_oxili_gmem_clk`, `gcc_bimc_gfx_clk`,
 `gcc_bimc_gpu_clk`, and `gfx3d_clk_src`. The IOMMU has separate clocks.
 
-A repeatable increment in GPU leaf-clock enable/prepare counts after each failed
-recovery would support the ignored-suspend explanation. Nonzero counts during
-normal operation or a shared parent remaining enabled do not. Registered
+A repeatable increment in GPU leaf-clock enable/prepare counts after recovery,
+as observed above, supports the ignored-suspend explanation. Nonzero counts
+during normal operation or a shared parent remaining enabled do not. Registered
 consumer names are not per-handle vote counts. Compare the hardware-enable
 column if available; a nonzero rate alone does not prove a running clock.
 
 These are read-only snapshots, but `clk_summary` may briefly resume clock
 providers to read hardware state. Do not describe them as having zero observer
-effect. No clock toggles, forced suspends or new kernel are needed for this
-first discrimination.
+effect. The snapshots themselves require no clock toggles, forced suspends or
+new kernel.

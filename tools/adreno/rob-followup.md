@@ -138,23 +138,28 @@ The emitter's size conversion is in
 The `FD_BO_NOMAP` check is in
 [`freedreno_bo.c:641`](https://gitlab.freedesktop.org/mesa/mesa/-/blob/ee9edd46254884ab7fe6c96518e23d421d5f5344/src/freedreno/drm/freedreno_bo.c#L641).
 
-## Outstanding controls
+## Control status
 
 1. Stock versus **wait-only**: add exactly B2's `fd_bo_cpu_prep(bo, NULL,
    FD_BO_PREP_READ)` before the unchanged indirect emission. Verify the emitted
    stream remains unchanged. The matched control below ignores the return as
    B2 does; separately instrument errors if the hardware result needs it.
+   **Complete:** both stock and wait-only hang on hardware.
 2. Repeat **direct without prep** with matched instrumentation, ideally
    without per-upload logging, using the known CPU-initialized reproducer.
    Include **direct with prep** to complete the transport/wait comparison.
+   **Complete:** both logging-free direct arms pass the minimal/full traces;
+   their captured full-frame pixels match stock with `sysmem,flush` exactly.
 3. Test !44620 independently on stock transport with assertions active and a
    fresh shader cache. The host compiler check below is complete; actual GPU
    replay with this build remains outstanding.
 4. Check a fresh-source indirect arm if the results still implicate transport:
-   copy the same range into a new BO and leave the upload indirect. This helps
-   separate the original source BO's history from the packet mode.
+   copy the whole source BO into a new BO and leave the upload indirect. The
+   matched binary and a separate fixture are prepared; hardware trial pending.
 5. Capture fences, hangchecks and output pixels; prove the override library is
-   actually loaded. Reserve broad workload/performance claims until measured.
+   actually loaded. **Complete for the transport matrix:** hashes, runtime maps,
+   environment, fences, hangchecks and pixels captured. Reserve broad
+   workload/performance claims until measured.
 
 Patch C remains a separate bounds investigation. Its proposed clamp rounds the
 remaining binding size **up** to 16 bytes on a3xx or 64 bytes on later gens;
@@ -308,7 +313,37 @@ the root export ID and trial identifier change in the command line. Original
 image hashes remain unchanged. The baked payload checksums and a read-only
 filesystem check pass. The images, raw evidence, build logs and upstream reply
 draft remain in ignored local artifacts. Runtime loader checks, physical GPU
-replays and recovery-clock measurements are still pending.
+replays, pixel comparisons and recovery-clock measurements are recorded in the
+[hardware ledger](hardware-20260923.md).
 
-See [recovery-clocks.md](recovery-clocks.md) for the separate, still unmeasured
-recovery-clock hypothesis and the read-only snapshots needed to test it.
+See [recovery-clocks.md](recovery-clocks.md) for the separate recovery defect:
+both new negative controls incremented all six GPU-owned clock references.
+
+## Fresh-source indirect diagnostic
+
+[fd3-const-fresh-source.patch](fd3-const-fresh-source.patch) copies the entire
+known CPU-initialized source BO into a same-sized fresh GEM allocation, keeps
+the original byte offset and indirect packet, and retains the clone through
+the command buffer's relocation reference. This deliberately uses `FD_BO_SHARED`
+to bypass the BO cache and heap suballocation; it does not export the BO.
+On msm, that hint does not change the new allocation's write-combined kernel
+backing. It does change userspace BO policy, allocation overhead and timing.
+
+This is a diagnostic, restricted to the same CPU-initialized reproducer without
+GPU writers. It adds no source wait, clamps no range, and preserves the original
+fallback for NOMAP or other allocation/map failures. Only fallback failures are
+logged; a run with fallback is not a complete fresh-source test.
+
+The matched release/O3 aarch64 library passes the same static ABI gate. SHA-256:
+`f257e94a7f697eaf9fc57a8a9932a57f845e6eff94373a510c71c190ab7c4b24`.
+In a separate native drm-shim comparison, both VS/FS loads remain indirect at
+source offset 576 with identical 32/64-dword payloads. Each entire 16-KiB clone
+matches the original BO. Normalized packet/register summaries and shader code
+match stock, and there are no fallback warnings.
+
+The VS and FS use separate clones, removing their original shared-BO aliasing.
+An additional clone is emitted for the built-but-unused binning VS state in
+sysmem. Consequently, a pass could establish that indirect loads work with
+these new sources, but would not isolate source visibility from aliasing,
+allocation history or timing. Board testing is recorded separately in the
+[hardware ledger](hardware-20260923.md).

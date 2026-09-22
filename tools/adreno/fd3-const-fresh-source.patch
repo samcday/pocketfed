@@ -1,0 +1,80 @@
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+@@ -72,12 +72,76 @@
+ 
+    emit_const_asserts(v, regid, sizedwords);
+ 
++   /* Diagnostic only: snapshot a known CPU-written source into a separate,
++    * newly allocated GEM BO while keeping the original indirect packet,
++    * source offset, allocation size, and entire source contents. No source
++    * wait is added: this arm is restricted to the CPU-initialized reproducer,
++    * not arbitrary GPU-written UBOs or concurrent application writes.
++    */
++   struct fd_bo *fresh = NULL;
++   struct fd_bo *upload_bo = bo;
++   const char *fallback = NULL;
++   const uint32_t size = fd_bo_size(bo);
++
++   if (bo->alloc_flags & FD_BO_NOMAP) {
++      /* Shader constant-data BOs use NOMAP; preserve the original path. */
++      fallback = "source NOMAP";
++   } else if ((uint64_t)offset + (uint64_t)sizedwords * 4 > size) {
++      fallback = "source range exceeds BO";
++   } else {
++      const void *src = fd_bo_map(bo);
++      if (!src) {
++         fallback = "source map failed";
++      } else {
++         /* SHARED bypasses heap suballocation and prevents BO-cache reuse.
++          * On msm this still creates ordinary write-combined backing; the
++          * BO is not exported. Without this hint fd_bo_new() could recycle
++          * a BO with previous GPU/cache history, weakening this experiment.
++          * Pass NULL for the name until allocation succeeds (the debug name
++          * wrapper assumes a non-NULL BO).
++          */
++         fresh = fd_bo_new(bo->dev, size,
++                           FD_BO_SHARED | FD_BO_HINT_BUFFER, NULL);
++         if (!fresh) {
++            fallback = "allocation failed";
++         } else if (fd_bo_size(fresh) != size) {
++            fallback = "fresh BO size differs";
++         } else {
++            void *dst = fd_bo_map(fresh);
++            if (!dst) {
++               fallback = "destination map failed";
++            } else {
++               /* Full BO copy preserves padding/overfetch data as well as
++                * the currently requested range; it does not clamp uploads.
++                * This new BO has never been submitted and needs no wait.
++                */
++               memcpy(dst, src, size);
++               fd_bo_set_name(fresh, "a3xx-const-fresh-%s",
++                              v->type == MESA_SHADER_VERTEX ? "vs" : "fs");
++               fd_bo_mark_for_dump(fresh);
++               upload_bo = fresh;
++            }
++         }
++      }
++   }
++
++   if (fallback) {
++      mesa_logw("FD3FRESH fallback=%s stage=%u offset=%u dwords=%u",
++                fallback, v->type, offset, sizedwords);
++   }
++
+    OUT_PKT3(ring, CP_LOAD_STATE, 2);
+    OUT_RING(ring, CP_LOAD_STATE_0_DST_OFF(dst_off) |
+                      CP_LOAD_STATE_0_STATE_SRC(SS_INDIRECT) |
+                      CP_LOAD_STATE_0_STATE_BLOCK(sb[v->type]) |
+                      CP_LOAD_STATE_0_NUM_UNIT(num_unit));
+-   OUT_RELOC(ring, bo, offset, CP_LOAD_STATE_1_STATE_TYPE(ST_CONSTANTS), 0);
++   OUT_RELOC(ring, upload_bo, offset, CP_LOAD_STATE_1_STATE_TYPE(ST_CONSTANTS), 0);
++
++   /* The a3xx reloc path takes its own reference (submit BO table or state
++    * object), retaining the source until the command buffer is released.
++    */
++   if (fresh)
++      fd_bo_del(fresh);
+ }
+ 
+ static void
