@@ -72,12 +72,15 @@ Consumer runtime matching `c3f204bc`, fastboop Git `1e6d64b3`, smoo host crates
   connected to the export, created a disposable dm-snapshot over `/dev/ublkb0`
   with a 2 GiB RAM overlay, and switched root into Fedora 46.
 - Fedora reached serial login, and the user confirmed the greeter was visible.
-  The complete 8 GiB source image's SHA-256 remained unchanged after boot.
+  All eight CPUs were online; `phrog` and `smoo-root-storage` were active.
+- After the user completed first-boot setup, a synced 1 MiB write under
+  `/var/lib` succeeded in the guest snapshot. The file was absent from the
+  backing image and its complete 8 GiB SHA-256 remained unchanged. The test
+  file was removed afterward.
 
 This establishes the ABLX boot and USB-root handoff on hardware. The retained
 image reported a missing `qcom/sdm670/sargo/a615_zap.mbn` and GPU initialization
 failure despite reaching the greeter. Desktop/GPU stability, enforcing SELinux,
-reconnect behavior and
-fresh input production remain separate checks. The original trial's locked
-serial login also limits in-guest inspection until a lab login or temporary
-debug console is available.
+reconnect behavior and fresh input production remain separate checks.
+`usb-signaller.service` also failed in this reused image, without interrupting
+the liveboot storage service or greeter.
