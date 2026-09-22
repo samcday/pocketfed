@@ -76,6 +76,20 @@ variables on the daemon's systemd unit alone do not reach its children.
 `TRIAL_BASE_IMAGE` may select an already built `trial-core` stage for session-only
 iteration without repeating the kernel, Mesa, and initramfs composition.
 
+## Update policy
+
+This local OCI is not published as an update channel. Set the installer's
+`PF_TARGET_IMAGE_REF=ghcr.io/samcday/pocketfed-phosh-samsung-a5u-eur:rawhide`
+explicitly to record the eventual production destination, but **keep upgrades
+disabled for this trial**: that destination does not retain the trial kernel
+and accelerated configuration. Do not run `bootc upgrade` or enable automatic
+updates until an accelerated update image is published or a return to the
+production image is intentional. Test iterations replace the SD artifacts.
+
+Both `bootc-fetch-apply-updates.timer` and `rpm-ostreed-automatic.timer` are
+already disabled in the finished image, with disabled first-boot presets;
+this was checked against the final image. Keep those settings unchanged.
+
 ## Validation status
 
 Local arm64 OCI composition and its hardware-support assertions passed.
