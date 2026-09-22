@@ -1,7 +1,7 @@
 # A3xx investigation: Rob Clark follow-up
 
-Status: **host-side evidence audit, 2026-09-23**. No new hardware results are
-recorded here. The older B2 patch is an experimental workaround, not a proven
+Status: **host-side evidence audit, 2026-09-23**. New board results are recorded
+in [hardware-20260923.md](hardware-20260923.md). The older B2 patch is an experimental workaround, not a proven
 root-cause fix.
 
 Tracking: [PocketFed #80](https://github.com/samcday/pocketfed/issues/80).
@@ -273,7 +273,7 @@ named by `SP_FS_OBJ_START_REG`: BO `0x02969000`, 13,792 captured bytes. Its
 1,724 instruction slots contain no kill/discard/demote and end with `end`.
 The command buffer programs `SP_FS_LENGTH_REG=431`, or 13,792 bytes. Every
 captured byte matches the host baseline-p7 fragment shader in the raw RD file;
-the remaining 2,592 bytes of that 16-KiB host BO are zero. The disassembler
+the remaining 2,592 bytes of that 16-KiB host BO are zero. The host cffdump rendering
 includes four zero padding slots; the kernel dump writer trims trailing zero
 dwords. The shader-object SHA-256 after converting the dump
 words to little-endian is
