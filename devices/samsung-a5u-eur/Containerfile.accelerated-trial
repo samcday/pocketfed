@@ -1,0 +1,88 @@
+# Local hardware trial; kernel-bundle is an explicit additional build context.
+# See ACCELERATED-TRIAL.md. Production kernel packaging is unchanged.
+ARG BASE_IMAGE=ghcr.io/samcday/pocketfed-phosh@sha256:b3e8c55e5b1b093bd79da080f715d12a4581e241556414328a41bfd35a4fa53f
+FROM ${BASE_IMAGE} AS device-root-base
+COPY devices/samsung-a5u-eur/ /tmp/a5/
+COPY --from=kernel-bundle / /tmp/kernel-bundle/
+RUN --mount=type=cache,id=pocketfed-a5-trial-dnf,target=/var/cache,sharing=locked set -eux; \
+    set -- $(rpm -qa kernel kernel-core kernel-modules kernel-modules-core kernel-modules-extra kernel-modules-internal); \
+    if [ "$#" -gt 0 ]; then dnf remove -y "$@"; fi; \
+    rm -rf /usr/lib/modules/* /lib/modules/*; \
+    dnf install -y --setopt=keepcache=True --setopt=install_weak_deps=False bootupd efibootmgr grub2-efi-aa64 shim dtc binutils; \
+    cp -a /tmp/kernel-bundle/modules/lib/modules/. /usr/lib/modules/; \
+    kver=7.1.0-rc6+; \
+    install -m0644 /tmp/kernel-bundle/Image.gz /usr/lib/modules/$kver/vmlinuz; \
+    install -m0644 /tmp/kernel-bundle/kernel.config /usr/lib/modules/$kver/config; \
+    install -m0644 /tmp/kernel-bundle/qcom/msm8916-samsung-a5u-eur.dtb /usr/lib/modules/$kver/devicetree; \
+    depmod -a "$kver"; \
+    install -D -m0644 /tmp/a5/devicetree /usr/lib/kernel/devicetree; \
+    install -D -m0644 /tmp/a5/dracut.conf /etc/dracut.conf.d/60-samsung-a5u-eur.conf; \
+    install -D -m0644 /tmp/a5/msm8916-dracut-force-drivers.list /usr/lib/pocketfed/msm8916-dracut-force-drivers.list; \
+    install -m0755 /tmp/a5/pocketfed-msm8916-dracut-policy /usr/libexec/; \
+    /usr/libexec/pocketfed-msm8916-dracut-policy "$kver"; \
+    install -m0644 /tmp/a5/80-pocketfed-samsung-a5u-eur.preset /usr/lib/systemd/system-preset/; \
+    install -m0755 /tmp/a5/pocketfed-verify-accelerated-trial /usr/libexec/; \
+    install -D -m0644 /tmp/a5/60-a5-accelerated.conf /usr/lib/environment.d/60-a5-accelerated.conf; \
+    install -d /usr/lib/systemd/system/phrog.service.d; \
+    printf '%s\n' '[Service]' 'Environment=WLR_RENDERER=gles2 GSK_RENDERER=gl' > /usr/lib/systemd/system/phrog.service.d/60-a5-accelerated.conf; \
+    /usr/bin/bootupctl backend generate-update-metadata; \
+    rm -rf /usr/lib/ostree-boot/loader; \
+    find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
+    systemctl disable qbootctl.service; \
+    systemctl enable bootloader-update.service; \
+    rm -rf /tmp/kernel-bundle /tmp/a5
+
+# Patch A from #80, using matching Fedora-layout Mesa RPMs. The trial repo
+# stays disabled outside this explicit transaction. See packages/mesa/README.md.
+COPY devices/samsung-a5u-eur/samcday-adreno-a3xx-trial.repo /etc/yum.repos.d/
+COPY devices/samsung-a5u-eur/mesa-version /usr/lib/pocketfed/mesa-version
+COPY --chmod=0755 devices/samsung-a5u-eur/pocketfed-verify-mesa /usr/libexec/
+RUN --mount=type=cache,id=pocketfed-samsung-a5u-eur-arm64-device-dnf,target=/var/cache,sharing=locked \
+    set -eux; \
+    mesa_version=$(cat /usr/lib/pocketfed/mesa-version); \
+    mesa_repo='copr:copr.fedorainfracloud.org:samcday:adreno-a3xx-trial'; \
+    installed=$(rpm -qa --qf '%{NAME} %{SOURCERPM}\n' | \
+        awk '$2 ~ /^mesa-[0-9]/ { print $1 }'); \
+    packages=$(printf '%s\n' "$installed" \
+        mesa-filesystem mesa-dri-drivers mesa-libEGL mesa-libgbm mesa-libGL | sort -u); \
+    set --; \
+    for package in $packages; do set -- "$@" "$package-$mesa_version"; done; \
+    dnf install -y --refresh --allow-downgrade --allow-vendor-change \
+        --enable-repo="$mesa_repo" --from-repo="$mesa_repo" \
+        --setopt=install_weak_deps=False --setopt=keepcache=True "$@"; \
+    /usr/libexec/pocketfed-verify-mesa
+
+FROM device-root-base AS initrd
+RUN set -eu; \
+    set -- /usr/lib/modules/*; \
+    [ "$#" -eq 1 ]; \
+    [ -d "$1" ]; \
+    kver="${1##*/}"; \
+    printf '%s\n' pocketfed-initrd >/etc/hostname; \
+    printf '%s\n' \
+        '127.0.0.1 pocketfed-initrd localhost localhost.localdomain localhost4 localhost4.localdomain4' \
+        '::1 pocketfed-initrd localhost localhost.localdomain localhost6 localhost6.localdomain6' \
+        >/etc/hosts; \
+    printf '%s\n' uninitialized >/etc/machine-id; \
+    install -d /var/roothome; \
+    : >/tmp/pocketfed-initrd-modaliases; \
+    install -d /out; \
+    DRACUT_KERNEL_MODALIASES=/tmp/pocketfed-initrd-modaliases dracut \
+        --force \
+        --reproducible \
+        --hostonly \
+        --hostonly-mode=strict \
+        --no-hostonly-cmdline \
+        --no-hostonly-default-device \
+        /out/initramfs.img "$kver"; \
+    printf '%s\n' "$kver" >/out/kver
+
+FROM device-root-base
+COPY --from=initrd /out /tmp/pocketfed-device
+RUN set -eu; \
+    kver=$(cat /tmp/pocketfed-device/kver); \
+    module_dir="/usr/lib/modules/$kver"; \
+    [ -d "$module_dir" ]; \
+    install -m0644 /tmp/pocketfed-device/initramfs.img "$module_dir/initramfs.img"; \
+    rm -rf /tmp/pocketfed-device; \
+    /usr/libexec/pocketfed-verify-accelerated-trial
