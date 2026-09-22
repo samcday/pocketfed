@@ -17,12 +17,12 @@ existing Android boot image. It does not flash partitions.
 - `bundle` and `image` work without USB, mounting, or root privileges.
 - `boot` uses the same fastboop preparation path, then boots and serves the root.
   [DB410c direct-U-Boot validation](DB410C.md) reached the visible greeter and
-  verified disposable writes. Other device paths still need hardware validation.
-- **Sargo consumes draft [fastboop #139](https://github.com/samcday/fastboop/pull/139)**
+  verified disposable writes. See also the [Sargo ABLX trial](SARGO.md).
+- **Sargo consumes [fastboop #139](https://github.com/samcday/fastboop/pull/139)**
   for supplied-initrd shim composition. Pass `--shim` with the raw device shim;
   `image` and `boot` refuse Sargo bundles without it. Other shim-requiring devices
-  must be identified with `--requires-shim`. This dependency is not yet merged or
-  hardware-proven.
+  must be identified with `--requires-shim`. The upstream change is merged;
+  the pinned implementation has now been exercised on Sargo hardware.
 - Input extraction from an image and smoo/dracut initrd construction are not
   implemented in this first patch. An existing prepared initrd is required.
   The image recipes in [#75](https://github.com/samcday/pocketfed/pull/75) and its
@@ -106,7 +106,8 @@ target/debug/pocketfed-liveboot boot trial --wait 30
 ```
 
 For Sargo, add `--shim /path/to/raw-device-shim.bin` to `bundle`. Use the
-DevPro from the pinned revision, including its `0x04000000` ramdisk offset.
+tested `profiles/google-sargo-ablx-v2.yaml` DevPro, including its
+`0x04000000` ramdisk offset and separate DTB.
 Fastboop encodes the shim in the Android kernel section and places the real
 kernel and unchanged initrd in an `ABLXRD1` ramdisk; it owns the `<S>`/`<E>`
 command-line markers too. Do not supply marker strings in the command line.
@@ -142,7 +143,7 @@ output refusal, conflicting arguments, DevPro shadowing and the shim gate.
 The synthetic kernel and initrd are deliberately not bootable; this is host
 integration coverage, not hardware proof.
 
-Keep subsequent work separate: image/initrd input preparation, acceptance of the upstream shim dependency,
-a controlled device trial, and the registry dependency switch.
-The first hardware trial should establish root handoff and disposable writes
-before device-specific desktop, display, or modem work is added.
+Keep subsequent work separate: image/initrd input preparation, the registry
+dependency switch, and broader device acceptance. The documented hardware
+trials exercise root handoff and disposable writes; they do not establish
+desktop, display, or modem stability.
