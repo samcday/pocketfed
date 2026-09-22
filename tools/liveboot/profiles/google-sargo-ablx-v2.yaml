@@ -1,0 +1,25 @@
+# ABLX ramdisk layout used by the PocketFed Sargo image recipe.
+# The shim is supplied separately with --shim; fastboop constructs ABLXRD1.
+id: google-sargo-ablx-v2
+display_name: Google Pixel 3a (ABLX, Android v2)
+devicetree_name: qcom/sdm670-google-sargo
+match:
+  - fastboot:
+      vid: 0x18d1
+      pid: 0x4ee0
+probe:
+  - fastboot.getvar: product
+    equals: sargo
+boot:
+  fastboot_boot:
+    android_bootimg:
+      header_version: 2
+      page_size: 4096
+      base: 0
+      kernel_offset: 0x8000
+      ramdisk_offset: 0x04000000
+      second_offset: 0
+      tags_offset: 0x100
+      dtb_offset: 0x03000000
+      kernel:
+        encoding: image.gz
