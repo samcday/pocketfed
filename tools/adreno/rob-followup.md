@@ -141,8 +141,9 @@ The `FD_BO_NOMAP` check is in
 ## Outstanding controls
 
 1. Stock versus **wait-only**: add exactly B2's `fd_bo_cpu_prep(bo, NULL,
-   FD_BO_PREP_READ)` before the unchanged indirect emission, with the return
-   value recorded. Verify the emitted stream remains unchanged.
+   FD_BO_PREP_READ)` before the unchanged indirect emission. Verify the emitted
+   stream remains unchanged. The matched control below ignores the return as
+   B2 does; separately instrument errors if the hardware result needs it.
 2. Repeat **direct without prep** with matched instrumentation, ideally
    without per-upload logging, using the known CPU-initialized reproducer.
    Include **direct with prep** to complete the transport/wait comparison.
@@ -222,6 +223,14 @@ arm implements B2's relevant operations, but is a newly built matched control,
 not the previously tested B2 artifact. Verify actual packet modes on the trace
 before attributing a result to transport.
 
+Review raised the direct-wait arm's ignored prep error. This is a real defect
+for a general-purpose upload path, retained here solely to match B2 in the
+restricted CPU-initialized reproducer. A production change must handle that
+error before reading the BO. Changing to indirect on failure would also change
+this experiment's transport, so an error cannot be interpreted as a successful
+direct-with-wait trial. These controls do not establish that CPU preparation
+completed successfully; investigate prep/fence errors separately if observed.
+
 Stripped-library SHA-256 values:
 
 ```text
@@ -244,7 +253,7 @@ is present in the built library.
   with no assertion or GL error. Their decoded shader instruction lines are
   identical between arms, with no kill/discard/demote instructions.
 - All ten GLSL sources from R3 (five VS/FS pairs) contain no `discard`. The
-  remaining three pairs also compile with the MR without assertions. Their
+  remaining three pairs also compile with the MR without assertion failures. Their
   generic harness draw state is not a replay of their original trace state.
 - Mesa's `ir3_delay_test` and `ir3_disasm` pass on both baseline and MR (2/2
   each). The complete R3 apitrace was not replayed successfully on the host;
@@ -259,10 +268,47 @@ Decoded p7 instruction-lines SHA-256 (all three arms):
 `4ad8eadcd2456ef80214e2a3f2cf9dd837644920d56c5f4e66bb2712275fa333`.
 Raw dumps contain differing BO addresses and are not byte-identical.
 
+The existing B10 **hardware** dump also preserves the fragment shader object
+named by `SP_FS_OBJ_START_REG`: BO `0x02969000`, 13,792 captured bytes. Its
+1,724 instruction slots contain no kill/discard/demote and end with `end`.
+The command buffer programs `SP_FS_LENGTH_REG=431`, or 13,792 bytes. Every
+captured byte matches the host baseline-p7 fragment shader in the raw RD file;
+the remaining 2,592 bytes of that 16-KiB host BO are zero. The disassembler
+includes four zero padding slots; the kernel dump writer trims trailing zero
+dwords. The shader-object SHA-256 after converting the dump
+words to little-endian is
+`6b277e86d377c9497a3d6c9c8fc55fa9300627c937d42b8ef68907f12f19d788`.
+This links the host-tested variant to the captured hardware shader; a saved
+object pointer does not prove which instruction was executing at the hang.
+
 The tested p7 variant does not exercise the specific cross-block kill/bary.f
 condition checked by !44620. It does not exclude other compiler bugs or say
 anything about shaders in SuperTuxKart. The shim submits no GPU work, so these
 checks do not establish a hardware fix or a real GPU wait.
+
+## Assertion-enabled board pair and prepared fixture
+
+The aarch64 `sched` and `stock-asserts` libraries are also built. Both use
+`debugoptimized`, `b_ndebug=false`, `MESA_DEBUG=0`, `-O2`, and no `-DNDEBUG`;
+they differ only by the two !44620 commits. The MR's new assertion expression
+is present only in `sched`. Both pass the same Fedora EGL/GLX/GBM static ABI
+gate as the four transport arms.
+
+```text
+d05d68f997ddbef7646fa8bf070db5a343e0134b50abe2f094a55f2fd948a804  sched
+48101a6bb28facb30c5295d0902c202be25c2e65b322e65079b747cba4984ceb  stock-asserts
+```
+
+Compare these two to each other, not to the release/O3 transport controls,
+when attributing a change to the scheduler MR.
+
+A new local root-image copy contains all six libraries and the minimal trace.
+Its boot image preserves the previous kernel, initramfs and device tree; only
+the root export ID and trial identifier change in the command line. Original
+image hashes remain unchanged. The baked payload checksums and a read-only
+filesystem check pass. The images, raw evidence, build logs and upstream reply
+draft remain in ignored local artifacts. Runtime loader checks, physical GPU
+replays and recovery-clock measurements are still pending.
 
 See [recovery-clocks.md](recovery-clocks.md) for the separate, still unmeasured
 recovery-clock hypothesis and the read-only snapshots needed to test it.
