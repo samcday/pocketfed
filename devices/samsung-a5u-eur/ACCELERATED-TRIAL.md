@@ -78,9 +78,22 @@ iteration without repeating the kernel, Mesa, and initramfs composition.
 
 ## Validation status
 
-OCI composition and its offline hardware-support assertions passed. The final
-login-environment correction also passed those checks. SD filesystem generation
-and validation are in progress. Hardware acceptance is
+Local arm64 OCI composition and its hardware-support assertions passed.
+The existing builder completed the Pocketboot filesystem mode. BLS asset,
+OSTree deployment, fstab/UUID, filesystem integrity, raw conversion, checksum,
+and historical SD partition size checks all passed. Reading the raw root also
+confirmed the final login settings, Mesa version and fixed TSENS module hash.
+
+Final image ID:
+`e391b595a5dcba288d831d7d0ee979de29d9a004b770e6d150e05faa39150dfc`.
+Raw SD artifact SHA-256 values:
+
+- Root (8 GiB): `0c360f7005484030efc2dceaa734ecb6c338ebc8e7d81292e7f25e73eb06c854`
+- Boot (1 GiB): `b53efb5f4f2d1f4b9a3cf31f7262c8c93e856e1572d1d329b10e311466470567`
+- Empty ESP (200 MiB): `2403f658333a0ace2eb8b18f27c35930607f595c702d8f24fad5202cecdcf6d4`
+
+CI runs the standard images; the explicit external-bundle trial was built and
+validated locally. Hardware acceptance is
 still pending: confirm native MSM KMS and Adreno 306 rendering in both the
 greeter and Phosh, exercise GTK4 applications, and check UART for GPU faults,
 resets, or thermal-probe errors. No fresh A5 boot is claimed here.
