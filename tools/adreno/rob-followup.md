@@ -87,8 +87,11 @@ Its [trial report](https://github.com/samcday/pocketfed/issues/80#issuecomment-5
 records retired/submitted fences 9767/9770 and the same RBBM status.
 
 The scans use the decoder from [PocketFed #89](https://github.com/samcday/pocketfed/pull/89).
-Each dump has one other 32-KiB payload that this decoder rejects with an
-Ascii85 overflow; the results are not an exhaustive decode of the dump.
+The original scanner incorrectly consumed following YAML section labels as
+Ascii85 data. The follow-up fix in #89 stops at the end of the indented literal
+block. B10 now decodes all nine payloads without warnings; its indirect-constant
+packet counts remain one VS and one FS. The earlier overflow was a parser bug,
+not evidence that the captured payload itself was corrupt.
 These are packets present in a hung submission, not proof of the exact packet
 being executed at the instant of the hang. Raw dumps remain outside Git.
 
@@ -144,7 +147,8 @@ The `FD_BO_NOMAP` check is in
    without per-upload logging, using the known CPU-initialized reproducer.
    Include **direct with prep** to complete the transport/wait comparison.
 3. Test !44620 independently on stock transport with assertions active and a
-   fresh shader cache, rather than mixing it with B2 in the first comparison.
+   fresh shader cache. The host compiler check below is complete; actual GPU
+   replay with this build remains outstanding.
 4. Check a fresh-source indirect arm if the results still implicate transport:
    copy the same range into a new BO and leave the upload indirect. This helps
    separate the original source BO's history from the packet mode.
@@ -195,3 +199,70 @@ Before a trial, prove that `/usr/lib64/libEGL_mesa.so.0` resolves Gallium from
 the override directory with `LD_LIBRARY_PATH=... ldd`, and check `ldd -r`.
 Do not inspect only libglvnd's `/usr/lib64/libEGL.so.1`, which loads the vendor
 library dynamically. Do not use a 26.2.2 override against a 26.2.3 soname.
+
+## Matched upload controls
+
+Four aarch64 26.2.2 libraries were built with the same release configuration.
+Each has the same exported-symbol set and passes the Fedora front-end static
+ABI gate. These are experiments restricted to the known CPU-initialized trace,
+not general replacements for Mesa. In particular, a CPU read without prep is
+not safe for an arbitrary GPU-written source.
+
+| Arm | Patch against stock | CPU prep | BO-backed upload |
+| --- | --- | --- | --- |
+| stock | none | none | indirect |
+| wait | [wait-only](fd3-const-wait-only.patch) | READ | indirect |
+| direct-no-wait | [direct-no-wait](fd3-const-direct-no-wait.patch) | none | direct if mapping succeeds |
+| direct-wait | [direct-with-wait](fd3-const-direct-with-wait.patch) | READ | direct if mapping succeeds |
+
+Apply exactly one patch per otherwise identical source tree. The direct arms
+retain B2's indirect fallback when the BO cannot be mapped; this includes
+`FD_BO_NOMAP` shader buffers. No per-upload logging is added. The direct-wait
+arm implements B2's relevant operations, but is a newly built matched control,
+not the previously tested B2 artifact. Verify actual packet modes on the trace
+before attributing a result to transport.
+
+Stripped-library SHA-256 values:
+
+```text
+ff153c4a2d69a00f5837ba6363bdf0b111603c072724a91484aa4cd72eaf4b50  stock
+f32ae90f49acabe08f3ba2df6da008f067fb5d51588470a791a6fc8d4ad5279b  wait
+dcbd8c923a9b4550da77f40485d897ff765f7a10512757b00482347165a2dc62  direct-no-wait
+5c15029f0dcfa3802caa943e15d54fffe6eac392dd68aa79a23a005dff6b3242  direct-wait
+```
+
+## Assertion-enabled host compiler checks
+
+Mesa 26.2.2 release commit `3281a69a8bfd9f997e91c15ed0e6290cae12dd32`,
+GCC 16.2.1, `debugoptimized`, `b_ndebug=false`, `MESA_DEBUG=0`;
+freedreno drm-shim `FD_GPU_ID=307`, `FD_MESA_DEBUG=sysmem`, cache disabled.
+The compared MR comprises commits `96a8da8d8de07b2a58e10b8d206401436c6ececc`
+and `3bab7e568ef5c3863f9cda9b600f9e67448d25bf`. Its new assertion expression
+is present in the built library.
+
+- Baseline and MR both compile/run p3 and rounded-clip p7 in the host harness,
+  with no assertion or GL error. Their decoded shader instruction lines are
+  identical between arms, with no kill/discard/demote instructions.
+- All ten GLSL sources from R3 (five VS/FS pairs) contain no `discard`. The
+  remaining three pairs also compile with the MR without assertions. Their
+  generic harness draw state is not a replay of their original trace state.
+- Mesa's `ir3_delay_test` and `ir3_disasm` pass on both baseline and MR (2/2
+  each). The complete R3 apitrace was not replayed successfully on the host;
+  headless eglretrace could not open a display.
+- With the MR removed and wait-only applied, p7's normalized packet/register
+  summary and shader instructions remain identical to baseline. Both indirect
+  loads remain, and their 32/64-dword payloads match the nonzero source pattern.
+
+Normalized p7 packet/register summary SHA-256 (all three arms):
+`ddfbbf0b44fb4209a679258434815b9efd9ee7121c5edc85e95451873ffb3f7c`.
+Decoded p7 instruction-lines SHA-256 (all three arms):
+`4ad8eadcd2456ef80214e2a3f2cf9dd837644920d56c5f4e66bb2712275fa333`.
+Raw dumps contain differing BO addresses and are not byte-identical.
+
+The tested p7 variant does not exercise the specific cross-block kill/bary.f
+condition checked by !44620. It does not exclude other compiler bugs or say
+anything about shaders in SuperTuxKart. The shim submits no GPU work, so these
+checks do not establish a hardware fix or a real GPU wait.
+
+See [recovery-clocks.md](recovery-clocks.md) for the separate, still unmeasured
+recovery-clock hypothesis and the read-only snapshots needed to test it.

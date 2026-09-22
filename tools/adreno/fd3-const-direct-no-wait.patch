@@ -1,0 +1,19 @@
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+@@ -71,6 +71,16 @@
+    assert(num_unit % 2 == 0);
+ 
+    emit_const_asserts(v, regid, sizedwords);
++
++   /* Diagnostic only: this deliberately omits CPU preparation. Restrict
++    * testing to known CPU-initialized source buffers with no GPU writers.
++    * Keep the same mapping fallback as B2 for an otherwise matched control.
++    */
++   const uint32_t *dwords = fd_bo_map(bo);
++   if (dwords) {
++      fd3_emit_const_user(ring, v, regid, sizedwords, dwords + offset / 4);
++      return;
++   }
+ 
+    OUT_PKT3(ring, CP_LOAD_STATE, 2);
+    OUT_RING(ring, CP_LOAD_STATE_0_DST_OFF(dst_off) |
