@@ -89,4 +89,8 @@ COPY devices/samsung-a5u-eur/60-a5-accelerated.conf /etc/environment
 COPY devices/samsung-a5u-eur/60-a5-accelerated.conf /usr/lib/environment.d/60-a5-accelerated.conf
 COPY devices/samsung-a5u-eur/greetd-accelerated.toml /etc/phrog/greetd-config.toml
 COPY --chmod=0755 devices/samsung-a5u-eur/pocketfed-verify-accelerated-trial /usr/libexec/
-RUN rm -f /usr/lib/systemd/system/phrog.service.d/60-a5-accelerated.conf && /usr/libexec/pocketfed-verify-accelerated-trial
+RUN set -eu; \
+    rm -f /usr/lib/systemd/system/phrog.service.d/60-a5-accelerated.conf; \
+    printf '%s\n' 'disable bootloader-update.service' > /usr/lib/systemd/system-preset/00-a5-pocketboot-trial.preset; \
+    systemctl disable bootloader-update.service; \
+    /usr/libexec/pocketfed-verify-accelerated-trial

@@ -16,9 +16,13 @@ claim that the production image or GPU has been validated on the A5.
 ## Inputs
 
 Use a copy of the successful A5 kernel bundle, not the headless resident's
-kernel. Its source is `samcday/linux` commit
-`741551db171eea97f806aa11a20e270673d2115a`; retain its A5 kernel configuration
-and matching modules. The bundle layout is:
+kernel. Its source is `samcday/linux` base
+`d87323486b79a31b9b25eb6fe30f1b503f142ff2` plus Pocketboot's
+[six MSM8916 patches](https://github.com/samcday/pocketboot/tree/f211b1cb0c494e4b8c1180c208009d6e0e356971/patches/kernel/msm8916).
+The locally applied series is commit `741551db171eea97f806aa11a20e270673d2115a`
+(that local commit is not a published GitHub ref). Retain its A5 kernel
+configuration and matching modules; the configuration SHA-256 is
+`ede32630eea96eb1f8c42b73d8064a2ea6835551f5f4c8b752a26db31a064f61`. The bundle layout is:
 
 ```
 Image.gz
@@ -57,8 +61,10 @@ with the `F` flag. It is not copied into the image. The Phosh base is pinned by
 digest; Mesa is pinned to `26.2.2-6.2.pocketfed.a3xxfs.fc46.aarch64`.
 
 Use the existing `builder/bootc-to-fastboot samsung-a5u-eur phosh` with the
-local OCI as `PF_SOURCE_IMAGE_REF` to compose root, boot and ESP filesystem
-images. Its Android names do not authorize writing internal partitions. For
+local OCI as `PF_SOURCE_IMAGE_REF` and `PF_A5_BOOTLOADER=pocketboot` to compose
+root, boot and ESP filesystem images. This keeps BLS/UUID validation, skips
+UEFI/GRUB installation, and emits an empty FAT ESP. The trial disables the
+UEFI-only updater; Pocketboot reads the BLS entries directly. Its Android names do not authorize writing internal partitions. For
 the SD trial, convert sparse boot/root images to raw and map them to the
 verified SD layout; preserve the generated UUIDs and BLS references. Do not
 repartition or flash without checking the currently attached A5 identity.

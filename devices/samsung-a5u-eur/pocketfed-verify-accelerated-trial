@@ -43,4 +43,5 @@ fi
 test -s "$module_dir/initramfs.img" || fail 'initramfs missing'
 lsinitrd -m "$module_dir/initramfs.img" | grep -Fxq ostree || fail 'OSTree initramfs module missing'
 [ "$(systemctl is-enabled phrog.service)" = enabled ] || fail 'greeter not enabled'
+[ "$(systemctl is-enabled bootloader-update.service || :)" = disabled ] || fail 'UEFI updater enabled in Pocketboot trial'
 printf 'verified A5 trial: MSM KMS + Adreno, GPU IOMMU, retained TSENS callbacks, Patch A Mesa, GLES/GL sessions\n'
