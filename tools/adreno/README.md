@@ -109,6 +109,15 @@ python3 tools/adreno/devcore-cp-scan.py dump.devcore        # constant loads
 python3 tools/adreno/devcore-cp-scan.py dump.devcore --all  # every CP_LOAD_STATE
 ```
 
+The scanner respects YAML literal-block indentation, so section names such as
+`bos:` and `registers:` cannot be mistaken for encoded bytes. Malformed or
+incomplete dwords are reported as undecodable payloads; incomplete packet bodies
+are skipped. Run its synthetic regression fixtures with:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tools/adreno/test-devcore-cp-scan.py
+```
+
 It prints the dump's identity (`comm`, `cmdline`, `revision`, `rbbm-status`,
 fences, `rptr`/`wptr`) and then every `CP_LOAD_STATE`, decoded into
 `dst_off`, `state_src`, `state_block`, `num_unit` and `state_type`, with a

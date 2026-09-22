@@ -13,8 +13,8 @@ contains the a306 fragment-stage indirect constant load:
 
     dst_off=16  SS_INDIRECT  SB_FRAG_SHADER  num_unit=32  ST_CONSTANTS
 
-The same packet targeting SB_VERT_SHADER is benign on this hardware, so the
-vertex/fragment split in the summary is the interesting part.
+The summary separates vertex and fragment constant loads. Finding either
+packet is evidence of the upload path, not proof that it caused the hang.
 
 This does not tell you which draw was executing when the GPU wedged: the dump
 carries ringbuffer read/write pointers, not an instruction pointer into an IB,
@@ -35,42 +35,54 @@ SS = {0: 'SS_DIRECT', 2: 'SS_INVALID_ALL_IC', 3: 'SS_INVALID_PART_IC',
 ST = {0: 'ST_SHADER', 1: 'ST_CONSTANTS'}
 CP_LOAD_STATE = 0x30
 
-ASCII85_LINE = re.compile(r'[!-uz]+\Z')
-
 
 def payloads(path):
-    """Yield (label, decoded bytes) for every ascii85 block in the dump."""
+    """Yield (label, encoded chunks) for each YAML ascii85 literal block."""
     iova = size = None
     label = None
     chunks = None
-    for line in open(path, 'r', errors='replace'):
-        line = line.rstrip('\n')
-        m = re.match(r'\s*-?\s*iova: (0x[0-9a-f]+)', line)
-        if m:
-            iova = m.group(1)
-        m = re.match(r'\s*size: (\d+)', line)
-        if m:
-            size = int(m.group(1))
-        if 'data: !!ascii85' in line:
-            if chunks:
+    header_indent = content_indent = None
+    with open(path, 'r', errors='replace') as stream:
+        for line in stream:
+            line = line.rstrip('\n')
+            indent = len(line) - len(line.lstrip(' '))
+            if chunks is not None:
+                # Literal blocks end on dedent, not on characters outside the
+                # ascii85 alphabet: YAML keys such as "bos:" and "registers:"
+                # themselves consist entirely of valid ascii85 characters.
+                if not line.strip():
+                    continue
+                if content_indent is None and indent > header_indent:
+                    content_indent = indent
+                if content_indent is not None and indent >= content_indent:
+                    chunks.append(line[content_indent:])
+                    continue
                 yield label, chunks
-            label = '%s size=%s' % (iova, size)
-            chunks = []
-            continue
-        if chunks is None:
-            continue
-        stripped = line.strip()
-        if stripped and ASCII85_LINE.match(stripped):
-            chunks.append(stripped)
-        else:
-            yield label, chunks
-            chunks = None
-    if chunks:
+                chunks = None
+
+            m = re.match(r'\s*-?\s*iova: (0x[0-9a-f]+)', line)
+            if m:
+                iova = m.group(1)
+            m = re.match(r'\s*size: (\d+)', line)
+            if m:
+                size = int(m.group(1))
+            if re.match(r'\s*data: !!ascii85 \|\s*$', line):
+                label = '%s size=%s' % (iova, size)
+                chunks = []
+                header_indent = indent
+                content_indent = None
+    if chunks is not None:
         yield label, chunks
 
 
 def dwords(chunks):
-    raw = base64.a85decode(''.join(chunks))
+    encoded = re.sub(r'[ \t\n\r\v\f]', '', ''.join(chunks))
+    raw = base64.a85decode(encoded)
+    # msm emits whole u32s: five digits, or the zero-word shorthand "z".
+    # a85decode silently discards a lone final digit, so decoded length alone
+    # cannot detect every truncated word. It validates "z" placement above.
+    if len(encoded.replace('z', '')) % 5 or len(raw) % 4:
+        raise ValueError('ascii85 payload ends with an incomplete 32-bit word')
     return [int.from_bytes(raw[i:i + 4], 'big')
             for i in range(0, len(raw) - 3, 4)]
 
@@ -94,6 +106,9 @@ def scan(dw):
             i += 1
             continue
         count = ((header >> 16) & 0x3FFF) + 1
+        if count < 2 or i + 1 + count > len(dw):
+            i += 1
+            continue
         d0, d1 = dw[i + 1], dw[i + 2]
         yield {
             'off': i * 4,
@@ -115,13 +130,14 @@ def main(argv):
     path = argv[1]
     show_all = '--all' in argv[2:]
 
-    for line in open(path, 'r', errors='replace'):
-        if re.match(r'(kernel|module|comm|cmdline|revision|rbbm-status):', line):
-            sys.stdout.write(line)
-        if re.match(r'\s+(last-fence|retired-fence|rptr|wptr):', line):
-            sys.stdout.write(line)
-        if line.startswith('bos:'):
-            break
+    with open(path, 'r', errors='replace') as stream:
+        for line in stream:
+            if re.match(r'(kernel|module|comm|cmdline|revision|rbbm-status):', line):
+                sys.stdout.write(line)
+            if re.match(r'\s+(last-fence|retired-fence|rptr|wptr):', line):
+                sys.stdout.write(line)
+            if line.startswith('bos:'):
+                break
 
     fs_indirect_const = vs_indirect_const = total = 0
     undecodable = []
