@@ -32,9 +32,11 @@ jobs:
           sudo apt-get install --assume-yes --no-install-recommends \
             libusb-1.0-0-dev pkg-config e2fsprogs device-tree-compiler
       - name: Set up Rust
-        run: |
-          rustup toolchain install 1.91.0 --profile minimal --component rustfmt --component clippy
-          rustup override set 1.91.0
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          toolchain: "1.91.0"
+          components: rustfmt, clippy
+          rust-src-dir: tools/liveboot
       - run: cargo fmt --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
