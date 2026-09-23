@@ -155,8 +155,10 @@ The `FD_BO_NOMAP` check is in
    **Complete:** both logging-free direct arms pass the minimal/full traces;
    their captured full-frame pixels match stock with `sysmem,flush` exactly.
 3. Test !44620 independently on stock transport with assertions active and a
-   fresh shader cache. The host compiler check below is complete; actual GPU
-   replay with this build remains outstanding.
+   fresh shader cache. The host and fresh-boot hardware comparisons are complete:
+   both matched
+   assertion-enabled builds hang on the minimal trace without assertion failure.
+   Their captured fragment shader bytes are identical; see the hardware ledger.
 4. Check a fresh-source indirect arm if the results still implicate transport:
    copy the whole source BO into a new BO and leave the upload indirect. The
    matched arm also hangs on hardware, with distinct captured source BOs and
@@ -344,7 +346,8 @@ replays, pixel comparisons and recovery-clock measurements are recorded in the
 [hardware ledger](hardware-20260923.md).
 
 See [recovery-clocks.md](recovery-clocks.md) for the separate recovery defect:
-all three new negative controls incremented all six GPU-owned clock references.
+all five fresh-boot negative controls incremented all six GPU-owned clock references;
+B5/B6 directly traced the failed recovery suspend followed by resume.
 
 ## Fresh-source indirect diagnostic
 
