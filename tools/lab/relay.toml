@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# Lab relay channel map. Channel numbers are the ones printed on the module.
+
+[relay]
+device = "/dev/lab-relay"  # udev symlink from `relay.py udev-rule`
+channels = 4
+
+[channel.1]
+name = "db410c-power"
+wiring = "NC"  # 12 V positive lead through COM and NC: powered while the coil is off
+target = "db410c"
+
+# Channels 2-4 are unassigned. Add a [channel.N] table when wiring one.
+
+[target.db410c]
+fastboot_serial = "bc72e60"  # U-Boot resident fastboot
+smoo_usb = "dead:bee1"       # smoo-host --product-id 0xBEE1
+uart = "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0"
+off_seconds = 5
+timeout = 60

@@ -118,6 +118,9 @@ jobs:
       - name: Test root filesystem growth policy
         run: base/test-growfs-root-policy
 
+      - name: Test lab relay tool
+        run: python3 tools/lab/test-relay.py
+
       - name: Install host dependencies
         run: |
           sudo apt-get update
