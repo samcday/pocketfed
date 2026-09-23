@@ -134,6 +134,27 @@ assertion-enabled scheduler pair remains a separate pending Mesa experiment.
 
 ## Read-only measurement recipe
 
+The optional [return-tracing helper](trace-recovery-returns.sh) creates a
+dedicated trace instance and uniquely named kretprobes for `a3xx_pm_suspend`,
+`msm_gpu_pm_suspend` and `msm_gpu_pm_resume`. It records signed return values,
+hit/miss counts and buffer-loss statistics, then removes only its own probes.
+Run it as root in the guest with an already mounted tracefs; it starts no
+workload and changes no power policy:
+
+```sh
+bash /run/trace-recovery-returns.sh start /run/a3xx-returns-t13
+# Capture clocks, run the selected replay, then capture clocks/kernel messages.
+bash /run/trace-recovery-returns.sh stop /run/a3xx-returns-t13
+```
+
+The script passes `bash -n`, ShellCheck and pure argument/probe-definition
+checks. Configuration, symbols and syntax were checked against the exact
+Fedora inputs. It has **not been run on hardware**. Preserve its state directory
+before reboot. Missing events are inconclusive if probes were missed, buffers
+overflowed or a callback never returned. Probes add overhead; use the same
+setup for baseline and candidate comparisons. A zero return alone does not
+prove a power collapse or successful GPU work.
+
 On one boot, capture the following before and after a naturally occurring
 recovery, keeping the existing power policy and workload conditions fixed:
 
