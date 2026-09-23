@@ -149,6 +149,14 @@ six VBIF halt bits although A306 reads back and acknowledges only three.
 Qualcomm's downstream A306 mask corroborates the result. The separate
 [mask correction](https://github.com/samcday/linux/pull/6) is under test; this
 recovery patch leaves ordinary suspend unchanged. See [the detailed audit](vbif-halt.md).
+B12 also validates the two corrections together: recovery suspend/resume return
+zero, ordinary suspend succeeds immediately afterward, and all six clock
+references return to zero. The original Mesa hang persists. Waking the blanked
+display exposes a later compositor crash; after service restart, full R3 renders
+the exact reference frame. See the ledger for the failed first display setup
+and successful retry. The separate no-work-resume guard is in
+[Linux PR #7](https://github.com/samcday/linux/pull/7).
+
 All B9/t19 and B10 traces have zero probe/buffer loss and successful cleanup;
 the display service was restored before each reboot.
 

@@ -7,7 +7,7 @@ status nevertheless stayed active with zero accumulated suspended time.
 
 ## Localizing the failed check
 
-A scoped instance recorded these five returns in t20:
+A scoped instance configured these five return probes in t20:
 
 ```text
 r64:GROUP/idle_ring msm:adreno_idle ret=$retval:u8

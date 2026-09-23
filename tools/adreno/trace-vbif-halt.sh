@@ -168,6 +168,22 @@ if [[ ! -d "$instance" ]]; then
     fail 'trace instance missing; retained state may require manual scoped cleanup'
 fi
 result=0
+# Preserve the interrupt/error status while removing our own tracing resources.
+# Called indirectly by the EXIT trap below.
+# shellcheck disable=SC2329
+stop_cleanup() {
+    local status=$?
+    trap - EXIT INT TERM
+    if teardown; then
+        printf '%s\n' stopped-incomplete > "$state/status" || true
+    else
+        printf '%s\n' cleanup-incomplete > "$state/status" || true
+    fi
+    return "$status"
+}
+trap stop_cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 printf 'adreno-vbiftrace STOP\n' > "$instance/trace_marker" || result=1
 printf '0\n' > "$instance/tracing_on" || result=1
 cat "$instance/trace" > "$state/trace.txt" || result=1
@@ -186,5 +202,6 @@ else
     printf '%s\n' cleanup-incomplete > "$state/status"
     printf 'Scoped cleanup incomplete; do not clear global tracing. Inspect %s\n' "$state" >&2
 fi
+trap - EXIT INT TERM
 printf 'Trace and diagnostics saved in %s\n' "$state"
 exit "$result"
