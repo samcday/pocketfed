@@ -64,6 +64,26 @@ RUN --mount=type=cache,id=pocketfed-samsung-a5u-eur-arm64-device-dnf,target=/var
     test "$qbootctl_state" = disabled; \
     test "$(systemctl is-enabled bootloader-update.service)" = enabled
 
+# Patch A from #80, using matching Fedora-layout Mesa RPMs. The trial repo
+# stays disabled outside this explicit transaction. See packages/mesa/README.md.
+COPY devices/samsung-a5u-eur/samcday-adreno-a3xx-trial.repo /etc/yum.repos.d/
+COPY devices/samsung-a5u-eur/mesa-version /usr/lib/pocketfed/mesa-version
+COPY --chmod=0755 devices/samsung-a5u-eur/pocketfed-verify-mesa /usr/libexec/
+RUN --mount=type=cache,id=pocketfed-samsung-a5u-eur-arm64-device-dnf,target=/var/cache,sharing=locked \
+    set -eux; \
+    mesa_version=$(cat /usr/lib/pocketfed/mesa-version); \
+    mesa_repo='copr:copr.fedorainfracloud.org:samcday:adreno-a3xx-trial'; \
+    installed=$(rpm -qa --qf '%{NAME} %{SOURCERPM}\n' | \
+        awk '$2 ~ /^mesa-[0-9]/ { print $1 }'); \
+    packages=$(printf '%s\n' "$installed" \
+        mesa-filesystem mesa-dri-drivers mesa-libEGL mesa-libgbm mesa-libGL | sort -u); \
+    set --; \
+    for package in $packages; do set -- "$@" "$package-$mesa_version"; done; \
+    dnf install -y --refresh --allow-downgrade --allow-vendor-change \
+        --enable-repo="$mesa_repo" --from-repo="$mesa_repo" \
+        --setopt=install_weak_deps=False --setopt=keepcache=True "$@"; \
+    /usr/libexec/pocketfed-verify-mesa
+
 FROM device-root-base AS initrd
 RUN set -eu; \
     set -- /usr/lib/modules/*; \

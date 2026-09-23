@@ -41,6 +41,7 @@ bootupd_preset=$(
     fail "bootloader updater first-boot preset is not enabled: ${bootupd_preset:-missing}"
 
 /usr/libexec/pocketfed-verify-kernel
+/usr/libexec/pocketfed-verify-mesa
 
 set -- /usr/lib/modules/*
 [ "$#" -eq 1 ] || fail "expected one module directory, found $#"

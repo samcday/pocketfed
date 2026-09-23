@@ -1,0 +1,10 @@
+[copr:copr.fedorainfracloud.org:samcday:adreno-a3xx-trial]
+name=Copr Mesa a3xx trial owned by samcday
+baseurl=https://download.copr.fedorainfracloud.org/results/samcday/adreno-a3xx-trial/fedora-rawhide-$basearch/
+type=rpm-md
+skip_if_unavailable=False
+gpgcheck=1
+gpgkey=https://download.copr.fedorainfracloud.org/results/samcday/adreno-a3xx-trial/pubkey.gpg
+repo_gpgcheck=0
+enabled=0
+includepkgs=mesa-*

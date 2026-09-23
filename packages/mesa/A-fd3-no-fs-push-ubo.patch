@@ -1,0 +1,112 @@
+From 449d75e49e719fe3d59ff6f8b34c9dfd9d4bfad6 Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Mon, 21 Sep 2026 18:33:21 +1000
+Subject: [PATCH] freedreno/a3xx: don't push UBOs into the fragment shader's
+ const file
+
+a306 hangs when the CP's indirect state DMA targets the fragment shader's
+constant file.  The packet is
+
+  CP_LOAD_STATE { DST_OFF = .. | STATE_SRC = SS_INDIRECT
+                | STATE_BLOCK = SB_FRAG_SHADER | NUM_UNIT = .. }
+               { STATE_TYPE = ST_CONSTANTS | EXT_SRC_ADDR = <ubo> }
+
+which fd3_emit_const_bo() builds for every pushed UBO range whose backing
+store is a buffer object, i.e. for the ranges that
+ir3_nir_analyze_ubo_ranges() lowers from UBO loads to constant-file reads.
+
+If an earlier draw in the same submit has left a fragment context
+resident, the draw that follows such an upload never starts.  The GPU
+parks in the front end with
+
+  RBBM_STATUS 0xe0684003   HI_BUSY | CP_ME_BUSY | CP_NRT_BUSY
+                           | PC_DCALL_BUSY | VFD_BUSY | VPC_BUSY | HLSQ_BUSY
+  CP_WFI_PEND_CTR 0x1, CP_STQ_AVAIL 16, CP_HW_FAULT 0
+
+and SP_BUSY, TPL1_BUSY, RB_BUSY, TSE_BUSY, RAS_BUSY, UCHE_BUSY and
+VBIF_BUSY all clear: no wave is ever dispatched, nothing faults, and the
+CP_WAIT_FOR_IDLE behind the upload never retires, so msm's hangcheck
+fires with a completed/submitted fence gap of 3.
+
+The minimal reproducer is two GPU operations in one batch: a scissored
+glClear followed by a GSK rounded-clip gradient glDrawArraysInstanced.
+Removing either operation, or splitting them across submits with
+FD_MESA_DEBUG=sysmem,flush, avoids the hang; so does
+IR3_SHADER_DEBUG=nouboopt.  Rebuilding that pair on a host under the
+freedreno drm-shim with FD_GPU_ID=307 and diffing the command streams,
+the only packet present in the hanging stream and absent from every
+passing one is the SS_INDIRECT ST_CONSTANTS load into SB_FRAG_SHADER.
+The vertex stage issues the same packet from the same buffer, at the same
+DST_OFF and with the same NUM_UNIT, in every passing stream, so the
+discriminator is the state block and not indirect const loads in general.
+
+Two other readings were tried on the hardware and refuted.  Splitting the
+upload into chunks of const_upload_unit (8 vec4, the largest const upload
+in any stream this part has ever run clean) still hangs, so it is not the
+transfer size; setting HLSQ_CONTROL_0_REG's CHUNKDISABLE,
+LAZYUPDATEDISABLE or SINGLECONTEXT individually still hangs.  Emitting
+the identical payload to the identical destination with STATE_SRC =
+SS_DIRECT instead passes, which leaves the CP's indirect fetch into the
+fragment block as the failing element.
+
+So stop lowering UBO loads to the constant file for the fragment stage on
+gen < 4 and let it use ldg, keeping every other stage - in practice the
+vertex stage - exactly as before.  The cost is that a3xx fragment shaders
+lose push constants entirely; that is the same trade
+IR3_SHADER_DEBUG=nouboopt makes, and freedreno-a306-skips.txt has been
+skipping spec@arb_uniform_buffer_object@rendering-array and
+rendering-array-offset under a "# Hangchecks" heading for years.
+
+Hardware validation: the identical code path was tested as a build-time
+knob on a DragonBoard 410c (APQ8016, Adreno A306, revision 307, chip id
+03000600) running Linux 7.3.0-0.rc3 aarch64 and Mesa 26.2.2.  Three clean
+runs of the minimal pair against three hangs on the unmodified driver,
+then the full apitrace under FD_MESA_DEBUG=sysmem, then the full apitrace
+on the default GMEM path with no FD_MESA_DEBUG at all - all clean, with
+matching retired/submitted fences, no devcoredump and no hangcheck.  This
+patch as written has so far only been checked on the host to produce the
+expected command stream.
+
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/issues/12634
+Cc: mesa-stable
+Signed-off-by: Sam Day <me@samcday.com>
+---
+ .../ir3/ir3_nir_analyze_ubo_ranges.c          | 22 +++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/src/freedreno/ir3/ir3_nir_analyze_ubo_ranges.c b/src/freedreno/ir3/ir3_nir_analyze_ubo_ranges.c
+index 0c3570db..9cd7e33d 100644
+--- a/src/freedreno/ir3/ir3_nir_analyze_ubo_ranges.c
++++ b/src/freedreno/ir3/ir3_nir_analyze_ubo_ranges.c
+@@ -654,6 +654,28 @@ ir3_nir_analyze_ubo_ranges(nir_shader *nir, struct ir3_shader_variant *v)
+    if (ir3_shader_debug & IR3_DBG_NOUBOOPT)
+       return;
+ 
++   /* a3xx cannot push UBO data into the fragment shader's constant file.
++    *
++    * A pushed range whose backing store is a buffer object is uploaded by
++    * the CP with a CP_LOAD_STATE { STATE_SRC = SS_INDIRECT } { ST_CONSTANTS }
++    * (see fd3_emit_const_bo()), i.e. the CP DMAs the data straight into the
++    * on-chip constant RAM.  On a306 that transfer wedges HLSQ whenever the
++    * state block is SB_FRAG_SHADER and a draw from earlier in the same
++    * submit has left a fragment context resident: the following draw parks
++    * in the front end with HLSQ_BUSY asserted, SP/TPL1/RB/UCHE all idle and
++    * no waves ever dispatched, and the CP_WAIT_FOR_IDLE behind it never
++    * retires.  The same packet is fine for SB_VERT_SHADER from the same
++    * buffer at the same offset and size, and an inline (SS_DIRECT) upload of
++    * the identical payload into SB_FRAG_SHADER is fine too, so it is the
++    * indirect fetch into the fragment block specifically that is broken.
++    *
++    * Keep pushing for every other stage and let the fragment shader read its
++    * UBOs with ldg instead.  (This is what IR3_SHADER_DEBUG=nouboopt has been
++    * doing for the a306 UBO deqp job all along, but for both stages.)
++    */
++   if (compiler->gen < 4 && v->type == MESA_SHADER_FRAGMENT)
++      return;
++
+    uint32_t upload_remaining = max_upload;
+    bool push_ubos = compiler->options.push_ubo_with_preamble;
+ 
+-- 
+2.55.0
+
