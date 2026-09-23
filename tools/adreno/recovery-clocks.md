@@ -4,8 +4,9 @@ Source, binary and hardware evidence, 2026-09-23. This addresses Rob Clark's
 [recovery question](https://gitlab.freedesktop.org/mesa/mesa/-/work_items/12634#note_3674373).
 Six independently booted DB410c sessions now show the same six-clock reference
 increment after recovery. A separate [draft kernel correction](https://github.com/samcday/linux/pull/5)
-is available for review; the complete module builds against the exact Fedora
-configuration and headers, but it has not been loaded or tested on hardware.
+is available for review. The matching Fedora module now loads and keeps all
+six clocks balanced across two real recoveries; rendering works afterward.
+Ordinary idle suspend remains unresolved and is being checked against stock.
 
 There is an ignored-error path in the actual Fedora 7.3-rc3 module that matches
 the measured accumulation of clock references during recovery. This is separate
@@ -117,8 +118,8 @@ the matching ARM64 GCC/linker in the Fedora container. The configuration and
 symbol table match the fixture byte-for-byte; all 292 relevant source files
 match the Fedora source RPM before applying the recovery patch. The linked
 module has the exact stock vermagic, the same 784 imported symbols and ten
-dependencies, and the intended A3xx-specific suspend branch. These are static
-compatibility checks, not a successful module-load result.
+dependencies, and the intended A3xx-specific suspend branch. These establish static
+compatibility; the separate B9 load and recovery results are recorded below.
 
 The candidate uses the kernel's XZ CRC32/1-MiB dictionary settings. Its archive
 SHA-256 is `f128ed08e25e826e6c714c1a3aa2e718d1450f3e63356d05c4bc8cfe0ab7bfe1`
@@ -127,14 +128,25 @@ configuration, source/package provenance, disassembly and the candidate are
 archived under `out/adreno-rob-20260923/recovery-evidence/fedora-module/`.
 It is an unsigned external module with module BTF generation skipped because
 the development package lacks `vmlinux`; it is not a bit-for-bit Fedora build.
-Runtime signature/lockdown policy still determines whether it can load.
+B9 loaded this exact candidate, verified from its live module-note hash, with
+the expected unsigned/external taint flags (12288).
 
-It remains a draft with no patched-kernel boot result. Validation
-requires a fresh boot, an actual hang/recovery, stable clock references across
-repeated recoveries, successful reinitialization/replay, and ordinary runtime
-suspend/resume coverage. The Mesa trigger may remain after recovery accounting
-is fixed. The fresh-source indirect control also hung on hardware; the
-assertion-enabled scheduler pair also hung without an assertion failure.
+B9 stock/sysmem minimal trials t16 and t18 both exercise actual GPU recovery.
+Generic suspend and resume each return 0, the stale-ring drain timeout is
+absent, and all six clock counts remain balanced after both recoveries. Both
+scoped captures have zero missed probes/buffer loss and successful cleanup.
+The original Mesa hangs and compositor SIGSEGVs remain. Between recoveries,
+t17 completes full R3 with stock+sysmem,flush after the display service's
+automatic restart; its captured PNG matches the earlier reference byte-for-byte.
+See the [hardware ledger](hardware-20260923.md) for fences, times and dump hashes.
+
+Ordinary runtime-PM coverage is still unresolved. In t19, stopping the display
+service leaves no DRM clients, but the normal A3xx callback returns `-EBUSY`;
+the GPU stays active and generic suspend/resume is never called. The display
+service was restored, and all probes were saved/cleaned up. Because this check
+followed two recoveries, a clean stock-kernel comparison is needed to distinguish
+a preexisting idle-suspend problem from any candidate regression. The PR remains
+a draft while that comparison is in progress.
 
 ## Read-only measurement recipe
 
