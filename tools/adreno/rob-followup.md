@@ -4,6 +4,11 @@ Status: **diagnostic controls and hardware evidence, 2026-09-23**. Board results
 in [hardware-20260923.md](hardware-20260923.md). The older B2 patch is an experimental workaround, not a proven
 root-cause fix.
 
+For continuation, start with the [Claude handover](handover-claude-20260923.md):
+it consolidates completed controls, remaining Mesa leads, exact local artifacts,
+and the current DB410c boot/UART procedure. Sam handles communication with Rob
+in his own words; historical local reply drafts are not approved submissions.
+
 Tracking: [PocketFed #80](https://github.com/samcday/pocketfed/issues/80).
 Upstream: [Rob's reply on Mesa #12634](https://gitlab.freedesktop.org/mesa/mesa/-/work_items/12634#note_3674373).
 
