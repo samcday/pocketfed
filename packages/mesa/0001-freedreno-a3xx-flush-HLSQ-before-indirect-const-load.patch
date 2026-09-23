@@ -1,0 +1,66 @@
+From d39138dcdcdddbf73eaa500a977f6af92b4389be Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Wed, 23 Sep 2026 22:01:36 +1000
+Subject: [PATCH] freedreno/a3xx: flush HLSQ before indirect const loads
+
+Indirect const loads can wedge A306/FD307, unless an HLSQ_FLUSH or
+CP_WAIT_FOR_IDLE directly precedes them.
+
+A minimal reproducer was derived from GSK. In this case, there must be
+a previous draw call in the submit, which can be anything (there just
+has to be a previous draw). If the second draw performs an indirect
+vertex const load, then a direct fragment const load, then the following
+indirect fragment const load will hang.
+
+However, SuperTuxKart causes it with an indirect vertex const load. A
+minimal reproducer hasn't been derived here, so the preconditions for
+the hang aren't as precisely defined as in the GSK case.
+
+The characteristics of the hang are that CP ME stays busy, whilst RBBM
+reports HLSQ, PC, VFD and VPC busy, until hangcheck recovery.
+
+fd3_emit_state() is already emitting HLSQ_FLUSH before all constant
+uploads, though interestingly it has a TODO indicating that maybe this
+should not be the case.
+
+Issuing the HLSQ_FLUSH between vertex and fragment loads does not
+help. It has to be immediately before the indirect const load.
+
+In lieu of a more precise target, fd3_emit_const_bo() is updated to emit
+HLSQ_FLUSH before *all* const indirect loads. Many of these loads don't
+need this guard. A slightly slower GPU is better than a hanging GPU,
+right? Of course if someone can pin this down further that would be
+great.
+
+drm/msm emits an HLSQ_FLUSH at the end of a3xx_submit, which is why
+FD_MESA_DEBUG=flush would mask the issue.
+
+This fix was tested on both db410c with a 7.3-rc3 kernel, and samsung-a5
+with a 6.12 kernel.
+
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/issues/12634
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: Sam Day <me@samcday.com>
+---
+ src/gallium/drivers/freedreno/a3xx/fd3_emit.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/gallium/drivers/freedreno/a3xx/fd3_emit.c b/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+index 69a5368ac99..875a8e55a1d 100644
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+@@ -72,6 +72,11 @@ fd3_emit_const_bo(struct fd_ringbuffer *ring,
+ 
+    emit_const_asserts(v, regid, sizedwords);
+ 
++   /* indirect const loads can wedge the FD307, when following other const
++      loads, unless HLSQ is flushed first. mesa#12634 */
++   OUT_PKT3(ring, CP_EVENT_WRITE, 1);
++   OUT_RING(ring, HLSQ_FLUSH);
++
+    OUT_PKT3(ring, CP_LOAD_STATE, 2);
+    OUT_RING(ring, CP_LOAD_STATE_0_DST_OFF(dst_off) |
+                      CP_LOAD_STATE_0_STATE_SRC(SS_INDIRECT) |
+-- 
+2.55.0
+

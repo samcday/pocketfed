@@ -81,7 +81,7 @@
 Name:           mesa
 Summary:        Mesa graphics libraries
 Version:        26.2.3
-Release:        %autorelease
+Release:        1.2.pocketfed%{?dist}
 License:        MIT AND BSD-3-Clause AND SGI-B-2.0
 URL:            https://mesa3d.org
 
@@ -112,6 +112,11 @@ Source12:       https://crates.io/api/v1/crates/quote/%{rust_quote_ver}/download
 Source13:       https://crates.io/api/v1/crates/syn/%{rust_syn_ver}/download#/syn-%{rust_syn_ver}.tar.gz
 Source14:       https://crates.io/api/v1/crates/unicode-ident/%{rust_unicode_ident_ver}/download#/unicode-ident-%{rust_unicode_ident_ver}.tar.gz
 Source15:       https://crates.io/api/v1/crates/rustc-hash/%{rustc_hash_ver}/download#/rustc-hash-%{rustc_hash_ver}.tar.gz
+
+# freedreno/a3xx: flush HLSQ before indirect const loads (A306 hangs).
+# https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44653
+# https://github.com/samcday/pocketfed/issues/80
+Patch:          0001-freedreno-a3xx-flush-HLSQ-before-indirect-const-load.patch
 
 BuildRequires:  meson >= 1.3.0
 BuildRequires:  gcc
@@ -743,4 +748,211 @@ ln -s libGLX_mesa.so.0 %{buildroot}%{_libdir}/libGLX_system.so.0
 %endif
 
 %changelog
-%autochangelog
+* Wed Sep 23 2026 Sam Day <me@samcday.com> - 26.2.3-1.2.pocketfed
+- Carry the a3xx fix exactly as submitted in Mesa MR !44653
+
+* Wed Sep 23 2026 Sam Day <me@samcday.com> - 26.2.3-1.1.pocketfed
+- Flush HLSQ before indirect constant loads on Adreno a3xx (PocketFed #80)
+
+* Wed Sep 16 2026 Packit <hello@packit.dev> - 26.2.3-1
+- Update to 26.2.3 upstream release
+- Resolves: rhbz#2535731
+
+* Wed Sep 09 2026 Timm Bäder <tbaeder@redhat.com> - 26.2.2-6
+- Switch runtime libclc dependency to libclc22
+
+* Wed Sep 09 2026 José Expósito <jexposit@redhat.com> - 26.2.2-5
+- packit: Update Fedora 44 to mesa 26.2
+
+* Mon Sep 07 2026 José Expósito <jexposit@redhat.com> - 26.2.2-4
+- Add AMD Anti-Lag Vulkan layer missing files
+
+* Mon Sep 07 2026 José Expósito <jexposit@redhat.com> - 26.2.2-3
+- packit: Update Fedora 45 to mesa 26.2
+
+* Mon Sep 07 2026 José Expósito <jexposit@redhat.com> - 26.2.2-2
+- Enable AMD Anti-Lag Vulkan layer
+
+* Thu Sep 03 2026 José Expósito <jexposit@redhat.com> - 26.2.2-1
+- Update to 26.2.2 upstream release
+- Resolves: rhbz#2527640
+
+* Thu Aug 20 2026 Packit <hello@packit.dev> - 26.2.1-1
+- Update to 26.2.1 upstream release
+- Resolves: rhbz#2520167
+
+* Thu Aug 06 2026 José Expósito <jexposit@redhat.com> - 26.2.0-1
+- Update to 26.2.0 upstream release
+
+* Mon Aug 03 2026 José Expósito <jexposit@redhat.com> - 26.1.6-1
+- Update to 26.1.6 upstream release
+
+* Tue Jul 21 2026 Stewart Smith <trawets@amazon.com> - 26.1.5-2
+- Build now requires newer wayland-protocols
+
+* Wed Jul 15 2026 Packit <hello@packit.dev> - 26.1.5-1
+- Update to 26.1.5 upstream release
+- Resolves: rhbz#2501154
+
+* Wed Jul 01 2026 Packit <hello@packit.dev> - 26.1.4-1
+- Update to 26.1.4 upstream release
+- Resolves: rhbz#2495972
+
+* Thu Jun 18 2026 Packit <hello@packit.dev> - 26.1.3-1
+- Update to 26.1.3 upstream release
+- Resolves: rhbz#2490259
+
+* Mon Jun 15 2026 José Expósito <jexposit@redhat.com> - 26.1.2-2
+- packit: Update Fedora 44 to mesa 26.1
+
+* Wed Jun 03 2026 Packit <hello@packit.dev> - 26.1.2-1
+- Update to 26.1.2 upstream release
+- Resolves: rhbz#2484325
+
+* Tue May 19 2026 Packit <hello@packit.dev> - 26.1.1-1
+- Update to 26.1.1 upstream release
+- Resolves: rhbz#2479945
+
+* Fri May 08 2026 Adil Hanney <adilhanney@disroot.org> - 26.1.0-3
+- rusticl: add libstdc++-static
+
+* Fri May 08 2026 Adil Hanney <adilhanney@disroot.org> - 26.1.0-2
+- Bump DirectX-Headers to 1.619.1
+
+* Wed May 06 2026 Packit <hello@packit.dev> - 26.1.0-1
+- Update to 26.1.0 upstream release
+- Resolves: rhbz#2467536
+
+* Thu Apr 30 2026 José Expósito <jexposit@redhat.com> - 26.1.0~rc3-2
+- Bump libdrm to 2.4.133
+
+* Thu Apr 30 2026 Packit <hello@packit.dev> - 26.1.0~rc3-1
+- Update to 26.1.0-rc3 upstream release
+- Resolves: rhbz#2463896
+
+* Wed Apr 22 2026 Packit <hello@packit.dev> - 26.1.0~rc2-1
+- Update to 26.1.0-rc2 upstream release
+- Resolves: rhbz#2460888
+
+* Wed Apr 22 2026 José Expósito <jexposit@redhat.com> - 26.1.0~rc1-1
+- Update to 26.1.0~rc1 upstream release
+
+* Wed Apr 15 2026 Packit <hello@packit.dev> - 26.0.5-1
+- Update to 26.0.5 upstream release
+- Resolves: rhbz#2458691
+
+* Tue Apr 14 2026 Nicolas Chauvet <kwizart@gmail.com> - 26.0.4-5
+- Enforces Requires with EVR from dri-drivers to libgbm
+
+* Tue Apr 14 2026 Nicolas Chauvet <kwizart@gmail.com> - 26.0.4-4
+- Fix bogus Provides with mesa-va-drivers
+
+* Tue Apr 14 2026 Nicolas Chauvet <kwizart@gmail.com> - 26.0.4-3
+- Drop mesa-libglapi
+
+* Tue Apr 14 2026 Dave Airlie <airlied@redhat.com> - 26.0.4-2
+- nvk: add hopeful fix for gnome-initial-config hangs.
+
+* Wed Apr 01 2026 Packit <hello@packit.dev> - 26.0.4-1
+- Update to 26.0.4 upstream release
+- Resolves: rhbz#2453934
+
+* Wed Mar 25 2026 Simone Caronni <negativo17@gmail.com> - 26.0.3-3
+- Adjust libGLX symlink to avoid warning
+
+* Fri Mar 20 2026 José Expósito <jexposit@redhat.com> - 26.0.3-2
+- packit: Update Fedora 44 to mesa 26.0
+
+* Wed Mar 18 2026 Packit <hello@packit.dev> - 26.0.3-1
+- Update to 26.0.3 upstream release
+- Resolves: rhbz#2448649
+
+* Thu Mar 12 2026 Packit <hello@packit.dev> - 26.0.2-1
+- Update to 26.0.2 upstream release
+- Resolves: rhbz#2446947
+
+* Fri Feb 27 2026 František Zatloukal <fzatlouk@redhat.com> - 26.0.1-2
+- Rebuild for LLVM upgrade
+
+* Wed Feb 25 2026 Packit <hello@packit.dev> - 26.0.1-1
+- Update to 26.0.1 upstream release
+- Resolves: rhbz#2442675
+
+* Thu Feb 19 2026 Anusha Srivatsa <asrivats@redhat.com> - 26.0.0-6
+- Backport the freedreno fix for compiling with GCC and AVX2
+
+* Mon Feb 16 2026 José Expósito <jexposit@redhat.com> - 26.0.0-5
+- mesa-va-drivers package obsoleted by dri-drivers
+
+* Sun Feb 15 2026 Neal Gompa <ngompa@fedoraproject.org> - 26.0.0-4
+- Rebuild for libdisplay-info 0.3.0
+
+* Fri Feb 13 2026 Yaakov Selkowitz <yselkowi@redhat.com> - 26.0.0-3
+- Update vendored rust dependencies
+
+* Thu Feb 12 2026 José Expósito <jexposit@redhat.com> - 26.0.0-2
+- Drop unused patches
+
+* Wed Feb 11 2026 Packit <hello@packit.dev> - 26.0.0-1
+- Update to 26.0.0 upstream release
+- Resolves: rhbz#2423470
+
+* Wed Feb 11 2026 psklenar@redhat.com <psklenar@redhat.com> - 26.0.0~rc3-4
+- Fedora CI: adding fmf plan and gating.yaml
+
+* Wed Feb 11 2026 Eric Engestrom <eric@engestrom.ch> - 26.0.0~rc3-3
+- spec: update website URL
+
+* Tue Feb 10 2026 José Expósito <jexposit@redhat.com> - 26.0.0~rc3-2
+- packit: Configure Bodhi parameters
+
+* Mon Feb 09 2026 José Expósito <jexposit@redhat.com> - 26.0.0~rc3-1
+- Update to 26.0.0~rc3
+
+* Mon Feb 09 2026 José Expósito <jexposit@redhat.com> - 25.3.5-2
+- packit: Update to 26.0 in Rawhide
+
+* Sat Feb 07 2026 Peter Robinson <pbrobinson@gmail.com> - 25.3.5-1
+- Update to 25.3.5
+
+* Wed Jan 28 2026 Simone Caronni <negativo17@gmail.com> - 25.3.4-9
+- Drop libGL.so manipulation
+
+* Wed Jan 28 2026 Simone Caronni <negativo17@gmail.com> - 25.3.4-8
+- Add missing versioned Provides
+
+* Wed Jan 28 2026 Simone Caronni <negativo17@gmail.com> - 25.3.4-7
+- Obsolete VK_hdr_layer
+
+* Wed Jan 28 2026 José Expósito <jexposit@redhat.com> - 25.3.4-6
+- Add Packit configuration
+
+* Wed Jan 28 2026 José Expósito <jexposit@redhat.com> - 25.3.4-5
+- Sync NVK configuration with CentOS
+
+* Wed Jan 28 2026 José Expósito <jexposit@redhat.com> - 25.3.4-4
+- Move RC character replacement to "ver" definition
+
+* Tue Jan 27 2026 José Expósito <jexposit@redhat.com> - 25.3.4-3
+- Enable va-driver only in Fedora
+
+* Mon Jan 26 2026 José Expósito <jexposit@redhat.com> - 25.3.4-2
+- sources: Drop mesa-25.3.3
+
+* Sat Jan 24 2026 Peter Robinson <pbrobinson@gmail.com> - 25.3.4-1
+- Update to 25.3.4
+
+* Fri Jan 16 2026 Fedora Release Engineering <releng@fedoraproject.org> - 25.3.3-3
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_44_Mass_Rebuild
+
+* Tue Jan 13 2026 Neal Gompa <ngompa@fedoraproject.org> - 25.3.3-2
+- Enable Intel raytracing driver when Vulkan hardware drivers are enabled
+
+* Tue Jan 06 2026 Janne Grunau <j@jannau.net> - 25.3.3-1
+- Update to 25.3.3
+
+* Thu Dec 04 2025 Peter Robinson <pbrobinson@gmail.com> - 25.3.1-1
+- Update to 25.3.1
+
+* Wed Dec 03 2025 Mika Penttilae <mpenttil@redhat.com> - 25.3.0-5
+- RPMAUTOSPEC: unresolvable merge
