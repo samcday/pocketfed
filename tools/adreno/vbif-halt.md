@@ -84,6 +84,10 @@ The candidate is unsigned, external and lacks module BTF, as with PR #5.
 
 The separate temporary boot changes only that initramfs module and a boot
 marker, preserving the kernel Image, DTB, all other 730 CPIO entries and the
-same immutable root/export. Fresh mask-only runtime-PM testing is in progress;
-a successful build is not a successful suspend/resume cycle. The original Mesa
-hang and [recovery correction](recovery-clocks.md) remain separate concerns.
+same immutable root/export. B11 verifies the loaded candidate and records 20 successful generic suspend
+and resume returns during display restoration/rendering, zero GPU clock
+references and OXILI off while idle, and a full rendered frame exactly matching
+the reference. A separate no-work policy resume fails the preceding ring-idle
+check (`0/20`), before reaching VBIF; that limitation remains under investigation.
+See the [hardware ledger](hardware-20260923.md#b11-mask-only-suspend-wakeup-and-rendered-frame-validation).
+The original Mesa hang and [recovery correction](recovery-clocks.md) remain separate concerns.
