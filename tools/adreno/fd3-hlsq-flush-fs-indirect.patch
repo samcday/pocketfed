@@ -1,0 +1,19 @@
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+@@ -72,6 +72,16 @@
+ 
+    emit_const_asserts(v, regid, sizedwords);
+ 
++   /* On a306, an indirect constant load into the fragment shader state
++    * block can wedge HLSQ unless the lazily-applied state updates queued
++    * by the preceding (vertex stage) uploads have been flushed first.
++    * (pocketfed#80, mesa#12634)
++    */
++   if (v->type == MESA_SHADER_FRAGMENT) {
++      OUT_PKT3(ring, CP_EVENT_WRITE, 1);
++      OUT_RING(ring, HLSQ_FLUSH);
++   }
++
+    OUT_PKT3(ring, CP_LOAD_STATE, 2);
+    OUT_RING(ring, CP_LOAD_STATE_0_DST_OFF(dst_off) |
+                      CP_LOAD_STATE_0_STATE_SRC(SS_INDIRECT) |

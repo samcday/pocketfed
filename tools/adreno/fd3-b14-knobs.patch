@@ -1,0 +1,658 @@
+diff --color -ruN pristine/mesa-26.2.2/src/gallium/drivers/freedreno/a3xx/fd3_draw.c w/mesa-26.2.2/src/gallium/drivers/freedreno/a3xx/fd3_draw.c
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_draw.c
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_draw.c
+@@ -17,6 +17,7 @@
+ 
+ #include "fd3_context.h"
+ #include "fd3_draw.h"
++#include "freedreno_b14.h"
+ #include "fd3_emit.h"
+ #include "fd3_format.h"
+ #include "fd3_program.h"
+@@ -75,6 +76,9 @@
+    fd_draw_emit(ctx->batch, ring, primtype,
+                 emit->binning_pass ? IGNORE_VISIBILITY : USE_VISIBILITY, info,
+                 emit->draw, index_offset);
++
++   if (!emit->binning_pass)
++      fd3_b14_draw_end(ring);
+ }
+ 
+ static bool
+@@ -125,6 +129,26 @@
+ 
+    ir3_update_max_tf_vtx(ctx, vp);
+ 
++   uint32_t b14_pre = fd3_b14_draw_pre(ctx, fp);
++   if (unlikely(b14_pre)) {
++      /* B14: replay the start-of-submit restore and/or re-emit everything */
++      if (b14_pre & (B14_RESTORE | B14_RPKT))
++         fd3_emit_restore(ctx->batch, ctx->batch->draw);
++      if (b14_pre & B14_RESTORE) {
++         fd_context_all_dirty(ctx);
++      } else if (b14_pre & B14_DIRTY) {
++         if (fd_b14.dirty_masked) {
++            ctx->dirty |= (enum fd_dirty_3d_state)fd_b14.dirty_mask;
++            for (unsigned i = 0; i < MESA_SHADER_STAGES; i++)
++               ctx->dirty_shader[i] |=
++                  (enum fd_dirty_shader_state)fd_b14.sdirty_mask;
++         } else {
++            fd_context_all_dirty(ctx);
++         }
++      }
++      dirty = ctx->dirty;
++   }
++
+    /* do regular pass first: */
+ 
+    if (unlikely(ctx->stats_users > 0)) {
+diff --color -ruN pristine/mesa-26.2.2/src/gallium/drivers/freedreno/a3xx/fd3_emit.c w/mesa-26.2.2/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+@@ -34,6 +34,111 @@
+    [MESA_SHADER_FRAGMENT] = SB_FRAG_SHADER,
+ };
+ 
++/* ---- B14 diagnostic knobs, see freedreno_b14.h.  NOT FOR UPSTREAM. ---- */
++#include "freedreno_b14.h"
++
++static struct fd_bo *b14_ts_bo;
++
++static void
++b14_emit(struct fd_ringbuffer *ring, uint32_t e)
++{
++   if (e & B14_HLSQ) {
++      OUT_PKT3(ring, CP_EVENT_WRITE, 1);
++      OUT_RING(ring, HLSQ_FLUSH);
++   }
++   if (e & (B14_WFI | B14_INV | B14_UCHE)) {
++      OUT_PKT3(ring, CP_WAIT_FOR_IDLE, 1);
++      OUT_RING(ring, 0x00000000);
++   }
++   if (e & B14_INV) {
++      OUT_PKT3(ring, CP_INVALIDATE_STATE, 1);
++      OUT_RING(ring, 0x00007fff);
++   }
++   if (e & B14_UCHE) {
++      OUT_PKT0(ring, REG_A3XX_UCHE_CACHE_INVALIDATE0_REG, 2);
++      OUT_RING(ring, A3XX_UCHE_CACHE_INVALIDATE0_REG_ADDR(0));
++      OUT_RING(ring, A3XX_UCHE_CACHE_INVALIDATE1_REG_ADDR(0) |
++                        A3XX_UCHE_CACHE_INVALIDATE1_REG_OPCODE(INVALIDATE) |
++                        A3XX_UCHE_CACHE_INVALIDATE1_REG_ENTIRE_CACHE);
++   }
++   if (e & B14_CF) {
++      OUT_PKT3(ring, CP_EVENT_WRITE, 1);
++      OUT_RING(ring, CACHE_FLUSH);
++   }
++   if ((e & B14_TS) && b14_ts_bo) {
++      OUT_PKT3(ring, CP_EVENT_WRITE, 3);
++      OUT_RING(ring, CACHE_FLUSH_TS);
++      OUT_RELOC(ring, b14_ts_bo, 0, 0, 0);
++      OUT_RING(ring, 0x0000b14b);
++   }
++   if (e & B14_PRESV) {
++      OUT_PKT0(ring, REG_A3XX_HLSQ_CONST_VSPRESV_RANGE_REG, 2);
++      OUT_RING(ring, A3XX_HLSQ_CONST_VSPRESV_RANGE_REG_STARTENTRY(0) |
++                        A3XX_HLSQ_CONST_VSPRESV_RANGE_REG_ENDENTRY(0));
++      OUT_RING(ring, A3XX_HLSQ_CONST_FSPRESV_RANGE_REG_STARTENTRY(0) |
++                        A3XX_HLSQ_CONST_FSPRESV_RANGE_REG_ENDENTRY(0));
++   }
++   if (e & B14_DUMMY) {
++      OUT_PKT3(ring, CP_DRAW_INDX, 3);
++      OUT_RING(ring, 0x00000000);
++      OUT_RING(ring, DRAW(1, DI_SRC_SEL_AUTO_INDEX, INDEX_SIZE_IGN,
++                          IGNORE_VISIBILITY, 0));
++      OUT_RING(ring, 0); /* NumIndices */
++   }
++   if ((e & B14_IB) && (ring->flags & FD_RINGBUFFER_GROWABLE)) {
++      /* start a new chunk: the chunk list becomes one more IB packet */
++      fd_ringbuffer_grow(ring, 0);
++   }
++}
++
++static void b14_emit_regs(struct fd_context *ctx, struct fd_ringbuffer *ring,
++                          uint32_t e);
++
++/* Would ir3_emit_fs_consts() emit an indirect (buffer backed) upload? */
++static bool
++b14_fs_indirect(struct fd_context *ctx, const struct ir3_shader_variant *fp)
++{
++   const struct ir3_const_state *cs = ir3_const_state(fp);
++   const struct ir3_ubo_analysis_state *st = &cs->ubo_state;
++   struct fd_constbuf_stateobj *constbuf = &ctx->constbuf[MESA_SHADER_FRAGMENT];
++
++   if (!(ctx->dirty_shader[MESA_SHADER_FRAGMENT] & FD_DIRTY_SHADER_CONST))
++      return false;
++
++   for (unsigned i = 0; i < st->num_enabled; i++) {
++      unsigned ubo = st->range[i].ubo.block;
++      if (!(constbuf->enabled_mask & (1u << ubo)) ||
++          ubo == cs->consts_ubo.idx)
++         continue;
++      if (16 * fp->constlen <= st->range[i].offset)
++         continue;
++      if (!constbuf->cb[ubo].user_buffer)
++         return true;
++   }
++   return false;
++}
++
++uint32_t
++fd3_b14_draw_pre(struct fd_context *ctx, const struct ir3_shader_variant *fp)
++{
++   if (likely(!fd_b14.any))
++      return 0;
++   uint32_t e = fd_b14.pos[B14_POS_A] & B14_DRAW_PRE;
++   if ((fd_b14.pos[B14_POS_S] & B14_DRAW_PRE) && b14_fs_indirect(ctx, fp))
++      e |= fd_b14.pos[B14_POS_S] & B14_DRAW_PRE;
++   return e;
++}
++
++void
++fd3_b14_draw_end(struct fd_ringbuffer *ring)
++{
++   if (likely(!fd_b14.any) || !fd_b14.pos[B14_POS_E])
++      return;
++   fd_b14.count[B14_POS_E]++;
++   b14_emit(ring, fd_b14.pos[B14_POS_E] & ~(B14_DRAW_PRE | B14_RG_ALL));
++}
++/* ---- end B14 ---- */
++
+ /* regid:          base const register
+  * prsc or dwords: buffer containing constant values
+  * sizedwords:     size of const value buffer
+@@ -72,12 +177,35 @@
+ 
+    emit_const_asserts(v, regid, sizedwords);
+ 
++   if (unlikely(fd_b14.any)) {
++      bool frag = v->type == MESA_SHADER_FRAGMENT;
++      if ((frag && fd_b14.fs_direct) || (!frag && fd_b14.vs_direct)) {
++         const uint32_t *dwords = fd_bo_map(bo);
++         if (dwords) {
++            fd3_emit_const_user(ring, v, regid, sizedwords,
++                                dwords + offset / 4);
++            return;
++         }
++      }
++      enum fd_b14_pos pos = frag ? B14_POS_L : B14_POS_V;
++      if (fd_b14.pos[pos]) {
++         fd_b14.count[pos]++;
++         b14_emit(ring, fd_b14.pos[pos] & ~(B14_DRAW_PRE | B14_RG_ALL));
++      }
++   }
++
+    OUT_PKT3(ring, CP_LOAD_STATE, 2);
+    OUT_RING(ring, CP_LOAD_STATE_0_DST_OFF(dst_off) |
+                      CP_LOAD_STATE_0_STATE_SRC(SS_INDIRECT) |
+                      CP_LOAD_STATE_0_STATE_BLOCK(sb[v->type]) |
+                      CP_LOAD_STATE_0_NUM_UNIT(num_unit));
+    OUT_RELOC(ring, bo, offset, CP_LOAD_STATE_1_STATE_TYPE(ST_CONSTANTS), 0);
++
++   if (unlikely(fd_b14.any) && v->type == MESA_SHADER_VERTEX &&
++       fd_b14.pos[B14_POS_M]) {
++      fd_b14.count[B14_POS_M]++;
++      b14_emit(ring, fd_b14.pos[B14_POS_M] & ~(B14_DRAW_PRE | B14_RG_ALL));
++   }
+ }
+ 
+ static void
+@@ -493,6 +621,25 @@
+    const struct ir3_shader_variant *fp = fd3_emit_get_fp(emit);
+    const enum fd_dirty_3d_state dirty = emit->dirty;
+ 
++   if (unlikely(fd_b14.any) && !emit->binning_pass) {
++      uint32_t all = 0;
++      for (unsigned i = 0; i < B14_POS_COUNT; i++)
++         all |= fd_b14.pos[i];
++      if ((all & B14_TS) && !b14_ts_bo)
++         b14_ts_bo = fd_bo_new(ctx->screen->dev, 0x1000, 0, "b14-ts");
++      uint32_t e = fd_b14.pos[B14_POS_A] & ~B14_DRAW_PRE;
++      if (e)
++         fd_b14.count[B14_POS_A]++;
++      if ((fd_b14.pos[B14_POS_S] & ~B14_DRAW_PRE) && b14_fs_indirect(ctx, fp)) {
++         e |= fd_b14.pos[B14_POS_S] & ~B14_DRAW_PRE;
++         fd_b14.count[B14_POS_S]++;
++      }
++      if (e & ~B14_RG_ALL)
++         b14_emit(ring, e & ~B14_RG_ALL);
++      if (e & B14_RG_ALL)
++         b14_emit_regs(ctx, ring, e & B14_RG_ALL);
++   }
++
+    emit_marker(ring, 5);
+ 
+    if (dirty & FD_DIRTY_SAMPLE_MASK) {
+@@ -738,8 +885,15 @@
+    OUT_RING(ring, HLSQ_FLUSH);
+ 
+    if (!emit->skip_consts) {
++      bool b14_f = unlikely(fd_b14.any) && fd_b14.pos[B14_POS_F] &&
++                   !emit->binning_pass && b14_fs_indirect(ctx, fp);
+       ir3_emit_vs_consts(vp, ring, ctx, emit->info, emit->indirect, emit->draw);
+-      if (!emit->binning_pass)
++      if (b14_f) {
++         fd_b14.count[B14_POS_F]++;
++         b14_emit(ring, fd_b14.pos[B14_POS_F] & ~(B14_DRAW_PRE | B14_RG_ALL));
++      }
++      if (!emit->binning_pass &&
++          !(unlikely(fd_b14.clear_noconst) && fd_b14_in_clear))
+          ir3_emit_fs_consts(fp, ring, ctx);
+    }
+ 
+@@ -971,3 +1125,90 @@
+ fd3_emit_init(struct pipe_context *pctx)
+ {
+ }
++
++/* restore's register writes, in four groups (see fd3_emit_restore()) */
++static void
++b14_emit_regs(struct fd_context *ctx, struct fd_ringbuffer *ring, uint32_t e)
++{
++   struct fd3_context *fd3_ctx = fd3_context(ctx);
++
++   if (e & B14_RG_PVT) {
++      OUT_PKT0(ring, REG_A3XX_SP_VS_PVT_MEM_PARAM_REG, 3);
++      OUT_RING(ring, 0x08000001);
++      OUT_RELOC(ring, fd3_ctx->vs_pvt_mem, 0, 0, 0);
++      OUT_RING(ring, 0x00000000);
++      OUT_PKT0(ring, REG_A3XX_SP_FS_PVT_MEM_PARAM_REG, 3);
++      OUT_RING(ring, 0x08000001);
++      OUT_RELOC(ring, fd3_ctx->fs_pvt_mem, 0, 0, 0);
++      OUT_RING(ring, 0x00000000);
++   }
++   if (e & B14_RG_TPL) {
++      OUT_PKT0(ring, REG_A3XX_TPL1_TP_VS_TEX_OFFSET, 1);
++      OUT_RING(ring, A3XX_TPL1_TP_VS_TEX_OFFSET_SAMPLEROFFSET(VERT_TEX_OFF) |
++                        A3XX_TPL1_TP_VS_TEX_OFFSET_MEMOBJOFFSET(VERT_TEX_OFF) |
++                        A3XX_TPL1_TP_VS_TEX_OFFSET_BASETABLEPTR(BASETABLE_SZ *
++                                                                VERT_TEX_OFF));
++      OUT_PKT0(ring, REG_A3XX_TPL1_TP_FS_TEX_OFFSET, 1);
++      OUT_RING(ring, A3XX_TPL1_TP_FS_TEX_OFFSET_SAMPLEROFFSET(FRAG_TEX_OFF) |
++                        A3XX_TPL1_TP_FS_TEX_OFFSET_MEMOBJOFFSET(FRAG_TEX_OFF) |
++                        A3XX_TPL1_TP_FS_TEX_OFFSET_BASETABLEPTR(BASETABLE_SZ *
++                                                                FRAG_TEX_OFF));
++   }
++   if (e & B14_RG_UNK) {
++      OUT_PKT0(ring, REG_A3XX_PC_VERTEX_REUSE_BLOCK_CNTL, 1);
++      OUT_RING(ring, 0x0000000b);
++      OUT_PKT0(ring, REG_A3XX_GRAS_TSE_DEBUG_ECO, 1);
++      OUT_RING(ring, 0x00000001);
++      OUT_PKT0(ring, REG_A3XX_VPC_VARY_CYLWRAP_ENABLE_0, 2);
++      OUT_RING(ring, 0x00000000);
++      OUT_RING(ring, 0x00000000);
++      OUT_PKT0(ring, REG_A3XX_UNKNOWN_0E43, 1);
++      OUT_RING(ring, 0x00000001);
++      OUT_PKT0(ring, REG_A3XX_UNKNOWN_0F03, 1);
++      OUT_RING(ring, 0x00000001);
++      OUT_PKT0(ring, REG_A3XX_UNKNOWN_0EE0, 1);
++      OUT_RING(ring, 0x00000003);
++      OUT_PKT0(ring, REG_A3XX_UNKNOWN_0C3D, 1);
++      OUT_RING(ring, 0x00000001);
++      OUT_PKT0(ring, REG_A3XX_HLSQ_PERFCOUNTER0_SELECT, 1);
++      OUT_RING(ring, 0x00000000);
++   }
++   if (e & B14_RG_MISC) {
++      OUT_PKT0(ring, REG_A3XX_GRAS_SC_CONTROL, 1);
++      OUT_RING(ring, A3XX_GRAS_SC_CONTROL_RENDER_MODE(RB_RENDERING_PASS) |
++                        A3XX_GRAS_SC_CONTROL_MSAA_SAMPLES(MSAA_ONE) |
++                        A3XX_GRAS_SC_CONTROL_RASTER_MODE(0));
++      OUT_PKT0(ring, REG_A3XX_RB_MSAA_CONTROL, 2);
++      OUT_RING(ring, A3XX_RB_MSAA_CONTROL_DISABLE |
++                        A3XX_RB_MSAA_CONTROL_SAMPLES(MSAA_ONE) |
++                        A3XX_RB_MSAA_CONTROL_SAMPLE_MASK(0xffff));
++      OUT_RING(ring, 0x00000000);
++      OUT_PKT0(ring, REG_A3XX_GRAS_CL_GB_CLIP_ADJ, 1);
++      OUT_RING(ring, A3XX_GRAS_CL_GB_CLIP_ADJ_HORZ(0) |
++                        A3XX_GRAS_CL_GB_CLIP_ADJ_VERT(0));
++      OUT_PKT0(ring, REG_A3XX_GRAS_CL_CLIP_CNTL, 1);
++      OUT_RING(ring, 0x00000000);
++      OUT_PKT0(ring, REG_A3XX_GRAS_SU_POINT_MINMAX, 2);
++      OUT_RING(ring, 0xffc00010);
++      OUT_RING(ring, 0x00000008);
++      OUT_PKT0(ring, REG_A3XX_PC_RESTART_INDEX, 1);
++      OUT_RING(ring, 0xffffffff);
++      OUT_PKT0(ring, REG_A3XX_RB_WINDOW_OFFSET, 1);
++      OUT_RING(ring, A3XX_RB_WINDOW_OFFSET_X(0) | A3XX_RB_WINDOW_OFFSET_Y(0));
++      OUT_PKT0(ring, REG_A3XX_RB_BLEND_RED, 4);
++      OUT_RING(ring, A3XX_RB_BLEND_RED_UINT(0) | A3XX_RB_BLEND_RED_FLOAT(0.0f));
++      OUT_RING(ring, A3XX_RB_BLEND_GREEN_UINT(0) | A3XX_RB_BLEND_GREEN_FLOAT(0.0f));
++      OUT_RING(ring, A3XX_RB_BLEND_BLUE_UINT(0) | A3XX_RB_BLEND_BLUE_FLOAT(0.0f));
++      OUT_RING(ring, A3XX_RB_BLEND_ALPHA_UINT(0xff) |
++                        A3XX_RB_BLEND_ALPHA_FLOAT(1.0f));
++      for (int i = 0; i < 6; i++) {
++         OUT_PKT0(ring, REG_A3XX_GRAS_CL_USER_PLANE(i), 4);
++         OUT_RING(ring, 0x00000000);
++         OUT_RING(ring, 0x00000000);
++         OUT_RING(ring, 0x00000000);
++         OUT_RING(ring, 0x00000000);
++      }
++      OUT_PKT0(ring, REG_A3XX_PC_VSTREAM_CONTROL, 1);
++      OUT_RING(ring, 0x00000000);
++   }
++}
+diff --color -ruN pristine/mesa-26.2.2/src/gallium/drivers/freedreno/a3xx/fd3_emit.h w/mesa-26.2.2/src/gallium/drivers/freedreno/a3xx/fd3_emit.h
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_emit.h
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_emit.h
+@@ -99,4 +99,9 @@
+                      A3XX_UCHE_CACHE_INVALIDATE1_REG_ENTIRE_CACHE);
+ }
+ 
++/* B14 diagnostic knobs (NOT FOR UPSTREAM) */
++uint32_t fd3_b14_draw_pre(struct fd_context *ctx,
++                          const struct ir3_shader_variant *fp);
++void fd3_b14_draw_end(struct fd_ringbuffer *ring);
++
+ #endif /* FD3_EMIT_H */
+diff --color -ruN pristine/mesa-26.2.2/src/gallium/drivers/freedreno/a3xx/fd3_program.c w/mesa-26.2.2/src/gallium/drivers/freedreno/a3xx/fd3_program.c
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_program.c
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_program.c
+@@ -18,6 +18,7 @@
+ #include "fd3_emit.h"
+ #include "fd3_format.h"
+ #include "fd3_program.h"
++#include "freedreno_b14.h"
+ #include "fd3_texture.h"
+ 
+ bool
+@@ -126,6 +127,26 @@
+          vpbuffer = fpbuffer = CACHE;
+          vpbuffersz = fpbuffersz = 192;
+       }
++   }
++
++   /* B14 diagnostic (NOT FOR UPSTREAM): force CACHE mode for a stage */
++   if (unlikely(fd_b14.vs_cache) && vpbuffer == BUFFER) {
++      if (fpbuffer == BUFFER) {
++         vpbuffer = CACHE;
++         vpbuffersz = 256 - fpbuffersz;
++      } else {
++         vpbuffer = fpbuffer = CACHE;
++         vpbuffersz = fpbuffersz = 192;
++      }
++   }
++   if (unlikely(fd_b14.fs_cache) && fpbuffer == BUFFER) {
++      if (vpbuffer == BUFFER) {
++         fpbuffer = CACHE;
++         fpbuffersz = 256 - vpbuffersz;
++      } else {
++         vpbuffer = fpbuffer = CACHE;
++         vpbuffersz = fpbuffersz = 192;
++      }
+    }
+ 
+    if (fpbuffer == BUFFER) {
+diff --color -ruN pristine/mesa-26.2.2/src/gallium/drivers/freedreno/freedreno_b14.h w/mesa-26.2.2/src/gallium/drivers/freedreno/freedreno_b14.h
+--- a/src/gallium/drivers/freedreno/freedreno_b14.h
++++ b/src/gallium/drivers/freedreno/freedreno_b14.h
+@@ -0,0 +1,88 @@
++/*
++ * B14 diagnostic knobs for the A306 indirect-constant hang (pocketfed#80).
++ *
++ * NOT FOR UPSTREAM.  Selected at runtime with FD3_B14, a comma separated
++ * list of <elem>[+<elem>...]@<pos> tokens and plain flags:
++ *
++ *   elements: wfi inv hlsq uche cf ts ib presv dummy restore epi(=hlsq+wfi+ts)
++ *             rpkt (restore packets, no re-emission) dirty (re-emit all state,
++ *             or only FD3_B14_DIRTY / FD3_B14_SDIRTY hex masks when set)
++ *             rg_pvt rg_tpl rg_unk rg_misc rregs(=all four): restore's
++ *             register groups (S/A positions only)
++ *   positions:
++ *     S  start of draw state, only draws whose FS emits an indirect
++ *        CP_LOAD_STATE of constants
++ *     A  start of every draw state
++ *     L  immediately before every FS indirect constant load
++ *     V  immediately before every VS indirect constant load
++ *     E  immediately after every draw packet
++ *     F  before the FS constant uploads of draws whose FS loads indirectly
++ *     M  immediately after every VS indirect constant load
++ *   flags: flushclear clearnoconst clearind vscache fscache vsdirect fsdirect
++ *     vsdirect/fsdirect upload that stage's buffer-backed constants inline
++ *     vscache/fscache force that stage's instructions into CACHE mode
++ *
++ * With FD3_B14 unset the emitted command stream is unchanged.
++ */
++
++#ifndef FREEDRENO_B14_H_
++#define FREEDRENO_B14_H_
++
++#include <stdbool.h>
++#include <stdint.h>
++
++enum fd_b14_elem {
++   B14_WFI = 1u << 0,
++   B14_INV = 1u << 1,
++   B14_HLSQ = 1u << 2,
++   B14_UCHE = 1u << 3,
++   B14_CF = 1u << 4,
++   B14_TS = 1u << 5,
++   B14_IB = 1u << 6,
++   B14_PRESV = 1u << 7,
++   B14_DUMMY = 1u << 8,
++   B14_RESTORE = 1u << 9,
++   B14_RPKT = 1u << 10,
++   B14_DIRTY = 1u << 11,
++   B14_RG_PVT = 1u << 12,
++   B14_RG_TPL = 1u << 13,
++   B14_RG_UNK = 1u << 14,
++   B14_RG_MISC = 1u << 15,
++};
++
++#define B14_RG_ALL (B14_RG_PVT | B14_RG_TPL | B14_RG_UNK | B14_RG_MISC)
++
++#define B14_DRAW_PRE (B14_RESTORE | B14_RPKT | B14_DIRTY)
++
++enum fd_b14_pos {
++   B14_POS_S,
++   B14_POS_A,
++   B14_POS_L,
++   B14_POS_V,
++   B14_POS_E,
++   B14_POS_F,
++   B14_POS_M,
++   B14_POS_COUNT,
++};
++
++struct fd_b14 {
++   uint32_t pos[B14_POS_COUNT];
++   bool flush_clear;
++   bool clear_noconst;
++   bool clear_indirect;
++   bool vs_cache;
++   bool fs_cache;
++   bool vs_direct;
++   bool fs_direct;
++   bool any;
++   bool dirty_masked;
++   uint32_t dirty_mask;
++   uint32_t sdirty_mask;
++   unsigned count[B14_POS_COUNT];
++   unsigned clears;
++};
++
++extern struct fd_b14 fd_b14;
++extern bool fd_b14_in_clear;
++
++#endif /* FREEDRENO_B14_H_ */
+diff --color -ruN pristine/mesa-26.2.2/src/gallium/drivers/freedreno/freedreno_blitter.c w/mesa-26.2.2/src/gallium/drivers/freedreno/freedreno_blitter.c
+--- a/src/gallium/drivers/freedreno/freedreno_blitter.c
++++ b/src/gallium/drivers/freedreno/freedreno_blitter.c
+@@ -16,6 +16,134 @@
+ #include "nir/pipe_nir.h"
+ 
+ #include "freedreno_blitter.h"
++#include "freedreno_b14.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "util/u_inlines.h"
++
++/* B14 diagnostic knobs, see freedreno_b14.h.  NOT FOR UPSTREAM. */
++struct fd_b14 fd_b14;
++bool fd_b14_in_clear;
++
++static void
++fd_b14_report(void)
++{
++   fprintf(stderr,
++           "FD3B14 counts S=%u A=%u L=%u V=%u E=%u F=%u M=%u clears=%u\n",
++           fd_b14.count[B14_POS_S], fd_b14.count[B14_POS_A],
++           fd_b14.count[B14_POS_L], fd_b14.count[B14_POS_V],
++           fd_b14.count[B14_POS_E], fd_b14.count[B14_POS_F],
++           fd_b14.count[B14_POS_M], fd_b14.clears);
++}
++
++static uint32_t
++fd_b14_elem(const char *name, size_t len)
++{
++   static const struct {
++      const char *name;
++      uint32_t bits;
++   } elems[] = {
++      {"wfi", B14_WFI},     {"inv", B14_INV},         {"hlsq", B14_HLSQ},
++      {"uche", B14_UCHE},   {"cf", B14_CF},           {"ts", B14_TS},
++      {"ib", B14_IB},       {"presv", B14_PRESV},     {"dummy", B14_DUMMY},
++      {"restore", B14_RESTORE}, {"rpkt", B14_RPKT},  {"dirty", B14_DIRTY},
++      {"rg_pvt", B14_RG_PVT},   {"rg_tpl", B14_RG_TPL}, {"rg_unk", B14_RG_UNK},
++      {"rg_misc", B14_RG_MISC}, {"rregs", B14_RG_ALL},
++      {"epi", B14_HLSQ | B14_WFI | B14_TS},
++   };
++   for (unsigned i = 0; i < ARRAY_SIZE(elems); i++) {
++      if (strlen(elems[i].name) == len && !strncmp(name, elems[i].name, len))
++         return elems[i].bits;
++   }
++   fprintf(stderr, "FD3B14 unknown element '%.*s'\n", (int)len, name);
++   abort();
++}
++
++static void __attribute__((constructor))
++fd_b14_init(void)
++{
++   const char *env = getenv("FD3_B14");
++   if (!env || !*env)
++      return;
++
++   char *copy = strdup(env), *save = NULL;
++   for (char *tok = strtok_r(copy, ",", &save); tok;
++        tok = strtok_r(NULL, ",", &save)) {
++      if (!strcmp(tok, "flushclear")) {
++         fd_b14.flush_clear = true;
++         continue;
++      }
++      if (!strcmp(tok, "clearnoconst")) {
++         fd_b14.clear_noconst = true;
++         continue;
++      }
++      if (!strcmp(tok, "clearind")) {
++         fd_b14.clear_indirect = true;
++         continue;
++      }
++      if (!strcmp(tok, "vscache")) {
++         fd_b14.vs_cache = true;
++         continue;
++      }
++      if (!strcmp(tok, "fscache")) {
++         fd_b14.fs_cache = true;
++         continue;
++      }
++      if (!strcmp(tok, "vsdirect")) {
++         fd_b14.vs_direct = true;
++         continue;
++      }
++      if (!strcmp(tok, "fsdirect")) {
++         fd_b14.fs_direct = true;
++         continue;
++      }
++      char *at = strchr(tok, '@');
++      if (!at || strlen(at) != 2) {
++         fprintf(stderr, "FD3B14 bad token '%s'\n", tok);
++         abort();
++      }
++      static const char positions[] = "SALVEFM";
++      const char *p = strchr(positions, at[1]);
++      if (!p) {
++         fprintf(stderr, "FD3B14 bad position in '%s'\n", tok);
++         abort();
++      }
++      uint32_t bits = 0;
++      for (char *e = tok; e < at;) {
++         char *plus = memchr(e, '+', at - e);
++         char *end = plus ? plus : at;
++         bits |= fd_b14_elem(e, end - e);
++         e = plus ? plus + 1 : at;
++      }
++      fd_b14.pos[p - positions] |= bits;
++   }
++   free(copy);
++
++   const char *dm = getenv("FD3_B14_DIRTY"), *sm = getenv("FD3_B14_SDIRTY");
++   if ((dm && *dm) || (sm && *sm)) {
++      fd_b14.dirty_masked = true;
++      fd_b14.dirty_mask = dm ? strtoul(dm, NULL, 16) : 0;
++      fd_b14.sdirty_mask = sm ? strtoul(sm, NULL, 16) : 0;
++      fprintf(stderr, "FD3B14 dirty_mask=%#x sdirty_mask=%#x\n",
++              fd_b14.dirty_mask, fd_b14.sdirty_mask);
++   }
++
++   fd_b14.any = true;
++   fprintf(stderr,
++           "FD3B14 knobs=%s S=%#x A=%#x L=%#x V=%#x E=%#x F=%#x M=%#x "
++           "flushclear=%d clearnoconst=%d clearind=%d vscache=%d fscache=%d "
++           "vsdirect=%d fsdirect=%d\n",
++           env, fd_b14.pos[B14_POS_S], fd_b14.pos[B14_POS_A],
++           fd_b14.pos[B14_POS_L], fd_b14.pos[B14_POS_V],
++           fd_b14.pos[B14_POS_E], fd_b14.pos[B14_POS_F],
++           fd_b14.pos[B14_POS_M], fd_b14.flush_clear, fd_b14.clear_noconst,
++           fd_b14.clear_indirect, fd_b14.vs_cache, fd_b14.fs_cache,
++           fd_b14.vs_direct, fd_b14.fs_direct);
++   atexit(fd_b14_report);
++}
+ #include "freedreno_context.h"
+ #include "freedreno_fence.h"
+ #include "freedreno_resource.h"
+@@ -299,6 +427,15 @@
+       .buffer_size = 16,
+       .user_buffer = &color->ui,
+    };
++   struct pipe_resource *b14_color = NULL;
++   if (unlikely(fd_b14.clear_indirect)) {
++      /* B14: make the clear's FS constant upload an indirect load. */
++      b14_color = pipe_buffer_create_with_data(pctx, PIPE_BIND_CONSTANT_BUFFER,
++                                               PIPE_USAGE_STREAM, 16,
++                                               &color->ui);
++      cb.user_buffer = NULL;
++      cb.buffer = b14_color;
++   }
+    pctx->set_constant_buffer(pctx, MESA_SHADER_FRAGMENT, 0, &cb);
+ 
+    unsigned rs_idx = pfb->samples > 1 ? 1 : 0;
+@@ -350,7 +487,10 @@
+       .count = 2,
+    };
+ 
++   fd_b14_in_clear = true;
++   fd_b14.clears++;
+    pctx->draw_vbo(pctx, &info, 0, NULL, &draw, 1);
++   fd_b14_in_clear = false;
+ 
+    /* We expect that this should not have triggered a change in pfb: */
+    assert(util_framebuffer_state_equal(pfb, &ctx->framebuffer));
+@@ -363,6 +503,16 @@
+    util_blitter_unset_running_flag(blitter);
+ 
+    fd_blitter_pipe_end(ctx);
++
++   if (b14_color) {
++      /* the binding was restored above; drop our reference */
++      pipe_resource_reference(&b14_color, NULL);
++   }
++
++   if (unlikely(fd_b14.flush_clear)) {
++      /* B14: end the batch (and its submit) right after the clear. */
++      pctx->flush(pctx, NULL, 0);
++   }
+ }
+ 
+ /* Partially generic clear_render_target implementation using u_blitter */
