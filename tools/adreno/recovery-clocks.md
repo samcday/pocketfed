@@ -6,7 +6,8 @@ Six independently booted DB410c sessions now show the same six-clock reference
 increment after recovery. A separate [draft kernel correction](https://github.com/samcday/linux/pull/5)
 is available for review. The matching Fedora module now loads and keeps all
 six clocks balanced across two real recoveries; rendering works afterward.
-Ordinary idle suspend remains unresolved and is being checked against stock.
+Clean stock B10 independently reproduces the ordinary idle-suspend failure;
+its separate [VBIF mask defect](vbif-halt.md) is under test.
 
 There is an ignored-error path in the actual Fedora 7.3-rc3 module that matches
 the measured accumulation of clock references during recovery. This is separate
@@ -140,13 +141,16 @@ t17 completes full R3 with stock+sysmem,flush after the display service's
 automatic restart; its captured PNG matches the earlier reference byte-for-byte.
 See the [hardware ledger](hardware-20260923.md) for fences, times and dump hashes.
 
-Ordinary runtime-PM coverage is still unresolved. In t19, stopping the display
-service leaves no DRM clients, but the normal A3xx callback returns `-EBUSY`;
-the GPU stays active and generic suspend/resume is never called. The display
-service was restored, and all probes were saved/cleaned up. Because this check
-followed two recoveries, a clean stock-kernel comparison is needed to distinguish
-a preexisting idle-suspend problem from any candidate regression. The PR remains
-a draft while that comparison is in progress.
+Ordinary runtime-PM checking found a separate problem. In B9/t19, stopping the
+display service leaves no DRM clients, but normal A3xx suspend returns `-EBUSY`.
+Fresh stock B10/t20 reproduces that failure without a preceding recovery: both
+idle checks pass before suspend fails. B10/t21 shows the driver waiting for
+six VBIF halt bits although A306 reads back and acknowledges only three.
+Qualcomm's downstream A306 mask corroborates the result. The separate
+[mask correction](https://github.com/samcday/linux/pull/6) is under test; this
+recovery patch leaves ordinary suspend unchanged. See [the detailed audit](vbif-halt.md).
+All B9/t19 and B10 traces have zero probe/buffer loss and successful cleanup;
+the display service was restored before each reboot.
 
 ## Read-only measurement recipe
 
