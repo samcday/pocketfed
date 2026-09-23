@@ -147,8 +147,9 @@ The `FD_BO_NOMAP` check is in
    hang on hardware. The return was not recorded, so this does not establish
    that prep succeeded. A follow-up must capture failure status and exclude
    nonzero returns from evidence about a successful READ prep.
-   The [checked follow-up](fd3-const-wait-checked.patch) is built; its hardware
-   result remains pending.
+   The [checked follow-up](fd3-const-wait-checked.patch) also hangs on hardware
+   without a reported prep/fence-wait error or abort. This rules out a hidden
+   reported failure for that run, but does not prove the wait blocked.
 2. Repeat **direct without prep** with matched instrumentation, ideally
    without per-upload logging, using the known CPU-initialized reproducer.
    Include **direct with prep** to complete the transport/wait comparison.
@@ -233,7 +234,10 @@ must count as a failed diagnostic, not as evidence about successful prep.
 The matched release/O3 ARM64 build passes the same static loader ABI gate.
 Stripped library SHA-256:
 `83c0213cb96d3a3606b81d8b525125f565dedb3d7b1e8253c23b5cc608c1e8f2`.
-Hardware testing remains pending.
+B8/t15 also hangs on hardware without the error message or abort, after the
+actual loaded library was verified. The unchanged indirect loads and captured
+fragment shader remain present in its devcoredump. This does not establish a
+blocking wait; see the [hardware ledger](hardware-20260923.md).
 
 ## Matched upload controls
 
@@ -346,8 +350,8 @@ replays, pixel comparisons and recovery-clock measurements are recorded in the
 [hardware ledger](hardware-20260923.md).
 
 See [recovery-clocks.md](recovery-clocks.md) for the separate recovery defect:
-all five fresh-boot negative controls incremented all six GPU-owned clock references;
-B5/B6 directly traced the failed recovery suspend followed by resume.
+all six fresh-boot negative controls incremented all six GPU-owned clock references;
+B5/B6/B8 directly traced the failed recovery suspend followed by resume.
 
 ## Fresh-source indirect diagnostic
 

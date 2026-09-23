@@ -2,7 +2,7 @@
 
 Source, binary and hardware evidence, 2026-09-23. This addresses Rob Clark's
 [recovery question](https://gitlab.freedesktop.org/mesa/mesa/-/work_items/12634#note_3674373).
-Five independently booted DB410c sessions now show the same six-clock reference
+Six independently booted DB410c sessions now show the same six-clock reference
 increment after recovery. A separate [draft kernel correction](https://github.com/samcday/linux/pull/5)
 is available for review; the complete module builds against the exact Fedora
 configuration and headers, but it has not been loaded or tested on hardware.
@@ -36,9 +36,9 @@ A software reset may zero hardware RPTR while the software WPTR still describes
 the old submission. The existing [W6 report](https://github.com/samcday/pocketfed/issues/80#issuecomment-5758800870)
 records recovery followed one second later by a ring-drain timeout with
 RPTR/WPTR `0/198A`. The new clock measurements below repeat this timeout pattern
-and directly establish reference growth. Scoped B5/B6 kretprobes now directly
+and directly establish reference growth. Scoped B5/B6/B8 kretprobes now directly
 confirm the recovery suspend returning `-EBUSY`, followed by successful resume
-without a generic suspend call. Both captures have zero missed probes and
+without a generic suspend call. All three captures have zero missed probes and
 zero per-CPU buffer overruns/dropped events.
 
 Recovery holds a runtime-PM reference and invokes the callbacks directly.
@@ -59,8 +59,9 @@ unchanged official Fedora kernel:
 | B3 / t12 | fresh-source indirect, sysmem, minimal trace | 162.738 / 162.760 / 163.826 s | `0/180E` | phoc 1059 crashed with SIGSEGV; absent from final process check |
 | B5 / t13 | stock with assertions, sysmem, minimal trace | 223.729 / 223.751 / 224.823 s | `0/1F32` | phoc 1065 crashed with SIGSEGV |
 | B6 / t14 | !44620 with assertions, sysmem, minimal trace | 389.743 / 389.766 / 390.837 s | `0/7E0` | phoc 1055 crashed with SIGSEGV |
+| B8 / t15 | checked-wait, sysmem, minimal trace | 221.744 / 221.766 / 222.838 s | `0/15EA` | phoc 1029 crashed with SIGSEGV |
 
-Each event started from its own boot's baseline. In all five, these enable **and**
+Each event started from its own boot's baseline. In all six, these enable **and**
 prepare counts changed together:
 
 | GPU bulk clock | Before | After |
@@ -152,12 +153,11 @@ bash /run/trace-recovery-returns.sh stop /run/a3xx-returns-t13
 
 The script passes `bash -n`, ShellCheck and pure argument/probe-definition
 checks. Configuration, symbols and syntax were checked against the exact
-Fedora inputs. It was successfully used on B5/t13 and B6/t14, with zero missed
-probes and
-zero buffer loss. The recovery return pairs came from `adreno_recover+0x34`
+Fedora inputs. It was successfully used on B5/t13, B6/t14 and B8/t15, with
+zero missed probes and zero buffer loss. The recovery return pairs came from `adreno_recover+0x34`
 (suspend `-16`) and `+0x44` (resume 0); other failed suspend returns came from
 `adreno_runtime_suspend` and must not be conflated with recovery. Trace
-instance cleanup succeeded on both runs. Preserve its state directory
+instance cleanup succeeded on all three runs. Preserve its state directory
 before reboot. Missing events are inconclusive if probes were missed, buffers
 overflowed or a callback never returned. Probes add overhead; use the same
 setup for baseline and candidate comparisons. A zero return alone does not
