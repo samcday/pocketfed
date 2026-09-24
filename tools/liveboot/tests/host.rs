@@ -393,7 +393,12 @@ fn local_profile_cannot_override_serial_probe() {
 fn failed_preparation_leaves_no_output() {
     let fixture = Fixture::new();
     fixture.bundle(&[], true);
-    fs::remove_file(fixture.path("bundle/boot-artifacts.ext4")).unwrap();
+    for entry in fs::read_dir(fixture.path("bundle")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|ext| ext == "ext4") {
+            fs::remove_file(path).unwrap();
+        }
+    }
     fixture.cli(&["image", "bundle", "--output", "boot.img"], false);
     assert!(!fixture.path("boot.img").exists());
     assert!(!fs::read_dir(fixture.dir.path()).unwrap().any(|entry| {
@@ -467,8 +472,13 @@ fn parse_newc(initrd: &[u8], mut offset: usize) -> Vec<NewcEntry> {
 }
 
 fn assert_ignition_archive(fixture: &Fixture, initrd: &[u8]) {
+    assert_ignition_archive_for(fixture, initrd, IGNITION);
+}
+
+fn assert_ignition_archive_for(fixture: &Fixture, initrd: &[u8], config: &str) {
     assert_eq!(&initrd[..fixture.initrd.len()], fixture.initrd);
-    let start = fixture.initrd.len().next_multiple_of(4);
+    // At least four zero bytes, so an lz4 legacy stream ends before it.
+    let start = (fixture.initrd.len() + 4).next_multiple_of(4);
     assert!(initrd[fixture.initrd.len()..start].iter().all(|&b| b == 0));
     // The kernel reaches the second archive after inflating the first.
     let mut decoder = flate2::bufread::GzDecoder::new(initrd);
@@ -483,7 +493,7 @@ fn assert_ignition_archive(fixture: &Fixture, initrd: &[u8]) {
     assert_eq!(entries[0].mode, 0o040700);
     assert_eq!(entries[1].name, "etc/ignition/user.ign");
     assert_eq!(entries[1].mode, 0o100600);
-    assert_eq!(entries[1].data, IGNITION.as_bytes());
+    assert_eq!(entries[1].data, config.as_bytes());
     assert!(entries.iter().all(|entry| entry.uid == 0 && entry.gid == 0));
 }
 
@@ -549,6 +559,10 @@ fn unsupported_ignition_configs_are_rejected_before_creating_bundle() {
     let fixture = Fixture::new();
     for (config, message) in [
         ("not json", "Ignition JSON config"),
+        (
+            r#"{"ignition":{"version":"3.4.0","config":{"replace":{"source":"https://deploy:hunter2@example.invalid/b.ign#secret"}}}}"#,
+            "https://example.invalid/b.ign",
+        ),
         (r#"{"passwd":{}}"#, "no ignition.version"),
         (
             r#"{"ignition":{"version":"3.4.0","config":{"merge":[{"source":"https://example.invalid/a.ign?token=secret"}]}}}"#,
@@ -566,7 +580,10 @@ fn unsupported_ignition_configs_are_rejected_before_creating_bundle() {
         fs::write(fixture.path("config.ign"), config).unwrap();
         let output = fixture.bundle(&["--ignition", "config.ign"], false);
         assert_error(output.clone(), message);
-        assert!(!String::from_utf8_lossy(&output.stderr).contains("token=secret"));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        for secret in ["token=secret", "hunter2", "#secret"] {
+            assert!(!stderr.contains(secret), "{stderr}");
+        }
         assert!(!fixture.path("bundle").exists());
     }
     fs::write(fixture.path("config.ign"), IGNITION).unwrap();
@@ -595,4 +612,53 @@ fn command_line_is_limited_to_one_header_field() {
     fs::remove_dir_all(fixture.path("bundle")).unwrap();
     fs::write(fixture.path("cmdline"), image_args(511 - 131)).unwrap();
     fixture.bundle(&[], true);
+}
+
+#[test]
+fn inline_data_sources_are_not_remote() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.path("config.ign"),
+        r#"{"ignition":{"version":"3.4.0","config":{"merge":[{"source":"DATA:,%7B%22ignition%22%3A%7B%22version%22%3A%223.4.0%22%7D%7D"}]}}}"#,
+    )
+    .unwrap();
+    fixture.bundle(&["--ignition", "config.ign"], true);
+}
+
+#[test]
+fn rebuilt_bundle_never_boots_a_cached_config() {
+    // Same length, so the old artifacts image and its cache would line up.
+    let first = IGNITION;
+    let second = IGNITION.replace("core", "cora");
+    let mut fixture = Fixture::new();
+    unaligned_initrd(&mut fixture);
+    for config in [first, second.as_str()] {
+        let _ = fs::remove_dir_all(fixture.path("bundle"));
+        let _ = fs::remove_file(fixture.path("boot.img"));
+        fs::write(fixture.path("config.ign"), config).unwrap();
+        fixture.bundle(&["--ignition", "config.ign"], true);
+        let image = fixture.image();
+        let kernel_len = u32_at(&image, 8) as usize;
+        let start = 4096 + kernel_len.div_ceil(4096) * 4096;
+        let initrd = &image[start..start + u32_at(&image, 16) as usize];
+        assert_ignition_archive_for(&fixture, initrd, config);
+    }
+}
+
+#[test]
+fn shim_markers_count_toward_the_command_line_limit() {
+    let fixture = Fixture::new();
+    let mut shim = vec![0x5a; 128];
+    shim[16..24].copy_from_slice(&128u64.to_le_bytes());
+    shim[56..60].copy_from_slice(b"ARM\x64");
+    fs::write(fixture.path("shim"), &shim).unwrap();
+    let image_args = |len: usize| format!("p={}", "a".repeat(len - 2));
+    fs::write(fixture.path("cmdline"), image_args(511 - 131)).unwrap();
+    assert_error(
+        fixture.bundle(&["--shim", "shim"], false),
+        "can reach 519 bytes",
+    );
+    assert!(!fixture.path("bundle").exists());
+    fs::write(fixture.path("cmdline"), image_args(511 - 139)).unwrap();
+    fixture.bundle(&["--shim", "shim"], true);
 }

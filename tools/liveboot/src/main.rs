@@ -16,6 +16,7 @@ use fastboop_environment_std::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
 const FASTBOOP_REV: &str = "1e6d64b3c375d46f2029122902f4564d36f5498b";
@@ -188,7 +189,11 @@ fn bundle(args: BundleArgs) -> Result<()> {
         .map(|part| part.len() + 1)
         .sum::<usize>()
         .saturating_sub(1)
-        + if requires_shim { "<S>  <E>".len() } else { 0 };
+        + if requires_shim || shim.is_some() {
+            "<S>  <E>".len()
+        } else {
+            0
+        };
     if longest > SAFE_CMDLINE_LEN && !args.allow_long_cmdline {
         bail!(
             "the kernel command line can reach {longest} bytes; bootloaders reading only the first Android header field keep {SAFE_CMDLINE_LEN} (override with --allow-long-cmdline)"
@@ -212,19 +217,34 @@ fn bundle(args: BundleArgs) -> Result<()> {
     fs::copy(&kernel, &staged_kernel)?;
     fs::copy(&initrd, &staged_initrd)?;
     if let Some(config) = &ignition {
-        append_ignition(&staged_initrd, config)?;
+        // fs::copy keeps the source's mode, which may be read-only.
+        fs::set_permissions(&staged_initrd, fs::Permissions::from_mode(0o600))?;
+        append_ignition(&staged_initrd, config).with_context(|| {
+            format!("append the Ignition config to {}", staged_initrd.display())
+        })?;
     }
     fs::create_dir_all(staged_dtb.parent().unwrap())?;
     fs::copy(&dtb, &staged_dtb)?;
-    let bytes = [staged_kernel, staged_initrd, staged_dtb].iter().try_fold(
-        32 * 1024 * 1024u64,
-        |total, path| -> Result<u64> {
+    let staged = [staged_kernel, staged_initrd, staged_dtb];
+    let bytes = staged
+        .iter()
+        .try_fold(32 * 1024 * 1024u64, |total, path| -> Result<u64> {
             total
                 .checked_add(fs::metadata(path)?.len())
                 .context("artifact size overflow")
-        },
-    )?;
-    let artifacts = out.join("boot-artifacts.ext4");
+        })?;
+    // fastboop caches file sources by path and size, not content. Name the
+    // image after its inputs so a rebuilt bundle at the same path can never be
+    // served stale blocks, such as a previous Ignition config.
+    let mut digest = Sha256::new();
+    for path in &staged {
+        digest.update(fs::read(path)?);
+    }
+    let id: String = digest.finalize()[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let artifacts = out.join(format!("boot-artifacts-{id}.ext4"));
     let status = Command::new("mkfs.ext4")
         .args(["-q", "-F", "-b", "4096", "-d"])
         .arg(staging.path())
@@ -339,16 +359,8 @@ fn remote_sources(value: &serde_json::Value, found: &mut Vec<String>) {
         serde_json::Value::Object(map) => {
             for (key, value) in map {
                 match (key.as_str(), value.as_str()) {
-                    ("source", Some(source))
-                        if !source.is_empty() && !source.starts_with("data:") =>
-                    {
-                        found.push(
-                            source
-                                .split(['?', '#'])
-                                .next()
-                                .unwrap_or(source)
-                                .to_string(),
-                        )
+                    ("source", Some(source)) if !source.is_empty() && !is_data_url(source) => {
+                        found.push(redact_url(source))
                     }
                     _ => remote_sources(value, found),
                 }
@@ -359,9 +371,31 @@ fn remote_sources(value: &serde_json::Value, found: &mut Vec<String>) {
     }
 }
 
+fn is_data_url(source: &str) -> bool {
+    source
+        .get(..5)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
+}
+
+/// Keep a URL recognisable in an error without its credentials, query or
+/// fragment, any of which may hold a secret.
+fn redact_url(source: &str) -> String {
+    let source = source.split(['?', '#']).next().unwrap_or_default();
+    match source.split_once("://") {
+        Some((scheme, rest)) => {
+            let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+            let host = authority.rsplit('@').next().unwrap_or_default();
+            format!("{scheme}://{host}{path}")
+        }
+        None => source.split(':').next().unwrap_or_default().to_string() + ":…",
+    }
+}
+
 /// Append the config as a second, uncompressed newc archive. The kernel unpacks
 /// concatenated initramfs archives in order; an uncompressed one must start on a
 /// 4-byte boundary, and a file is skipped unless its directory already exists.
+/// At least four zero bytes go first: lz4 legacy streams have no end marker,
+/// and the kernel's decoder stops only at a zero chunk size.
 fn append_ignition(initrd: &Path, config: &[u8]) -> Result<()> {
     fn entry(archive: &mut Vec<u8>, ino: u32, mode: u32, name: &str, data: &[u8]) {
         let fields = [
@@ -398,7 +432,7 @@ fn append_ignition(initrd: &Path, config: &[u8]) -> Result<()> {
 
     let mut file = fs::OpenOptions::new().append(true).open(initrd)?;
     let len = file.metadata()?.len();
-    let padding = len.next_multiple_of(4) - len;
+    let padding = (len + 4).next_multiple_of(4) - len;
     file.write_all(&vec![0; padding as usize])?;
     file.write_all(&archive)?;
     Ok(())
