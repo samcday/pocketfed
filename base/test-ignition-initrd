@@ -65,7 +65,11 @@ has() {
     grep -Eq " $1( |$)" "$work/ignition.list"
 }
 # Fedora merges sbin into bin; accept either.
-for command in ignition ignition-kargs-helper setfiles useradd jq; do
+for command in \
+    ignition ignition-kargs-helper basename chmod groupadd groupdel groupmod \
+    head jq lsblk mountpoint realpath sed setfiles stat sync systemd-tmpfiles \
+    useradd userdel usermod
+do
     has "usr/s?bin/$command" || fail "the Ignition initrd lacks $command"
 done
 for path in \

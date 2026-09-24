@@ -49,14 +49,15 @@ qemu and the Android boot image budget has no room for the rest. Around
 Ignition's stages it adds:
 
 - `pocketfed-ignition-guard.service` fails the boot, before any stage acts on
-  the config, if the merged config needs the network or contains
+  the config, if no user config was supplied, or if the user config (with its
+  merges) or any base fragment needs the network or contains
   `kernelArguments`, `storage.disks`, `storage.filesystems`, `storage.luks` or
   `storage.raid`.
-- `pocketfed-ignition-mount-var.service` bind-mounts the booted deployment's
-  stateroot `/var` on `/sysroot/var`, so users, home directories, SSH keys and
-  `/var` files land where the real root will see them. It finds the
-  deployment by inode, which works for `ostree=true` with a slot suffix, an
-  explicit `ostree=` path and liveboot alike.
+- `pocketfed-ignition-mount-var.service` refuses a deployment that has booted
+  before, then bind-mounts its stateroot `/var` on `/sysroot/var`, so users,
+  home directories, SSH keys and `/var` files land where the real root will see
+  them. It finds the deployment by inode, which works for `ostree=true` with a
+  slot suffix, an explicit `ostree=` path and liveboot alike.
 - `pocketfed-ignition-populate-var.service` creates and labels the `/var`
   layout a fresh stateroot may lack.
 - `pocketfed-ignition-finish.service` makes the cached config in `/run`
@@ -75,8 +76,10 @@ guard checks the merged result again at boot.
 
 Supported: users and groups, SSH keys, files, directories and links under
 `/etc` and `/var`, systemd units and drop-ins, and NetworkManager keyfiles.
-Unit enablement works because PocketFed images boot their first boot with an
-`uninitialized` machine ID, so systemd applies Ignition's presets.
+Ignition enables units through presets, which systemd applies only on a
+deployment's first boot, so an installed deployment must be provisioned on
+the first boot after flashing. The initrd refuses one whose machine ID is
+already set; reflash it instead.
 
 Configs must be complete offline: inline `data:` sources and local merges
 only. Fetch large or architecture-specific payloads, such as k3s or sysexts,
@@ -105,6 +108,7 @@ install -m 0600 config.ign cfg/etc/ignition/user.ign
 (cd cfg && find etc/ignition | cpio --quiet -o -H newc -R 0:0) >config.cpio
 
 cp provision-initramfs.img provision.img
+head -c 4 /dev/zero >>provision.img
 truncate -s %4 provision.img
 cat config.cpio >>provision.img
 ```
@@ -112,7 +116,8 @@ cat config.cpio >>provision.img
 The archive needs its `etc/ignition` directory entry; the kernel skips files
 whose parent directory is missing. It must not contain `etc` itself, or the
 initrd's `/etc` takes the archive's mode. The second archive must start on a
-4-byte boundary. Keep the command line within 511 bytes: U-Boot and Pocketboot
+4-byte boundary, after at least four zero bytes: an lz4 initrd otherwise reads
+the archive as another compressed chunk and the config is lost. Keep the command line within 511 bytes: U-Boot and Pocketboot
 can drop anything beyond the first Android boot image header field.
 
 ## Secrets

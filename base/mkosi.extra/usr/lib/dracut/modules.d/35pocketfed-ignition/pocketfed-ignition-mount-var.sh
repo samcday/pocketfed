@@ -1,5 +1,6 @@
 #!/bin/bash
-# Bind the booted deployment's stateroot /var onto /sysroot/var for Ignition.
+# Bind the booted deployment's stateroot /var onto /sysroot/var for Ignition,
+# after checking the deployment has not booted before.
 #
 # ostree-prepare-root does not mount /var in a systemd initrd; the real
 # root's var.mount does that after switch-root. Anything Ignition writes to
@@ -35,6 +36,14 @@ do_mount() {
     done
     [[ -n $deployment ]] ||
         fatal "no deployment under /sysroot/sysroot/ostree is /sysroot (composefs is unsupported)"
+
+    # Ignition enables units through presets, which systemd applies only on
+    # a deployment's first boot. Provisioning after a normal boot would
+    # silently leave them disabled.
+    if [[ -e /sysroot/etc/machine-id ]] &&
+        [[ $(head -n 1 /sysroot/etc/machine-id) != uninitialized ]]; then
+        fatal "the deployment has booted before; reflash it and provision its first boot"
+    fi
 
     stateroot=${deployment%/deploy/*}
     var=$stateroot/var

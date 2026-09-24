@@ -111,6 +111,7 @@ stateroot=$phys/ostree/deploy/pocketfed
 deployment=$stateroot/deploy/0123456789abcdef.0
 mkdir -p "$stateroot/var" "$deployment"/{usr,var,sysroot}
 cp -a /etc "$deployment/etc"
+printf '%s\n' uninitialized >"$deployment/etc/machine-id"
 ln -s var/home "$deployment/home"
 ln -s var/roothome "$deployment/root"
 [[ -d /sysroot ]] || fail "missing /sysroot mount point"
@@ -161,17 +162,45 @@ merged=$(printf '%s' '{"ignition":{"version":"3.4.0"},"storage":{"filesystems":[
 guard_rejects merged storage.filesystems <<EOF
 {"ignition":{"version":"3.4.0","config":{"merge":[{"source":"data:;base64,$merged"}]}}}
 EOF
+mkdir -p "$work/local/base.d"
+printf '%s\n' '{"ignition":{"version":"3.4.0"},"storage":{"luks":[{"name":"x","device":"/dev/null"}]}}' \
+    >"$work/local/base.d/10-luks.ign"
+guard_rejects fragment storage.luks <<'EOF'
+{"ignition":{"version":"3.4.0"}}
+EOF
+rm "$work/local/base.d/10-luks.ign"
+
+# Without a user config Ignition would run the base configs alone.
+reset_run
+rm -f "$work/local/user.ign"
+stage fetch-offline >"$work/empty.log" 2>&1 || fail "fetch-offline failed without a user config"
+if /usr/libexec/pocketfed-ignition-guard >>"$work/empty.log" 2>&1; then
+    fail "guard accepted a boot without a user config"
+fi
+grep -Fq 'no user config' "$work/empty.log" || fail "guard did not report the missing user config"
 
 # A provisioning boot can drop the default core user by shadowing its base
-# config from /etc/ignition.
+# config from /etc/ignition. The cached config never includes base configs,
+# so check which fragment Ignition read.
 reset_run
-mkdir -p "$work/local/base.d"
 printf '%s\n' '{"ignition":{"version":"3.4.0"}}' >"$work/local/base.d/00-core.ign"
 printf '%s\n' '{"ignition":{"version":"3.4.0"}}' >"$work/local/user.ign"
 stage fetch-offline >"$work/no-core.log" 2>&1 || fail "fetch-offline failed without core"
-jq -e '[.passwd.users[]?.name] | index("core") == null' /run/ignition.json >/dev/null ||
+grep -Fq "reading system config file \"$work/local/base.d/00-core.ign\"" "$work/no-core.log" ||
+    fail "Ignition did not read the shadowing base.d/00-core.ign"
+if grep -Fq "$work/system/base.d/00-core.ign" "$work/no-core.log"; then
     fail "shadowing base.d/00-core.ign did not drop core"
+fi
 rm -r "$work/local/base.d"
+
+# A deployment that has booted once would silently ignore unit presets.
+printf '%s\n' 0123456789abcdef0123456789abcdef >"$deployment/etc/machine-id"
+if /usr/libexec/pocketfed-ignition-mount-var mount >"$work/booted.log" 2>&1; then
+    fail "mount-var accepted a deployment that has booted before"
+fi
+grep -Fq 'has booted before' "$work/booted.log" || fail "mount-var did not report the booted deployment"
+! mountpoint -q /sysroot/var || fail "mount-var mounted /var for a booted deployment"
+printf '%s\n' uninitialized >"$deployment/etc/machine-id"
 
 # A config in the supported subset, applied the way the initrd units run it.
 reset_run
