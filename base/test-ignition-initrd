@@ -91,8 +91,9 @@ for unit in \
     pocketfed-ignition-populate-var.service \
     pocketfed-ignition-finish.service
 do
-    grep -Eq " usr/lib/systemd/system/ignition-complete\.target\.requires/${unit//./\\.} -> " \
-        "$work/ignition.list" || fail "$unit is not required by ignition-complete.target"
+    # systemctl add-requires links units from the initrd's /etc.
+    has "(etc|usr/lib)/systemd/system/ignition-complete\.target\.requires/${unit//./\\.}" ||
+        fail "$unit is not required by ignition-complete.target"
 done
 
 normal=$(stat -c %s "$work/normal.img")
