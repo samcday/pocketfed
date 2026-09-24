@@ -233,6 +233,14 @@ bind_readonly /dev "$deployment/dev"
 mount -t proc -o ro,nosuid,nodev,noexec proc "$deployment/proc"
 namespace_mounts+=("$deployment/proc")
 bind_readonly /sys "$deployment/sys"
+# The artifacts are an offline install for the phone, so hide the build host's
+# firmware.  bootupd 0.3.2 treats /sys/firmware/efi as "EFI booted" and then
+# probes for GrubCC/systemd-boot state on a partitioned ESP colocated with
+# /sysroot, which a partitionless loop image cannot satisfy ("No ESP
+# partition found among backing devices").
+mount -t tmpfs -o ro,mode=0555,nosuid,nodev,noexec tmpfs "$deployment/sys/firmware"
+namespace_mounts+=("$deployment/sys/firmware")
+[[ ! -e "$deployment/sys/firmware/efi" ]]
 bind_readonly /run "$deployment/run"
 mount -t tmpfs -o mode=1777,nosuid,nodev,noexec tmpfs "$deployment/tmp"
 namespace_mounts+=("$deployment/tmp")
@@ -257,7 +265,8 @@ mountpoint -q "$deployment/sysroot/boot/efi"
 
 # --write-uuid implies static GRUB configs.  Omitting --device,
 # --filesystem, and --update-firmware forces the already-mounted ESP path and
-# prevents both backing-device partition discovery and NVRAM changes.
+# prevents both backing-device partition discovery and NVRAM changes.  The
+# GRUB state check on /sysroot/boot still refuses a genuine re-install.
 /usr/bin/chroot "$deployment" /usr/bin/bootupctl backend install \
     --src-root / \
     --component EFI \
