@@ -37,7 +37,7 @@ while IFS= read -r candidate; do
 done
 
 [ -s "$selected_file" ] || fail "no candidate drivers resolve for $kver"
-for required in mmc_core mmc_block sdhci sdhci_pltfm sdhci_msm; do
+for required in rpm_proc mmc_core mmc_block sdhci sdhci_pltfm sdhci_msm; do
     grep -Fxq "$required" "$selected_file" ||
         fail "mandatory eMMC driver does not resolve: $required"
 done
