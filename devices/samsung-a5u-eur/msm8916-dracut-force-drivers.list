@@ -6,6 +6,8 @@ smem
 socinfo
 cmd-db
 qcom_smd
+# rpm-proc hosts the RPM SMD edge every RPM regulator, clock and bus hangs off.
+rpm-proc
 smd-rpm
 rpmpd
 clk-smd-rpm
