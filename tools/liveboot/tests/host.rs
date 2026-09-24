@@ -561,12 +561,12 @@ fn unsupported_ignition_configs_are_rejected_before_creating_bundle() {
         ("not json", "Ignition JSON config"),
         (
             r#"{"ignition":{"version":"3.4.0","config":{"replace":{"source":"https://deploy:hunter2@example.invalid/b.ign#secret"}}}}"#,
-            "https://example.invalid/b.ign",
+            "https://example.invalid/…",
         ),
         (r#"{"passwd":{}}"#, "no ignition.version"),
         (
-            r#"{"ignition":{"version":"3.4.0","config":{"merge":[{"source":"https://example.invalid/a.ign?token=secret"}]}}}"#,
-            "https://example.invalid/a.ign",
+            r#"{"ignition":{"version":"3.4.0","config":{"merge":[{"source":"https://example.invalid/capability/hunter3?token=secret"}]}}}"#,
+            "https://example.invalid/…",
         ),
         (
             r#"{"ignition":{"version":"3.4.0"},"kernelArguments":{"shouldExist":["quiet"]}}"#,
@@ -581,7 +581,7 @@ fn unsupported_ignition_configs_are_rejected_before_creating_bundle() {
         let output = fixture.bundle(&["--ignition", "config.ign"], false);
         assert_error(output.clone(), message);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        for secret in ["token=secret", "hunter2", "#secret"] {
+        for secret in ["token=secret", "hunter2", "hunter3", "#secret"] {
             assert!(!stderr.contains(secret), "{stderr}");
         }
         assert!(!fixture.path("bundle").exists());

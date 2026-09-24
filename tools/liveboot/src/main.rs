@@ -377,15 +377,14 @@ fn is_data_url(source: &str) -> bool {
         .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
 }
 
-/// Keep a URL recognisable in an error without its credentials, query or
-/// fragment, any of which may hold a secret.
+/// Name a remote source in an error by scheme and host only: credentials,
+/// capability paths, queries and fragments may all be secrets.
 fn redact_url(source: &str) -> String {
-    let source = source.split(['?', '#']).next().unwrap_or_default();
     match source.split_once("://") {
         Some((scheme, rest)) => {
-            let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+            let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
             let host = authority.rsplit('@').next().unwrap_or_default();
-            format!("{scheme}://{host}{path}")
+            format!("{scheme}://{host}/…")
         }
         None => source.split(':').next().unwrap_or_default().to_string() + ":…",
     }
