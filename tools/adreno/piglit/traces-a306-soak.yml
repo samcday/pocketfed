@@ -1,0 +1,25 @@
+%YAML 1.2
+---
+# Derived from src/freedreno/ci/traces-freedreno.yml at d39138dcdcd for the
+# DB410c soak: freedreno-a306 entries only, hang/crash labels removed so the
+# replayer runs them, checksums kept, no download URL (local traces-db).
+# Traces without an a306 checksum get "unknown" and report fail on completion.
+traces:
+  gputest/triangle-v2.trace:
+    freedreno-a306:
+      checksum: aa9f373a7aef4bf03942c0b4c71ff900
+  gputest/pixmark-volplosion-v2.trace:
+    freedreno-a306:
+      checksum: unknown
+  gputest/furmark-v2.trace:
+    freedreno-a306:
+      checksum: 751e0e784ba2f003cfc456fe8699f1fa
+  humus/VolumetricFogging2-v2.trace:
+    freedreno-a306:
+      checksum: aec880cec7ba460f3144b789bc517891
+  humus/Portals-v2.trace:
+    freedreno-a306:
+      checksum: unknown
+  0ad/0ad-v2.trace:
+    freedreno-a306:
+      checksum: ea2b03e0768e8400c0badd46e4d26087
