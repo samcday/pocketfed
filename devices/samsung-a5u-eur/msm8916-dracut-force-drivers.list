@@ -2,7 +2,8 @@
 qcom_scm
 qcom-apcs-ipc-mailbox
 qcom_hwspinlock
-smem
+# Linux 7.3 renamed the built-in smem module to qcom_smem.
+qcom_smem
 socinfo
 cmd-db
 qcom_smd

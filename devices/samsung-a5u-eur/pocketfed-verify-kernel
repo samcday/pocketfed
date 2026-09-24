@@ -20,7 +20,7 @@ verify_module() {
         fail "$description vermagic $uts_release does not match $kver"
 }
 
-expected_kver=7.2.0-0.rc1.15.msm8916.fc45.aarch64
+expected_kver=7.3.0-0.rc2.26.msm8916.fc46.aarch64
 expected_signing_key=77c4ba824252345c
 
 set -- /usr/lib/modules/*
