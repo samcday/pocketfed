@@ -1,5 +1,5 @@
 ARG BASE_IMAGE=ghcr.io/samcday/pocketfed-phosh:rawhide
-ARG KERNEL_NEVRA=kernel-7.2.0-0.rc1.15.msm8916.fc45.aarch64
+ARG KERNEL_NEVRA=kernel-7.3.0-0.rc2.26.msm8916.fc46.aarch64
 
 FROM ${BASE_IMAGE} AS device-root-base
 ARG KERNEL_NEVRA
