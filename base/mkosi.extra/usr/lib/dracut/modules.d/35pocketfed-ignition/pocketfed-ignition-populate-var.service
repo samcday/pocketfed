@@ -1,0 +1,18 @@
+[Unit]
+Description=PocketFed Ignition: populate the stateroot /var
+DefaultDependencies=no
+ConditionPathExists=/etc/initrd-release
+
+Requires=pocketfed-ignition-mount-var.service
+After=pocketfed-ignition-mount-var.service ignition-mount.service
+Before=ignition-files.service
+
+OnFailure=emergency.target
+OnFailureJobMode=isolate
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStart=/usr/libexec/pocketfed-ignition-populate-var
