@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 19:07:26 +1000
+Subject: [PATCH] freedreno/a3xx: disable batch reordering
+
+On Adreno 306 (msm8916), GTK4's GL renderer loses content on alternating
+frames: while scrolling GNOME Settings, the header title and list rows
+vanish and reappear every other frame. A compositor screenshot shows the
+missing content, so it is in the client's rendering, not scanout.
+
+FD_MESA_DEBUG=inorder or FD_MESA_DEBUG=flush avoids it. sysmem rendering,
+IR3_SHADER_DEBUG=nouboopt, FD_MESA_DEBUG=ddraw and GSK_DEBUG=full-redraw
+do not, and neither does disabling the compositor's explicit-sync
+heuristic. postmarketOS already sets FD_MESA_DEBUG=inorder for A308.
+
+Disable reordering on a3xx until the dependency bug behind it is found.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/gallium/drivers/freedreno/freedreno_screen.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/gallium/drivers/freedreno/freedreno_screen.c b/src/gallium/drivers/freedreno/freedreno_screen.c
+index e33674e..9753f3d 100644
+--- a/src/gallium/drivers/freedreno/freedreno_screen.c
++++ b/src/gallium/drivers/freedreno/freedreno_screen.c
+@@ -1103,9 +1103,12 @@ fd_screen_create(int fd,
+    /* NOTE: don't enable if we have too old of a kernel to support
+     * growable cmdstream buffers, since memory requirement for cmdstream
+     * buffers would be too much otherwise.
++    *
++    * Reordering misrenders on a3xx: with GTK4's GL renderer on A306,
++    * content drops out on alternating frames. Keep a3xx in order.
+     */
+    if (fd_device_version(dev) >= FD_VERSION_UNLIMITED_CMDS)
+-      screen->reorder = !FD_DBG(INORDER);
++      screen->reorder = !FD_DBG(INORDER) && !is_a3xx(screen);
+ 
+    fd_bc_init(&screen->batch_cache);
+ 
+-- 
+2.55.0
+
