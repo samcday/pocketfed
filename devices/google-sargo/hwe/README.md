@@ -74,3 +74,15 @@ made the unpinned `smoo-host` stall on the wrong device, so pin
 `--product-id`; `--append rd.emergency=reboot` did not take effect, so a failed
 initrd waits in a locked emergency shell and needs SysRq-b over the UART;
 always SysRq-reboot the phone *before* stopping `smoo-host`, or it wedges.
+
+## Evidence (2026-09-25): zero out-of-tree modules
+
+After kernel-ark MR 4753, `PF_KERNEL=fedora` with the default pin
+`7.3.0-0.rc4.260924g62f4c998b297.41.fc46` built with the koji fallback (the
+compose had already moved to `.40`), the symbolise and compose gates passed
+on the `.41` blob, and the verifier accepted the in-tree drivers. Booted on
+test-sargo over liveboot (smoo root, `fastboot boot`, nothing flashed):
+`login:` on the UART at 72 s, no failed units, `[drm] Initialized msm`,
+`Synaptics S3706B` registered by `rmi4_i2c`. Only the debug-UART overlay is
+carried; ABL reported `Not valid dtbo found, use only SoC dtb` on this phone.
+The GPU zap firmware (`a615_zap.mbn`) is still missing from the image.
