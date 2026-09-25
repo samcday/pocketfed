@@ -24,6 +24,7 @@ model="$tmp/model"
 request="$port/request-fifo"
 request_log="$tmp/request.log"
 output="$tmp/output"
+smoo_pidfile="$tmp/run/smoo/smoo-gadget.pid"
 test_wait_attempts=2
 test_wait_delay=0
 
@@ -34,7 +35,7 @@ fail() {
 }
 
 reset_state() {
-    rm -rf "$sysfs" "$request_log"
+    rm -rf "$sysfs" "$request_log" "$tmp/run"
     mkdir -p "$port" "$partner" "$tcpm" "$charger"
     printf 'Google Pixel 3a\000' >"$model"
     printf '%s\n' usb_power_delivery >"$port/power_operation_mode"
@@ -56,6 +57,7 @@ run_helper() {
         TYPEC_HOST_SYSFS_ROOT="$sysfs" \
         TYPEC_HOST_MODEL_FILE="$model" \
         TYPEC_HOST_REQUEST_PATH="$request" \
+        TYPEC_HOST_SMOO_PIDFILE="$smoo_pidfile" \
         TYPEC_HOST_WAIT_ATTEMPTS="$test_wait_attempts" \
         TYPEC_HOST_WAIT_DELAY="$test_wait_delay" \
         TYPEC_HOST_POST_WAIT_ATTEMPTS=20 \
@@ -80,6 +82,14 @@ await_evaluation() {
 reset_state
 printf '%s\n' 'Google Pixel 3a XL' >"$model"
 reject_without_write wrong-model
+
+# A smoo liveboot serves the root over the gadget: never swap, even when the
+# PD contract would otherwise allow it.
+reset_state
+mkdir -p "${smoo_pidfile%/*}"
+printf '%s\n' 1234 >"$smoo_pidfile"
+reject_without_write smoo-liveboot
+grep -Fq 'served over USB by smoo' "$output" || fail 'smoo liveboot refusal was not reported'
 
 reset_state
 printf '%s\n' no >"$partner/supports_usb_power_delivery"
@@ -227,6 +237,7 @@ grep -Fq 'DR_SWAP request failed' "$output" || fail 'write error was not reporte
 grep -Fq 'BindsTo=sys-class-typec-port0\x2dpartner.device' "$service"
 grep -Fq 'After=sys-class-typec-port0\x2dpartner.device' "$service"
 grep -Fq 'TimeoutStartSec=30s' "$service"
+grep -Fxq 'ConditionKernelCommandLine=!rd.smoo' "$service" || fail 'host request can run on a smoo liveboot'
 grep -Fq 'ACTION=="add|change"' "$rule"
 grep -Fq 'TAG+="systemd"' "$rule"
 ! grep -Eq 'SYSTEMD_WANTS|RUN[+:]?=' "$rule" || fail 'udev automatically starts a host request'

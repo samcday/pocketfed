@@ -28,6 +28,9 @@ grep -Fxq 'ExecStart=/usr/libexec/pocketfed-sargo-typec-host' \
 ! grep -Fq SYSTEMD_WANTS /usr/lib/udev/rules.d/99-pocketfed-sargo-typec-host.rules ||
     fail 'Type-C host request must not start automatically on attachment'
 grep -Fq 'ACTION=="add|change"' /usr/lib/udev/rules.d/99-pocketfed-sargo-typec-host.rules
+grep -Fxq 'ConditionKernelCommandLine=!rd.smoo' \
+    /usr/lib/systemd/system/pocketfed-sargo-typec-host.service ||
+    fail 'Type-C host request must not run on a smoo liveboot'
 
 usb_signaller_policy=/usr/lib/usb-signaller/usb-signaller.toml.d/50-pocketfed.toml
 usb_signaller_dropin=/usr/lib/systemd/system/usb-signaller.service.d/50-pocketfed.conf

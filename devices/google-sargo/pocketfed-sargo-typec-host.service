@@ -1,6 +1,9 @@
 [Unit]
 Description=Request USB data host on Sargo's attached powered dock
 JobTimeoutSec=30s
+# A DR_SWAP removes the UDC, which on a smoo liveboot carries the root
+# filesystem. fastboop always passes rd.smoo=1 for those boots.
+ConditionKernelCommandLine=!rd.smoo
 BindsTo=sys-class-typec-port0\x2dpartner.device
 After=sys-class-typec-port0\x2dpartner.device
 
