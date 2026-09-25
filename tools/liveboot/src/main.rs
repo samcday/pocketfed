@@ -1,6 +1,7 @@
 use std::{
     fs,
     io::Write,
+    os::unix::fs::PermissionsExt,
     path::{Component, Path, PathBuf},
     process::Command,
     time::Duration,
@@ -15,9 +16,17 @@ use fastboop_environment_std::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
 const FASTBOOP_REV: &str = "1e6d64b3c375d46f2029122902f4564d36f5498b";
+
+/// Kernel arguments that make the supplied initrd run Ignition on this boot.
+const IGNITION_ARGS: &str = "ignition.firstboot ignition.platform.id=metal";
+
+/// U-Boot and Pocketboot read only the Android header's first command-line
+/// field; fastboop spills anything past 512 bytes into the second one.
+const SAFE_CMDLINE_LEN: usize = 511;
 
 #[derive(Parser)]
 #[command(about = "PocketFed image preparation and native fastboop liveboot")]
@@ -78,6 +87,16 @@ struct BundleArgs {
     /// Match a supplied gadget that uses fastboot-style interface descriptors.
     #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
     impersonate_fastboot: bool,
+    /// Ignition config to provision the guest with on this boot, embedded in the
+    /// initrd as /etc/ignition/user.ign. The initrd must contain PocketFed's
+    /// pocketfed-ignition dracut module. The bundle and its images then carry the
+    /// config: treat them as secrets.
+    #[arg(long)]
+    ignition: Option<PathBuf>,
+    /// Accept a kernel command line longer than 511 bytes, which only bootloaders
+    /// reading the Android header's second command-line field will see whole.
+    #[arg(long)]
+    allow_long_cmdline: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -88,6 +107,8 @@ struct Bundle {
     requires_shim: bool,
     has_shim: bool,
     impersonate_fastboot: bool,
+    #[serde(default)]
+    ignition: bool,
 }
 
 #[tokio::main]
@@ -132,49 +153,98 @@ fn bundle(args: BundleArgs) -> Result<()> {
     {
         bail!("devicetree_name must be a relative path without '..'");
     }
-    let cmdline = fs::read_to_string(&args.cmdline_file)?
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    let cmdline_file = fs::read_to_string(&args.cmdline_file)?;
+    let mut cmdline = cmdline_file.split_whitespace().collect::<Vec<_>>();
+    let ignition = args.ignition.as_deref().map(ignition_config).transpose()?;
+    if ignition.is_some() {
+        if cmdline.iter().any(|arg| arg.starts_with("ignition.")) {
+            bail!(
+                "--ignition supplies the ignition.* arguments; remove them from the command line file"
+            );
+        }
+        cmdline.push(IGNITION_ARGS);
+    }
+    let cmdline = cmdline.join(" ");
+    let device_cmdline = device
+        .boot
+        .fastboot_boot
+        .android_bootimg
+        .cmdline_append
+        .as_deref();
     // Validate the runtime contract before copying files or hashing the root. The
-    // real export ID is computed by fastboop during preparation, never by us.
-    fastboop_core::build_initrd_extra_cmdline(fastboop_core::InitrdCmdline {
-        device: device
-            .boot
-            .fastboot_boot
-            .android_bootimg
-            .cmdline_append
-            .as_deref(),
+    // real export ID is computed by fastboop during preparation, never by us; the
+    // largest one bounds the command-line length.
+    let extra = fastboop_core::build_initrd_extra_cmdline(fastboop_core::InitrdCmdline {
+        device: device_cmdline,
         profile: Some(&cmdline),
         requested: None,
-        export_id: 0,
+        export_id: u32::MAX,
         mimic_fastboot: args.impersonate_fastboot,
     })
     .map_err(|e| anyhow!("invalid image command line: {e}"))?;
     let requires_shim = args.requires_shim || device.devicetree_name == "qcom/sdm670-google-sargo";
+    let longest = [device_cmdline.unwrap_or_default(), &extra]
+        .iter()
+        .filter(|part| !part.is_empty())
+        .map(|part| part.len() + 1)
+        .sum::<usize>()
+        .saturating_sub(1)
+        + if requires_shim || shim.is_some() {
+            "<S>  <E>".len()
+        } else {
+            0
+        };
+    if longest > SAFE_CMDLINE_LEN && !args.allow_long_cmdline {
+        bail!(
+            "the kernel command line can reach {longest} bytes; bootloaders reading only the first Android header field keep {SAFE_CMDLINE_LEN} (override with --allow-long-cmdline)"
+        );
+    }
     if let Some(parent) = args.out.parent() {
         fs::create_dir_all(parent)?;
     }
     fs::create_dir(&args.out).context("--out must be a new directory")?;
     let out = fs::canonicalize(&args.out)?;
+    if ignition.is_some() {
+        fs::set_permissions(&out, fs::Permissions::from_mode(0o700))?;
+    }
     if let Some(shim) = &shim {
         fs::copy(shim, out.join("shim.bin"))?;
     }
     let staging = tempfile::tempdir_in(&out)?;
-    fs::copy(&kernel, staging.path().join("kernel"))?;
-    fs::copy(&initrd, staging.path().join("initrd"))?;
+    let staged_kernel = staging.path().join("kernel");
+    let staged_initrd = staging.path().join("initrd");
     let staged_dtb = staging.path().join("dtbs").join(dtb_name);
+    fs::copy(&kernel, &staged_kernel)?;
+    fs::copy(&initrd, &staged_initrd)?;
+    if let Some(config) = &ignition {
+        // fs::copy keeps the source's mode, which may be read-only.
+        fs::set_permissions(&staged_initrd, fs::Permissions::from_mode(0o600))?;
+        append_ignition(&staged_initrd, config).with_context(|| {
+            format!("append the Ignition config to {}", staged_initrd.display())
+        })?;
+    }
     fs::create_dir_all(staged_dtb.parent().unwrap())?;
-    fs::copy(&dtb, staged_dtb)?;
-    let bytes = [kernel, initrd, dtb].iter().try_fold(
-        32 * 1024 * 1024u64,
-        |total, path| -> Result<u64> {
+    fs::copy(&dtb, &staged_dtb)?;
+    let staged = [staged_kernel, staged_initrd, staged_dtb];
+    let bytes = staged
+        .iter()
+        .try_fold(32 * 1024 * 1024u64, |total, path| -> Result<u64> {
             total
                 .checked_add(fs::metadata(path)?.len())
                 .context("artifact size overflow")
-        },
-    )?;
-    let artifacts = out.join("boot-artifacts.ext4");
+        })?;
+    // fastboop caches file sources by path and size, not content. Name the
+    // image after its inputs so a rebuilt bundle at the same path can never be
+    // served stale blocks, such as a previous Ignition config.
+    let mut digest = Sha256::new();
+    for path in &staged {
+        digest.update(fs::read(path)?);
+    }
+    let id: String = digest.finalize()[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let artifacts = out.join(format!("boot-artifacts-{id}.ext4"));
     let status = Command::new("mkfs.ext4")
         .args(["-q", "-F", "-b", "4096", "-d"])
         .arg(staging.path())
@@ -225,12 +295,145 @@ fn bundle(args: BundleArgs) -> Result<()> {
             requires_shim,
             has_shim: shim.is_some(),
             impersonate_fastboot: args.impersonate_fastboot,
+            ignition: ignition.is_some(),
         })?,
     )?;
     println!("bundle: {}", out.display());
+    if ignition.is_some() {
+        println!(
+            "the bundle, images made from it and fastboop's cache now contain the Ignition config"
+        );
+    }
     if requires_shim && shim.is_none() {
         println!("inputs prepared; supply --shim in a new bundle before image/boot");
     }
+    Ok(())
+}
+
+/// Read an Ignition config and refuse what PocketFed's initrd would reject at
+/// boot anyway: remote resources, kernel arguments and storage layout.
+fn ignition_config(path: &Path) -> Result<Vec<u8>> {
+    let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
+    let config: serde_json::Value = serde_json::from_slice(&bytes)
+        .context("--ignition must be an Ignition JSON config (render Butane first)")?;
+    if !config["ignition"]["version"].is_string() {
+        bail!("--ignition config has no ignition.version");
+    }
+    let mut remote = Vec::new();
+    remote_sources(&config, &mut remote);
+    if !remote.is_empty() {
+        bail!(
+            "--ignition config fetches remote resources, which PocketFed initrds cannot reach: {}",
+            remote.join(", ")
+        );
+    }
+    let mut unsupported = Vec::new();
+    for field in ["shouldExist", "shouldNotExist"] {
+        if !config["kernelArguments"][field]
+            .as_array()
+            .is_none_or(Vec::is_empty)
+        {
+            unsupported.push("kernelArguments".to_string());
+            break;
+        }
+    }
+    for section in ["disks", "filesystems", "luks", "raid"] {
+        if !config["storage"][section]
+            .as_array()
+            .is_none_or(Vec::is_empty)
+        {
+            unsupported.push(format!("storage.{section}"));
+        }
+    }
+    if !unsupported.is_empty() {
+        bail!(
+            "--ignition config uses sections PocketFed does not support: {}",
+            unsupported.join(", ")
+        );
+    }
+    Ok(bytes)
+}
+
+fn remote_sources(value: &serde_json::Value, found: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, value) in map {
+                match (key.as_str(), value.as_str()) {
+                    ("source", Some(source)) if !source.is_empty() && !is_data_url(source) => {
+                        found.push(redact_url(source))
+                    }
+                    _ => remote_sources(value, found),
+                }
+            }
+        }
+        serde_json::Value::Array(values) => values.iter().for_each(|v| remote_sources(v, found)),
+        _ => {}
+    }
+}
+
+fn is_data_url(source: &str) -> bool {
+    source
+        .get(..5)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))
+}
+
+/// Name a remote source in an error by scheme and host only: credentials,
+/// capability paths, queries and fragments may all be secrets.
+fn redact_url(source: &str) -> String {
+    match source.split_once("://") {
+        Some((scheme, rest)) => {
+            let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+            let host = authority.rsplit('@').next().unwrap_or_default();
+            format!("{scheme}://{host}/…")
+        }
+        None => source.split(':').next().unwrap_or_default().to_string() + ":…",
+    }
+}
+
+/// Append the config as a second, uncompressed newc archive. The kernel unpacks
+/// concatenated initramfs archives in order; an uncompressed one must start on a
+/// 4-byte boundary, and a file is skipped unless its directory already exists.
+/// At least four zero bytes go first: lz4 legacy streams have no end marker,
+/// and the kernel's decoder stops only at a zero chunk size.
+fn append_ignition(initrd: &Path, config: &[u8]) -> Result<()> {
+    fn entry(archive: &mut Vec<u8>, ino: u32, mode: u32, name: &str, data: &[u8]) {
+        let fields = [
+            ino,
+            mode,
+            0, // uid
+            0, // gid
+            1, // nlink
+            0, // mtime
+            data.len() as u32,
+            0, // devmajor
+            0, // devminor
+            0, // rdevmajor
+            0, // rdevminor
+            name.len() as u32 + 1,
+            0, // check
+        ];
+        archive.extend_from_slice(b"070701");
+        for field in fields {
+            archive.extend_from_slice(format!("{field:08X}").as_bytes());
+        }
+        archive.extend_from_slice(name.as_bytes());
+        archive.push(0);
+        archive.resize(archive.len().next_multiple_of(4), 0);
+        archive.extend_from_slice(data);
+        archive.resize(archive.len().next_multiple_of(4), 0);
+    }
+    u32::try_from(config.len()).context("Ignition config is too large for newc")?;
+    let mut archive = Vec::new();
+    // No etc entry: it would replace the initrd's own /etc mode.
+    entry(&mut archive, 1, 0o040700, "etc/ignition", &[]);
+    entry(&mut archive, 2, 0o100600, "etc/ignition/user.ign", config);
+    entry(&mut archive, 0, 0, "TRAILER!!!", &[]);
+
+    let mut file = fs::OpenOptions::new().append(true).open(initrd)?;
+    let len = file.metadata()?.len();
+    let padding = (len + 4).next_multiple_of(4) - len;
+    file.write_all(&vec![0; padding as usize])?;
+    file.write_all(&archive)?;
     Ok(())
 }
 

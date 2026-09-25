@@ -13,6 +13,7 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
+sha2 = "0.10"
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tokio-util = "0.7"
@@ -24,7 +25,6 @@ fastboop-environment-std = { git = "https://github.com/samcday/fastboop", rev = 
 [dev-dependencies]
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 lz4 = "1"
-sha2 = "0.10"
 
 # Temporary development graph. Git dependency workspaces do not export their
 # patch tables to consumers. Pin the same gibblox snapshot as fastboop; published
