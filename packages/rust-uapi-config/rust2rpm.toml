@@ -1,0 +1,11 @@
+[[package.extra-sources]]
+number = 10
+file = "https://github.com/Arnavion/uapi-config/archive/v%{version}/uapi-config-%{version}.tar.gz"
+comments = [
+    "Repository snapshot of the same tag: the published crate omits test-files/, which the unit tests read. Only that directory is extracted, and Cargo.toml's include list keeps it out of the -devel package.",
+]
+
+[scripts]
+prep.post = [
+    "tar -xzf %{SOURCE10} --strip-components=1 uapi-config-%{version}/test-files",
+]

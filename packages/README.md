@@ -67,3 +67,13 @@ The [keyboard packaging index](keyboard-trial/README.md) covers Stevia,
 Verbisage, the English Patricia data and their development dependencies.
 These packages use the main COPR; runtime image selection is limited to the
 personal sam-sargo image, with shared image allowlists unchanged.
+
+## USB gadget modes
+
+[usb-signaller](usb-signaller/README.md) packages Dylan Van Assche's upstream
+USB gadget mode daemon, which provides the Sargo, Crosshatch and Fajita USB
+developer link. It needs three packages Fedora lacks:
+[rust-uapi-config](rust-uapi-config/README.md),
+[rust-tokio-udev](rust-tokio-udev/README.md) and
+[unudhcpd](unudhcpd/README.md). Build those three first, then usb-signaller.
+All four specs are meant for Fedora review, which Sam files.
