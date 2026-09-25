@@ -19,8 +19,11 @@ oci_output := env("PF_OCI_OUTPUT", "oci:" + base_oci_dir + ":" + tag)
 base := env("PF_DEVICE_BASE", "ghcr.io/" + owner + "/pocketfed-phosh:" + tag)
 device := env("PF_DEVICE", "")
 image := env("PF_DEVICE_IMAGE", "")
-device_image := if image == "" { "ghcr.io/" + owner + "/pocketfed-phosh-" + device + ":" + tag } else { image }
-device_target := "ghcr.io/" + owner + "/pocketfed-phosh-" + device + ":" + tag
+# Images built on Fedora's own kernel (PF_KERNEL=fedora) are published and
+# updated separately, as pocketfed-phosh-<device>-vanilla.
+device_variant := if kernel == "fedora" { "-vanilla" } else { "" }
+device_image := if image == "" { "ghcr.io/" + owner + "/pocketfed-phosh-" + device + device_variant + ":" + tag } else { image }
+device_target := "ghcr.io/" + owner + "/pocketfed-phosh-" + device + device_variant + ":" + tag
 desktop_base := env("PF_DESKTOP_BASE", base_image)
 desktop := env("PF_DESKTOP", "")
 desktop_image := env("PF_DESKTOP_IMAGE", "")
@@ -132,6 +135,10 @@ device:
 
     if [[ -z "$device" ]]; then
         echo "device= is required" >&2
+        exit 1
+    fi
+    if [[ "{{kernel}}" != "copr" && "$device" != "google-sargo" ]]; then
+        echo "PF_KERNEL={{kernel}} is only supported for google-sargo" >&2
         exit 1
     fi
     if [[ "$device" != "samsung-a5u-eur" ]]; then
@@ -276,6 +283,7 @@ vars:
     @printf 'base_image=%s\n' "{{base_image}}"
     @printf 'kernel=%s\n' "{{kernel}}"
     @printf 'fedora_kernel=%s\n' "{{fedora_kernel}}"
+    @printf 'device_image=%s\n' "{{device_image}}"
     @printf 'owner=%s\n' "{{owner}}"
     @printf 'desktop=%s\n' "{{desktop}}"
     @printf 'desktop_base=%s\n' "{{desktop_base}}"

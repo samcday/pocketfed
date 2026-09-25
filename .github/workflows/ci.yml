@@ -506,7 +506,7 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-buildah-cache-phosh-${{ github.run_id }}-${{ github.run_attempt }}
 
   device-oci:
-    name: Build Device OCI (${{ matrix.device }})
+    name: Build Device OCI (${{ matrix.device }}${{ matrix.kernel == 'fedora' && '-vanilla' || '' }})
     runs-on: ubuntu-24.04-arm
     needs: phosh-oci
     timeout-minutes: 180
@@ -519,6 +519,13 @@ jobs:
           - google-crosshatch
           - oneplus-fajita
           - samsung-a5u-eur
+        kernel:
+          - copr
+        # google-sargo-vanilla: the same device image on Fedora's own kernel,
+        # published as pocketfed-phosh-google-sargo-vanilla.
+        include:
+          - device: google-sargo
+            kernel: fedora
 
     steps:
       - name: Checkout pocketfed
@@ -551,8 +558,9 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ${{ env.PF_BUILDAH_CACHE_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-buildah-cache-device-${{ matrix.device }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-${{ runner.arch }}-buildah-cache-device-${{ matrix.device }}${{ matrix.kernel == 'fedora' && '-vanilla' || '' }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-buildah-cache-device-${{ matrix.device }}${{ matrix.kernel == 'fedora' && '-vanilla' || '' }}-
             ${{ runner.os }}-${{ runner.arch }}-buildah-cache-device-${{ matrix.device }}-
             ${{ runner.os }}-${{ runner.arch }}-buildah-cache-device-
             ${{ runner.os }}-${{ runner.arch }}-buildah-cache-
@@ -561,17 +569,24 @@ jobs:
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           device="${{ matrix.device }}"
+          kernel="${{ matrix.kernel }}"
+          image_name="pocketfed-phosh-${device}"
+          if [[ "$kernel" == "fedora" ]]; then
+            image_name="${image_name}-vanilla"
+          fi
           if [[ "${{ github.event_name }}" == "push" ]]; then
             phosh_image="ghcr.io/${owner}/pocketfed-phosh:rawhide"
-            device_image="ghcr.io/${owner}/pocketfed-phosh-${device}:rawhide"
+            device_image="ghcr.io/${owner}/${image_name}:rawhide"
           else
             phosh_image="localhost/pocketfed-phosh:rawhide"
-            device_image="localhost/pocketfed-phosh-${device}:rawhide"
+            device_image="localhost/${image_name}:rawhide"
           fi
 
           printf 'PF_CI_PHOSH_IMAGE=%s\n' "$phosh_image" >>"$GITHUB_ENV"
           printf 'PF_CI_DEVICE_IMAGE=%s\n' "$device_image" >>"$GITHUB_ENV"
           printf 'PF_CI_DEVICE=%s\n' "$device" >>"$GITHUB_ENV"
+          printf 'PF_CI_KERNEL=%s\n' "$kernel" >>"$GITHUB_ENV"
+          printf 'PF_CI_IMAGE_NAME=%s\n' "$image_name" >>"$GITHUB_ENV"
           printf 'PF_CI_OWNER=%s\n' "$owner" >>"$GITHUB_ENV"
 
       - name: Download Phosh OCI artifact
@@ -609,6 +624,7 @@ jobs:
       - name: Build Device OCI
         run: |
           PF_DEVICE="$PF_CI_DEVICE" \
+          PF_KERNEL="$PF_CI_KERNEL" \
           PF_DEVICE_BASE="$PF_CI_PHOSH_IMAGE" \
           PF_DEVICE_IMAGE="$PF_CI_DEVICE_IMAGE" \
           just device
@@ -639,7 +655,7 @@ jobs:
             "docker://$PF_CI_DEVICE_IMAGE"
           sudo skopeo copy --all \
             "containers-storage:$PF_CI_DEVICE_IMAGE" \
-            "docker://ghcr.io/${PF_CI_OWNER}/pocketfed-phosh-${PF_CI_DEVICE}:sha-${GITHUB_SHA::12}"
+            "docker://ghcr.io/${PF_CI_OWNER}/${PF_CI_IMAGE_NAME}:sha-${GITHUB_SHA::12}"
 
       - name: Prepare Buildah cache for save
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
@@ -652,4 +668,4 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ${{ env.PF_BUILDAH_CACHE_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-buildah-cache-device-${{ matrix.device }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: ${{ runner.os }}-${{ runner.arch }}-buildah-cache-device-${{ matrix.device }}${{ matrix.kernel == 'fedora' && '-vanilla' || '' }}-${{ github.run_id }}-${{ github.run_attempt }}
