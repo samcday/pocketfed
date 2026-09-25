@@ -14,11 +14,28 @@ For a Sargo image, whose usb-signaller policy selects `developer_mode`, `cmdline
 ostree=/ostree/boot.1/fedora/<checksum>/0 rootfstype=ext4 rd.smoo.cow.size=<size> rd.smoo.functions=ncm.usb0
 ```
 
+Bundle for Sargo with its profile and the shim:
+
+```sh
+target/release/pocketfed-liveboot bundle \
+  --root-image pfroot.img --kernel Image.gz --initrd liveboot-initrd.img \
+  --dtb board.dtb --device-profile profiles/google-sargo-ablx-v2.yaml \
+  --shim /path/to/raw-device-shim.bin \
+  --serial "$TARGET_SERIAL" --cmdline-file cmdline.txt --out trial
+```
+
+For the DB410c, bundle with its profile and no shim:
+
 ```sh
 target/release/pocketfed-liveboot bundle \
   --root-image pfroot.img --kernel Image.gz --initrd liveboot-initrd.img \
   --dtb board.dtb --device-profile profiles/uboot-db410c.yaml \
   --serial "$TARGET_SERIAL" --cmdline-file cmdline.txt --out trial
+```
+
+Then, for either device:
+
+```sh
 target/release/pocketfed-liveboot image trial --output trial.img
 target/release/pocketfed-liveboot boot trial --wait 30
 ```
