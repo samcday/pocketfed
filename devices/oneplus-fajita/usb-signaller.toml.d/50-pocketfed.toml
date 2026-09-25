@@ -1,0 +1,11 @@
+# PocketFed device policy for usb-signaller, installed in
+# /usr/lib/usb-signaller/usb-signaller.toml.d/. An administrator overrides it
+# with a same-named file in /etc/usb-signaller/usb-signaller.toml.d/.
+[main]
+# Bring up the NCM developer link (172.16.42.1, unudhcpd) when the daemon starts.
+default_mode = "developer_mode"
+# Never replace a USB gadget that another component created and bound, such as
+# the smoo liveboot gadget that carries the root filesystem. This key comes
+# from PocketFed's declared-gadgets patches; usb-signaller 0.4.2 without them
+# ignores unknown [main] keys.
+foreign_gadgets = "preserve"

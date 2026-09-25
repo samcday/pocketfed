@@ -2,9 +2,14 @@
 set -eu
 
 # Fajita exposes a fixed peripheral DWC3 controller but no Type-C class
-# port. usb-signaller's automatic DRD policy therefore has no cable-state
-# event to reconcile. Ask its D-Bus API to select the immutable developer
-# policy explicitly once the daemon owns its bus name.
+# port. Ask usb-signaller's D-Bus API to select developer mode explicitly once
+# the daemon owns its bus name, and report the resulting gadget on the console.
+#
+# Upstream usb-signaller already applies [main] default_mode from
+# 50-pocketfed.toml at startup, and an already-active mode is a no-op that
+# returns the same reply. This helper is retained until one boot on each of
+# Crosshatch and Fajita shows the NCM link up from default_mode and
+# Restart=on-failure alone.
 
 attempts=${POCKETFED_USB_ACTIVATE_ATTEMPTS:-40}
 last_response='usb-signaller D-Bus name is not ready'
@@ -61,10 +66,14 @@ while [ "$attempts" -gt 0 ]; do
             com.meego.usb_moded \
             set_mode s developer_mode 2>&1
     ); then
-        if [ "$response" = 's "developer_mode"' ]; then
-            report_success
-            exit 0
-        fi
+        # busctl prints the reply as 's "developer_mode"'. Accept any
+        # whitespace around it rather than one exact byte string.
+        case $(printf '%s' "$response" | tr -s '[:space:]' ' ') in
+            *'s "developer_mode"'*)
+                report_success
+                exit 0
+                ;;
+        esac
     fi
 
     last_response=${response:-$last_response}

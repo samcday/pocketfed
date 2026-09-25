@@ -3,20 +3,83 @@
 set -eu
 
 repo_root="$(CDPATH='' cd -- "$(dirname "$0")/../.." && pwd)"
-device_dir="$repo_root/devices/google-sargo"
-containerfile="$device_dir/Containerfile"
-policy="$device_dir/usb-signaller-sargo.conf"
-dropin="$device_dir/usb-signaller.service.d/10-pocketfed-sargo.conf"
-repo="$device_dir/samcday-usb-signaller.repo"
 
-grep -Fxq 'USB_SIGNALLER_AUTO_MODE=developer_mode' "$policy"
-grep -Fxq 'EnvironmentFile=' "$dropin"
-grep -Fxq 'EnvironmentFile=/usr/lib/pocketfed/usb-signaller-sargo.conf' "$dropin"
-grep -Fxq 'includepkgs=usb-signaller' "$repo"
-grep -Fxq 'enabled=0' "$repo"
-grep -Fq "usb_signaller_nevra='usb-signaller-0.3.0-1.20260713172459428921.stabilizesargo.usb.lab.impl.17.gbf2f2d6.fc45.aarch64'" "$containerfile"
-grep -Fq 'usb-signaller.service;' "$containerfile"
-grep -Fq -- "--enable-repo='copr:copr.fedorainfracloud.org:samcday:usb-signaller'" "$containerfile"
-grep -Fq 'usb-moded-developer-mode.service)" = static' "$containerfile"
+fail() {
+    printf 'usb-signaller policy test failed: %s\n' "$*" >&2
+    exit 1
+}
 
-printf 'PocketFed sargo usb-signaller policy tests passed\n'
+# Every device that ships usb-signaller installs upstream 0.4.2 from the
+# pocketfed COPR with the same TOML policy and unit drop-in.
+for device in google-sargo google-crosshatch oneplus-fajita; do
+    device_dir="$repo_root/devices/$device"
+    containerfile="$device_dir/Containerfile"
+    policy="$device_dir/usb-signaller.toml.d/50-pocketfed.toml"
+    dropin="$device_dir/usb-signaller.service.d/50-pocketfed.conf"
+    repo="$device_dir/samcday-pocketfed.repo"
+
+    grep -Fxq '[main]' "$policy" || fail "$device: policy has no [main] table"
+    grep -Fxq 'default_mode = "developer_mode"' "$policy" ||
+        fail "$device: policy does not select developer mode"
+    grep -Fxq 'foreign_gadgets = "preserve"' "$policy" ||
+        fail "$device: policy may replace foreign gadgets"
+    grep -Fq "COPY devices/$device/usb-signaller.toml.d/50-pocketfed.toml /usr/lib/usb-signaller/usb-signaller.toml.d/" "$containerfile" ||
+        fail "$device: policy is not installed as a vendor drop-in"
+
+    grep -Fxq '[Service]' "$dropin" || fail "$device: unit drop-in has no [Service]"
+    grep -Fxq 'Restart=on-failure' "$dropin" || fail "$device: no restart policy"
+    grep -Fxq 'RestartSec=5s' "$dropin" || fail "$device: restart delay changed"
+    grep -Fxq 'OOMScoreAdjust=-900' "$dropin" || fail "$device: no OOM protection"
+    grep -Fq "COPY devices/$device/usb-signaller.service.d/50-pocketfed.conf /usr/lib/systemd/system/usb-signaller.service.d/" "$containerfile" ||
+        fail "$device: unit drop-in is not installed"
+    # Stopping must never tear the gadget down (the fork's ExecStop did).
+    ! grep -Eq '^ExecStop' "$device_dir"/usb-signaller.service.d/*.conf ||
+        fail "$device: usb-signaller drop-in has ExecStop"
+    ! grep -Eq 'EnvironmentFile|USB_SIGNALLER_AUTO_MODE' \
+        "$device_dir"/usb-signaller.service.d/*.conf "$containerfile" ||
+        fail "$device: fork EnvironmentFile policy remains"
+    [ ! -e "$device_dir/samcday-usb-signaller.repo" ] ||
+        fail "$device: separate usb-signaller COPR repo remains"
+    ! grep -Fq 'samcday:usb-signaller' "$containerfile" ||
+        fail "$device: image still installs from the samcday/usb-signaller COPR"
+
+    includepkgs="$(sed -n 's/^includepkgs=//p' "$repo")"
+    for package in usb-signaller unudhcpd; do
+        case ",$includepkgs," in
+            *",$package,"*) ;;
+            *) fail "$device: $package is missing from the pocketfed COPR allowlist" ;;
+        esac
+    done
+
+    grep -Eq "^    usb_signaller_nevra='usb-signaller-0\\.4\\.2-[^']+\\.aarch64'; \\\\\$" "$containerfile" ||
+        fail "$device: usb-signaller NEVRA is not pinned to 0.4.2"
+    grep -Fq '        "$usb_signaller_nevra"' "$containerfile" ||
+        fail "$device: pinned usb-signaller NEVRA is not installed"
+    grep -Fq "test \"\$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\\n' usb-signaller)\" = \"\$usb_signaller_nevra\"" "$containerfile" ||
+        fail "$device: installed usb-signaller NEVRA is not checked"
+    grep -Fq 'usb-signaller.service;' "$containerfile" ||
+        fail "$device: usb-signaller.service is not enabled"
+    grep -Fq 'usb-signaller-developer-mode.service)" = disabled' "$containerfile" ||
+        fail "$device: developer-mode unit enablement is not checked"
+    ! grep -Fq 'usb-moded-developer-mode' "$containerfile" ||
+        fail "$device: fork unit name remains"
+    # The pinned install must sit in a transaction restricted to the
+    # pocketfed COPR.
+    awk '
+        /--from-repo=.copr:copr.fedorainfracloud.org:samcday:pocketfed./ { repo = 1 }
+        repo && /"\$usb_signaller_nevra"/ { found = 1 }
+        /; \\$/ { repo = 0 }
+        END { exit !found }
+    ' "$containerfile" ||
+        fail "$device: usb-signaller is not installed from the pocketfed COPR"
+done
+
+# usb-signaller's /run config directory carries the smoo liveboot drop-in, so
+# no shipped unit may own it through RuntimeDirectory= (which systemd deletes
+# on stop). A distinct directory such as usb-signaller-developer is fine.
+if grep -rEn '^RuntimeDirectory=(.*[[:space:]])?usb-signaller([[:space:]]|$)' \
+    "$repo_root/base" "$repo_root/phosh" "$repo_root/devices"; then
+    fail 'a shipped unit claims RuntimeDirectory=usb-signaller'
+fi
+
+printf 'PocketFed usb-signaller policy tests passed\n'

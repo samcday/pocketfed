@@ -48,10 +48,26 @@ systemctl is-enabled blob-wrangler.service
 grep -Fq 'venus_core' /usr/libexec/pocketfed-blob-wrangler-modprobe ||
     fail 'post-extraction Venus reprobe is missing'
 
-grep -Fxq 'USB_SIGNALLER_AUTO_MODE=developer_mode' \
-    /usr/lib/pocketfed/usb-signaller-fajita.conf
-grep -Fxq 'EnvironmentFile=/usr/lib/pocketfed/usb-signaller-fajita.conf' \
-    /usr/lib/systemd/system/usb-signaller.service.d/10-pocketfed-fajita.conf
+usb_signaller_policy=/usr/lib/usb-signaller/usb-signaller.toml.d/50-pocketfed.toml
+usb_signaller_dropin=/usr/lib/systemd/system/usb-signaller.service.d/50-pocketfed.conf
+rpm -q --qf '%{VERSION}\n' usb-signaller | grep -Fxq 0.4.2 ||
+    fail 'usb-signaller is not upstream 0.4.2'
+rpm -q unudhcpd
+grep -Fxq 'default_mode = "developer_mode"' "$usb_signaller_policy" ||
+    fail 'fajita usb-signaller policy does not select developer mode'
+grep -Fxq 'foreign_gadgets = "preserve"' "$usb_signaller_policy" ||
+    fail 'fajita usb-signaller policy may replace foreign gadgets'
+grep -Fxq 'Restart=on-failure' "$usb_signaller_dropin" ||
+    fail 'usb-signaller is not restarted after a failed start'
+grep -Fxq 'OOMScoreAdjust=-900' "$usb_signaller_dropin" ||
+    fail 'usb-signaller is not protected from the OOM killer'
+! grep -Eqs '^ExecStop' /usr/lib/systemd/system/usb-signaller.service.d/*.conf ||
+    fail 'usb-signaller must not tear down the gadget from ExecStop'
+! grep -Eqrs 'EnvironmentFile|USB_SIGNALLER_AUTO_MODE' \
+    /usr/lib/systemd/system/usb-signaller.service.d ||
+    fail 'the fork EnvironmentFile policy is still shipped'
+[ "$(systemctl is-enabled usb-signaller-developer-mode.service)" = disabled ] ||
+    fail 'usb-signaller-developer-mode.service must only be started by usb-signaller'
 systemctl is-enabled usb-signaller.service
 test -x /usr/libexec/pocketfed-usb-signaller-activate ||
     fail 'fajita USB developer-mode activator is missing'
