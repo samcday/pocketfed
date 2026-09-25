@@ -1,0 +1,44 @@
+#!/bin/sh
+# Usage: fetch-fedora-kernel NVR DESTDIR PACKAGE...
+#
+# Download aarch64 packages of one Fedora kernel build (NVR without the arch,
+# e.g. 7.3.0-0.rc4.260924g62f4c998b297.41.fc46) into DESTDIR, and refuse any
+# file that does not carry a valid signature from the Fedora release key in
+# the rpm database.
+#
+# The rawhide compose carries exactly one kernel NVR, so a pin stops being
+# downloadable from the repositories within a few days. Koji keeps the signed
+# copies under data/signed/<keyid>/; its plain packages/ path serves unsigned
+# build output and is never used.
+set -eu
+
+[ "$#" -ge 3 ] || { echo "usage: fetch-fedora-kernel NVR DESTDIR PACKAGE..." >&2; exit 2; }
+nvr=$1
+dest=$2
+shift 2
+kver="$nvr.aarch64"
+dist="${nvr##*.fc}"
+mkdir -p "$dest"
+
+keyid="$(rpm -q gpg-pubkey --qf '%{VERSION} %{SUMMARY}\n' |
+    awk -v key="fedora-$dist-primary@fedoraproject.org" '$0 ~ key { print substr($1, length($1) - 7) }')"
+if [ -z "$keyid" ]; then
+    echo "fetch-fedora-kernel: no Fedora $dist signing key in the rpm database" >&2
+    exit 1
+fi
+koji="https://kojipkgs.fedoraproject.org/packages/kernel/${nvr%%-*}/${nvr#*-}/data/signed/$keyid/aarch64"
+
+for pkg in "$@"; do
+    rpm="$dest/$pkg-$kver.rpm"
+    if [ ! -s "$rpm" ] &&
+        ! dnf download --refresh --destdir "$dest" "$pkg-$kver" >/dev/null 2>&1; then
+        echo "fetch-fedora-kernel: $pkg-$kver is not in the enabled repositories; fetching koji's signed copy" >&2
+        curl -fsSL -o "$rpm.part" "$koji/$pkg-$kver.rpm"
+        mv "$rpm.part" "$rpm"
+    fi
+    if ! rpmkeys --checksig "$rpm" | grep -q 'digests signatures OK$'; then
+        echo "fetch-fedora-kernel: $rpm is not signed with the Fedora $dist key" >&2
+        rm -f "$rpm"
+        exit 1
+    fi
+done

@@ -122,6 +122,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --assume-yes --no-install-recommends \
+            cpp \
+            device-tree-compiler \
             just \
             podman \
             skopeo
@@ -139,6 +141,9 @@ jobs:
           sudo rm -f /dev/shm/libpod_lock
           sudo podman system renumber
           sudo podman info --format 'Podman OCI runtime: {{.Host.OCIRuntime.Path}}'
+
+      - name: Test HWE devicetree patch builder
+        run: python3 tools/hwe/test-patch-dtb.py
 
       - name: Test fastboot build from an existing OCI
         run: builder/test-fastboot-from-image

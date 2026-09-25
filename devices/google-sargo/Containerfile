@@ -34,6 +34,7 @@ COPY devices/google-sargo/81voltd.service.d/10-pocketfed-sargo.conf /usr/lib/sys
 COPY --chmod=0755 devices/google-sargo/pocketfed-verify-kernel /usr/libexec/
 COPY --chmod=0755 devices/google-sargo/pocketfed-verify-oci /usr/libexec/
 COPY --chmod=0755 devices/google-sargo/50-clatd /tmp/pocketfed-50-clatd
+COPY --chmod=0755 tools/hwe/fetch-fedora-kernel /tmp/pocketfed-fetch-fedora-kernel
 COPY --chmod=0755 devices/google-sargo/pocketfed-sargo-typec-host /usr/libexec/
 COPY devices/google-sargo/pocketfed-sargo-typec-host.service /usr/lib/systemd/system/
 COPY devices/google-sargo/99-pocketfed-sargo-typec-host.rules /usr/lib/udev/rules.d/
@@ -140,31 +141,13 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
     printf '%s\n' "$KERNEL" > /usr/lib/pocketfed/kernel-variant; \
     if [ "$KERNEL" = "fedora" ]; then \
         kernel_kver="${FEDORA_KERNEL}.aarch64"; \
-        kernel_pkgs="kernel kernel-core kernel-modules kernel-modules-core kernel-modules-extra kernel-modules-internal"; \
-        kernel_rpms=""; \
-        for pkg in $kernel_pkgs; do kernel_rpms="$kernel_rpms $pkg-$kernel_kver"; done; \
-        if ! dnf install -y \
-            --refresh \
+        kernel_cache="/var/cache/pocketfed-kernel/$kernel_kver"; \
+        /tmp/pocketfed-fetch-fedora-kernel "$FEDORA_KERNEL" "$kernel_cache" \
+            kernel kernel-core kernel-modules kernel-modules-core \
+            kernel-modules-extra kernel-modules-internal; \
+        dnf install -y \
             --setopt=install_weak_deps=False \
-            --setopt=keepcache=True \
-            $kernel_rpms; then \
-            echo "kernel $kernel_kver is not in the rawhide repo any more; fetching it from koji" >&2; \
-            dist="${FEDORA_KERNEL##*.fc}"; \
-            keyid="$(rpm -q gpg-pubkey --qf '%{VERSION} %{SUMMARY}\n' | awk -v key="fedora-$dist-primary@fedoraproject.org" '$0 ~ key { print substr($1, length($1) - 7) }')"; \
-            [ -n "$keyid" ] || { echo "no Fedora $dist signing key in the rpm database" >&2; exit 1; }; \
-            koji="https://kojipkgs.fedoraproject.org/packages/kernel/${FEDORA_KERNEL%%-*}/${FEDORA_KERNEL#*-}/data/signed/$keyid/aarch64"; \
-            cache="/var/cache/pocketfed-kernel/$kernel_kver"; \
-            mkdir -p "$cache"; \
-            for pkg in $kernel_pkgs; do \
-                rpm="$cache/$pkg-$kernel_kver.rpm"; \
-                [ -s "$rpm" ] || curl -fsSL -o "$rpm" "$koji/$pkg-$kernel_kver.rpm"; \
-                rpmkeys --checksig "$rpm" | grep -q 'digests signatures OK$' || { \
-                    echo "$rpm is not signed with a trusted Fedora key" >&2; rm -f "$rpm"; exit 1; }; \
-            done; \
-            dnf install -y \
-                --setopt=install_weak_deps=False \
-                "$cache"/*.rpm; \
-        fi; \
+            "$kernel_cache"/kernel-*"$kernel_kver".rpm; \
         sed -i -e '/qcom_pmic_typec_smb2/d' -e '/qcom_fg/d' \
             /etc/dracut.conf.d/60-google-sargo.conf; \
         printf '%s\n' "$kernel_kver" > /usr/lib/pocketfed/kernel-release; \
@@ -178,6 +161,7 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
             --setopt=keepcache=True \
             kernel; \
     fi; \
+    rm -f /tmp/pocketfed-fetch-fedora-kernel; \
     /usr/libexec/pocketfed-verify-kernel; \
     find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
     systemctl enable \
@@ -217,59 +201,46 @@ COPY --chmod=0755 devices/google-sargo/pocketfed-verify-plymouth-initrd /usr/lib
 # Fedora's sdm670-google-sargo.dtb has no serial0 alias and no serial@a90000.
 # Recompile the tag's DTS with dtc -@, prove it equivalent to Fedora's blob,
 # inject __symbols__ into the untouched blob and apply the debug-UART overlay.
+# For PF_KERNEL=fedora, build the boot DTB as Fedora's own blob plus the
+# upstream-form DTS patches in hwe/dt-patches/series. patch-dtb.py first proves
+# that the kernel-ark tag's DTS compiles byte for byte to the blob in the signed
+# kernel-core, with dt-bindings headers from the signed kernel-devel of the same
+# build, then applies the series without fuzz.
 FROM ${FEDORA_IMAGE} AS hwe-dtb
 ARG KERNEL=copr
 ARG FEDORA_KERNEL=
-COPY tools/hwe/dtb-symbolise.py tools/hwe/compose-dtb.py /tools/
-COPY devices/google-sargo/dt/sdm670-google-sargo-debug-uart.dtso /tools/
+COPY tools/hwe/patch-dtb.py tools/hwe/fetch-fedora-kernel /tools/
+COPY devices/google-sargo/hwe/dt-patches/ /dt-patches/
 COPY --from=device-root /usr/lib/pocketfed /in-pocketfed
 RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-hwe-dtb,target=/var/cache,sharing=locked \
     set -eux; \
     mkdir -p /out; \
     if [ "$KERNEL" != "fedora" ]; then \
-        echo "PF_KERNEL=$KERNEL: skipping composed devicetree"; \
+        echo "PF_KERNEL=$KERNEL: skipping the patched devicetree"; \
         exit 0; \
     fi; \
     dnf install -y \
         --setopt=install_weak_deps=False \
         --setopt=keepcache=True \
-        dtc python3-libfdt gcc curl tar gzip; \
+        dtc cpp git-core cpio curl tar gzip python3; \
+    kver="${FEDORA_KERNEL}.aarch64"; \
     tag="kernel-$(printf '%s' "$FEDORA_KERNEL" | sed -E 's/\.fc[0-9]+$//; s/\.([0-9]{6})g([0-9a-f]+)\./\.\2./')"; \
-    archive="https://gitlab.com/cki-project/kernel-ark/-/archive/$tag/kernel-ark-$tag.tar.gz"; \
-    raw="https://gitlab.com/cki-project/kernel-ark/-/raw/$tag"; \
-    tree=/src/kernel-tree; \
-    mkdir -p "$tree" /work; \
-    curl -fsSL "$archive?path=arch/arm64/boot/dts/qcom" -o /tmp/dts.tar.gz; \
-    tar -xzf /tmp/dts.tar.gz -C "$tree" --strip-components=1; \
-    curl -fsSL "$archive?path=include/dt-bindings" -o /tmp/dt-bindings.tar.gz; \
-    tar -xzf /tmp/dt-bindings.tar.gz -C "$tree" --strip-components=1; \
-    mkdir -p "$tree/include/uapi/linux"; \
-    curl -fsSL "$raw/include/uapi/linux/input-event-codes.h" \
-        -o "$tree/include/uapi/linux/input-event-codes.h"; \
-    /usr/bin/python3 /tools/dtb-symbolise.py \
+    /tools/fetch-fedora-kernel "$FEDORA_KERNEL" "/var/cache/pocketfed-kernel/$kver" kernel-devel; \
+    mkdir -p /kernel-devel /src/kernel-tree; \
+    rpm2cpio "/var/cache/pocketfed-kernel/$kver/kernel-devel-$kver.rpm" | \
+        (cd /kernel-devel && cpio -idm --quiet "./usr/src/kernels/$kver/include/*"); \
+    curl -fsSL \
+        "https://gitlab.com/cki-project/kernel-ark/-/archive/$tag/kernel-ark-$tag.tar.gz?path=arch/arm64/boot/dts/qcom" | \
+        tar -xz -C /src/kernel-tree --strip-components=1; \
+    /usr/bin/python3 /tools/patch-dtb.py \
         --base /in-pocketfed/device-base.dtb \
-        --kernel-tree "$tree" \
+        --kernel-tree /src/kernel-tree \
+        --include "/kernel-devel/usr/src/kernels/$kver/include" \
         --dts qcom/sdm670-google-sargo.dts \
+        --series /dt-patches/series \
         --source-tag "$tag" \
-        --output /work/sdm670-google-sargo.symbolised.dtb \
-        --report /work/symbolise.json; \
-    cpp -nostdinc -undef -D__DTS__ -x assembler-with-cpp \
-        -I "$tree/include" \
-        -I "$tree/arch/arm64/boot/dts" \
-        -I "$tree/arch/arm64/boot/dts/qcom" \
-        /tools/sdm670-google-sargo-debug-uart.dtso -o /work/overlay.pre.dts; \
-    dtc -@ -I dts -O dtb \
-        -i "$tree/include" \
-        -i "$tree/arch/arm64/boot/dts" \
-        -i "$tree/arch/arm64/boot/dts/qcom" \
-        -o /work/sdm670-google-sargo-debug-uart.dtbo /work/overlay.pre.dts; \
-    /usr/bin/python3 /tools/compose-dtb.py \
-        --base /in-pocketfed/device-base.dtb \
-        --symbolised /work/sdm670-google-sargo.symbolised.dtb \
-        --overlay /work/sdm670-google-sargo-debug-uart.dtbo \
         --output /out/sdm670-google-sargo.pocketfed.dtb \
-        --sidecar /out/sdm670-google-sargo.pocketfed.json \
-        --symbolise-report /work/symbolise.json
+        --report /out/sdm670-google-sargo.pocketfed.json
 
 FROM device-root AS initrd
 ARG KERNEL=copr
@@ -326,8 +297,11 @@ COPY --from=abl-exorcist-build /out/abl-exorcist-assembler /usr/local/bin/abl-ex
 COPY devices/google-sargo/aboot-kargs /in/aboot-kargs
 # Check the actual DTB embedded in aboot.img, including the conservative PD
 # policy. Neither a different DTB nor a mismatched kernel may slip into release.
-# Fedora's own devicetree carries none of the COPR PD policy or bluetooth nodes,
-# so for PF_KERNEL=fedora the COPR-specific checks are skipped.
+# Fedora's devicetree has no Type-C connector, so no PD contract can be
+# negotiated and the COPR PD policy does not apply; the fedora checks require
+# that to stay true (a connector appearing upstream must get its own policy
+# checks here), keep USB peripheral-only at high speed, and require the debug
+# UART from the patch series and no __symbols__.
 RUN install -d /out && \
     { if [ "$KERNEL" = "copr" ]; then \
         connector='/soc@0/spmi@c440000/pmic@0/typec@1300/connector' && \
@@ -340,6 +314,13 @@ RUN install -d /out && \
         ! fdtget /in/sdm670-google-sargo.dtb "$connector" pd-disable >/dev/null 2>&1 && \
         test "$(fdtget /in/sdm670-google-sargo.dtb /soc@0/usb@a6f8800/usb@a600000 maximum-speed)" = high-speed && \
         test "$(fdtget -t bx /in/sdm670-google-sargo.dtb /soc@0/geniqup@8c0000/serial@898000/bluetooth local-bd-address)" = '0 0 0 0 0 0'; \
+      else \
+        dts="$(dtc -I dtb -O dts /in/sdm670-google-sargo.dtb 2>/dev/null)" && \
+        ! printf '%s\n' "$dts" | grep -Eq 'usb-c-connector|typec|__symbols__|local-bd-address' && \
+        test "$(fdtget /in/sdm670-google-sargo.dtb /soc@0/usb@a6f8800/usb@a600000 maximum-speed)" = high-speed && \
+        test "$(fdtget /in/sdm670-google-sargo.dtb /soc@0/usb@a6f8800/usb@a600000 dr_mode)" = peripheral && \
+        test "$(fdtget /in/sdm670-google-sargo.dtb /aliases serial0)" = /soc@0/geniqup@ac0000/serial@a90000 && \
+        test "$(fdtget /in/sdm670-google-sargo.dtb /soc@0/geniqup@ac0000/serial@a90000 status)" = okay; \
       fi; } && \
     aboot_kargs="$(cat /in/aboot-kargs)" && \
     gzip -n -9 -c /tmp/abl-exorcist.bin >/tmp/abl-exorcist.bin.gz && \
