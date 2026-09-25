@@ -64,7 +64,8 @@ if [ "$variant" = "fedora" ]; then
         fail "cannot read vermagic from $panel_module"
     [ "${panel_vermagic%% *}" = "$kver" ] ||
         fail "panel-samsung-s6e3fa7 vermagic ${panel_vermagic%% *} does not match module directory $kver"
-    [ ! -e "$module_dir/updates" ] ||
+    # kernel-core ships an empty updates/ directory; nothing may live in it.
+    [ -z "$(find "$module_dir/updates" -type f -name '*.ko*' -print -quit 2>/dev/null)" ] ||
         fail 'unexpected out-of-tree modules under updates/'
 
     printf 'fedora variant: rmnet is not built by Fedora, skipping modem checks\n'

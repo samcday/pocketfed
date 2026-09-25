@@ -140,16 +140,31 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
     printf '%s\n' "$KERNEL" > /usr/lib/pocketfed/kernel-variant; \
     if [ "$KERNEL" = "fedora" ]; then \
         kernel_kver="${FEDORA_KERNEL}.aarch64"; \
-        dnf install -y \
+        kernel_pkgs="kernel kernel-core kernel-modules kernel-modules-core kernel-modules-extra kernel-modules-internal"; \
+        kernel_rpms=""; \
+        for pkg in $kernel_pkgs; do kernel_rpms="$kernel_rpms $pkg-$kernel_kver"; done; \
+        if ! dnf install -y \
             --refresh \
             --setopt=install_weak_deps=False \
             --setopt=keepcache=True \
-            "kernel-$kernel_kver" \
-            "kernel-core-$kernel_kver" \
-            "kernel-modules-$kernel_kver" \
-            "kernel-modules-core-$kernel_kver" \
-            "kernel-modules-extra-$kernel_kver" \
-            "kernel-modules-internal-$kernel_kver"; \
+            $kernel_rpms; then \
+            echo "kernel $kernel_kver is not in the rawhide repo any more; fetching it from koji" >&2; \
+            dist="${FEDORA_KERNEL##*.fc}"; \
+            keyid="$(rpm -q gpg-pubkey --qf '%{VERSION} %{SUMMARY}\n' | awk -v key="fedora-$dist-primary@fedoraproject.org" '$0 ~ key { print substr($1, length($1) - 7) }')"; \
+            [ -n "$keyid" ] || { echo "no Fedora $dist signing key in the rpm database" >&2; exit 1; }; \
+            koji="https://kojipkgs.fedoraproject.org/packages/kernel/${FEDORA_KERNEL%%-*}/${FEDORA_KERNEL#*-}/data/signed/$keyid/aarch64"; \
+            cache="/var/cache/pocketfed-kernel/$kernel_kver"; \
+            mkdir -p "$cache"; \
+            for pkg in $kernel_pkgs; do \
+                rpm="$cache/$pkg-$kernel_kver.rpm"; \
+                [ -s "$rpm" ] || curl -fsSL -o "$rpm" "$koji/$pkg-$kernel_kver.rpm"; \
+                rpmkeys --checksig "$rpm" | grep -q 'digests signatures OK$' || { \
+                    echo "$rpm is not signed with a trusted Fedora key" >&2; rm -f "$rpm"; exit 1; }; \
+            done; \
+            dnf install -y \
+                --setopt=install_weak_deps=False \
+                "$cache"/*.rpm; \
+        fi; \
         printf '%s\n' "$kernel_kver" > /usr/lib/pocketfed/kernel-release; \
         install -m0644 "/usr/lib/modules/$kernel_kver/dtb/qcom/sdm670-google-sargo.dtb" \
             /usr/lib/pocketfed/device-base.dtb; \
