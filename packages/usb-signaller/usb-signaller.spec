@@ -4,7 +4,7 @@
 
 Name:           usb-signaller
 Version:        0.4.2
-Release:        %autorelease
+Release:        1.1.pocketfed%{?dist}
 Summary:        USB gadget mode daemon for mobile devices running mainline Linux
 
 # usb-signaller itself is GPL-3.0-or-later. The binary statically links Rust
@@ -23,6 +23,19 @@ Source:         %{url}/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
 # Bring the NCM interface down with ip(8) instead of net-tools' ifconfig.
 # Prepared for upstream submission; not yet sent.
 Patch:          0001-distro-scripts-use-ip-instead-of-ifconfig.patch
+# PocketFed: the declared-gadgets series. usb-signaller manages a gadget that
+# early boot declared (smoo's liveboot root) in place instead of deleting it,
+# never removes a foreign gadget, and serialises mode switches. Exported with
+# git format-patch from samcday/usb-signaller claude/declared-gadgets
+# (bf6d8d9, on v0.4.2). Upstream status: draft PR
+# https://github.com/samcday/usb-signaller/pull/5; Sam files the Codeberg MR.
+# Drop each patch when a Dylan release contains it.
+Patch1001:      1001-configuration-merge-field-wise-search-run-read-once.patch
+Patch1002:      1002-policy-udc-urs-protect-declared-and-foreign-gadgets.patch
+Patch1003:      1003-dbus-udc-serialise-mode-switches-and-report-failures.patch
+Patch1004:      1004-tests-add-SysRoot-a-configfs-trait-and-a-kernel-rule.patch
+Patch1005:      1005-window-plan-add-the-planner-and-critical-window.patch
+Patch1006:      1006-adopt-manage-declared-gadgets-in-place.patch
 
 BuildRequires:  cargo-rpm-macros >= 24
 BuildRequires:  systemd-rpm-macros
@@ -80,7 +93,8 @@ install -dm 0755 %{buildroot}%{_sysconfdir}/usb-signaller/usb-signaller.toml.d
 %if %{with check}
 %check
 # Gadget and UDC tests are #[ignore]d upstream: they need libcomposite,
-# dummy_hcd and root (scripts/run-tests).
+# dummy_hcd and root (scripts/run-tests). The declared-gadgets planner,
+# configuration and fake-configfs tests run unprivileged.
 %cargo_test
 %endif
 
@@ -116,4 +130,8 @@ install -dm 0755 %{buildroot}%{_sysconfdir}/usb-signaller/usb-signaller.toml.d
 %dir %{_sysconfdir}/usb-signaller/usb-signaller.toml.d
 
 %changelog
-%autochangelog
+* Fri Sep 25 2026 Sam Day <me@samcday.com> - 0.4.2-1.1.pocketfed
+- Carry the declared-gadgets series (samcday/usb-signaller#5)
+
+* Fri Sep 25 2026 Sam Day <me@samcday.com> - 0.4.2-1
+- Initial package

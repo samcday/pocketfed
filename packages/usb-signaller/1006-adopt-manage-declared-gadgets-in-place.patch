@@ -1,0 +1,3712 @@
+From bf6d8d9dd5df05f48f53da92f9f9ff1c96d1b8cd Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 18:29:03 +1000
+Subject: [PATCH 6/6] adopt: manage declared gadgets in place
+
+A gadget declared with [gadget.<dir>] adopt = true, bound to a UDC, with
+one configuration (or config naming one) and every pinned function
+present, linked and ready, is adopted instead of only protected: at
+startup, before the default mode, and again before every mode switch.
+Adopting reads configfs and writes nothing. The mode is read from the
+functions linked next to the pins, and tethering is told apart from
+developer mode by the state file of the last switch.
+
+On an adopted gadget, charging_only, developer_mode and tethering_mode
+run as a transaction: prepare while bound (create function directories,
+force-eject every LUN of a leaving mass storage function, stop the old
+service, open what the window needs), run the critical window, then
+finish while bound again (remove the functions that left, commit, start
+the new service). A window that did not reach the target restores the
+previous composition or the pins alone, reports the cause, and restarts
+the service of the mode the gadget is actually in; if the window thread
+is gone, prepare is undone and the old service restarted. If the
+composition does not change, as with a pre-composed developer_mode at
+boot or developer <-> tethering, nothing in configfs is written. Every
+other mode, including host_mode, is refused with "<mode> is not
+supported while gadget <g> is adopted" before anything is touched, and
+no USB role is written for an adopted gadget. SIGTERM, stop and restart
+write nothing to a declared or adopted gadget; the next instance adopts
+it again.
+
+A host role excursion removes the UDC, but the gadget keeps its UDC
+attribute and the kernel binds it again when the UDC returns. Such a
+gadget stays adopted: set_mode refuses to switch it until it is bound
+again, and shutdown leaves it alone. Any other gadget usb-signaller must
+not replace that waits for its UDC this way makes set_mode fail before
+a USB role is written.
+
+The first adoption locks all memory with mlockall(MCL_CURRENT |
+MCL_FUTURE) for the rest of the process's life, since a page fault while
+the root filesystem is unreachable would never complete. If that fails
+the gadget stays protected, not adopted. The tokio runtime is built
+explicitly with two workers, four blocking threads and 1 MiB stacks, so
+the locked footprint stays small.
+
+/run/usb-signaller/state.env records the gadget, configuration, mode,
+NCM interface and connection name after every switch of an adopted
+gadget, written atomically and shell-quoted. It is removed before
+usb-signaller switches one of its own gadgets, so their services never
+read a stale one. The developer and tethering scripts read it and fall
+back to their previous lookup.
+
+usb-signaller --plan <mode> prints what a switch would do on every UDC,
+from live configfs, without writing anything; reading the UDC attribute
+opens it read-only. mode_request no longer holds the daemon lock while
+it sleeps between retries.
+
+Tests: the transaction runs against the configfs fake with a fault
+injected before every call, service calls included (errors, a
+concurrent binder, a concurrent unlinker, the UDC vanishing):
+afterwards the gadget is bound, every pin is linked, while it was
+unbound only window calls ran, no service started before the window
+ended, only the service of the mode the gadget ended up in was started
+(a failed rung never starts the target's), and exactly that service
+runs. Daemon tests cover startup adoption, host_mode, SIGTERM, a
+failing mlockall, a host role excursion of an adopted and of a declared
+gadget, and a stale state file. An ignored test adopts a gadget with a
+non-FunctionFS pin (acm.pin) on dummy_hcd with memory really locked,
+switches developer -> charging_only -> developer, and checks that
+SIGTERM makes no configfs write and leaves the UDC state and the host
+side's device number unchanged.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ CHANGELOG.md                                  |   15 +
+ README.md                                     |  133 +-
+ .../scripts/usb-signaller-developer-mode.sh   |   16 +-
+ .../scripts/usb-signaller-tethering-mode.sh   |   16 +-
+ src/adopt.rs                                  | 1446 +++++++++++++++++
+ src/configfs.rs                               |  287 +++-
+ src/dbus.rs                                   |  977 ++++++++++-
+ src/main.rs                                   |   63 +-
+ src/plan.rs                                   |    3 -
+ src/service.rs                                |  100 ++
+ src/sysroot.rs                                |   19 +
+ src/window.rs                                 |    3 -
+ 12 files changed, 2977 insertions(+), 101 deletions(-)
+ create mode 100644 src/adopt.rs
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index bbb3aa1..c038eab 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -14,6 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+   while a declared gadget with `pinned_functions` is bound.
+ - `[main] foreign_gadgets = "preserve"` leaves every gadget usb-signaller did not create alone.
+   The default, `"replace"`, keeps the previous behaviour.
++- `[gadget.<dir>] adopt = true` adopts a declared gadget: usb-signaller switches between
++  `charging_only`, `developer_mode` and `tethering_mode` by linking its own functions next to
++  the pinned ones, in place, without ever unlinking a pin. Adopting touches nothing; a switch
++  unbinds and rebinds the gadget once, from a memory-locked thread, and always leaves it bound.
++  Switching between developer and tethering mode, or to the mode already composed, writes
++  nothing to configfs. Other modes are refused while a gadget is adopted.
++- `[gadget.<dir>]` keys `config` and `allowed_modes` select the configuration to manage and
++  restrict the modes offered for an adopted gadget.
++- `/run/usb-signaller/state.env` describes the gadget of the current mode; the developer and
++  tethering scripts use it to find the network interface.
++- A declared or adopted gadget whose UDC is away, for example during a switch to host role,
++  keeps its UDC attribute and is bound again by the kernel when the UDC returns. Until then
++  usb-signaller keeps it adopted, refuses mode switches and writes no USB role.
+ 
+ ### Changed
+ - Paths to configfs, sysfs and procfs are no longer hard-coded, so tests can run against a
+@@ -22,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ - Mode switches run one at a time: D-Bus calls, the default mode at startup and the cleanup on
+   SIGTERM share one lock, and D-Bus calls are no longer handled in parallel tasks.
+ - Configuration is read once at startup instead of on every use.
++- The runtime uses two worker threads and at most four blocking threads.
++- `libc` is a new dependency.
+ - Configuration is searched in `/run` instead of `/var/run`, as UAPI.6 specifies.
+ - A missing configuration is no longer an error: defaults are used.
+ - A broken configuration file (unreadable, unparseable or with an invalid value) is reported
+diff --git a/README.md b/README.md
+index 7885661..53a57c0 100644
+--- a/README.md
++++ b/README.md
+@@ -109,47 +109,134 @@ that set each key and exits without touching D-Bus or USB. It exits with status
+ 
+ Declares a configfs gadget that someone else created, for example an
+ initramfs whose gadget serves the root filesystem. `<dir>` is the directory
+-name under `/sys/kernel/config/usb_gadget/`. usb-signaller never disables,
+-removes or replaces a declared gadget:
+-
+-- `set_mode` fails with `UDC <udc> is held by declared gadget <dir>; not
+-  replacing it` while the gadget holds the UDC, and no USB role is written.
+-- On shutdown the gadget is left untouched.
+-- Switching to host role only removes gadgets usb-signaller created.
+-- `host_mode` is refused while a declared gadget with pinned functions is bound.
++name under `/sys/kernel/config/usb_gadget/`. See
++[Declared and adopted gadgets](#declared-and-adopted-gadgets) for what
++usb-signaller does with it.
+ 
+ Keys:
+ 
+ - **pinned_functions** (list of strings): functions of the gadget, as
+   `<driver>.<instance>` (for example `ffs.smoo` or `acm.GS0`), that must stay
+-  linked and bound. Pins from all files are combined: a later file can add
+-  pins but never remove one. Mask the file that added a pin (a same-named
+-  symlink to `/dev/null`) to drop it.
+-- **adopt** (boolean, default `false`), **config** (string),
+-  **keep_identity** (boolean, default `true`) and **allowed_modes** (list of
+-  USB modes, combined across files by keeping only modes every file allows)
+-  are reserved for managing a declared gadget in place. They are validated,
+-  but a declared gadget is currently only protected.
++  linked and bound.
++- **adopt** (boolean, default `false`): manage the gadget in place while it
++  stays bound, instead of only protecting it.
++- **config** (string): the configuration directory to manage, for example
++  `c.1`. Only needed when the gadget has more than one configuration.
++- **keep_identity** (boolean, default `true`): never write the gadget's
++  vendor and product IDs, `bcdDevice`, device class or strings. Only `true`
++  is supported so far: an adopted gadget with `keep_identity = false` is not
++  adopted, only protected.
++- **allowed_modes** (list of USB modes): the modes an adopted gadget may be
++  switched to. `get_modes` offers only these.
++
++Merge rules across files:
++
++- `pinned_functions`: the union. A later file can add pins but never remove
++  one. Mask the file that added a pin (a same-named symlink to `/dev/null`) to
++  drop it.
++- `allowed_modes`: the intersection of every file that sets it.
++- `adopt`, `config`, `keep_identity`: the last file that sets the key wins.
+ 
+ An empty `[gadget.<dir>]` section declares the gadget without pins. Any other
+ key in this section, an invalid function or mode name, or a directory name
+ starting with `usb-signaller-` makes the configuration broken.
+ 
+-While the configuration is broken, nothing is declared and every gadget
+-usb-signaller does not own is preserved, whatever `foreign_gadgets` says.
+-`host_mode` is refused while such a gadget is bound.
++While the configuration is broken, nothing is declared or adopted and every
++gadget usb-signaller does not own is preserved, whatever `foreign_gadgets`
++says. `host_mode` is refused while such a gadget is bound.
++
++### Section mass\_storage
++
++- **storage\_path** (String): path to the image to serve, for example: `/data/myimage.iso`
++
++## Declared and adopted gadgets
+ 
+-Example, written at boot by an initramfs to
+-`/run/usb-signaller/usb-signaller.toml.d/50-console.toml`:
++Some systems bind a gadget before usb-signaller starts, and need parts of it
++to stay: an initramfs may serve the root filesystem over a FunctionFS
++function, or keep a serial console on `acm.GS0`. Declare such a gadget in a
++`[gadget.<dir>]` section, typically from the initramfs, in
++`/run/usb-signaller/usb-signaller.toml.d/`:
+ 
+ ```toml
++# /run/usb-signaller/usb-signaller.toml.d/50-console.toml
+ [gadget.g1]
++adopt = true
+ pinned_functions = ["acm.GS0"]
+ ```
+ 
+-### Section mass\_storage
++A **declared** gadget is never disabled, removed or replaced:
+ 
+-- **storage\_path** (String): path to the image to serve, for example: `/data/myimage.iso`
++- `set_mode` fails with `UDC <udc> is held by declared gadget <dir>; not
++  replacing it` while the gadget holds the UDC, and no USB role is written.
++- On shutdown the gadget is left untouched.
++- Switching to host role only removes gadgets usb-signaller created.
++- `host_mode` is refused while a declared gadget with pinned functions is bound.
++- While its UDC is away, for example during a switch to host role, the gadget
++  keeps its UDC attribute and the kernel binds it again when the UDC returns.
++  Meanwhile `set_mode` fails with `declared gadget <dir> waits for UDC <udc>
++  to return; not replacing it`, and no USB role is written that would bring
++  the UDC back early.
++
++With `adopt = true`, a declared gadget is **adopted** instead: usb-signaller
++manages its modes in place, next to the pinned functions. At startup, and
++before every mode switch, a bound gadget is adopted when:
++
++- its UDC attribute names the UDC it is bound to;
++- it has one configuration, or `config` names one;
++- it has at least one pinned function, and every pin exists, is linked in that
++  configuration (link names may differ from function names) and, for a
++  FunctionFS pin, reads `ready` as 1. Kernels before 6.9 have no `ready`
++  attribute; a bound pin then counts as ready.
++
++Otherwise it stays declared, and usb-signaller logs why it is not adopted.
++Adopting does not touch the gadget or the bus.
++
++The mode of an adopted gadget is read from the functions linked next to the
++pins: none is `charging_only`, `ncm.usb0` is `developer_mode` (or
++`tethering_mode`, if that was the last mode set). While any other function
++that is neither pinned nor one of usb-signaller's own (`ncm.usb0`, `ffs.mtp`,
++`ffs.accessory`, `mass_storage.0`) is linked, mode switches are refused.
++
++A mode switch on an adopted gadget:
++
++1. **Prepare**, while the gadget is still bound: create the new function
++   directories and stop the old mode's service.
++2. **Unbind, relink, bind**, on a dedicated thread that only makes system
++   calls on files opened beforehand. Pins are never unlinked. If the new
++   composition does not bind, the previous one is restored, and if that fails
++   too only the pins are linked, retried until the gadget is bound again.
++3. **Finish**, bound again: remove the functions that left and start the new
++   mode's service.
++
++If the functions do not change, for example between `developer_mode` and
++`tethering_mode`, or when the initramfs already linked `ncm.usb0` for a
++`developer_mode` default, nothing in configfs is written and the gadget stays
++bound: only the services change. Pinned functions, the gadget, its
++configurations and its identity are never removed or written.
++
++While a gadget is adopted:
++
++- Only `charging_only`, `developer_mode` and `tethering_mode` are supported.
++  Other modes, including `host_mode`, fail with `<mode> is not supported while
++  gadget <dir> is adopted`, and nothing is touched.
++- No USB role is written. While the gadget's UDC is away (host role), it stays
++  adopted and mode switches fail with `adopted gadget <dir> waits for UDC
++  <udc> to return; not switching modes` until the kernel has bound it again.
++- Stopping or restarting usb-signaller writes nothing to the gadget, also
++  while its UDC is away, and leaves the mode's service running; the next
++  instance adopts it again.
++- usb-signaller locks its memory (`mlockall`) for the rest of its life, so it
++  never waits for the root filesystem while the gadget is unbound. If memory
++  cannot be locked, the gadget is not adopted, only protected.
++- `/run/usb-signaller/state.env` names the gadget, configuration, mode, NCM
++  interface and connection name. The developer and tethering scripts read it
++  to find the interface; it is removed before usb-signaller switches one of
++  its own gadgets.
++
++Future work: MTP, mass storage and CD-ROM on adopted gadgets, writing the
++identity when `keep_identity = false`, a watchdog that binds an adopted gadget
++again after an unexpected unbind, and adopting a gadget that is bound after
++usb-signaller started (today it is adopted at the next mode switch).
+ 
+ ## USB modes
+ 
+diff --git a/distro/scripts/usb-signaller-developer-mode.sh b/distro/scripts/usb-signaller-developer-mode.sh
+index 995cbc7..d600d74 100644
+--- a/distro/scripts/usb-signaller-developer-mode.sh
++++ b/distro/scripts/usb-signaller-developer-mode.sh
+@@ -4,11 +4,23 @@
+ #
+ # Copyright (c) Dylan Van Assche (2025-2026)
+ CONFIGFS="/sys/kernel/config/usb_gadget"
+-IFACE=$(cat "$CONFIGFS"/usb-signaller-developer/functions/ncm.*/ifname 2>/dev/null)
++
++# usb-signaller describes the gadget it manages, for example one adopted
++# from the initramfs, in this file. Without it, use its own gadget.
++STATE_ENV="/run/usb-signaller/state.env"
++if [ -r "$STATE_ENV" ]; then
++    # shellcheck source=/dev/null
++    . "$STATE_ENV"
++fi
++if [ "$USB_SIGNALLER_MODE" != "developer_mode" ]; then
++    USB_SIGNALLER_CONNECTION_NAME=""
++fi
++
++IFACE=${USB_SIGNALLER_NCM_IFNAME:-$(cat "$CONFIGFS"/usb-signaller-developer/functions/ncm.*/ifname 2>/dev/null)}
+ IFACE=${IFACE:-"usb0"}
+ IP_ADDRESS_SERVER=172.16.42.1
+ IP_ADDRESS_CLIENT=172.16.42.2
+-CONNECTION_NAME=$(cat "$CONFIGFS"/usb-signaller-developer/configs/*/strings/0x409/configuration 2>/dev/null)
++CONNECTION_NAME=${USB_SIGNALLER_CONNECTION_NAME:-$(cat "$CONFIGFS"/usb-signaller-developer/configs/*/strings/0x409/configuration 2>/dev/null)}
+ CONNECTION_NAME=${CONNECTION_NAME:-"Developer Mode"}
+ 
+ _start_unudhcpd() {
+diff --git a/distro/scripts/usb-signaller-tethering-mode.sh b/distro/scripts/usb-signaller-tethering-mode.sh
+index 16560ba..23d0318 100644
+--- a/distro/scripts/usb-signaller-tethering-mode.sh
++++ b/distro/scripts/usb-signaller-tethering-mode.sh
+@@ -4,9 +4,21 @@
+ #
+ # Copyright (c) Dylan Van Assche (2025-2026)
+ CONFIGFS="/sys/kernel/config/usb_gadget"
+-IFACE=$(cat "$CONFIGFS"/usb-signaller-tethering/functions/ncm.*/ifname 2>/dev/null)
++
++# usb-signaller describes the gadget it manages, for example one adopted
++# from the initramfs, in this file. Without it, use its own gadget.
++STATE_ENV="/run/usb-signaller/state.env"
++if [ -r "$STATE_ENV" ]; then
++    # shellcheck source=/dev/null
++    . "$STATE_ENV"
++fi
++if [ "$USB_SIGNALLER_MODE" != "tethering_mode" ]; then
++    USB_SIGNALLER_CONNECTION_NAME=""
++fi
++
++IFACE=${USB_SIGNALLER_NCM_IFNAME:-$(cat "$CONFIGFS"/usb-signaller-tethering/functions/ncm.*/ifname 2>/dev/null)}
+ IFACE=${IFACE:-"usb0"}
+-CONNECTION_NAME=$(cat "$CONFIGFS"/usb-signaller-tethering/configs/*/strings/0x409/configuration 2>/dev/null)
++CONNECTION_NAME=${USB_SIGNALLER_CONNECTION_NAME:-$(cat "$CONFIGFS"/usb-signaller-tethering/configs/*/strings/0x409/configuration 2>/dev/null)}
+ CONNECTION_NAME=${CONNECTION_NAME:-"Tethering Mode"}
+ 
+ up() {
+diff --git a/src/adopt.rs b/src/adopt.rs
+new file mode 100644
+index 0000000..327bd02
+--- /dev/null
++++ b/src/adopt.rs
+@@ -0,0 +1,1446 @@
++/*
++ * usb-signaller: replacement for usb-moded on mainline Linux Mobile devices
++ * Copyright (C) 2026 Dylan Van Assche
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published
++ * by the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program. If not, see <https://www.gnu.org/licenses/>.
++ */
++
++/*
++ * Adopted gadgets: a gadget someone else created and bound (for example an
++ * initramfs serving the root filesystem over FunctionFS), declared with
++ * [gadget.<dir>] adopt = true, is managed in place instead of replaced.
++ * usb-signaller links its own functions next to the pinned ones, and never
++ * unlinks or removes a pin, the gadget or its configuration.
++ *
++ * Adopting performs no bus operation. A mode switch is a transaction:
++ *
++ * 1. prepare, while bound: create function directories, stop the old
++ *    mode's service, open everything the window needs;
++ * 2. the critical window (window.rs): unbind, relink, bind;
++ * 3. finish, while bound again: remove function directories that left,
++ *    record the new state, start the new mode's service.
++ */
++
++use std::collections::{BTreeMap, BTreeSet};
++use std::fs;
++use std::io::Write;
++
++use crate::configfs::ConfigFs;
++use crate::configuration::{Configuration, ForeignGadgets, GadgetDeclaration, is_owned_gadget};
++use crate::plan::{
++    MASS_STORAGE_FUNCTION, MTP_MOUNT, MTP_SERVICE, NCM_FUNCTION, Plan, Snapshot, adopted_mode,
++    classify, is_ffs, mode_functions, mode_service, plan, window_plan,
++};
++use crate::service::ModeServices;
++use crate::sysroot::SysRoot;
++use crate::udc::UDCMode;
++use crate::utils::udcmode_to_string;
++use crate::window::{Rung, WindowThread};
++
++const STATE_GADGET: &str = "USB_SIGNALLER_GADGET";
++const STATE_CONFIG: &str = "USB_SIGNALLER_CONFIG";
++const STATE_MODE: &str = "USB_SIGNALLER_MODE";
++const STATE_NCM_IFNAME: &str = "USB_SIGNALLER_NCM_IFNAME";
++const STATE_CONNECTION_NAME: &str = "USB_SIGNALLER_CONNECTION_NAME";
++const STATE_EPOCH: &str = "USB_SIGNALLER_EPOCH";
++
++/* A gadget usb-signaller manages in place */
++#[derive(Debug, Clone, PartialEq)]
++pub struct Managed {
++    pub udc: String,
++    pub gadget: String,
++    pub config: String,
++    pub pins: BTreeSet<String>,
++    pub allowed_modes: Option<BTreeSet<String>>,
++    pub mode: UDCMode,
++    /* Number of committed switches */
++    pub epoch: u64,
++}
++
++/* What holds a UDC, and what usb-signaller may do with it */
++#[derive(Debug, Clone, PartialEq)]
++pub enum Port {
++    /* Nothing bound */
++    Free,
++    /* usb-signaller-*: replaced as before */
++    Owned {
++        gadget: String,
++    },
++    /* Declared, not adopted: never touched */
++    Declared {
++        gadget: String,
++        pins: BTreeSet<String>,
++    },
++    /* Neither owned nor declared: [main] foreign_gadgets decides */
++    Foreign {
++        gadget: String,
++        policy: ForeignGadgets,
++    },
++    /* Declared with adopt = true and valid: managed in place */
++    Adopted(Managed),
++}
++
++/*
++ * Classify the gadget bound to a UDC. Adoption is validated here, with
++ * fresh reads only: nothing is written.
++ */
++pub fn classify_port(
++    config: &Configuration,
++    cfs: &dyn ConfigFs,
++    sys: &SysRoot,
++    udc: &str,
++    bound: Option<&str>,
++) -> Port {
++    let Some(gadget) = bound else {
++        return Port::Free;
++    };
++    let gadget = gadget.to_string();
++    if is_owned_gadget(&gadget) {
++        return Port::Owned { gadget };
++    }
++    if config.is_broken() {
++        return Port::Foreign {
++            gadget,
++            policy: ForeignGadgets::Preserve,
++        };
++    }
++    let Some(declaration) = config.gadget(&gadget) else {
++        return Port::Foreign {
++            gadget,
++            policy: config.foreign_gadgets(),
++        };
++    };
++    if !declaration.adopt.as_ref().is_some_and(|adopt| adopt.value) {
++        return Port::Declared {
++            gadget,
++            pins: declaration.pins(),
++        };
++    }
++    return match validate(cfs, sys, declaration, &gadget, udc) {
++        Ok(managed) => Port::Adopted(managed),
++        Err(err) => {
++            eprintln!("❌ Not adopting {gadget}: {err}");
++            Port::Declared {
++                gadget,
++                pins: declaration.pins(),
++            }
++        }
++    };
++}
++
++/* Check that a declared gadget can be adopted, and read its current mode */
++pub fn validate(
++    cfs: &dyn ConfigFs,
++    sys: &SysRoot,
++    declaration: &GadgetDeclaration,
++    gadget: &str,
++    udc: &str,
++) -> anyhow::Result<Managed> {
++    let pins = declaration.pins();
++    if pins.is_empty() {
++        return Err(anyhow::anyhow!(
++            "adopt = true needs at least one pinned function"
++        ));
++    }
++    if declaration
++        .keep_identity
++        .as_ref()
++        .is_some_and(|keep| !keep.value)
++    {
++        return Err(anyhow::anyhow!(
++            "keep_identity = false is not supported yet"
++        ));
++    }
++
++    let bound = cfs.read_udc(gadget)?;
++    if bound != udc {
++        return Err(anyhow::anyhow!(
++            "not bound to UDC {udc} (its UDC attribute reads '{bound}')"
++        ));
++    }
++
++    let configs = cfs.configs(gadget)?;
++    let config = match &declaration.config {
++        Some(config) => {
++            if !configs.contains(&config.value) {
++                return Err(anyhow::anyhow!(
++                    "configuration {} does not exist",
++                    config.value
++                ));
++            }
++            config.value.clone()
++        }
++        None if configs.len() == 1 => configs[0].clone(),
++        None => {
++            return Err(anyhow::anyhow!(
++                "it has {} configurations; set config to the one to manage",
++                configs.len()
++            ));
++        }
++    };
++
++    let functions = cfs.functions(gadget)?;
++    for pin in &pins {
++        if !functions.contains(pin) {
++            return Err(anyhow::anyhow!("pinned function {pin} does not exist"));
++        }
++    }
++
++    let snapshot = read_snapshot(cfs, sys, gadget, &config, &pins)?;
++    for pin in &pins {
++        if !snapshot.linked(pin) {
++            return Err(anyhow::anyhow!(
++                "pinned function {pin} is not linked in {gadget}/{config}"
++            ));
++        }
++        if snapshot.ready.get(pin) == Some(&Some(false)) {
++            return Err(anyhow::anyhow!("pinned function {pin} is not ready"));
++        }
++    }
++
++    return Ok(Managed {
++        udc: udc.to_string(),
++        gadget: gadget.to_string(),
++        config,
++        pins,
++        allowed_modes: declaration
++            .allowed_modes
++            .as_ref()
++            .map(|(modes, _)| modes.clone()),
++        mode: snapshot.mode,
++        epoch: 0,
++    });
++}
++
++/* Read an adopted gadget through new handles, and classify its mode */
++pub fn read_snapshot(
++    cfs: &dyn ConfigFs,
++    sys: &SysRoot,
++    gadget: &str,
++    config: &str,
++    pins: &BTreeSet<String>,
++) -> anyhow::Result<Snapshot> {
++    let udc = cfs.read_udc(gadget)?;
++    let links = cfs.links(gadget, config)?;
++    let function_dirs: BTreeSet<String> = cfs.functions(gadget)?.into_iter().collect();
++
++    let mut ready = BTreeMap::new();
++    for (_, function) in links.iter().filter(|(_, f)| is_ffs(f)) {
++        ready.insert(function.clone(), cfs.ffs_ready(gadget, function)?);
++    }
++
++    let others: BTreeSet<&str> = links
++        .iter()
++        .map(|(_, f)| f.as_str())
++        .filter(|f| !pins.contains(*f))
++        .collect();
++    let state = read_state_env(sys);
++    let tethering = state.get(STATE_GADGET) == Some(&sys.gadget(gadget).display().to_string())
++        && state.get(STATE_MODE).map(String::as_str) == Some("tethering_mode");
++    let cdrom = others.contains(MASS_STORAGE_FUNCTION)
++        && cfs
++            .read_attr(gadget, "functions/mass_storage.0/lun.0/cdrom")
++            .is_ok_and(|value| value == "1");
++
++    return Ok(Snapshot {
++        gadget: gadget.to_string(),
++        config: config.to_string(),
++        udc,
++        mode: classify(&others, tethering, cdrom),
++        links,
++        function_dirs,
++        ready,
++    });
++}
++
++/* KEY='value' lines of the state file; missing or unreadable means empty */
++pub fn read_state_env(sys: &SysRoot) -> BTreeMap<String, String> {
++    let mut values = BTreeMap::new();
++    let Ok(contents) = fs::read_to_string(sys.state_env()) else {
++        return values;
++    };
++
++    for line in contents.lines() {
++        let Some((key, value)) = line.split_once('=') else {
++            continue;
++        };
++        values.insert(key.trim().to_string(), shell_unquote(value.trim()));
++    }
++
++    return values;
++}
++
++/* The inverse of shell_quote: 'it'\''s' -> it's */
++fn shell_unquote(value: &str) -> String {
++    let mut out = String::new();
++    let mut quoted = false;
++    let mut escaped = false;
++    for c in value.chars() {
++        if escaped {
++            out.push(c);
++            escaped = false;
++            continue;
++        }
++        match c {
++            '\'' => quoted = !quoted,
++            '\\' if !quoted => escaped = true,
++            _ => out.push(c),
++        }
++    }
++    return out;
++}
++
++fn shell_quote(value: &str) -> String {
++    return format!("'{}'", value.replace('\'', "'\\''"));
++}
++
++/*
++ * Write the state file for the mode scripts: tmp file + rename, so a reader
++ * never sees half of it. It is only a hint: the composition is always read
++ * from configfs again.
++ */
++pub fn write_state_env(sys: &SysRoot, cfs: &dyn ConfigFs, managed: &Managed) -> anyhow::Result<()> {
++    let path = sys.state_env();
++    let directory = path.parent().unwrap();
++    fs::create_dir_all(directory)?;
++
++    let mut lines = vec![
++        (
++            STATE_GADGET,
++            sys.gadget(&managed.gadget).display().to_string(),
++        ),
++        (STATE_CONFIG, managed.config.clone()),
++        (
++            STATE_MODE,
++            udcmode_to_string(managed.mode.clone()).to_string(),
++        ),
++    ];
++    if matches!(managed.mode, UDCMode::Developer | UDCMode::Tethering) {
++        if let Ok(ifname) =
++            cfs.read_attr(&managed.gadget, &format!("functions/{NCM_FUNCTION}/ifname"))
++        {
++            lines.push((STATE_NCM_IFNAME, ifname));
++        }
++        let connection = match managed.mode {
++            UDCMode::Tethering => "Tethering Mode",
++            _ => "Developer Mode",
++        };
++        lines.push((STATE_CONNECTION_NAME, connection.to_string()));
++    }
++    lines.push((STATE_EPOCH, managed.epoch.to_string()));
++
++    let temporary = directory.join(".state.env.tmp");
++    let mut file = fs::File::create(&temporary)?;
++    for (key, value) in lines {
++        writeln!(file, "{key}={}", shell_quote(&value))?;
++    }
++    file.sync_all()?;
++    fs::rename(&temporary, &path)?;
++
++    return Ok(());
++}
++
++/* Remove the state file: the mode scripts then find usb-signaller's own gadgets as before */
++pub fn clear_state_env(sys: &SysRoot) {
++    let _ = fs::remove_file(sys.state_env());
++}
++
++/*
++ * What set_mode(mode) would do on every UDC, from live configfs, without
++ * writing anything or locking memory. The boolean is false when the switch
++ * would be refused.
++ */
++pub fn plan_report(
++    config: &Configuration,
++    cfs: &dyn ConfigFs,
++    sys: &SysRoot,
++    mode: &str,
++) -> (String, bool) {
++    let mut report = String::new();
++    let mut ok = true;
++
++    if config.is_broken() {
++        report.push_str(
++            "Configuration is broken: nothing is adopted and every gadget usb-signaller does not own is preserved\n",
++        );
++    }
++    for udc in crate::udc::discover_udcs(sys) {
++        let bound = crate::udc::UDC::bound_gadget_name(sys, &udc);
++        match classify_port(config, cfs, sys, &udc, bound.as_deref()) {
++            Port::Free => {
++                report.push_str(&format!("{udc}: free\n"));
++            }
++            Port::Owned { gadget } => {
++                report.push_str(&format!("{udc}: {gadget} (owned): replaced for {mode}\n"));
++            }
++            Port::Declared { gadget, .. } => {
++                report.push_str(&format!(
++                    "{udc}: {gadget} (declared): never replaced; {mode} is refused\n"
++                ));
++                ok = false;
++            }
++            Port::Foreign { gadget, policy } => {
++                if policy == ForeignGadgets::Preserve {
++                    report.push_str(&format!(
++                        "{udc}: {gadget} (foreign, preserve): never replaced; {mode} is refused\n"
++                    ));
++                    ok = false;
++                } else {
++                    report.push_str(&format!(
++                        "{udc}: {gadget} (foreign, replace): replaced for {mode}\n"
++                    ));
++                }
++            }
++            Port::Adopted(managed) => {
++                report.push_str(&format!(
++                    "{udc}: {} (adoptable), pins {}\n",
++                    managed.gadget,
++                    managed
++                        .pins
++                        .iter()
++                        .cloned()
++                        .collect::<Vec<String>>()
++                        .join(", ")
++                ));
++                let planned = match adopted_mode(mode) {
++                    None => Err(anyhow::anyhow!(
++                        "{mode} is not supported while gadget {} is adopted",
++                        managed.gadget
++                    )),
++                    Some(target) => {
++                        read_snapshot(cfs, sys, &managed.gadget, &managed.config, &managed.pins)
++                            .and_then(|snapshot| {
++                                plan(
++                                    &snapshot,
++                                    &managed.pins,
++                                    &target,
++                                    managed.allowed_modes.as_ref(),
++                                )
++                            })
++                    }
++                };
++                match planned {
++                    Ok(plan) => report.push_str(&plan.to_string()),
++                    Err(err) => {
++                        report.push_str(&format!("  refused: {err}\n"));
++                        ok = false;
++                    }
++                }
++            }
++        }
++    }
++
++    return (report, ok);
++}
++
++/* What a transaction needs besides the adopted gadget */
++pub struct Context<'a> {
++    pub sys: &'a SysRoot,
++    pub cfs: &'a dyn ConfigFs,
++    pub services: &'a dyn ModeServices,
++    pub window: &'a WindowThread,
++}
++
++impl Context<'_> {
++    fn stop(&self, service: Option<&str>) {
++        if let Some(service) = service
++            && let Err(err) = self.services.stop(service)
++        {
++            eprintln!("⚠️  Failed to stop {service}: {err:?}");
++        }
++    }
++
++    fn start(&self, service: Option<&str>) -> anyhow::Result<()> {
++        if let Some(service) = service {
++            self.services.start(service)?;
++        }
++        return Ok(());
++    }
++
++    /* Record a new mode: epoch and state file */
++    fn commit(&self, managed: &mut Managed, mode: UDCMode) {
++        managed.mode = mode;
++        managed.epoch += 1;
++        if let Err(err) = write_state_env(self.sys, self.cfs, managed) {
++            eprintln!(
++                "⚠️  Failed to write {}: {err:?}",
++                self.sys.state_env().display()
++            );
++        }
++    }
++
++    /* Remove function directories created in prepare; they may be linked, then this fails */
++    fn undo(&self, managed: &Managed, created: &[String]) {
++        for function in created {
++            if let Err(err) = self.cfs.rmdir_function(&managed.gadget, function) {
++                eprintln!(
++                    "⚠️  Failed to remove {}/functions/{function}: {err}",
++                    managed.gadget
++                );
++            }
++        }
++    }
++
++    /* Everything before the unbind; on failure, the bus was never touched */
++    fn prepare(
++        &self,
++        managed: &Managed,
++        plan: &Plan,
++        created: &mut Vec<String>,
++    ) -> anyhow::Result<()> {
++        for function in &plan.create {
++            self.cfs
++                .mkdir_function(&managed.gadget, function)
++                .map_err(|err| {
++                    anyhow::anyhow!("creating {}/functions/{function}: {err}", managed.gadget)
++                })?;
++            created.push(function.clone());
++        }
++
++        /*
++         * Unbinding with any LUN busy on its backing file would wait
++         * forever: eject every LUN, not only lun.0, while still bound.
++         */
++        if plan.forced_eject {
++            let function = format!("functions/{MASS_STORAGE_FUNCTION}");
++            let luns = self
++                .cfs
++                .entries(&managed.gadget, &function)
++                .map_err(|err| {
++                    anyhow::anyhow!("listing the LUNs of {MASS_STORAGE_FUNCTION}: {err}")
++                })?;
++            for lun in luns.iter().filter(|entry| entry.starts_with("lun.")) {
++                self.cfs
++                    .write_attr(
++                        &managed.gadget,
++                        &format!("{function}/{lun}/forced_eject"),
++                        "1",
++                    )
++                    .map_err(|err| {
++                        anyhow::anyhow!("forced_eject of {MASS_STORAGE_FUNCTION}/{lun}: {err}")
++                    })?;
++            }
++        }
++
++        return Ok(());
++    }
++}
++
++/* Whether exactly the pins and the functions of 'target' are linked */
++fn composed(ctx: &Context<'_>, managed: &Managed, target: &UDCMode) -> anyhow::Result<bool> {
++    let linked: BTreeSet<String> = ctx
++        .cfs
++        .links(&managed.gadget, &managed.config)?
++        .into_iter()
++        .map(|(_, function)| function)
++        .collect();
++    let mut expected = managed.pins.clone();
++    expected.extend(
++        mode_functions(target)
++            .unwrap_or_default()
++            .iter()
++            .map(|f| f.to_string()),
++    );
++    return Ok(linked == expected);
++}
++
++/*
++ * Switch an adopted gadget to a mode. Only charging_only, developer_mode
++ * and tethering_mode are supported so far; everything else is refused
++ * before anything is touched.
++ */
++pub async fn set_mode_adopted(
++    ctx: &Context<'_>,
++    managed: &mut Managed,
++    mode: &str,
++) -> anyhow::Result<UDCMode> {
++    let gadget = managed.gadget.clone();
++    let Some(target) = adopted_mode(mode) else {
++        return Err(anyhow::anyhow!(
++            "{mode} is not supported while gadget {gadget} is adopted"
++        ));
++    };
++
++    /* 0. Gate: bound as adopted, read through new handles, nothing written */
++    let snapshot = read_snapshot(ctx.cfs, ctx.sys, &gadget, &managed.config, &managed.pins)?;
++    if snapshot.udc != managed.udc {
++        return Err(anyhow::anyhow!(
++            "adopted gadget {gadget} is not bound to UDC {} (its UDC attribute reads '{}')",
++            managed.udc,
++            snapshot.udc
++        ));
++    }
++    managed.mode = snapshot.mode.clone();
++    let plan = plan(
++        &snapshot,
++        &managed.pins,
++        &target,
++        managed.allowed_modes.as_ref(),
++    )?;
++    print!("ℹ️  Plan for adopted gadget {plan}");
++
++    /* Same composition: no configfs write, no disconnect */
++    if !plan.rebind() {
++        ctx.stop(plan.services.stop);
++        ctx.commit(managed, target.clone());
++        ctx.start(plan.services.start)
++            .map_err(|err| anyhow::anyhow!("{mode} is set but its service failed: {err:?}"))?;
++        return Ok(target);
++    }
++
++    /* 1. Prepare, while bound: the root filesystem is reachable */
++    let mut created = vec![];
++    if let Err(err) = ctx.prepare(managed, &plan, &mut created) {
++        ctx.undo(managed, &created);
++        return Err(err);
++    }
++    ctx.stop(plan.services.stop);
++    let window = window_plan(&snapshot, &plan, &managed.pins, &managed.udc);
++    let io = match ctx.cfs.open_window(&window) {
++        Ok(io) => io,
++        Err(err) => {
++            ctx.undo(managed, &created);
++            let _ = ctx.start(plan.services.stop);
++            return Err(anyhow::anyhow!(
++                "opening {gadget} for the switch failed: {err}"
++            ));
++        }
++    };
++    println!("ℹ️  Rebinding {gadget} on UDC {}", managed.udc);
++    let _ = std::io::stdout().flush();
++
++    /*
++     * 2. The critical window, on the memory-locked window thread. It fails
++     * only when the thread is gone before it started (a panic inside a
++     * window aborts the process): the bus was not touched.
++     */
++    let (outcome, window) = match ctx.window.run(io, window).await {
++        Ok(result) => result,
++        Err(err) => {
++            ctx.undo(managed, &created);
++            let _ = ctx.start(plan.services.stop);
++            return Err(err.context(format!("switching {gadget} to {mode}")));
++        }
++    };
++
++    /* 3. Finish, bound again */
++    println!("ℹ️  {}", outcome.describe(&window));
++    /* Someone else may have changed the links while the gadget was unbound */
++    let mut rung = outcome.rung;
++    if rung == Rung::Target && !composed(ctx, managed, &target).unwrap_or(false) {
++        eprintln!("⚠️  {gadget} was bound, but not with the composition of {mode}");
++        rung = Rung::RecoveredByOther;
++    }
++    match rung {
++        Rung::Target => {
++            /* The MTP function is no longer bound: its daemon may go now */
++            if plan.stop_mtp {
++                ctx.stop(Some(MTP_SERVICE));
++                if let Err(err) = ctx.services.umount_functionfs(MTP_MOUNT) {
++                    eprintln!("⚠️  Failed to unmount {MTP_MOUNT}: {err:?}");
++                }
++            }
++            for function in &plan.destroy {
++                if let Err(err) = ctx.cfs.rmdir_function(&gadget, function) {
++                    eprintln!("⚠️  Failed to remove {gadget}/functions/{function}: {err}");
++                }
++            }
++            ctx.commit(managed, target.clone());
++            ctx.start(plan.services.start).map_err(|err| {
++                anyhow::anyhow!("{gadget} is composed for {mode} but its service failed: {err:?}")
++            })?;
++            return Ok(target);
++        }
++        Rung::Untouched => {
++            ctx.undo(managed, &created);
++            let _ = ctx.start(plan.services.stop);
++            return Err(anyhow::anyhow!(
++                "unbinding {gadget} failed ({}); nothing changed",
++                outcome.cause(&window)
++            ));
++        }
++        Rung::Previous | Rung::PinsOnly | Rung::RecoveredByOther => {
++            ctx.undo(managed, &created);
++            let now = match read_snapshot(ctx.cfs, ctx.sys, &gadget, &managed.config, &managed.pins)
++            {
++                Ok(snapshot) => snapshot.mode,
++                Err(err) => {
++                    eprintln!("⚠️  Cannot read {gadget} after the failed switch: {err:?}");
++                    UDCMode::Unknown
++                }
++            };
++            ctx.commit(managed, now.clone());
++            if let Err(err) = ctx.start(mode_service(&now)) {
++                eprintln!("⚠️  Failed to start the service of {now:?}: {err:?}");
++            }
++            return Err(anyhow::anyhow!(
++                "switching {gadget} to {mode} failed ({}); it is bound in {} ({:?})",
++                outcome.cause(&window),
++                udcmode_to_string(now),
++                outcome.rung
++            ));
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::configfs::UNBIND;
++    use crate::configfs::fake::{FakeConfigFs, FakeOp, FakeRecord, FakeState};
++    use crate::configuration::testing::TempRoot;
++    use crate::service::fake::FakeServices;
++    use crate::sysroot::fixture::SysFixture;
++
++    const DROPIN: &str = "run/usb-signaller/usb-signaller.toml.d/50-smoo.toml";
++    const SMOO: &str = "[gadget.smoo]\nadopt = true\npinned_functions = [\"ffs.smoo\"]\n";
++
++    fn config(contents: &str) -> Configuration {
++        let root = TempRoot::new("adopt-config");
++        root.write(DROPIN, contents);
++        return Configuration::load_with_root(Some(&root.path));
++    }
++
++    /* The smoo liveboot gadget: ffs.smoo linked first, optionally ncm.usb0, bound to udc0 */
++    fn smoo(with_ncm: bool) -> FakeConfigFs {
++        let fs = FakeConfigFs::new();
++        fs.add_udc("udc0");
++        fs.add_gadget("smoo", &["c.1"]);
++        fs.mkdir_function("smoo", "ffs.smoo").unwrap();
++        fs.link("smoo", "c.1", "ffs.smoo").unwrap();
++        fs.set_ffs_ready("smoo", "ffs.smoo", true);
++        if with_ncm {
++            fs.mkdir_function("smoo", "ncm.usb0").unwrap();
++            fs.link("smoo", "c.1", "ncm.usb0").unwrap();
++        }
++        fs.write_udc("smoo", "udc0").unwrap();
++        fs.set_attr("smoo", "functions/ncm.usb0/ifname", "usb0");
++        fs.clear_ops();
++        return fs;
++    }
++
++    fn adopt(fs: &FakeConfigFs, sys: &SysRoot) -> Managed {
++        let config = config(SMOO);
++        let Port::Adopted(managed) = classify_port(&config, fs, sys, "udc0", Some("smoo")) else {
++            panic!("not adopted");
++        };
++        return managed;
++    }
++
++    struct Harness {
++        fs: FakeConfigFs,
++        fixture: SysFixture,
++        services: FakeServices,
++        window: WindowThread,
++        runtime: tokio::runtime::Runtime,
++    }
++
++    impl Harness {
++        /* Service calls go into the configfs fake's log, in one order with its calls */
++        fn new(with_ncm: bool) -> Self {
++            let fs = smoo(with_ncm);
++            let services = FakeServices::logged(&fs);
++            return Self {
++                fs,
++                fixture: SysFixture::new("adopt"),
++                services,
++                window: WindowThread::spawn().unwrap(),
++                runtime: tokio::runtime::Builder::new_current_thread()
++                    .build()
++                    .unwrap(),
++            };
++        }
++
++        fn switch(&self, managed: &mut Managed, mode: &str) -> anyhow::Result<UDCMode> {
++            let ctx = Context {
++                sys: &self.fixture.sys,
++                cfs: &self.fs,
++                services: &self.services,
++                window: &self.window,
++            };
++            return self.runtime.block_on(set_mode_adopted(&ctx, managed, mode));
++        }
++
++        fn functions(&self) -> Vec<String> {
++            return self
++                .fs
++                .linked("smoo", "c.1")
++                .into_iter()
++                .map(|(_, f)| f)
++                .collect();
++        }
++    }
++
++    fn writes(ops: &[FakeRecord]) -> Vec<FakeOp> {
++        return ops
++            .iter()
++            .filter(|r| {
++                matches!(
++                    r.op,
++                    FakeOp::Mkdir(..)
++                        | FakeOp::Rmdir(..)
++                        | FakeOp::Link { .. }
++                        | FakeOp::Unlink(..)
++                        | FakeOp::WriteUdc(..)
++                        | FakeOp::WriteAttr(..)
++                )
++            })
++            .map(|r| r.op.clone())
++            .collect();
++    }
++
++    #[test]
++    fn adopting_reads_only_and_classifies_the_mode() {
++        let fixture = SysFixture::new("adopt-classify");
++        let fs = smoo(true);
++        let managed = adopt(&fs, &fixture.sys);
++        assert_eq!(managed.config, "c.1");
++        assert_eq!(managed.mode, UDCMode::Developer);
++        assert!(writes(&fs.ops()).is_empty());
++
++        let fs = smoo(false);
++        assert_eq!(adopt(&fs, &fixture.sys).mode, UDCMode::Charging);
++    }
++
++    #[test]
++    fn tethering_is_recognised_from_the_state_file() {
++        let h = Harness::new(true);
++        let mut managed = adopt(&h.fs, &h.fixture.sys);
++        h.switch(&mut managed, "tethering_mode").unwrap();
++        assert_eq!(adopt(&h.fs, &h.fixture.sys).mode, UDCMode::Tethering);
++    }
++
++    #[test]
++    fn adoption_fails_closed() {
++        let fixture = SysFixture::new("adopt-refuse");
++        let cases: Vec<(&str, FakeConfigFs, &str)> = vec![
++            (
++                "[gadget.smoo]\nadopt = true\n",
++                smoo(false),
++                "needs at least one pinned function",
++            ),
++            (
++                "[gadget.smoo]\nadopt = true\nkeep_identity = false\npinned_functions = [\"ffs.smoo\"]\n",
++                smoo(false),
++                "keep_identity = false is not supported yet",
++            ),
++            (
++                "[gadget.smoo]\nadopt = true\npinned_functions = [\"ffs.other\"]\n",
++                smoo(false),
++                "pinned function ffs.other does not exist",
++            ),
++            (
++                SMOO,
++                {
++                    let fs = smoo(false);
++                    fs.set_ffs_ready("smoo", "ffs.smoo", false);
++                    fs
++                },
++                "pinned function ffs.smoo is not ready",
++            ),
++            (
++                SMOO,
++                {
++                    let fs = smoo(false);
++                    fs.add_gadget("smoo", &["c.2"]);
++                    fs
++                },
++                "it has 2 configurations",
++            ),
++            (
++                "[gadget.smoo]\nadopt = true\nconfig = \"c.9\"\npinned_functions = [\"ffs.smoo\"]\n",
++                smoo(false),
++                "configuration c.9 does not exist",
++            ),
++            (
++                SMOO,
++                {
++                    let fs = smoo(false);
++                    fs.write_udc("smoo", UNBIND).unwrap();
++                    fs
++                },
++                "not bound to UDC udc0",
++            ),
++            (
++                SMOO,
++                {
++                    let fs = smoo(false);
++                    fs.write_udc("smoo", UNBIND).unwrap();
++                    fs.mkdir_function("smoo", "acm.GS0").unwrap();
++                    fs.unlink("smoo", "c.1", "ffs.smoo").unwrap();
++                    fs.link("smoo", "c.1", "acm.GS0").unwrap();
++                    fs.write_udc("smoo", "udc0").unwrap();
++                    fs
++                },
++                "pinned function ffs.smoo is not linked",
++            ),
++        ];
++        for (contents, fs, expected) in cases {
++            fs.clear_ops();
++            let config = config(contents);
++            let error = validate(
++                &fs,
++                &fixture.sys,
++                config.gadget("smoo").unwrap(),
++                "smoo",
++                "udc0",
++            )
++            .unwrap_err()
++            .to_string();
++            assert!(error.contains(expected), "{error} lacks {expected}");
++            /* The gadget stays declared: protected, not adopted */
++            assert!(matches!(
++                classify_port(&config, &fs, &fixture.sys, "udc0", Some("smoo")),
++                Port::Declared { .. }
++            ));
++            assert!(writes(&fs.ops()).is_empty());
++        }
++    }
++
++    #[test]
++    fn declared_gadgets_without_adopt_and_broken_configurations_are_not_adopted() {
++        let fixture = SysFixture::new("adopt-ports");
++        let fs = smoo(false);
++        let declared = config("[gadget.smoo]\npinned_functions = [\"ffs.smoo\"]\n");
++        assert!(matches!(
++            classify_port(&declared, &fs, &fixture.sys, "udc0", Some("smoo")),
++            Port::Declared { .. }
++        ));
++        let broken = config("[gadget.smoo]\nadopt = true\npinned_function = [\"ffs.smoo\"]\n");
++        assert_eq!(
++            classify_port(&broken, &fs, &fixture.sys, "udc0", Some("smoo")),
++            Port::Foreign {
++                gadget: "smoo".into(),
++                policy: ForeignGadgets::Preserve
++            }
++        );
++        assert_eq!(
++            classify_port(&declared, &fs, &fixture.sys, "udc0", None),
++            Port::Free
++        );
++        assert_eq!(
++            classify_port(
++                &declared,
++                &fs,
++                &fixture.sys,
++                "udc0",
++                Some("usb-signaller-developer")
++            ),
++            Port::Owned {
++                gadget: "usb-signaller-developer".into()
++            }
++        );
++    }
++
++    #[test]
++    fn plan_report_describes_without_writing() {
++        let fixture = SysFixture::new("adopt-plan");
++        fixture.add_udc("udc0", "configured", Some("smoo"));
++        fixture.add_gadget("smoo", "udc0", true, &[], &[]);
++        fixture.add_udc("udc1", "not attached", Some(""));
++        let fs = smoo(true);
++        let config = config(SMOO);
++
++        let (report, ok) = plan_report(&config, &fs, &fixture.sys, "charging_only");
++        assert!(ok);
++        assert!(
++            report.contains("udc0: smoo (adoptable), pins ffs.smoo"),
++            "{report}"
++        );
++        assert!(
++            report.contains("smoo/c.1: developer_mode -> charging_only"),
++            "{report}"
++        );
++        assert!(
++            report.contains("window (unbound): unlink ncm.usb0; link -; bind"),
++            "{report}"
++        );
++        assert!(
++            report.contains("finish (bound): remove ncm.usb0"),
++            "{report}"
++        );
++        assert!(report.contains("udc1: free"), "{report}");
++
++        let (report, ok) = plan_report(&config, &fs, &fixture.sys, "developer_mode");
++        assert!(ok);
++        assert!(report.contains("composition unchanged"), "{report}");
++
++        let (report, ok) = plan_report(&config, &fs, &fixture.sys, "host_mode");
++        assert!(!ok);
++        assert!(
++            report.contains("refused: host_mode is not supported while gadget smoo is adopted")
++        );
++        assert!(writes(&fs.ops()).is_empty());
++    }
++
++    #[test]
++    fn a_missing_ready_attribute_counts_as_ready() {
++        let fixture = SysFixture::new("adopt-old-kernel");
++        let fs = smoo(false);
++        fs.remove_ready_attr("smoo", "ffs.smoo");
++        adopt(&fs, &fixture.sys);
++    }
++
++    #[test]
++    fn developer_to_charging_to_developer() {
++        let h = Harness::new(true);
++        let mut managed = adopt(&h.fs, &h.fixture.sys);
++
++        assert_eq!(
++            h.switch(&mut managed, "charging_only").unwrap(),
++            UDCMode::Charging
++        );
++        assert_eq!(h.functions(), vec!["ffs.smoo"]);
++        assert!(!h.fs.has_function("smoo", "ncm.usb0"));
++        assert!(h.fs.is_bound("smoo"));
++        assert_eq!(
++            h.services.calls(),
++            vec!["stop usb-signaller-developer-mode"]
++        );
++
++        h.services.clear();
++        assert_eq!(
++            h.switch(&mut managed, "developer_mode").unwrap(),
++            UDCMode::Developer
++        );
++        /* The pin keeps interface 0: new links go after it */
++        assert_eq!(h.functions(), vec!["ffs.smoo", "ncm.usb0"]);
++        assert!(h.fs.is_bound("smoo"));
++        assert_eq!(
++            h.services.calls(),
++            vec!["start usb-signaller-developer-mode"]
++        );
++        assert_eq!(managed.epoch, 2);
++
++        let state = read_state_env(&h.fixture.sys);
++        assert_eq!(state[STATE_MODE], "developer_mode");
++        assert_eq!(state[STATE_NCM_IFNAME], "usb0");
++        assert_eq!(state[STATE_CONNECTION_NAME], "Developer Mode");
++        assert_eq!(state[STATE_CONFIG], "c.1");
++        assert_eq!(state[STATE_EPOCH], "2");
++        assert!(state[STATE_GADGET].ends_with("/sys/kernel/config/usb_gadget/smoo"));
++    }
++
++    #[test]
++    fn same_mode_and_developer_tethering_swaps_write_nothing_to_configfs() {
++        let h = Harness::new(true);
++        let mut managed = adopt(&h.fs, &h.fixture.sys);
++        h.fs.clear_ops();
++
++        h.switch(&mut managed, "developer_mode").unwrap();
++        h.switch(&mut managed, "tethering_mode").unwrap();
++        h.switch(&mut managed, "developer_mode").unwrap();
++        assert!(writes(&h.fs.ops()).is_empty());
++        assert_eq!(
++            h.services.calls(),
++            vec![
++                "start usb-signaller-developer-mode",
++                "stop usb-signaller-developer-mode",
++                "start usb-signaller-tethering-mode",
++                "stop usb-signaller-tethering-mode",
++                "start usb-signaller-developer-mode",
++            ]
++        );
++    }
++
++    #[test]
++    fn unsupported_modes_are_refused_without_touching_anything() {
++        let h = Harness::new(true);
++        let mut managed = adopt(&h.fs, &h.fixture.sys);
++        h.fs.clear_ops();
++        for mode in [
++            "mtp_ffs_mode",
++            "mass_storage_mode",
++            "cdrom_mode",
++            "aoa_ffs_mode",
++            "host_mode",
++            "netboot_mode",
++            "bogus",
++        ] {
++            let error = h.switch(&mut managed, mode).unwrap_err().to_string();
++            assert_eq!(
++                error,
++                format!("{mode} is not supported while gadget smoo is adopted")
++            );
++        }
++        assert!(h.fs.ops().is_empty());
++        assert!(h.services.calls().is_empty());
++    }
++
++    #[test]
++    fn unmanaged_functions_block_switches() {
++        let h = Harness::new(false);
++        h.fs.write_udc("smoo", UNBIND).unwrap();
++        h.fs.mkdir_function("smoo", "acm.GS0").unwrap();
++        h.fs.link("smoo", "c.1", "acm.GS0").unwrap();
++        h.fs.write_udc("smoo", "udc0").unwrap();
++        let mut managed = adopt(&h.fs, &h.fixture.sys);
++        assert_eq!(managed.mode, UDCMode::Unknown);
++        h.fs.clear_ops();
++        let error = h.switch(&mut managed, "charging_only").unwrap_err();
++        assert!(
++            error
++                .to_string()
++                .contains("acm.GS0 linked in smoo/c.1 is neither pinned nor managed")
++        );
++        assert!(writes(&h.fs.ops()).is_empty());
++    }
++
++    #[test]
++    fn a_failing_service_is_reported_after_the_composition() {
++        let h = Harness::new(false);
++        let mut managed = adopt(&h.fs, &h.fixture.sys);
++        h.services.fail_start("usb-signaller-developer-mode");
++        let error = h.switch(&mut managed, "developer_mode").unwrap_err();
++        assert!(
++            error
++                .to_string()
++                .contains("composed for developer_mode but its service failed")
++        );
++        assert_eq!(h.functions(), vec!["ffs.smoo", "ncm.usb0"]);
++        assert_eq!(managed.mode, UDCMode::Developer);
++    }
++
++    /* Someone else composed a mass storage function with two busy LUNs */
++    #[test]
++    fn leaving_mass_storage_force_ejects_every_lun_while_bound() {
++        let h = Harness::new(false);
++        h.fs.write_udc("smoo", UNBIND).unwrap();
++        h.fs.mkdir_function("smoo", "mass_storage.0").unwrap();
++        h.fs.link("smoo", "c.1", "mass_storage.0").unwrap();
++        h.fs.write_udc("smoo", "udc0").unwrap();
++        h.fs.set_lun_busy("smoo", "mass_storage.0", true);
++        h.fs.set_busy("smoo", "mass_storage.0", "lun.1", true);
++        let mut managed = adopt(&h.fs, &h.fixture.sys);
++        assert_eq!(managed.mode, UDCMode::MassStorage);
++        h.fs.clear_ops();
++
++        h.switch(&mut managed, "charging_only").unwrap();
++        assert!(!h.fs.deadlocked());
++        assert_eq!(h.functions(), vec!["ffs.smoo"]);
++        assert!(!h.fs.has_function("smoo", "mass_storage.0"));
++
++        let ops = h.fs.ops();
++        let unbind = ops
++            .iter()
++            .position(|r| r.window && r.op == FakeOp::WriteUdc("smoo".into(), UNBIND.into()))
++            .unwrap();
++        for lun in ["lun.0", "lun.1"] {
++            let eject = FakeOp::WriteAttr(
++                "smoo".into(),
++                format!("functions/mass_storage.0/{lun}/forced_eject"),
++                "1".into(),
++            );
++            let index = ops.iter().position(|r| r.op == eject);
++            assert!(index.is_some_and(|i| i < unbind), "{lun}: {ops:#?}");
++        }
++    }
++
++    /*
++     * The window thread is gone: the window never ran, so the gadget is
++     * still bound; prepare is undone and the old mode's service restarted.
++     */
++    #[test]
++    fn a_gone_window_thread_undoes_prepare() {
++        let mut h = Harness::new(false);
++        h.window = WindowThread::stopped();
++        let mut managed = adopt(&h.fs, &h.fixture.sys);
++        let error = h.switch(&mut managed, "developer_mode").unwrap_err();
++        assert!(format!("{error:#}").contains("the window thread is gone"));
++        assert!(!h.fs.has_function("smoo", "ncm.usb0"));
++        assert_eq!(h.functions(), vec!["ffs.smoo"]);
++        assert!(h.fs.is_bound("smoo"));
++        assert!(h.services.calls().is_empty());
++
++        let mut h = Harness::new(true);
++        h.window = WindowThread::stopped();
++        let mut managed = adopt(&h.fs, &h.fixture.sys);
++        h.switch(&mut managed, "charging_only").unwrap_err();
++        assert_eq!(h.functions(), vec!["ffs.smoo", "ncm.usb0"]);
++        assert!(h.fs.is_bound("smoo"));
++        assert_eq!(
++            h.services.calls(),
++            vec![
++                "stop usb-signaller-developer-mode",
++                "start usb-signaller-developer-mode"
++            ]
++        );
++    }
++
++    /* The state file must give the scripts back exactly what was written */
++    #[test]
++    fn state_values_round_trip_through_shell_quoting() {
++        for value in ["it's", "two words", r"back\slash", "'", "", r"\'", "a''b"] {
++            let quoted = shell_quote(value);
++            assert_eq!(shell_unquote(&quoted), value, "{quoted}");
++            /* And a shell reads the same value */
++            let output = std::process::Command::new("sh")
++                .args(["-c", &format!("printf %s {quoted}")])
++                .output()
++                .unwrap();
++            assert_eq!(String::from_utf8(output.stdout).unwrap(), value, "{quoted}");
++        }
++    }
++
++    #[test]
++    fn leaving_mtp_stops_its_daemon_after_the_rebind() {
++        let h = Harness::new(false);
++        h.fs.write_udc("smoo", UNBIND).unwrap();
++        h.fs.mkdir_function("smoo", "ffs.mtp").unwrap();
++        h.fs.link("smoo", "c.1", "ffs.mtp").unwrap();
++        h.fs.set_ffs_ready("smoo", "ffs.mtp", true);
++        h.fs.write_udc("smoo", "udc0").unwrap();
++        let mut managed = adopt(&h.fs, &h.fixture.sys);
++        assert_eq!(managed.mode, UDCMode::MTP);
++
++        h.switch(&mut managed, "developer_mode").unwrap();
++        assert_eq!(h.functions(), vec!["ffs.smoo", "ncm.usb0"]);
++        assert_eq!(
++            h.services.calls(),
++            vec![
++                "stop usb-signaller-mtp-mode",
++                "umount /dev/mtp",
++                "start usb-signaller-developer-mode"
++            ]
++        );
++    }
++
++    #[test]
++    fn a_non_ready_pin_is_refused_before_the_bus_is_touched() {
++        let h = Harness::new(true);
++        let mut managed = adopt(&h.fs, &h.fixture.sys);
++        h.fs.set_ffs_ready("smoo", "ffs.smoo", false);
++        h.fs.clear_ops();
++        let error = h.switch(&mut managed, "charging_only").unwrap_err();
++        assert_eq!(error.to_string(), "pinned function ffs.smoo is not ready");
++        assert!(writes(&h.fs.ops()).is_empty());
++    }
++
++    /*
++     * After every transaction, however it ended: the gadget is bound (once
++     * its UDC is present), every pin is linked, and while the gadget was
++     * unbound only the window made calls, all of them window operations.
++     */
++    fn assert_invariants(h: &Harness, context: &str) {
++        let ops = h.fs.ops();
++        h.fs.add_udc("udc0");
++        assert!(h.fs.is_bound("smoo"), "{context}: not bound; ops {ops:#?}");
++        assert!(
++            h.functions().contains(&"ffs.smoo".to_string()),
++            "{context}: pin unlinked"
++        );
++        assert!(
++            h.fs.has_function("smoo", "ffs.smoo"),
++            "{context}: pin removed"
++        );
++        for record in &ops {
++            if let FakeOp::Unlink(_, _, link) | FakeOp::Rmdir(_, link) = &record.op {
++                assert_ne!(link, "ffs.smoo", "{context}: touched the pin");
++            }
++            if record.window {
++                assert!(
++                    matches!(
++                        record.op,
++                        FakeOp::OpenUdc(..)
++                            | FakeOp::ReadUdc(..)
++                            | FakeOp::WriteUdc(..)
++                            | FakeOp::Unlink(..)
++                            | FakeOp::Link { .. }
++                            | FakeOp::FfsReady(..)
++                    ),
++                    "{context}: {record:?} in the window"
++                );
++            }
++        }
++        /*
++         * Between the window's unbind and its successful bind, nothing else
++         * ran: no other configfs call and no mode service call (services
++         * are logged in the same numbered log).
++         */
++        let first = ops
++            .iter()
++            .position(|r| r.window && r.op == FakeOp::WriteUdc("smoo".into(), UNBIND.into()));
++        let last = ops.iter().rposition(|r| {
++            r.window && r.errno.is_none() && matches!(&r.op, FakeOp::WriteUdc(_, v) if v != UNBIND)
++        });
++        if let (Some(first), Some(last)) = (first, last) {
++            for record in &ops[first..=last] {
++                assert!(record.window, "{context}: {record:?} ran while unbound");
++            }
++        }
++    }
++
++    /*
++     * Mode services of a transaction that started in 'initial', aimed at
++     * 'target' and left the gadget in 'now':
++     *
++     * - no service starts before the window has ended;
++     * - only the service of the mode the gadget is in afterwards starts, so
++     *   a failed rung never starts the target's service unless the gadget
++     *   ended up in the target mode anyway;
++     * - when no service call failed, exactly that service runs afterwards,
++     *   which after an untouched window means the old one again.
++     */
++    fn assert_services(h: &Harness, context: &str, initial: &UDCMode, now: &UDCMode, ending: &str) {
++        let ops = h.fs.ops();
++        let window_end = ops.iter().rposition(|r| r.window);
++        let expected: BTreeSet<String> = mode_service(now).map(String::from).into_iter().collect();
++        let mut running: BTreeSet<String> = mode_service(initial)
++            .map(String::from)
++            .into_iter()
++            .collect();
++        let mut failed = false;
++        let mut last = None;
++        for (index, record) in ops.iter().enumerate() {
++            let FakeOp::Service(call) = &record.op else {
++                continue;
++            };
++            if record.errno.is_some() {
++                failed = true;
++                continue;
++            }
++            last = Some(call.clone());
++            if let Some(service) = call.strip_prefix("start ") {
++                assert!(
++                    window_end.is_none_or(|end| index > end),
++                    "{context}: {call} before the window ended"
++                );
++                assert_eq!(
++                    Some(service),
++                    mode_service(now),
++                    "{context}: {call}, but the gadget is in {now:?}"
++                );
++                running.insert(service.to_string());
++            } else if let Some(service) = call.strip_prefix("stop ") {
++                running.remove(service);
++            }
++        }
++        if !failed {
++            assert_eq!(running, expected, "{context}: services {ops:#?}");
++        }
++        if ending == "untouched"
++            && let Some(old) = mode_service(initial)
++        {
++            assert_eq!(last, Some(format!("start {old}")), "{context}");
++        }
++    }
++
++    type Fault = (&'static str, fn(&FakeConfigFs, usize));
++
++    fn faults() -> Vec<Fault> {
++        return vec![
++            ("EBUSY", |fs, n| fs.fail_op(n, libc::EBUSY)),
++            ("EINVAL", |fs, n| fs.fail_op(n, libc::EINVAL)),
++            /* Someone else removes ncm.usb0 while the gadget is unbound: our unlink gets ENOENT */
++            ("concurrent unlinker", |fs, n| {
++                fs.before_op(n, |s: &mut FakeState| {
++                    if s.gadgets["smoo"].udc_name.is_none() {
++                        let _ = s.unlink("smoo", "c.1", "ncm.usb0");
++                    }
++                })
++            }),
++            ("EIO", |fs, n| fs.fail_op(n, libc::EIO)),
++            ("concurrent binder", |fs, n| {
++                fs.before_op(n, |s: &mut FakeState| {
++                    let _ = s.bind("smoo", "udc0");
++                })
++            }),
++            ("UDC vanishes", |fs, n| {
++                fs.before_op(n, |s: &mut FakeState| {
++                    if let Some(Some(gadget)) = s.udcs.remove("udc0") {
++                        s.gadgets.get_mut(&gadget).unwrap().bound = false;
++                    }
++                });
++                fs.on_pause(|s: &mut FakeState, pauses| {
++                    if pauses == 3 && !s.udcs.contains_key("udc0") {
++                        s.udcs.insert("udc0".into(), None);
++                    }
++                });
++            }),
++        ];
++    }
++
++    /* Inject every fault before every call of every switch */
++    #[test]
++    fn faults_at_every_op_keep_the_gadget_bound_with_its_pins() {
++        let scenarios: [(bool, &str); 4] = [
++            (true, "charging_only"),
++            (false, "developer_mode"),
++            (false, "tethering_mode"),
++            (true, "developer_mode"),
++        ];
++        let mut runs = 0;
++        let mut endings: BTreeMap<&str, usize> = BTreeMap::new();
++        for (with_ncm, mode) in scenarios {
++            /* Count the calls of a clean run */
++            let h = Harness::new(with_ncm);
++            let mut managed = adopt(&h.fs, &h.fixture.sys);
++            h.fs.clear_ops();
++            h.switch(&mut managed, mode).unwrap();
++            let total = h.fs.ops().len();
++
++            for (name, inject) in faults() {
++                for n in 0..total + 2 {
++                    let h = Harness::new(with_ncm);
++                    let mut managed = adopt(&h.fs, &h.fixture.sys);
++                    let initial = managed.mode.clone();
++                    h.fs.clear_ops();
++                    inject(&h.fs, n);
++                    let result = h.switch(&mut managed, mode);
++                    let context =
++                        format!("{mode} from ncm={with_ncm}, {name} at op {n}: {result:?}");
++                    let ending = match &result {
++                        Ok(_) => "target",
++                        Err(err) if err.to_string().ends_with("(Previous)") => "previous",
++                        Err(err) if err.to_string().ends_with("(PinsOnly)") => "pins only",
++                        Err(err) if err.to_string().ends_with("(RecoveredByOther)") => {
++                            "recovered by other"
++                        }
++                        Err(err) if err.to_string().ends_with("nothing changed") => "untouched",
++                        Err(err) if err.to_string().contains("service failed") => "service failed",
++                        Err(_) => "refused before the window",
++                    };
++                    assert_services(&h, &context, &initial, &managed.mode, ending);
++                    assert_invariants(&h, &context);
++                    *endings.entry(ending).or_default() += 1;
++                    if result.is_ok() {
++                        let expected: Vec<String> = match mode {
++                            "charging_only" => vec!["ffs.smoo".into()],
++                            _ => vec!["ffs.smoo".into(), "ncm.usb0".into()],
++                        };
++                        assert_eq!(h.functions(), expected, "{context}");
++                    }
++                    runs += 1;
++                }
++            }
++        }
++        assert!(runs > 100, "only {runs} runs");
++        /* Every rung of the ladder was reached */
++        for ending in [
++            "target",
++            "previous",
++            "pins only",
++            "recovered by other",
++            "untouched",
++            "service failed",
++            "refused before the window",
++        ] {
++            assert!(
++                endings.contains_key(ending),
++                "never ended {ending}: {endings:?}"
++            );
++        }
++        println!("{runs} runs: {endings:?}");
++    }
++}
+diff --git a/src/configfs.rs b/src/configfs.rs
+index 9f5a6fa..11201be 100644
+--- a/src/configfs.rs
++++ b/src/configfs.rs
+@@ -27,15 +27,13 @@
+  * refused while bound").
+  */
+ 
+-/* The adopted-gadget transaction that uses this is not part of this change yet */
+-#![cfg_attr(not(test), allow(dead_code))]
+-
+ use std::fs::{self, OpenOptions};
+ use std::io;
+ use std::os::unix::fs::{FileExt, symlink};
+ use std::path::PathBuf;
+ 
+ use crate::sysroot::SysRoot;
++use crate::window::{RawWindowIo, WindowIo, WindowPlan};
+ 
+ const FUNCTIONS_PATH: &str = "functions";
+ const CONFIGS_PATH: &str = "configs";
+@@ -43,6 +41,7 @@ const UDC_NODE: &str = "UDC";
+ const READY_NODE: &str = "ready";
+ 
+ /* Written to a gadget's UDC attribute to unbind it; an empty write never reaches the kernel */
++#[cfg_attr(not(test), allow(dead_code))]
+ pub const UNBIND: &str = "\n";
+ 
+ /*
+@@ -56,6 +55,12 @@ pub trait Attribute: Send {
+     fn write(&mut self, value: &str) -> io::Result<()>;
+ }
+ 
++/*
++ * Links, unlinks and UDC writes of an adopted gadget happen inside the
++ * critical window, through open_window() and raw syscalls; outside tests
++ * nothing calls those trait methods.
++ */
++#[cfg_attr(not(test), allow(dead_code))]
+ pub trait ConfigFs: Send + Sync {
+     /* Function directories of a gadget, in creation order */
+     fn functions(&self, gadget: &str) -> io::Result<Vec<String>>;
+@@ -118,8 +123,20 @@ pub trait ConfigFs: Send + Sync {
+      */
+     fn ffs_ready(&self, gadget: &str, function: &str) -> io::Result<Option<bool>>;
+ 
++    /* Entries of a directory below the gadget directory, for example the LUNs of functions/mass_storage.0 */
++    fn entries(&self, gadget: &str, path: &str) -> io::Result<Vec<String>>;
++
+     /* Write an attribute below the gadget directory, for example functions/mass_storage.0/lun.0/file */
+     fn write_attr(&self, gadget: &str, path: &str, value: &str) -> io::Result<()>;
++
++    /* Read an attribute below the gadget directory through a new handle, trimmed */
++    fn read_attr(&self, gadget: &str, path: &str) -> io::Result<String>;
++
++    /*
++     * Open everything a critical window needs (see window.rs) while the
++     * gadget is still bound: the window itself only uses what this returns.
++     */
++    fn open_window(&self, plan: &WindowPlan) -> io::Result<Box<dyn WindowIo>>;
+ }
+ 
+ /* configfs as mounted on the running system (or below a SysRoot) */
+@@ -243,6 +260,12 @@ impl ConfigFs for SysConfigFs {
+         return Ok(Box::new(SysAttribute { file }));
+     }
+ 
++    /* A new read-only handle: reading, as --plan does, needs no write permission */
++    fn read_udc(&self, gadget: &str) -> io::Result<String> {
++        let value = fs::read_to_string(self.sys.gadget(gadget).join(UDC_NODE))?;
++        return Ok(value.trim_end().to_string());
++    }
++
+     fn ffs_ready(&self, gadget: &str, function: &str) -> io::Result<Option<bool>> {
+         let value = match fs::read_to_string(self.function_path(gadget, function).join(READY_NODE))
+         {
+@@ -261,6 +284,10 @@ impl ConfigFs for SysConfigFs {
+         };
+     }
+ 
++    fn entries(&self, gadget: &str, path: &str) -> io::Result<Vec<String>> {
++        return names(self.sys.gadget(gadget).join(path));
++    }
++
+     fn write_attr(&self, gadget: &str, path: &str, value: &str) -> io::Result<()> {
+         let file = OpenOptions::new()
+             .write(true)
+@@ -268,6 +295,18 @@ impl ConfigFs for SysConfigFs {
+         let mut attribute = SysAttribute { file };
+         return attribute.write(value);
+     }
++
++    fn read_attr(&self, gadget: &str, path: &str) -> io::Result<String> {
++        let value = fs::read_to_string(self.sys.gadget(gadget).join(path))?;
++        return Ok(value.trim().to_string());
++    }
++
++    fn open_window(&self, plan: &WindowPlan) -> io::Result<Box<dyn WindowIo>> {
++        return Ok(Box::new(RawWindowIo::open(
++            &self.sys.gadget(&plan.gadget),
++            plan,
++        )?));
++    }
+ }
+ 
+ #[cfg(test)]
+@@ -309,7 +348,8 @@ pub mod fake {
+     use std::io;
+     use std::sync::{Arc, Mutex};
+ 
+-    use super::{Attribute, ConfigFs};
++    use super::{Attribute, ConfigFs, UNBIND};
++    use crate::window::{WindowIo, WindowPlan};
+ 
+     fn errno(code: i32) -> io::Error {
+         return io::Error::from_raw_os_error(code);
+@@ -334,7 +374,12 @@ pub mod fake {
+         ReadUdc(String),
+         WriteUdc(String, String),
+         FfsReady(String, String),
++        Entries(String, String),
+         WriteAttr(String, String, String),
++        ReadAttr(String, String),
++        OpenWindow(String),
++        /* A mode service call, "start <service>" etc., logged by service::fake::FakeServices */
++        Service(String),
+     }
+ 
+     #[derive(Debug, Clone, PartialEq)]
+@@ -342,6 +387,8 @@ pub mod fake {
+         pub op: FakeOp,
+         /* None: success, Some(errno): failure */
+         pub errno: Option<i32>,
++        /* Made by the critical window (FakeWindowIo) */
++        pub window: bool,
+     }
+ 
+     #[derive(Debug, Clone, Default)]
+@@ -353,8 +400,8 @@ pub mod fake {
+         pub has_ready_attr: bool,
+         /* FunctionFS with no_disconnect: the daemon closed, the unbind is deferred */
+         pub deactivated: bool,
+-        /* Mass storage: the worker is inside a command on the backing file */
+-        pub lun_busy: bool,
++        /* Mass storage: LUN directories, and whether the worker is inside a command on its backing file */
++        pub luns: BTreeMap<String, bool>,
+     }
+ 
+     impl FakeFunction {
+@@ -402,6 +449,7 @@ pub mod fake {
+     }
+ 
+     type Hook = Box<dyn FnMut(&mut FakeState) + Send>;
++    type PauseHook = Box<dyn FnMut(&mut FakeState, u32) + Send>;
+ 
+     #[derive(Default)]
+     pub struct FakeState {
+@@ -413,6 +461,11 @@ pub mod fake {
+         ops: Vec<FakeRecord>,
+         faults: BTreeMap<usize, i32>,
+         hooks: BTreeMap<usize, Hook>,
++        /* Calls are being made by the window */
++        window: bool,
++        /* Pauses of the window's retry loop, and what happens at each */
++        pub pauses: u32,
++        on_pause: Option<PauseHook>,
+     }
+ 
+     impl FakeState {
+@@ -433,6 +486,7 @@ pub mod fake {
+             self.ops.push(FakeRecord {
+                 op: op.clone(),
+                 errno: None,
++                window: self.window,
+             });
+             if let Some(code) = self.faults.remove(&index) {
+                 self.ops[index].errno = Some(code);
+@@ -483,7 +537,7 @@ pub mod fake {
+             if g.bound
+                 && g.linked_functions()
+                     .iter()
+-                    .any(|f| f.name.starts_with("mass_storage.") && f.lun_busy)
++                    .any(|f| f.name.starts_with("mass_storage.") && f.luns.values().any(|b| *b))
+             {
+                 /* fsg_unbind waits uninterruptibly for the worker */
+                 self.deadlocked = true;
+@@ -534,12 +588,17 @@ pub mod fake {
+                 return Err(errno(libc::EBUSY));
+             }
+             let ffs = function.starts_with("ffs.");
++            /* f_mass_storage creates lun.0 itself; more LUNs are made with mkdir */
++            let mut luns = BTreeMap::new();
++            if function.starts_with("mass_storage.") {
++                luns.insert("lun.0".to_string(), false);
++            }
+             self.gadget_mut(gadget)?.functions.push(FakeFunction {
+                 name: function.to_string(),
+                 ready: false,
+                 has_ready_attr: ffs,
+                 deactivated: false,
+-                lun_busy: false,
++                luns,
+             });
+             return Ok(());
+         }
+@@ -592,7 +651,7 @@ pub mod fake {
+             return Ok(());
+         }
+ 
+-        fn unlink(&mut self, gadget: &str, config: &str, link: &str) -> io::Result<()> {
++        pub fn unlink(&mut self, gadget: &str, config: &str, link: &str) -> io::Result<()> {
+             let g = self.gadget(gadget)?;
+             let Some(links) = g.configs.get(config) else {
+                 return Err(errno(libc::ENOENT));
+@@ -628,8 +687,11 @@ pub mod fake {
+                 let Some(f) = g.function_mut(function) else {
+                     return Err(errno(libc::ENOENT));
+                 };
+-                if parts.last() == Some(&"forced_eject") && value.trim() == "1" {
+-                    f.lun_busy = false;
++                if parts.len() == 4 && parts[3] == "forced_eject" && value.trim() == "1" {
++                    let Some(busy) = f.luns.get_mut(parts[2]) else {
++                        return Err(errno(libc::ENOENT));
++                    };
++                    *busy = false;
+                 }
+             }
+             self.gadget_mut(gadget)?
+@@ -749,15 +811,26 @@ pub mod fake {
+         }
+ 
+         pub fn set_lun_busy(&self, gadget: &str, function: &str, busy: bool) {
++            self.set_busy(gadget, function, "lun.0", busy);
++        }
++
++        /* Create 'lun' if needed, and set whether it is busy with its backing file */
++        pub fn set_busy(&self, gadget: &str, function: &str, lun: &str, busy: bool) {
+             self.with_state(|s| {
+                 s.gadgets
+                     .get_mut(gadget)
+                     .and_then(|g| g.function_mut(function))
+                     .expect("no such function")
+-                    .lun_busy = busy;
++                    .luns
++                    .insert(lun.to_string(), busy);
+             });
+         }
+ 
++        /* A mode service call made by FakeServices: numbered and logged like any other */
++        pub fn service(&self, call: &str) -> io::Result<()> {
++            return self.run(FakeOp::Service(call.to_string()), |_| Ok(()));
++        }
++
+         /* The FunctionFS daemon closes its files (K10) */
+         pub fn ffs_daemon_closed(&self, gadget: &str, function: &str) {
+             self.with_state(|s| {
+@@ -820,6 +893,42 @@ pub mod fake {
+             });
+         }
+ 
++        /* Run 'hook' at every pause of a window's retry loop, with the pause count */
++        pub fn on_pause(&self, hook: impl FnMut(&mut FakeState, u32) + Send + 'static) {
++            self.with_state(|s| {
++                s.on_pause = Some(Box::new(hook));
++            });
++        }
++
++        /* Set an attribute without logging, as the kernel would */
++        pub fn set_attr(&self, gadget: &str, path: &str, value: &str) {
++            self.with_state(|s| {
++                s.gadgets
++                    .get_mut(gadget)
++                    .expect("no such gadget")
++                    .attrs
++                    .insert(path.to_string(), value.to_string());
++            });
++        }
++
++        /* (link, function) of a configuration, without logging */
++        pub fn linked(&self, gadget: &str, config: &str) -> Vec<(String, String)> {
++            return self.with_state(|s| {
++                s.gadgets
++                    .get(gadget)
++                    .and_then(|g| g.configs.get(config).cloned())
++                    .unwrap_or_default()
++            });
++        }
++
++        pub fn has_function(&self, gadget: &str, function: &str) -> bool {
++            return self.with_state(|s| {
++                s.gadgets
++                    .get(gadget)
++                    .is_some_and(|g| g.function(function).is_some())
++            });
++        }
++
+         pub fn ops(&self) -> Vec<FakeRecord> {
+             return self.with_state(|s| s.ops.clone());
+         }
+@@ -960,12 +1069,131 @@ pub mod fake {
+             );
+         }
+ 
++        fn entries(&self, gadget: &str, path: &str) -> io::Result<Vec<String>> {
++            return self.run(FakeOp::Entries(gadget.to_string(), path.to_string()), |s| {
++                let parts: Vec<&str> = path.split('/').collect();
++                let ["functions", function] = parts[..] else {
++                    return Err(errno(libc::ENOENT));
++                };
++                let f = s
++                    .gadget(gadget)?
++                    .function(function)
++                    .ok_or(errno(libc::ENOENT))?;
++                return Ok(f.luns.keys().cloned().collect());
++            });
++        }
++
+         fn write_attr(&self, gadget: &str, path: &str, value: &str) -> io::Result<()> {
+             return self.run(
+                 FakeOp::WriteAttr(gadget.to_string(), path.to_string(), value.to_string()),
+                 |s| s.write_attr(gadget, path, value),
+             );
+         }
++
++        fn read_attr(&self, gadget: &str, path: &str) -> io::Result<String> {
++            return self.run(
++                FakeOp::ReadAttr(gadget.to_string(), path.to_string()),
++                |s| {
++                    s.gadget(gadget)?
++                        .attrs
++                        .get(path)
++                        .map(|value| value.trim().to_string())
++                        .ok_or(errno(libc::ENOENT))
++                },
++            );
++        }
++
++        fn open_window(&self, plan: &WindowPlan) -> io::Result<Box<dyn WindowIo>> {
++            self.run(FakeOp::OpenWindow(plan.gadget.clone()), |s| {
++                s.gadget(&plan.gadget).map(|_| ())
++            })?;
++            return Ok(Box::new(FakeWindowIo {
++                fs: self.clone(),
++                plan: plan.clone(),
++            }));
++        }
++    }
++
++    /*
++     * The window's syscalls on the fake: every call goes through the
++     * ConfigFs trait, so it is numbered, logged (marked as a window call) and
++     * can be failed or preceded by a hook like any other.
++     */
++    pub struct FakeWindowIo {
++        fs: FakeConfigFs,
++        plan: WindowPlan,
++    }
++
++    impl FakeWindowIo {
++        fn windowed<T>(&self, f: impl FnOnce(&FakeConfigFs) -> io::Result<T>) -> Result<T, i32> {
++            self.fs.with_state(|s| s.window = true);
++            let result = f(&self.fs);
++            self.fs.with_state(|s| s.window = false);
++            return result.map_err(|err| err.raw_os_error().unwrap_or(libc::EIO));
++        }
++    }
++
++    impl WindowIo for FakeWindowIo {
++        fn unbind(&mut self) -> Result<(), i32> {
++            let gadget = self.plan.gadget.clone();
++            return self.windowed(|fs| fs.write_udc(&gadget, UNBIND));
++        }
++
++        fn bind(&mut self) -> Result<(), i32> {
++            let gadget = self.plan.gadget.clone();
++            let udc = self.plan.udc.clone();
++            return self.windowed(|fs| fs.write_udc(&gadget, &udc));
++        }
++
++        fn unlink(&mut self, entry: usize) -> Result<(), i32> {
++            let plan = self.plan.clone();
++            let link = &plan.entries[entry].link;
++            return self.windowed(|fs| fs.unlink(&plan.gadget, &plan.config, link));
++        }
++
++        fn link(&mut self, entry: usize) -> Result<(), i32> {
++            let plan = self.plan.clone();
++            let entry = &plan.entries[entry];
++            return self.windowed(|fs| {
++                fs.link_function(
++                    &plan.gadget,
++                    &plan.config,
++                    &entry.link,
++                    &plan.gadget,
++                    &entry.function,
++                )
++            });
++        }
++
++        fn ready(&mut self, entry: usize) -> Result<Option<bool>, i32> {
++            let gadget = self.plan.gadget.clone();
++            let function = self.plan.entries[entry].function.clone();
++            return self.windowed(|fs| fs.ffs_ready(&gadget, &function));
++        }
++
++        fn udc_set(&mut self) -> bool {
++            let gadget = self.plan.gadget.clone();
++            return self
++                .windowed(|fs| fs.read_udc(&gadget))
++                .is_ok_and(|udc| !udc.is_empty());
++        }
++
++        fn pause(&mut self, _millis: u64) {
++            let pauses = self.fs.with_state(|s| {
++                s.pauses += 1;
++                let pauses = s.pauses;
++                if let Some(mut hook) = s.on_pause.take() {
++                    hook(s, pauses);
++                    s.on_pause = Some(hook);
++                }
++                pauses
++            });
++            assert!(pauses < 1000, "the window never managed to bind");
++        }
++
++        fn now_us(&mut self) -> u64 {
++            return 0;
++        }
+     }
+ }
+ 
+@@ -1150,6 +1378,21 @@ mod tests {
+                 .as_deref(),
+             Some("1")
+         );
++
++        /* Every busy LUN blocks the unbind, not only lun.0 */
++        let fs = bound_gadget();
++        fs.write_udc("g", UNBIND).unwrap();
++        fs.mkdir_function("g", "mass_storage.0").unwrap();
++        fs.link("g", "c.1", "mass_storage.0").unwrap();
++        fs.write_udc("g", "udc0").unwrap();
++        fs.set_busy("g", "mass_storage.0", "lun.1", true);
++        assert_eq!(
++            fs.entries("g", "functions/mass_storage.0").unwrap(),
++            vec!["lun.0".to_string(), "lun.1".to_string()]
++        );
++        fs.write_attr("g", "functions/mass_storage.0/lun.0/forced_eject", "1")
++            .unwrap();
++        assert_eq!(code(fs.write_udc("g", UNBIND)), Some(libc::EDEADLK));
+     }
+ 
+     #[test]
+@@ -1272,5 +1515,25 @@ mod tests {
+         );
+         assert!(fs.write_attr("g", "no/such/attribute", "1").is_err());
+         assert!(fs.read_udc("missing").is_err());
++        assert_eq!(fs.entries("g", "configs").unwrap(), vec!["c.1".to_string()]);
++    }
++
++    /* Reading the UDC attribute, as --plan does, needs no write permission */
++    #[test]
++    fn sysconfigfs_reads_the_udc_attribute_read_only() {
++        use std::os::unix::fs::PermissionsExt;
++
++        let root = TempRoot::new("sysconfigfs-read-only");
++        root.write("sys/kernel/config/usb_gadget/g/UDC", "udc0\n");
++        let sys = SysRoot::under(&root.path);
++        let udc = sys.gadget("g").join("UDC");
++        fs::set_permissions(&udc, fs::Permissions::from_mode(0o444)).unwrap();
++
++        let cfs = SysConfigFs::new(sys);
++        assert_eq!(cfs.read_udc("g").unwrap(), "udc0");
++        /* Opening for writing still needs it (root bypasses the mode bits) */
++        if unsafe { libc::geteuid() } != 0 {
++            assert!(cfs.open_udc("g").is_err());
++        }
+     }
+ }
+diff --git a/src/dbus.rs b/src/dbus.rs
+index 2264f49..4682e05 100644
+--- a/src/dbus.rs
++++ b/src/dbus.rs
+@@ -1,17 +1,26 @@
+ use anyhow::Result;
++use std::collections::BTreeMap;
++use std::io;
+ use std::string::String;
+ use std::sync::Arc;
+ use tokio::sync::Mutex;
+ use tokio::time::{Duration, sleep};
+ use zbus::{Connection, connection, interface, object_server::SignalEmitter};
+ 
++use crate::adopt::{Context, Managed, Port, classify_port, clear_state_env, set_mode_adopted};
++use crate::configfs::{ConfigFs, SysConfigFs};
+ use crate::configuration::Configuration;
++use crate::gadget::discover_gadgets;
++use crate::plan::adopted_mode;
+ use crate::policy::{GadgetClass, check_host_mode, check_replaceable};
++use crate::service::{ModeServices, SystemServices};
++use crate::sysfs::sysfs_read;
+ use crate::sysroot::SysRoot;
+-use crate::udc::{UDC, discover_udcs};
++use crate::udc::{UDC, UDCMode, discover_udcs};
+ use crate::urs::URSRole;
+ use crate::urs::{URS, discover_urss};
+ use crate::utils::{string_to_udcmode, udcmode_to_string};
++use crate::window::{WindowThread, lock_memory};
+ 
+ /*
+  * State shared by every mode switch. Holding the daemon lock grants it, so
+@@ -21,25 +30,45 @@ use crate::utils::{string_to_udcmode, udcmode_to_string};
+ pub struct Core {
+     config: Arc<Configuration>,
+     sys: SysRoot,
++    cfs: Arc<dyn ConfigFs>,
++    services: Arc<dyn ModeServices>,
++    /* Spawned at startup, before memory is locked */
++    window: WindowThread,
++    lock_memory: fn() -> io::Result<()>,
++    memory_locked: bool,
++    /* Adopted gadgets by UDC */
++    adopted: BTreeMap<String, Managed>,
+ }
+ 
+ pub struct Daemon {
+     pub core: Mutex<Core>,
+-    /* Configuration read once at startup */
+-    pub config: Arc<Configuration>,
+-    pub sys: SysRoot,
+ }
+ 
+ impl Daemon {
+-    pub fn new(config: Arc<Configuration>, sys: SysRoot) -> Arc<Self> {
+-        return Arc::new(Self {
++    pub fn new(config: Arc<Configuration>, sys: SysRoot) -> io::Result<Arc<Self>> {
++        let cfs = Arc::new(SysConfigFs::new(sys.clone()));
++        return Self::with_parts(config, sys, cfs, Arc::new(SystemServices), lock_memory);
++    }
++
++    pub fn with_parts(
++        config: Arc<Configuration>,
++        sys: SysRoot,
++        cfs: Arc<dyn ConfigFs>,
++        services: Arc<dyn ModeServices>,
++        lock_memory: fn() -> io::Result<()>,
++    ) -> io::Result<Arc<Self>> {
++        return Ok(Arc::new(Self {
+             core: Mutex::new(Core {
+-                config: config.clone(),
+-                sys: sys.clone(),
++                config,
++                sys,
++                cfs,
++                services,
++                window: WindowThread::spawn()?,
++                lock_memory,
++                memory_locked: false,
++                adopted: BTreeMap::new(),
+             }),
+-            config,
+-            sys,
+-        });
++        }));
+     }
+ }
+ 
+@@ -58,7 +87,19 @@ impl UsbModedDBus {
+      */
+     pub async fn shutdown(&self, emitter: SignalEmitter<'_>) -> Result<(), zbus::fdo::Error> {
+         let mut core = self.daemon.core.lock().await;
+-        return core.shutdown(&emitter).await;
++        return core.shutdown(Some(&emitter)).await;
++    }
++}
++
++async fn show_dialog(emitter: Option<&SignalEmitter<'_>>) {
++    let Some(emitter) = emitter else {
++        return;
++    };
++    if let Err(error) = emitter
++        .sig_usb_event_ind(String::from("mode_requested_show_dialog"))
++        .await
++    {
++        eprintln!("❌ Failed to emit signal to show dialog: {error}");
+     }
+ }
+ 
+@@ -68,7 +109,19 @@ impl Core {
+      * replace holds a UDC. That gadget, for example one serving the root
+      * filesystem, stays untouched: no configfs write.
+      */
+-    pub async fn shutdown(&mut self, emitter: &SignalEmitter<'_>) -> Result<(), zbus::fdo::Error> {
++    pub async fn shutdown(
++        &mut self,
++        emitter: Option<&SignalEmitter<'_>>,
++    ) -> Result<(), zbus::fdo::Error> {
++        /* Adopted, also while its UDC is away: the next instance adopts it again */
++        self.forget_departed();
++        if let Some(managed) = self.adopted.values().next() {
++            println!(
++                "ℹ️  Leaving adopted gadget {} on UDC {} untouched",
++                managed.gadget, managed.udc
++            );
++            return Ok(());
++        }
+         for (udc, gadget) in UDC::bound_gadgets(&self.sys) {
+             let class = GadgetClass::classify(&self.config, &gadget);
+             if class.is_protected() {
+@@ -79,15 +132,231 @@ impl Core {
+                 return Ok(());
+             }
+         }
++        if let Err(err) = self.check_waiting_gadgets() {
++            println!("ℹ️  Leaving it untouched: {err}");
++            return Ok(());
++        }
+ 
+         self.set_mode("charging_only", emitter).await?;
+         return Ok(());
+     }
+ 
++    /*
++     * A gadget usb-signaller must not replace can keep its UDC name while
++     * it is not bound: its UDC went away, for example during a host role
++     * excursion, and the kernel binds the gadget again when the UDC
++     * returns. Neither replace it nor write a USB role, which would bring
++     * the UDC back, while such a gadget waits.
++     */
++    fn check_waiting_gadgets(&self) -> anyhow::Result<()> {
++        let bound = UDC::bound_gadgets(&self.sys);
++        for gadget in discover_gadgets(&self.sys) {
++            if bound.iter().any(|(_, g)| *g == gadget) {
++                continue;
++            }
++            let class = GadgetClass::classify(&self.config, &gadget);
++            if !class.is_protected() {
++                continue;
++            }
++            if let Ok(udc) = self.cfs.read_udc(&gadget)
++                && !udc.is_empty()
++            {
++                return Err(anyhow::anyhow!(
++                    "{} gadget {gadget} waits for UDC {udc} to return; not replacing it",
++                    class.describe()
++                ));
++            }
++        }
++        return Ok(());
++    }
++
++    /*
++     * Forget adopted gadgets that no longer hold their UDC. A gadget whose
++     * UDC is away (host role) keeps the UDC name, and the kernel binds it
++     * again when the UDC returns: it stays adopted, and protected.
++     */
++    fn forget_departed(&mut self) {
++        let udcs = discover_udcs(&self.sys);
++        let sys = &self.sys;
++        let cfs = &*self.cfs;
++        self.adopted.retain(|udc, managed| {
++            let bound = udcs.contains(udc)
++                && UDC::bound_gadget_name(sys, udc).as_deref() == Some(managed.gadget.as_str());
++            let waiting = !bound && cfs.read_udc(&managed.gadget).is_ok_and(|name| name == *udc);
++            if waiting {
++                println!(
++                    "ℹ️  Adopted gadget {} waits for UDC {udc} to return",
++                    managed.gadget
++                );
++            } else if !bound {
++                println!(
++                    "ℹ️  Gadget {} no longer holds UDC {udc}: no longer adopted",
++                    managed.gadget
++                );
++            }
++            bound || waiting
++        });
++    }
++
++    /*
++     * Lock all memory once, for the rest of the process's life, before the
++     * first gadget is adopted. Without the lock, adopting is unsafe.
++     */
++    fn ensure_memory_locked(&mut self) -> bool {
++        if self.memory_locked {
++            return true;
++        }
++        if let Err(err) = (self.lock_memory)() {
++            eprintln!("⚠️  mlockall failed: {err}; refusing to adopt");
++            return false;
++        }
++        self.memory_locked = true;
++        if let Ok(status) = sysfs_read(self.sys.proc.join("self/status"))
++            && let Some(line) = status.lines().find(|line| line.starts_with("VmLck:"))
++        {
++            println!("ℹ️  Memory locked for adopted gadgets: {}", line.trim());
++        }
++        return true;
++    }
++
++    /*
++     * Classify what holds every UDC, adopting declared gadgets that ask for
++     * it and pass validation. Adoption performs no bus operation. Gadgets
++     * adopted before stay adopted while they hold the same UDC.
++     */
++    pub fn refresh_adoption(&mut self) {
++        self.forget_departed();
++
++        for udc in discover_udcs(&self.sys) {
++            if self.adopted.contains_key(&udc) {
++                continue;
++            }
++            let bound = UDC::bound_gadget_name(&self.sys, &udc);
++            let port = classify_port(&self.config, &*self.cfs, &self.sys, &udc, bound.as_deref());
++            if let Port::Adopted(managed) = port {
++                if !self.ensure_memory_locked() {
++                    eprintln!(
++                        "❌ Not adopting {}: memory could not be locked; it stays protected",
++                        managed.gadget
++                    );
++                    continue;
++                }
++                println!(
++                    "ℹ️  Adopted gadget {} on UDC {udc} ({}), pins {}, mode {}",
++                    managed.gadget,
++                    managed.config,
++                    managed
++                        .pins
++                        .iter()
++                        .cloned()
++                        .collect::<Vec<String>>()
++                        .join(", "),
++                    udcmode_to_string(managed.mode.clone())
++                );
++                self.adopted.insert(udc, managed);
++            }
++        }
++    }
++
++    /* Mode to report for a UDC: an adopted gadget's mode, else the one read from the UDC */
++    fn reported_mode(&self, udc: &UDC) -> UDCMode {
++        if let Some(managed) = self.adopted.get(&udc.name)
++            && udc.bound_gadget.as_deref() == Some(managed.gadget.as_str())
++        {
++            return managed.mode.clone();
++        }
++        return udc.mode.clone();
++    }
++
++    /* Modes offered to users */
++    fn available_modes(&self) -> String {
++        /* An adopted gadget supports fewer modes so far, and never host role */
++        if let Some(managed) = self.adopted.values().next() {
++            return ["developer_mode", "tethering_mode", "charging_only"]
++                .into_iter()
++                .filter(|mode| {
++                    managed
++                        .allowed_modes
++                        .as_ref()
++                        .is_none_or(|allowed| allowed.contains(*mode))
++                })
++                .collect::<Vec<&str>>()
++                .join(",");
++        }
++
++        /*
++         * Netboot mode is never available for users.
++         * Unknown and disconnected modes are internal modes.
++         */
++        let mut available_modes =
++            String::from("developer_mode,tethering_mode,charging_only,mtp_ffs_mode");
++
++        /*
++         * USB Role Switcher is required for host mode, which is not offered
++         * while set_mode would refuse it.
++         */
++        let host_mode_refused =
++            check_host_mode(&self.config, &UDC::bound_gadgets(&self.sys)).is_err();
++        for name in &discover_urss(&self.sys) {
++            if !host_mode_refused && URS::load(&self.sys, name).is_ok() {
++                available_modes.push_str(",host_mode");
++                break;
++            }
++        }
++
++        return available_modes;
++    }
++
++    /* A mode switch on an adopted gadget; no USB role is written (bound means device role) */
++    async fn set_mode_on_adopted(
++        &mut self,
++        udc: &str,
++        mode: &str,
++        emitter: Option<&SignalEmitter<'_>>,
++    ) -> Result<String, zbus::fdo::Error> {
++        let Some(managed) = self.adopted.get_mut(udc) else {
++            return Err(zbus::fdo::Error::Failed(format!(
++                "UDC {udc} holds no adopted gadget"
++            )));
++        };
++        /* The kernel binds it again when its UDC returns; a switch now could only fail */
++        if !discover_udcs(&self.sys).iter().any(|name| name == udc)
++            || UDC::bound_gadget_name(&self.sys, udc).as_deref() != Some(managed.gadget.as_str())
++        {
++            let message = format!(
++                "adopted gadget {} waits for UDC {udc} to return; not switching modes",
++                managed.gadget
++            );
++            eprintln!("❌ {message}");
++            return Err(zbus::fdo::Error::Failed(message));
++        }
++        let ctx = Context {
++            sys: &self.sys,
++            cfs: &*self.cfs,
++            services: &*self.services,
++            window: &self.window,
++        };
++        match set_mode_adopted(&ctx, managed, mode).await {
++            Ok(new_mode) => {
++                println!(
++                    "ℹ️  Adopted gadget {} on UDC {udc} is in {}",
++                    managed.gadget,
++                    udcmode_to_string(new_mode.clone())
++                );
++                show_dialog(emitter).await;
++                return Ok(udcmode_to_string(new_mode).to_string());
++            }
++            Err(err) => {
++                eprintln!("❌ {err:#}");
++                return Err(zbus::fdo::Error::Failed(format!("{err:#}")));
++            }
++        }
++    }
++
+     pub async fn set_mode(
+         &mut self,
+         mode: &str,
+-        emitter: &SignalEmitter<'_>,
++        emitter: Option<&SignalEmitter<'_>>,
+     ) -> Result<String, zbus::fdo::Error> {
+         println!("ℹ️  DBus: set_mode({mode})");
+ 
+@@ -99,6 +368,22 @@ impl Core {
+             ));
+         }
+ 
++        /*
++         * An adopted gadget is switched in place, before any USB role is
++         * written: host role would remove the UDC it is bound to.
++         */
++        self.refresh_adoption();
++        if let Some(udc) = self.adopted.keys().next().cloned() {
++            if adopted_mode(mode).is_none() {
++                let gadget = &self.adopted[&udc].gadget;
++                eprintln!("❌ {mode} is not supported while gadget {gadget} is adopted");
++                return Err(zbus::fdo::Error::Failed(format!(
++                    "{mode} is not supported while gadget {gadget} is adopted"
++                )));
++            }
++            return self.set_mode_on_adopted(&udc, mode, emitter).await;
++        }
++
+         /*
+          * Gadgets usb-signaller must not replace are checked before any USB
+          * role is written: host role removes the UDC, which unbinds them.
+@@ -116,8 +401,19 @@ impl Core {
+                     return Err(zbus::fdo::Error::Failed(format!("{err}")));
+                 }
+             }
++            if let Err(err) = self.check_waiting_gadgets() {
++                eprintln!("❌ {err}");
++                return Err(zbus::fdo::Error::Failed(format!("{err}")));
++            }
+         }
+ 
++        /*
++         * The mode scripts find usb-signaller's own gadgets themselves:
++         * remove an adopted gadget's state file before any of their
++         * services can start.
++         */
++        clear_state_env(&self.sys);
++
+         /* USB Role Switcher */
+         for name in &discover_urss(&self.sys) {
+             if URS::load(&self.sys, name).is_ok() {
+@@ -151,12 +447,7 @@ impl Core {
+                 /* Host role doesn't require any UDC configuration, return here */
+                 if role == URSRole::Host {
+                     /* Trigger show dialog */
+-                    if let Err(error) = emitter
+-                        .sig_usb_event_ind(String::from("mode_requested_show_dialog"))
+-                        .await
+-                    {
+-                        eprintln!("❌ Failed to emit signal to show dialog: {error}");
+-                    }
++                    show_dialog(emitter).await;
+                     return Ok("host_mode".to_string());
+                 }
+             }
+@@ -182,12 +473,7 @@ impl Core {
+                             let return_str = udcmode_to_string(target_mode);
+ 
+                             /* Trigger show dialog */
+-                            if let Err(error) = emitter
+-                                .sig_usb_event_ind(String::from("mode_requested_show_dialog"))
+-                                .await
+-                            {
+-                                eprintln!("❌ Failed to emit signal to show dialog: {error}");
+-                            }
++                            show_dialog(emitter).await;
+ 
+                             return Ok(return_str.to_string());
+                         }
+@@ -237,15 +523,14 @@ impl UsbModedDBus {
+         #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
+     ) -> Result<String, zbus::fdo::Error> {
+         let mut core = self.daemon.core.lock().await;
+-        return core.set_mode(mode, &emitter).await;
++        return core.set_mode(mode, Some(&emitter)).await;
+     }
+ 
+     #[zbus(name = "mode_request")]
+     pub async fn mode_request(&self) -> Result<String, zbus::fdo::Error> {
+         println!("ℹ️  DBus: mode_request()");
+-        /* Do not report a mode while it is being changed */
+-        let core = self.daemon.core.lock().await;
+-        let sys = &core.sys;
++        let sys = self.daemon.core.lock().await.sys.clone();
++        let sys = &sys;
+         /* Search for USB Role Switcher */
+         for name in &discover_urss(sys) {
+             let mut skipped: bool = false;
+@@ -254,6 +539,12 @@ impl UsbModedDBus {
+              * to be present anymore. Retry in that case until role is stable
+              */
+             for _n in 1..10 {
++                /*
++                 * Read under the lock, so never while a mode is being
++                 * changed, but sleep without it: a mode switch or the
++                 * SIGTERM cleanup must not wait for these retries.
++                 */
++                let core = self.daemon.core.lock().await;
+                 if let Ok(urs) = URS::load(sys, name) {
+                     let role = urs.role;
+                     println!("Loaded URS: {} ({:?})", urs.name, role);
+@@ -264,13 +555,14 @@ impl UsbModedDBus {
+                         /* Load UDC associated with URS in device role */
+                         URSRole::Device => {
+                             if let Some(udc) = urs.udc {
+-                                let mode = udc.mode;
++                                let mode = core.reported_mode(&udc);
+                                 println!("URS (role Device) UDC: {mode:?}");
+                                 return Ok(udcmode_to_string(mode).to_string());
+                             } else {
+                                 eprintln!(
+                                     "⚠️  URS (role Device) has no UDC assigned yet, rereading role..."
+                                 );
++                                drop(core);
+                                 sleep(Duration::from_millis(1000)).await;
+                                 continue;
+                             }
+@@ -297,10 +589,11 @@ impl UsbModedDBus {
+         }
+ 
+         /* No USB Role Switcher available, fallback to UDC only */
++        let core = self.daemon.core.lock().await;
+         for name in &discover_udcs(sys) {
+             println!("⚠️  Fallback to UDC-only mode, UDC: {name}");
+             if let Ok(udc) = UDC::load(sys, name) {
+-                let mode = udc.mode;
++                let mode = core.reported_mode(&udc);
+                 return Ok(udcmode_to_string(mode).to_string());
+             }
+         }
+@@ -314,26 +607,616 @@ impl UsbModedDBus {
+ 
+     #[zbus(name = "get_modes")]
+     pub async fn get_modes(&self) -> String {
+-        /*
+-         * Netboot mode is never available for users.
+-         * Unknown and disconnected modes are internal modes.
+-         */
+-        let mut available_modes =
+-            String::from("developer_mode,tethering_mode,charging_only,mtp_ffs_mode");
++        let core = self.daemon.core.lock().await;
++        return core.available_modes();
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::configfs::UNBIND;
++    use crate::configfs::fake::FakeConfigFs;
++    use crate::configuration::testing::TempRoot;
++    use crate::service::fake::FakeServices;
++    use crate::sysroot::fixture::SysFixture;
++
++    const DROPIN: &str = "run/usb-signaller/usb-signaller.toml.d/50-smoo.toml";
++    const SMOO: &str = "[gadget.smoo]\nadopt = true\npinned_functions = [\"ffs.smoo\"]\n";
+ 
++    fn locked() -> io::Result<()> {
++        return Ok(());
++    }
++
++    fn lock_fails() -> io::Result<()> {
++        return Err(io::Error::from_raw_os_error(libc::ENOMEM));
++    }
++
++    struct Setup {
++        fs: FakeConfigFs,
++        fixture: SysFixture,
++        services: Arc<FakeServices>,
++        daemon: Arc<Daemon>,
++        runtime: tokio::runtime::Runtime,
++    }
++
++    /*
++     * smoo holds udc0 with ffs.smoo and ncm.usb0 linked: the sysfs side
++     * (bound gadget) is a directory tree, configfs is the fake.
++     */
++    fn setup(contents: &str, lock: fn() -> io::Result<()>) -> Setup {
++        let root = TempRoot::new("core-config");
++        root.write(DROPIN, contents);
++        let config = Arc::new(Configuration::load_with_root(Some(&root.path)));
++
++        let fixture = SysFixture::new("core");
++        fixture.add_udc("udc0", "configured", Some("smoo"));
++        fixture.add_gadget("smoo", "udc0", true, &[], &[]);
++        fixture.add_role_switch("switch0", "device");
++
++        let fs = FakeConfigFs::new();
++        fs.add_udc("udc0");
++        fs.add_gadget("smoo", &["c.1"]);
++        fs.mkdir_function("smoo", "ffs.smoo").unwrap();
++        fs.link("smoo", "c.1", "ffs.smoo").unwrap();
++        fs.set_ffs_ready("smoo", "ffs.smoo", true);
++        fs.mkdir_function("smoo", "ncm.usb0").unwrap();
++        fs.link("smoo", "c.1", "ncm.usb0").unwrap();
++        fs.write_udc("smoo", "udc0").unwrap();
++        fs.clear_ops();
++
++        let services = Arc::new(FakeServices::default());
++        let daemon = Daemon::with_parts(
++            config,
++            fixture.sys.clone(),
++            Arc::new(fs.clone()),
++            services.clone(),
++            lock,
++        )
++        .unwrap();
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .build()
++            .unwrap();
++        return Setup {
++            fs,
++            fixture,
++            services,
++            daemon,
++            runtime,
++        };
++    }
++
++    impl Setup {
++        fn set_mode(&self, mode: &str) -> Result<String, zbus::fdo::Error> {
++            return self.runtime.block_on(async {
++                let mut core = self.daemon.core.lock().await;
++                core.set_mode(mode, None).await
++            });
++        }
++
++        fn core<T>(&self, f: impl FnOnce(&mut Core) -> T) -> T {
++            return self.runtime.block_on(async {
++                let mut core = self.daemon.core.lock().await;
++                f(&mut core)
++            });
++        }
++
++        fn writes(&self) -> usize {
++            return self
++                .fs
++                .ops()
++                .iter()
++                .filter(|r| {
++                    !matches!(
++                        r.op,
++                        crate::configfs::fake::FakeOp::Functions(..)
++                            | crate::configfs::fake::FakeOp::Configs(..)
++                            | crate::configfs::fake::FakeOp::Links(..)
++                            | crate::configfs::fake::FakeOp::OpenUdc(..)
++                            | crate::configfs::fake::FakeOp::ReadUdc(..)
++                            | crate::configfs::fake::FakeOp::FfsReady(..)
++                            | crate::configfs::fake::FakeOp::ReadAttr(..)
++                    )
++                })
++                .count();
++        }
++    }
++
++    fn fdo_message(error: zbus::fdo::Error) -> String {
++        let zbus::fdo::Error::Failed(message) = error else {
++            panic!("unexpected error {error:?}");
++        };
++        return message;
++    }
++
++    #[test]
++    fn startup_adopts_and_the_precomposed_default_mode_needs_no_rebind() {
++        let s = setup(SMOO, locked);
++        s.core(|core| core.refresh_adoption());
++        assert_eq!(
++            s.core(|core| core.adopted["udc0"].mode.clone()),
++            UDCMode::Developer
++        );
++        assert!(s.core(|core| core.memory_locked));
++
++        assert_eq!(s.set_mode("developer_mode").unwrap(), "developer_mode");
++        assert_eq!(s.writes(), 0);
++        assert!(s.fs.is_bound("smoo"));
++        assert_eq!(
++            s.services.calls(),
++            vec!["start usb-signaller-developer-mode"]
++        );
++        /* No USB role was written */
++        assert_eq!(s.fixture.read("sys/class/usb_role/switch0/role"), "device");
++    }
++
++    #[test]
++    fn host_mode_and_unsupported_modes_are_refused_before_any_write() {
++        let s = setup(SMOO, locked);
++        for mode in [
++            "host_mode",
++            "mtp_ffs_mode",
++            "mass_storage_mode",
++            "cdrom_mode",
++            "aoa_ffs_mode",
++        ] {
++            let error = fdo_message(s.set_mode(mode).unwrap_err());
++            assert_eq!(
++                error,
++                format!("{mode} is not supported while gadget smoo is adopted")
++            );
++        }
++        assert_eq!(s.writes(), 0);
++        assert!(s.services.calls().is_empty());
++        assert_eq!(s.fixture.read("sys/class/usb_role/switch0/role"), "device");
++        assert_eq!(
++            fdo_message(s.set_mode("netboot_mode").unwrap_err()),
++            "Netboot mode cannot be changed"
++        );
++    }
++
++    #[test]
++    fn switching_modes_through_the_core() {
++        let s = setup(SMOO, locked);
++        assert_eq!(s.set_mode("charging_only").unwrap(), "charging_only");
++        assert_eq!(
++            s.fs.linked("smoo", "c.1"),
++            vec![("ffs.smoo".to_string(), "ffs.smoo".to_string())]
++        );
++        assert!(s.fs.is_bound("smoo"));
++        let mode = s.core(|core| {
++            let udc = UDC::load(&core.sys, "udc0").unwrap();
++            core.reported_mode(&udc)
++        });
++        assert_eq!(mode, UDCMode::Charging);
++        assert_eq!(s.set_mode("tethering_mode").unwrap(), "tethering_mode");
++        assert!(s.fs.is_bound("smoo"));
++    }
++
++    #[test]
++    fn sigterm_writes_nothing_to_an_adopted_gadget() {
++        let s = setup(SMOO, locked);
++        s.core(|core| core.refresh_adoption());
++        s.fs.clear_ops();
++        s.runtime
++            .block_on(async {
++                let mut core = s.daemon.core.lock().await;
++                core.shutdown(None).await
++            })
++            .unwrap();
++        assert!(s.fs.ops().is_empty());
++        assert!(s.services.calls().is_empty());
++        assert!(s.fs.is_bound("smoo"));
++        assert!(!s.fixture.exists("run/usb-signaller/state.env"));
++    }
++
++    #[test]
++    fn without_locked_memory_the_gadget_is_only_protected() {
++        let s = setup(SMOO, lock_fails);
++        s.core(|core| core.refresh_adoption());
++        assert!(s.core(|core| core.adopted.is_empty()));
++        let error = fdo_message(s.set_mode("charging_only").unwrap_err());
++        assert_eq!(
++            error,
++            "UDC udc0 is held by declared gadget smoo; not replacing it"
++        );
++        assert_eq!(s.writes(), 0);
++    }
++
++    #[test]
++    fn available_modes_follow_adoption_and_allowed_modes() {
++        let s = setup(SMOO, locked);
++        s.core(|core| core.refresh_adoption());
++        assert_eq!(
++            s.core(|core| core.available_modes()),
++            "developer_mode,tethering_mode,charging_only"
++        );
++
++        let s = setup(
++            "[gadget.smoo]\nadopt = true\npinned_functions = [\"ffs.smoo\"]\nallowed_modes = [\"charging_only\", \"developer_mode\"]\n",
++            locked,
++        );
++        s.core(|core| core.refresh_adoption());
++        assert_eq!(
++            s.core(|core| core.available_modes()),
++            "developer_mode,charging_only"
++        );
++        let error = fdo_message(s.set_mode("tethering_mode").unwrap_err());
++        assert_eq!(
++            error,
++            "tethering_mode is not in allowed_modes for gadget smoo"
++        );
++    }
++
++    /* Really unbound: its UDC attribute is empty */
++    #[test]
++    fn an_adopted_gadget_that_left_its_udc_is_forgotten() {
++        let s = setup(SMOO, locked);
++        s.core(|core| core.refresh_adoption());
++        s.fs.write_udc("smoo", UNBIND).unwrap();
++        s.fixture.add_udc("udc0", "not attached", Some(""));
++        s.core(|core| core.refresh_adoption());
++        assert!(s.core(|core| core.adopted.is_empty()));
++    }
++
++    /* A host role excursion: the UDC is removed, the gadget keeps its UDC name (K6) */
++    fn host_role_excursion(s: &Setup) {
++        s.fs.remove_udc("udc0");
++        std::fs::remove_dir_all(s.fixture.sys.class("udc").join("udc0")).unwrap();
++        s.fixture.add_role_switch("switch0", "host");
++        s.fs.clear_ops();
++    }
++
++    #[test]
++    fn an_adopted_gadget_whose_udc_is_away_stays_adopted_and_protected() {
++        let s = setup(SMOO, locked);
++        s.core(|core| core.refresh_adoption());
++        host_role_excursion(&s);
++
++        s.core(|core| core.refresh_adoption());
++        assert!(s.core(|core| core.adopted.contains_key("udc0")));
++        let error = fdo_message(s.set_mode("developer_mode").unwrap_err());
++        assert_eq!(
++            error,
++            "adopted gadget smoo waits for UDC udc0 to return; not switching modes"
++        );
++        s.runtime
++            .block_on(async {
++                let mut core = s.daemon.core.lock().await;
++                core.shutdown(None).await
++            })
++            .unwrap();
++        /* No configfs write, no USB role written, no service touched */
++        assert_eq!(s.writes(), 0);
++        assert_eq!(s.fixture.read("sys/class/usb_role/switch0/role"), "host");
++        assert!(s.services.calls().is_empty());
++        assert_eq!(s.fs.udc_name("smoo").as_deref(), Some("udc0"));
++
++        /* The UDC returns and the kernel binds the gadget again */
++        s.fs.add_udc("udc0");
++        s.fixture.add_udc("udc0", "configured", Some("smoo"));
++        s.fixture.add_role_switch("switch0", "device");
++        assert_eq!(s.set_mode("charging_only").unwrap(), "charging_only");
++        assert!(s.fs.is_bound("smoo"));
++    }
++
++    #[test]
++    fn a_declared_gadget_whose_udc_is_away_blocks_every_role_write() {
++        let s = setup("[gadget.smoo]\npinned_functions = [\"ffs.smoo\"]\n", locked);
++        host_role_excursion(&s);
++        for mode in ["developer_mode", "charging_only"] {
++            let error = fdo_message(s.set_mode(mode).unwrap_err());
++            assert_eq!(
++                error,
++                "declared gadget smoo waits for UDC udc0 to return; not replacing it"
++            );
++        }
++        s.runtime
++            .block_on(async {
++                let mut core = s.daemon.core.lock().await;
++                core.shutdown(None).await
++            })
++            .unwrap();
++        assert_eq!(s.writes(), 0);
++        assert_eq!(s.fixture.read("sys/class/usb_role/switch0/role"), "host");
++    }
++
++    /*
++     * The mode scripts source state.env: it must be gone before usb-signaller
++     * switches one of its own gadgets, also when that switch fails. The
++     * owned path starts services through the init system directly, so this
++     * pins the order by removing the file before UDC::set_mode runs at all.
++     */
++    #[test]
++    fn owned_switches_remove_a_stale_state_file_first() {
++        let fixture = SysFixture::new("core-owned");
++        fixture.add_udc("udc0", "not attached", None);
++        let root = TempRoot::new("core-owned-config");
++        let config = Arc::new(Configuration::load_with_root(Some(&root.path)));
++        let fs = FakeConfigFs::new();
++        let daemon = Daemon::with_parts(
++            config,
++            fixture.sys.clone(),
++            Arc::new(fs),
++            Arc::new(FakeServices::default()),
++            locked,
++        )
++        .unwrap();
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .build()
++            .unwrap();
++        let stale = "USB_SIGNALLER_GADGET='/sys/kernel/config/usb_gadget/smoo'\nUSB_SIGNALLER_MODE='developer_mode'\nUSB_SIGNALLER_NCM_IFNAME='usb9'\n";
++
++        /* charging_only succeeds; mass_storage_mode fails without storage_path */
++        for (mode, ok) in [("charging_only", true), ("mass_storage_mode", false)] {
++            fixture.root.write("run/usb-signaller/state.env", stale);
++            let result = runtime.block_on(async {
++                let mut core = daemon.core.lock().await;
++                core.set_mode(mode, None).await
++            });
++            assert_eq!(result.is_ok(), ok, "{mode}: {result:?}");
++            assert!(!fixture.exists("run/usb-signaller/state.env"), "{mode}");
++        }
++    }
++
++    /* The real configfs, counting every call that writes */
++    struct CountingConfigFs {
++        inner: SysConfigFs,
++        writes: Arc<std::sync::atomic::AtomicUsize>,
++    }
++
++    impl CountingConfigFs {
++        fn count(&self) {
++            self.writes
++                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++        }
++    }
++
++    impl ConfigFs for CountingConfigFs {
++        fn functions(&self, gadget: &str) -> io::Result<Vec<String>> {
++            return self.inner.functions(gadget);
++        }
++
++        fn configs(&self, gadget: &str) -> io::Result<Vec<String>> {
++            return self.inner.configs(gadget);
++        }
++
++        fn links(&self, gadget: &str, config: &str) -> io::Result<Vec<(String, String)>> {
++            return self.inner.links(gadget, config);
++        }
++
++        fn mkdir_function(&self, gadget: &str, function: &str) -> io::Result<()> {
++            self.count();
++            return self.inner.mkdir_function(gadget, function);
++        }
++
++        fn rmdir_function(&self, gadget: &str, function: &str) -> io::Result<()> {
++            self.count();
++            return self.inner.rmdir_function(gadget, function);
++        }
++
++        fn link_function(
++            &self,
++            gadget: &str,
++            config: &str,
++            link: &str,
++            from_gadget: &str,
++            function: &str,
++        ) -> io::Result<()> {
++            self.count();
++            return self
++                .inner
++                .link_function(gadget, config, link, from_gadget, function);
++        }
++
++        fn unlink(&self, gadget: &str, config: &str, link: &str) -> io::Result<()> {
++            self.count();
++            return self.inner.unlink(gadget, config, link);
++        }
++
++        fn open_udc(&self, gadget: &str) -> io::Result<Box<dyn crate::configfs::Attribute>> {
++            self.count();
++            return self.inner.open_udc(gadget);
++        }
++
++        fn read_udc(&self, gadget: &str) -> io::Result<String> {
++            return self.inner.read_udc(gadget);
++        }
++
++        fn ffs_ready(&self, gadget: &str, function: &str) -> io::Result<Option<bool>> {
++            return self.inner.ffs_ready(gadget, function);
++        }
++
++        fn entries(&self, gadget: &str, path: &str) -> io::Result<Vec<String>> {
++            return self.inner.entries(gadget, path);
++        }
++
++        fn write_attr(&self, gadget: &str, path: &str, value: &str) -> io::Result<()> {
++            self.count();
++            return self.inner.write_attr(gadget, path, value);
++        }
++
++        fn read_attr(&self, gadget: &str, path: &str) -> io::Result<String> {
++            return self.inner.read_attr(gadget, path);
++        }
++
++        fn open_window(
++            &self,
++            plan: &crate::window::WindowPlan,
++        ) -> io::Result<Box<dyn crate::window::WindowIo>> {
++            self.count();
++            return self.inner.open_window(plan);
++        }
++    }
++
++    /*
++     * The real kernel: a gadget built like an initramfs would, with a
++     * non-FunctionFS pin, bound to dummy_hcd's UDC. Needs root,
++     * libcomposite, dummy_hcd, usb_f_acm and usb_f_ncm. Memory is really
++     * locked, as in the daemon.
++     */
++    #[test]
++    #[ignore = "Requires libcomposite and dummy_hcd, use ./scripts/run-tests"]
++    fn adopted_gadget_on_dummy_hcd() {
++        use crate::gadget::ConfigFsGadget;
++        use std::fs;
++
++        let sys = SysRoot::default();
++        let udc = discover_udcs(&sys)
++            .into_iter()
++            .find(|udc| udc.starts_with("dummy_udc"))
++            .expect("no dummy_hcd UDC");
++        let gadget = sys.gadget("test-carrier");
++        let _ = ConfigFsGadget::disable(&sys, "test-carrier");
++        let _ = ConfigFsGadget::delete(&sys, "test-carrier");
++
++        /* The "initramfs" gadget: acm.pin linked first, bound */
++        fs::create_dir(&gadget).unwrap();
++        fs::write(gadget.join("idVendor"), "0x1d6b").unwrap();
++        fs::write(gadget.join("idProduct"), "0x0104").unwrap();
++        fs::create_dir(gadget.join("strings/0x409")).unwrap();
++        fs::write(gadget.join("strings/0x409/manufacturer"), "test").unwrap();
++        fs::write(gadget.join("strings/0x409/product"), "test-carrier").unwrap();
++        fs::write(gadget.join("strings/0x409/serialnumber"), "0001").unwrap();
++        fs::create_dir(gadget.join("configs/c.1")).unwrap();
++        fs::create_dir(gadget.join("configs/c.1/strings/0x409")).unwrap();
++        fs::write(gadget.join("configs/c.1/strings/0x409/configuration"), "c").unwrap();
++        fs::create_dir(gadget.join("functions/acm.pin")).unwrap();
++        std::os::unix::fs::symlink(
++            gadget.join("functions/acm.pin"),
++            gadget.join("configs/c.1/acm.pin"),
++        )
++        .unwrap();
++        fs::write(gadget.join("UDC"), &udc).unwrap();
++
++        let root = TempRoot::new("dummy-hcd");
++        root.write(
++            DROPIN,
++            "[gadget.test-carrier]\nadopt = true\npinned_functions = [\"acm.pin\"]\n",
++        );
++        let config = Arc::new(Configuration::load_with_root(Some(&root.path)));
++        /* Keep the state file out of the host's /run */
++        let test_sys = SysRoot {
++            run: root.path.join("run"),
++            ..SysRoot::default()
++        };
++        let services = Arc::new(FakeServices::default());
++        let writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let daemon = Daemon::with_parts(
++            config,
++            test_sys.clone(),
++            Arc::new(CountingConfigFs {
++                inner: SysConfigFs::new(test_sys),
++                writes: writes.clone(),
++            }),
++            services,
++            lock_memory,
++        )
++        .unwrap();
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .enable_all()
++            .build()
++            .unwrap();
++
++        let links = || -> Vec<String> {
++            let mut names: Vec<String> = fs::read_dir(gadget.join("configs/c.1"))
++                .unwrap()
++                .filter_map(Result::ok)
++                .filter(|e| e.file_type().unwrap().is_symlink())
++                .map(|e| e.file_name().to_string_lossy().to_string())
++                .collect();
++            names.sort();
++            names
++        };
++        let bound = || {
++            fs::read_to_string(gadget.join("UDC"))
++                .unwrap()
++                .trim()
++                .to_string()
++        };
+         /*
+-         * USB Role Switcher is required for host mode, which is not offered
+-         * while set_mode would refuse it.
++         * The bus as dummy_hcd sees it: the UDC's state, and the device
++         * number the host side gave the gadget, which changes at every
++         * enumeration. Waits for the host to finish enumerating.
+          */
+-        let host_mode_refused =
+-            check_host_mode(&self.daemon.config, &UDC::bound_gadgets(&self.daemon.sys)).is_err();
+-        for name in &discover_urss(&self.daemon.sys) {
+-            if !host_mode_refused && URS::load(&self.daemon.sys, name).is_ok() {
+-                available_modes.push_str(",host_mode");
+-                break;
++        let udc_state = sys.class("udc").join(&udc).join("state");
++        let bus = || -> (String, Option<String>) {
++            let enumerated = || -> Option<String> {
++                for entry in fs::read_dir("/sys/bus/usb/devices").ok()?.flatten() {
++                    let name = entry.file_name().to_string_lossy().to_string();
++                    if name.starts_with("usb") || name.contains(':') {
++                        continue;
++                    }
++                    let path = fs::canonicalize(entry.path()).ok()?;
++                    if path.to_string_lossy().contains("dummy_hcd") {
++                        return fs::read_to_string(path.join("devnum"))
++                            .ok()
++                            .map(|devnum| devnum.trim().to_string());
++                    }
++                }
++                return None;
++            };
++            for _ in 0..50 {
++                let state = fs::read_to_string(&udc_state)
++                    .unwrap_or_default()
++                    .trim()
++                    .to_string();
++                if state == "configured"
++                    && let Some(devnum) = enumerated()
++                {
++                    return (state, Some(devnum));
++                }
++                std::thread::sleep(std::time::Duration::from_millis(100));
++            }
++            return (
++                fs::read_to_string(&udc_state).unwrap_or_default(),
++                enumerated(),
++            );
++        };
++
++        let result = runtime.block_on(async {
++            let mut core = daemon.core.lock().await;
++            let mut steps = vec![];
++            for mode in ["developer_mode", "charging_only", "developer_mode"] {
++                let result = core.set_mode(mode, None).await;
++                steps.push((mode, result.map_err(fdo_message), links(), bound()));
+             }
++            let host = core.set_mode("host_mode", None).await.map_err(fdo_message);
++            let before = (links(), bound(), bus());
++            let written = writes.load(std::sync::atomic::Ordering::SeqCst);
++            let shutdown = core.shutdown(None).await;
++            std::thread::sleep(std::time::Duration::from_secs(1));
++            let after = (links(), bound(), bus());
++            let shutdown_writes = writes.load(std::sync::atomic::Ordering::SeqCst) - written;
++            (steps, host, before, shutdown, after, shutdown_writes)
++        });
++        if let Ok(status) = fs::read_to_string("/proc/self/status")
++            && let Some(line) = status.lines().find(|line| line.starts_with("VmLck:"))
++        {
++            println!("ℹ️  {}", line.trim());
+         }
+ 
+-        return available_modes;
++        let _ = ConfigFsGadget::disable(&sys, "test-carrier");
++        let _ = ConfigFsGadget::delete(&sys, "test-carrier");
++
++        let (steps, host, before, shutdown, after, shutdown_writes) = result;
++        for (mode, result, links, bound) in steps {
++            assert_eq!(result.as_deref(), Ok(mode), "{mode}");
++            assert_eq!(bound, udc, "{mode}");
++            assert!(links.contains(&"acm.pin".to_string()), "{mode}: {links:?}");
++            assert_eq!(
++                links.contains(&"ncm.usb0".to_string()),
++                mode == "developer_mode"
++            );
++        }
++        assert_eq!(
++            host.unwrap_err(),
++            "host_mode is not supported while gadget test-carrier is adopted"
++        );
++        assert!(shutdown.is_ok());
++        /* SIGTERM: no configfs write, same links and UDC, no re-enumeration */
++        assert_eq!(shutdown_writes, 0);
++        assert!(before.2.1.is_some(), "the host never enumerated the gadget");
++        assert_eq!(before, after);
+     }
+ }
+diff --git a/src/main.rs b/src/main.rs
+index d4a3fb5..b0d623c 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -27,6 +27,7 @@ use tokio::signal::unix::{SignalKind, signal};
+ use tokio::task::LocalSet;
+ use zbus::object_server::SignalEmitter;
+ 
++mod adopt;
+ mod configfs;
+ mod configuration;
+ mod dbus;
+@@ -42,6 +43,8 @@ mod urs;
+ mod utils;
+ mod window;
+ 
++use crate::adopt::plan_report;
++use crate::configfs::SysConfigFs;
+ use crate::configuration::Configuration;
+ use crate::dbus::{Daemon, UsbModedDBus, create_usbmoded_connection};
+ use crate::monitor::monitor_usb_events;
+@@ -49,14 +52,37 @@ use crate::sysroot::SysRoot;
+ use crate::udc::{UDC, discover_udcs};
+ use crate::urs::{URS, discover_urss};
+ 
+-const USAGE: &str = "Usage: usb-signaller [--print-config]";
++const USAGE: &str = "Usage: usb-signaller [--print-config | --plan <mode>]";
+ 
+-#[tokio::main]
+-async fn main() -> Result<()> {
++/*
++ * A small, fixed runtime: while a gadget is adopted, all memory stays
++ * locked, including every worker thread's stack.
++ */
++fn main() -> Result<()> {
++    let runtime = tokio::runtime::Builder::new_multi_thread()
++        .worker_threads(2)
++        .max_blocking_threads(4)
++        .thread_stack_size(1024 * 1024)
++        .enable_all()
++        .build()?;
++    return runtime.block_on(run());
++}
++
++async fn run() -> Result<()> {
+     let mut print_config = false;
+-    for argument in std::env::args().skip(1) {
++    let mut plan_mode: Option<String> = None;
++    let mut arguments = std::env::args().skip(1);
++    while let Some(argument) = arguments.next() {
+         match argument.as_str() {
+             "--print-config" => print_config = true,
++            "--plan" => {
++                let Some(mode) = arguments.next() else {
++                    eprintln!("❌ --plan needs a mode");
++                    eprintln!("{USAGE}");
++                    process::exit(2);
++                };
++                plan_mode = Some(mode);
++            }
+             "--help" | "-h" => {
+                 println!("{USAGE}");
+                 return Ok(());
+@@ -79,11 +105,24 @@ async fn main() -> Result<()> {
+         return Ok(());
+     }
+ 
++    /* Print what set_mode would do, from live configfs, without writing anything */
++    if let Some(mode) = plan_mode {
++        let config = Configuration::load_quietly();
++        let sys = SysRoot::default();
++        let (report, ok) = plan_report(&config, &SysConfigFs::new(sys.clone()), &sys, &mode);
++        print!("{report}");
++        if !ok {
++            process::exit(1);
++        }
++        return Ok(());
++    }
++
+     /*
+-     * Handle SIGTERM and SIGINT from here on, before the default mode is
+-     * applied. Until the select! below, a signal is only queued: a stop or
+-     * restart during startup waits for the startup mode switch, instead of
+-     * killing the process in the middle of it.
++     * Handle SIGTERM and SIGINT from here on, before anything is adopted
++     * or the default mode is applied. Until the select! below, a signal is
++     * only queued: a stop or restart during startup waits for the startup
++     * transaction, instead of killing the process between an unbind and
++     * the rebind that follows it.
+      */
+     let mut sigterm = signal(SignalKind::terminate())?;
+     let mut sigint = signal(SignalKind::interrupt())?;
+@@ -152,9 +191,15 @@ async fn main() -> Result<()> {
+         process::exit(1);
+     }
+ 
++    /* Spawns the window thread, before any memory is locked */
++    let daemon = Daemon::new(config.clone(), sys)?;
++
++    /* Adopt declared gadgets before the default mode is applied; no bus operation */
++    println!("🔍 Looking for gadgets to adopt");
++    daemon.core.lock().await.refresh_adoption();
++
+     println!("ℹ️  Running DBus server");
+     /* Create DBus server */
+-    let daemon = Daemon::new(config.clone(), sys);
+     let connection = create_usbmoded_connection(daemon.clone()).await?;
+     /* Startup and shutdown go through the same instance, and lock, as D-Bus calls */
+     let dbus = UsbModedDBus::new(daemon);
+diff --git a/src/plan.rs b/src/plan.rs
+index 7826650..cc1255c 100644
+--- a/src/plan.rs
++++ b/src/plan.rs
+@@ -28,9 +28,6 @@
+  * know is linked.
+  */
+ 
+-/* The adopted-gadget transaction that uses this is not part of this change yet */
+-#![allow(dead_code)]
+-
+ use std::collections::{BTreeMap, BTreeSet};
+ use std::fmt;
+ 
+diff --git a/src/service.rs b/src/service.rs
+index e8511af..0fa366a 100644
+--- a/src/service.rs
++++ b/src/service.rs
+@@ -52,3 +52,103 @@ pub fn service_start(service: &str) -> anyhow::Result<()> {
+ pub fn service_stop(service: &str) -> anyhow::Result<()> {
+     return service_run(service, "stop");
+ }
++
++/*
++ * Starting and stopping mode services and unmounting FunctionFS, behind a
++ * trait so the adopted-gadget transaction can be tested without an init
++ * system.
++ */
++pub trait ModeServices: Send + Sync {
++    fn start(&self, service: &str) -> anyhow::Result<()>;
++    fn stop(&self, service: &str) -> anyhow::Result<()>;
++    fn umount_functionfs(&self, path: &str) -> anyhow::Result<()>;
++}
++
++/* The init system of the running system */
++pub struct SystemServices;
++
++impl ModeServices for SystemServices {
++    fn start(&self, service: &str) -> anyhow::Result<()> {
++        return service_start(service);
++    }
++
++    fn stop(&self, service: &str) -> anyhow::Result<()> {
++        return service_stop(service);
++    }
++
++    fn umount_functionfs(&self, path: &str) -> anyhow::Result<()> {
++        return crate::sysfs::sysfs_umount_functionfs(path);
++    }
++}
++
++#[cfg(test)]
++pub mod fake {
++    use super::ModeServices;
++    use crate::configfs::fake::FakeConfigFs;
++    use std::collections::BTreeSet;
++    use std::sync::Mutex;
++
++    /*
++     * Records every call as "start <service>", "stop <service>" or
++     * "umount <path>". With logged(), every call also goes into the
++     * configfs fake's numbered log, so tests see services and configfs
++     * calls in one order and can fail a service call like any other.
++     */
++    #[derive(Default)]
++    pub struct FakeServices {
++        pub calls: Mutex<Vec<String>>,
++        /* Services whose start fails */
++        pub failing: Mutex<BTreeSet<String>>,
++        log: Option<FakeConfigFs>,
++    }
++
++    impl FakeServices {
++        pub fn logged(fs: &FakeConfigFs) -> Self {
++            return Self {
++                log: Some(fs.clone()),
++                ..Self::default()
++            };
++        }
++
++        fn call(&self, call: String) -> anyhow::Result<()> {
++            self.calls.lock().unwrap().push(call.clone());
++            if let Some(fs) = &self.log {
++                fs.service(&call)
++                    .map_err(|err| anyhow::anyhow!("{call} failed: {err}"))?;
++            }
++            return Ok(());
++        }
++
++        pub fn calls(&self) -> Vec<String> {
++            return self.calls.lock().unwrap().clone();
++        }
++
++        pub fn clear(&self) {
++            self.calls.lock().unwrap().clear();
++        }
++
++        pub fn fail_start(&self, service: &str) {
++            self.failing.lock().unwrap().insert(service.to_string());
++        }
++    }
++
++    impl ModeServices for FakeServices {
++        fn start(&self, service: &str) -> anyhow::Result<()> {
++            self.call(format!("start {service}"))?;
++            if self.failing.lock().unwrap().contains(service) {
++                return Err(anyhow::anyhow!(
++                    "Failed to start systemd service: {service}"
++                ));
++            }
++            return Ok(());
++        }
++
++        fn stop(&self, service: &str) -> anyhow::Result<()> {
++            return self.call(format!("stop {service}"));
++        }
++
++        fn umount_functionfs(&self, path: &str) -> anyhow::Result<()> {
++            return self.call(format!("umount {path}"));
++        }
++    }
++}
+diff --git a/src/sysroot.rs b/src/sysroot.rs
+index fb44946..bace5d4 100644
+--- a/src/sysroot.rs
++++ b/src/sysroot.rs
+@@ -22,6 +22,8 @@ const USB_GADGET_PATH: &str = "usb_gadget";
+ const CLASS_PATH: &str = "class";
+ const DEVICE_TREE_PATH: &str = "device-tree";
+ const PROC_SYS_PATH: &str = "sys";
++const RUNTIME_PATH: &str = "usb-signaller";
++const STATE_ENV_NODE: &str = "state.env";
+ 
+ /*
+  * Where the kernel interfaces usb-signaller uses are mounted. Tests point
+@@ -35,6 +37,8 @@ pub struct SysRoot {
+     pub sysfs: PathBuf,
+     /* procfs, normally /proc */
+     pub proc: PathBuf,
++    /* Runtime directory root, normally /run */
++    pub run: PathBuf,
+ }
+ 
+ impl Default for SysRoot {
+@@ -43,6 +47,7 @@ impl Default for SysRoot {
+             configfs: PathBuf::from("/sys/kernel/config"),
+             sysfs: PathBuf::from("/sys"),
+             proc: PathBuf::from("/proc"),
++            run: PathBuf::from("/run"),
+         };
+     }
+ }
+@@ -55,6 +60,7 @@ impl SysRoot {
+             configfs: root.join("sys/kernel/config"),
+             sysfs: root.join("sys"),
+             proc: root.join("proc"),
++            run: root.join("run"),
+         };
+     }
+ 
+@@ -82,6 +88,15 @@ impl SysRoot {
+     pub fn proc_sys(&self) -> PathBuf {
+         return self.proc.join(PROC_SYS_PATH);
+     }
++
++    /*
++     * <run>/usb-signaller/state.env: which gadget, configuration and mode
++     * the mode scripts act on. Created by the daemon itself, never through
++     * a unit's RuntimeDirectory=, which systemd removes on stop.
++     */
++    pub fn state_env(&self) -> PathBuf {
++        return self.run.join(RUNTIME_PATH).join(STATE_ENV_NODE);
++    }
+ }
+ 
+ /*
+@@ -205,6 +220,10 @@ mod tests {
+         assert_eq!(sys.class("udc"), PathBuf::from("/sys/class/udc"));
+         assert_eq!(sys.device_tree(), PathBuf::from("/proc/device-tree"));
+         assert_eq!(sys.proc_sys(), PathBuf::from("/proc/sys"));
++        assert_eq!(
++            sys.state_env(),
++            PathBuf::from("/run/usb-signaller/state.env")
++        );
+     }
+ 
+     #[test]
+diff --git a/src/window.rs b/src/window.rs
+index c4b31bc..24854ac 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -36,9 +36,6 @@
+  *   previous one, else only the pinned functions, retried until it binds.
+  */
+ 
+-/* The adopted-gadget transaction that uses this is not part of this change yet */
+-#![allow(dead_code)]
+-
+ use std::ffi::{CStr, CString};
+ use std::fs::OpenOptions;
+ use std::io;
+-- 
+2.55.0
+

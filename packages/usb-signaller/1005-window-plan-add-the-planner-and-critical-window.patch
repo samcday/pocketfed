@@ -1,0 +1,1741 @@
+From c0d063e622ca7afab24771289f2319148d1690fc Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 18:28:35 +1000
+Subject: [PATCH 5/6] window, plan: add the planner and critical window for
+ adopted gadgets
+
+A gadget built by an initramfs to serve the root filesystem over
+FunctionFS can not be replaced: FunctionFS instance names are global and
+the kernel only links a function into a configuration of its own gadget,
+and never while the gadget has a UDC set. Switching modes on such a gadget
+means changing its links in place, between an unbind and a rebind, while
+the root filesystem may be unreachable.
+
+plan.rs decides such a switch from a snapshot of the gadget, without
+touching it: which of usb-signaller's own functions to create, link,
+unlink and remove, next to the pinned functions that must never leave.
+It refuses modes an adopted gadget does not support yet (anything but
+charging_only, developer_mode and tethering_mode), modes outside
+allowed_modes, missing or non-ready pins, and linked functions nobody
+owns. Developer and tethering share a composition, so switching between
+them is a service swap. An exhaustive test runs every combination of
+pins, linked functions, existing function directories and target mode
+against the invariants: pins are never unlinked or removed, only
+usb-signaller's own functions are removed, a leaving mass storage LUN is
+force-ejected first, and an unchanged composition needs no rebind.
+
+window.rs runs the unbind, relink and rebind on a dedicated thread,
+spawned before memory is locked, using only raw syscalls on file
+descriptors and buffers prepared beforehand: no logging, allocation,
+exec or await while the gadget is unbound. Every attribute read opens a
+new file, since configfs caches values per open file. The ladder never
+returns while the gadget is unbound: the target composition, else the
+previous one, else the pins alone, retried until it binds, unless
+someone else bound it meanwhile.
+
+libc becomes a regular dependency (Fedora: rust-libc-devel).
+
+Nothing uses this yet; the next change adopts gadgets with it.
+
+A panic inside a window aborts the process instead of returning with
+the gadget possibly unbound and the transaction lock released.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ Cargo.toml    |   2 -
+ src/main.rs   |   2 +
+ src/plan.rs   | 758 +++++++++++++++++++++++++++++++++++++++++++
+ src/window.rs | 883 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 1643 insertions(+), 2 deletions(-)
+ create mode 100644 src/plan.rs
+ create mode 100644 src/window.rs
+
+diff --git a/Cargo.toml b/Cargo.toml
+index eff2c15..0790385 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -13,8 +13,6 @@ tokio-udev = "0.10.0"
+ serde = { version = "1.0.229", default-features = false, features = ["derive"] }
+ toml = "1.1.3"
+ uapi-config = "0.2.0"
+-
+-[dev-dependencies]
+ libc = "0.2.183"
+ 
+ [profile.ci]
+diff --git a/src/main.rs b/src/main.rs
+index 69235bd..d4a3fb5 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -32,6 +32,7 @@ mod configuration;
+ mod dbus;
+ mod gadget;
+ mod monitor;
++mod plan;
+ mod policy;
+ mod service;
+ mod sysfs;
+@@ -39,6 +40,7 @@ mod sysroot;
+ mod udc;
+ mod urs;
+ mod utils;
++mod window;
+ 
+ use crate::configuration::Configuration;
+ use crate::dbus::{Daemon, UsbModedDBus, create_usbmoded_connection};
+diff --git a/src/plan.rs b/src/plan.rs
+new file mode 100644
+index 0000000..7826650
+--- /dev/null
++++ b/src/plan.rs
+@@ -0,0 +1,758 @@
++/*
++ * usb-signaller: replacement for usb-moded on mainline Linux Mobile devices
++ * Copyright (C) 2026 Dylan Van Assche
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published
++ * by the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program. If not, see <https://www.gnu.org/licenses/>.
++ */
++
++/*
++ * What a mode switch on an adopted gadget changes, decided from a snapshot
++ * of the gadget without touching it. Pure, so every combination can be
++ * tested.
++ *
++ * An adopted gadget keeps its pinned functions linked at all times. The
++ * mode is expressed by which of usb-signaller's own functions are linked
++ * next to them. usb-signaller only ever creates, links, unlinks and removes
++ * its own functions, and refuses to switch while a function it does not
++ * know is linked.
++ */
++
++/* The adopted-gadget transaction that uses this is not part of this change yet */
++#![allow(dead_code)]
++
++use std::collections::{BTreeMap, BTreeSet};
++use std::fmt;
++
++use crate::udc::UDCMode;
++use crate::utils::udcmode_to_string;
++use crate::window::{WindowEntry, WindowOp, WindowPlan};
++
++pub const NCM_FUNCTION: &str = "ncm.usb0";
++pub const MTP_FUNCTION: &str = "ffs.mtp";
++pub const ACCESSORY_FUNCTION: &str = "ffs.accessory";
++pub const MASS_STORAGE_FUNCTION: &str = "mass_storage.0";
++
++/* The function instances usb-signaller creates for its modes */
++pub const MANAGED_FUNCTIONS: [&str; 4] = [
++    NCM_FUNCTION,
++    MTP_FUNCTION,
++    ACCESSORY_FUNCTION,
++    MASS_STORAGE_FUNCTION,
++];
++
++pub const DEVELOPER_SERVICE: &str = "usb-signaller-developer-mode";
++pub const TETHERING_SERVICE: &str = "usb-signaller-tethering-mode";
++pub const MTP_SERVICE: &str = "usb-signaller-mtp-mode";
++pub const MTP_MOUNT: &str = "/dev/mtp";
++
++pub fn is_ffs(function: &str) -> bool {
++    return function.starts_with("ffs.");
++}
++
++/*
++ * Functions a mode links next to the pins, for the modes an adopted gadget
++ * supports so far. None for every other mode.
++ */
++pub fn mode_functions(mode: &UDCMode) -> Option<&'static [&'static str]> {
++    return match mode {
++        UDCMode::Charging => Some(&[]),
++        UDCMode::Developer | UDCMode::Tethering => Some(&[NCM_FUNCTION]),
++        _ => None,
++    };
++}
++
++/* Mode names accepted for an adopted gadget */
++pub fn adopted_mode(mode: &str) -> Option<UDCMode> {
++    return match mode {
++        "charging_only" => Some(UDCMode::Charging),
++        "developer_mode" => Some(UDCMode::Developer),
++        "tethering_mode" => Some(UDCMode::Tethering),
++        _ => None,
++    };
++}
++
++/* The service that runs while a mode is active */
++pub fn mode_service(mode: &UDCMode) -> Option<&'static str> {
++    return match mode {
++        UDCMode::Developer => Some(DEVELOPER_SERVICE),
++        UDCMode::Tethering => Some(TETHERING_SERVICE),
++        _ => None,
++    };
++}
++
++/*
++ * Mode of an adopted gadget from the functions linked next to its pins.
++ * Developer and tethering link the same function: 'tethering' says which,
++ * from the state file written by the last switch.
++ */
++pub fn classify(functions: &BTreeSet<&str>, tethering: bool, cdrom: bool) -> UDCMode {
++    let only = |function: &str| functions.len() == 1 && functions.contains(function);
++    if functions.is_empty() {
++        return UDCMode::Charging;
++    } else if only(NCM_FUNCTION) {
++        if tethering {
++            return UDCMode::Tethering;
++        }
++        return UDCMode::Developer;
++    } else if only(MTP_FUNCTION) {
++        return UDCMode::MTP;
++    } else if only(ACCESSORY_FUNCTION) {
++        return UDCMode::Accessory;
++    } else if only(MASS_STORAGE_FUNCTION) {
++        if cdrom {
++            return UDCMode::CdRom;
++        }
++        return UDCMode::MassStorage;
++    }
++    return UDCMode::Unknown;
++}
++
++/* An adopted gadget as read from configfs, through new handles */
++#[derive(Debug, Clone, PartialEq)]
++pub struct Snapshot {
++    pub gadget: String,
++    pub config: String,
++    /* The UDC attribute; empty when unbound */
++    pub udc: String,
++    /* (link name, function) in link order */
++    pub links: Vec<(String, String)>,
++    pub function_dirs: BTreeSet<String>,
++    /* 'ready' of every linked FunctionFS function; None without the attribute */
++    pub ready: BTreeMap<String, Option<bool>>,
++    pub mode: UDCMode,
++}
++
++impl Snapshot {
++    pub fn linked(&self, function: &str) -> bool {
++        return self.links.iter().any(|(_, f)| f == function);
++    }
++}
++
++/* Services to stop before and start after a switch */
++#[derive(Debug, Clone, Default, PartialEq)]
++pub struct ServicePlan {
++    pub stop: Option<&'static str>,
++    pub start: Option<&'static str>,
++}
++
++impl ServicePlan {
++    /* Developer and tethering share a composition: switching is a service swap */
++    pub fn for_transition(current: &UDCMode, target: &UDCMode) -> Self {
++        let old = mode_service(current);
++        let new = mode_service(target);
++        return Self {
++            stop: if old != new { old } else { None },
++            start: new,
++        };
++    }
++}
++
++#[derive(Debug, Clone, PartialEq)]
++pub struct Plan {
++    pub gadget: String,
++    pub config: String,
++    pub current: UDCMode,
++    pub target: UDCMode,
++    /* (link name, function) to unlink, in link order */
++    pub unlink: Vec<(String, String)>,
++    /* Functions to link, named after themselves, appended after the existing links */
++    pub link: Vec<String>,
++    /* Function directories to create before the unbind */
++    pub create: Vec<String>,
++    /* Function directories to remove after the rebind; only usb-signaller's own */
++    pub destroy: Vec<String>,
++    /* A mass storage LUN leaves: force-eject it before the unbind, while bound */
++    pub forced_eject: bool,
++    /* The MTP function leaves: stop its daemon and unmount after the rebind */
++    pub stop_mtp: bool,
++    pub services: ServicePlan,
++}
++
++impl Plan {
++    /* Whether the composition changes, which needs an unbind and a rebind */
++    pub fn rebind(&self) -> bool {
++        return !self.unlink.is_empty() || !self.link.is_empty();
++    }
++}
++
++impl fmt::Display for Plan {
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        let list = |items: Vec<&str>| {
++            if items.is_empty() {
++                return "-".to_string();
++            }
++            return items.join(", ");
++        };
++        writeln!(
++            f,
++            "{}/{}: {} -> {}",
++            self.gadget,
++            self.config,
++            udcmode_to_string(self.current.clone()),
++            udcmode_to_string(self.target.clone())
++        )?;
++        if !self.rebind() {
++            writeln!(f, "  composition unchanged: no configfs write, no rebind")?;
++        } else {
++            writeln!(
++                f,
++                "  prepare (bound): create {}{}",
++                list(self.create.iter().map(String::as_str).collect()),
++                if self.forced_eject {
++                    "; force-eject mass_storage.0"
++                } else {
++                    ""
++                }
++            )?;
++            writeln!(
++                f,
++                "  window (unbound): unlink {}; link {}; bind",
++                list(self.unlink.iter().map(|(link, _)| link.as_str()).collect()),
++                list(self.link.iter().map(String::as_str).collect())
++            )?;
++            writeln!(
++                f,
++                "  finish (bound): remove {}{}",
++                list(self.destroy.iter().map(String::as_str).collect()),
++                if self.stop_mtp {
++                    "; stop the MTP daemon and unmount"
++                } else {
++                    ""
++                }
++            )?;
++        }
++        writeln!(
++            f,
++            "  services: stop {}; start {}",
++            self.services.stop.unwrap_or("-"),
++            self.services.start.unwrap_or("-")
++        )?;
++        return Ok(());
++    }
++}
++
++/*
++ * Decide how to reach 'target' from the snapshot. Refuses modes an adopted
++ * gadget does not support, modes outside allowed_modes, missing or
++ * non-ready pins and unknown linked functions.
++ */
++pub fn plan(
++    snapshot: &Snapshot,
++    pins: &BTreeSet<String>,
++    target: &UDCMode,
++    allowed_modes: Option<&BTreeSet<String>>,
++) -> anyhow::Result<Plan> {
++    let gadget = &snapshot.gadget;
++    let config = &snapshot.config;
++    let name = udcmode_to_string(target.clone());
++
++    let Some(functions) = mode_functions(target) else {
++        return Err(anyhow::anyhow!(
++            "{name} is not supported while gadget {gadget} is adopted"
++        ));
++    };
++    if let Some(allowed) = allowed_modes
++        && !allowed.contains(name)
++    {
++        return Err(anyhow::anyhow!(
++            "{name} is not in allowed_modes for gadget {gadget}"
++        ));
++    }
++    for pin in pins {
++        if !snapshot.linked(pin) {
++            return Err(anyhow::anyhow!(
++                "pinned function {pin} is not linked in {gadget}/{config}"
++            ));
++        }
++        if snapshot.ready.get(pin) == Some(&Some(false)) {
++            return Err(anyhow::anyhow!("pinned function {pin} is not ready"));
++        }
++    }
++    if let Some((_, function)) = snapshot
++        .links
++        .iter()
++        .find(|(_, f)| !pins.contains(f) && !MANAGED_FUNCTIONS.contains(&f.as_str()))
++    {
++        return Err(anyhow::anyhow!(
++            "function {function} linked in {gadget}/{config} is neither pinned nor managed by usb-signaller; pin it or remove it"
++        ));
++    }
++
++    /* A pinned function that a mode needs, for example ncm.usb0, stays as it is */
++    let want: Vec<&str> = functions
++        .iter()
++        .copied()
++        .filter(|f| !pins.contains(*f))
++        .collect();
++    let unlink: Vec<(String, String)> = snapshot
++        .links
++        .iter()
++        .filter(|(_, f)| !pins.contains(f) && !want.contains(&f.as_str()))
++        .cloned()
++        .collect();
++    let link: Vec<String> = want
++        .iter()
++        .filter(|f| !snapshot.linked(f))
++        .map(|f| f.to_string())
++        .collect();
++    let create: Vec<String> = link
++        .iter()
++        .filter(|f| !snapshot.function_dirs.contains(*f))
++        .cloned()
++        .collect();
++    let mut destroy: Vec<String> = vec![];
++    for (_, function) in &unlink {
++        if !destroy.contains(function) {
++            destroy.push(function.clone());
++        }
++    }
++
++    return Ok(Plan {
++        gadget: gadget.clone(),
++        config: config.clone(),
++        current: snapshot.mode.clone(),
++        target: target.clone(),
++        forced_eject: destroy.iter().any(|f| f == MASS_STORAGE_FUNCTION),
++        stop_mtp: destroy.iter().any(|f| f == MTP_FUNCTION),
++        unlink,
++        link,
++        create,
++        destroy,
++        services: ServicePlan::for_transition(&snapshot.mode, target),
++    });
++}
++
++/*
++ * The window's operations for a plan: the target, the way back to the
++ * snapshot's composition, and the pins alone. Pins are never unlinked.
++ */
++pub fn window_plan(
++    snapshot: &Snapshot,
++    plan: &Plan,
++    pins: &BTreeSet<String>,
++    udc: &str,
++) -> WindowPlan {
++    fn index(link: &str, function: &str, entries: &mut Vec<WindowEntry>) -> usize {
++        if let Some(i) = entries.iter().position(|e| e.link == link) {
++            return i;
++        }
++        entries.push(WindowEntry {
++            link: link.to_string(),
++            function: function.to_string(),
++        });
++        return entries.len() - 1;
++    }
++
++    let mut entries: Vec<WindowEntry> = vec![];
++
++    let pin_entries: Vec<usize> = snapshot
++        .links
++        .iter()
++        .filter(|(_, f)| pins.contains(f))
++        .map(|(link, f)| index(link, f, &mut entries))
++        .collect();
++    let unlinked: Vec<usize> = plan
++        .unlink
++        .iter()
++        .map(|(link, f)| index(link, f, &mut entries))
++        .collect();
++    let linked: Vec<usize> = plan
++        .link
++        .iter()
++        .map(|f| index(f, f, &mut entries))
++        .collect();
++    let kept: Vec<usize> = snapshot
++        .links
++        .iter()
++        .filter(|(_, f)| !pins.contains(f))
++        .map(|(link, f)| index(link, f, &mut entries))
++        .collect();
++
++    let ffs = |ids: &[usize], entries: &[WindowEntry]| -> Vec<usize> {
++        let unique: BTreeSet<usize> = ids
++            .iter()
++            .copied()
++            .filter(|&i| is_ffs(&entries[i].function))
++            .collect();
++        return unique.into_iter().collect();
++    };
++
++    let mut target = vec![];
++    target.extend(unlinked.iter().map(|&i| WindowOp::Unlink(i)));
++    target.extend(linked.iter().map(|&i| WindowOp::Link(i)));
++    let mut previous = vec![];
++    previous.extend(linked.iter().map(|&i| WindowOp::Unlink(i)));
++    previous.extend(unlinked.iter().map(|&i| WindowOp::Link(i)));
++    let pins_only: Vec<WindowOp> = (0..entries.len())
++        .filter(|i| !pin_entries.contains(i))
++        .map(WindowOp::Unlink)
++        .collect();
++
++    let target_ids: Vec<usize> = pin_entries
++        .iter()
++        .chain(kept.iter().filter(|i| !unlinked.contains(i)))
++        .chain(linked.iter())
++        .copied()
++        .collect();
++    let previous_ids: Vec<usize> = pin_entries.iter().chain(kept.iter()).copied().collect();
++
++    return WindowPlan {
++        gadget: snapshot.gadget.clone(),
++        config: snapshot.config.clone(),
++        udc: udc.to_string(),
++        target_ffs: ffs(&target_ids, &entries),
++        previous_ffs: ffs(&previous_ids, &entries),
++        pins_ffs: ffs(&pin_entries, &entries),
++        target,
++        previous,
++        pins_only,
++        entries,
++    };
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    const PIN_CHOICES: [&str; 3] = ["ffs.pin", "acm.pin", NCM_FUNCTION];
++    const LINK_CHOICES: [&str; 5] = [
++        NCM_FUNCTION,
++        MTP_FUNCTION,
++        ACCESSORY_FUNCTION,
++        MASS_STORAGE_FUNCTION,
++        "acm.unmanaged",
++    ];
++    const TARGETS: [UDCMode; 9] = [
++        UDCMode::Charging,
++        UDCMode::Developer,
++        UDCMode::Tethering,
++        UDCMode::MTP,
++        UDCMode::Accessory,
++        UDCMode::MassStorage,
++        UDCMode::CdRom,
++        UDCMode::Netboot,
++        UDCMode::Unknown,
++    ];
++
++    fn subsets<'a>(items: &[&'a str]) -> Vec<Vec<&'a str>> {
++        let mut out = vec![];
++        for mask in 0..(1u32 << items.len()) {
++            out.push(
++                items
++                    .iter()
++                    .enumerate()
++                    .filter(|(i, _)| mask & (1 << i) != 0)
++                    .map(|(_, item)| *item)
++                    .collect(),
++            );
++        }
++        return out;
++    }
++
++    fn snapshot(pins: &[&str], links: &[&str], extra_dirs: &[&str], mode: UDCMode) -> Snapshot {
++        let mut all: Vec<(String, String)> = vec![];
++        for function in pins.iter().chain(links.iter()) {
++            if !all.iter().any(|(_, f)| f == function) {
++                all.push((function.to_string(), function.to_string()));
++            }
++        }
++        let function_dirs = all
++            .iter()
++            .map(|(_, f)| f.clone())
++            .chain(extra_dirs.iter().map(|f| f.to_string()))
++            .collect();
++        let ready = all
++            .iter()
++            .filter(|(_, f)| is_ffs(f))
++            .map(|(_, f)| (f.clone(), Some(true)))
++            .collect();
++        return Snapshot {
++            gadget: "g".into(),
++            config: "c.1".into(),
++            udc: "udc0".into(),
++            links: all,
++            function_dirs,
++            ready,
++            mode,
++        };
++    }
++
++    fn set(items: &[&str]) -> BTreeSet<String> {
++        return items.iter().map(|s| s.to_string()).collect();
++    }
++
++    /* Links after applying a plan's window ops to the snapshot */
++    fn after(snapshot: &Snapshot, plan: &Plan) -> BTreeSet<String> {
++        let mut links: BTreeSet<String> = snapshot.links.iter().map(|(_, f)| f.clone()).collect();
++        for (_, f) in &plan.unlink {
++            links.remove(f);
++        }
++        links.extend(plan.link.iter().cloned());
++        return links;
++    }
++
++    /*
++     * Every combination of pins, linked functions, existing function
++     * directories and target mode.
++     */
++    #[test]
++    fn planner_properties_hold_for_every_combination() {
++        let mut checked = 0;
++        for pins in subsets(&PIN_CHOICES) {
++            if pins.is_empty() {
++                continue;
++            }
++            let pin_set = set(&pins);
++            for links in subsets(&LINK_CHOICES) {
++                for extra in [vec![], vec![NCM_FUNCTION]] {
++                    let current: BTreeSet<&str> = links
++                        .iter()
++                        .copied()
++                        .filter(|f| !pin_set.contains(*f))
++                        .collect();
++                    let mode = classify(&current, false, false);
++                    let snap = snapshot(&pins, &links, &extra, mode.clone());
++                    for target in TARGETS.iter() {
++                        check(&snap, &pin_set, target, &links);
++                        checked += 1;
++                    }
++                }
++            }
++        }
++        assert_eq!(checked, 7 * 32 * 2 * 9);
++    }
++
++    fn check(snap: &Snapshot, pins: &BTreeSet<String>, target: &UDCMode, links: &[&str]) {
++        let result = plan(snap, pins, target, None);
++        let context = format!("pins {pins:?} links {links:?} target {target:?}");
++
++        /* Host, accessory, MTP and mass storage are refused under adoption */
++        let Some(functions) = mode_functions(target) else {
++            let error = result.expect_err(&context).to_string();
++            assert!(
++                error.contains("is not supported while gadget g is adopted"),
++                "{context}"
++            );
++            return;
++        };
++
++        /* A linked function nobody owns makes every switch fail */
++        let unmanaged = links
++            .iter()
++            .any(|f| !pins.contains(*f) && !MANAGED_FUNCTIONS.contains(f));
++        if unmanaged {
++            let error = result.expect_err(&context).to_string();
++            assert!(error.contains("is neither pinned nor managed"), "{context}");
++            return;
++        }
++
++        let plan = result.expect(&context);
++        /* I1, I2: pins are never unlinked or removed */
++        for pin in pins {
++            assert!(!plan.unlink.iter().any(|(_, f)| f == pin), "{context}");
++            assert!(!plan.destroy.contains(pin), "{context}");
++        }
++        /* I4: only usb-signaller's own functions are removed */
++        for function in &plan.destroy {
++            assert!(MANAGED_FUNCTIONS.contains(&function.as_str()), "{context}");
++        }
++        /* I11: a leaving mass storage LUN is force-ejected first */
++        assert_eq!(
++            plan.forced_eject,
++            plan.unlink.iter().any(|(_, f)| f == MASS_STORAGE_FUNCTION),
++            "{context}"
++        );
++        assert_eq!(
++            plan.stop_mtp,
++            plan.unlink.iter().any(|(_, f)| f == MTP_FUNCTION),
++            "{context}"
++        );
++        /* Directories are only created for functions being linked, and only when missing */
++        for function in &plan.create {
++            assert!(plan.link.contains(function), "{context}");
++            assert!(!snap.function_dirs.contains(function), "{context}");
++        }
++        /* The result is exactly the pins plus the mode's functions */
++        let mut expected = pins.clone();
++        expected.extend(functions.iter().map(|f| f.to_string()));
++        assert_eq!(after(snap, &plan), expected, "{context}");
++        /* I5: no rebind when nothing changes, in particular when the mode's functions are pinned */
++        let current: BTreeSet<String> = snap.links.iter().map(|(_, f)| f.clone()).collect();
++        assert_eq!(plan.rebind(), current != expected, "{context}");
++        if functions.iter().all(|f| pins.contains(*f)) && current == *pins {
++            assert!(!plan.rebind(), "{context}");
++        }
++
++        /* The window never unlinks a pin, and binds only with ready FunctionFS functions */
++        let window = window_plan(snap, &plan, pins, "udc0");
++        for op in window
++            .target
++            .iter()
++            .chain(&window.previous)
++            .chain(&window.pins_only)
++        {
++            if let WindowOp::Unlink(i) = op {
++                assert!(!pins.contains(&window.entries[*i].function), "{context}");
++            }
++        }
++        for pin in pins.iter().filter(|p| is_ffs(p)) {
++            let i = window
++                .entries
++                .iter()
++                .position(|e| &e.function == pin)
++                .unwrap();
++            assert!(window.target_ffs.contains(&i), "{context}");
++            assert!(window.previous_ffs.contains(&i), "{context}");
++            assert!(window.pins_ffs.contains(&i), "{context}");
++        }
++        assert_eq!(window.target.is_empty(), !plan.rebind(), "{context}");
++    }
++
++    #[test]
++    fn developer_and_tethering_swap_services_without_a_rebind() {
++        let pins = set(&["ffs.smoo"]);
++        let snap = snapshot(&["ffs.smoo"], &[NCM_FUNCTION], &[], UDCMode::Developer);
++        let swap = plan(&snap, &pins, &UDCMode::Tethering, None).unwrap();
++        assert!(!swap.rebind());
++        assert_eq!(swap.services.stop, Some(DEVELOPER_SERVICE));
++        assert_eq!(swap.services.start, Some(TETHERING_SERVICE));
++
++        let snap = snapshot(&["ffs.smoo"], &[NCM_FUNCTION], &[], UDCMode::Tethering);
++        let swap = plan(&snap, &pins, &UDCMode::Developer, None).unwrap();
++        assert!(!swap.rebind());
++        assert_eq!(swap.services.stop, Some(TETHERING_SERVICE));
++        assert_eq!(swap.services.start, Some(DEVELOPER_SERVICE));
++    }
++
++    #[test]
++    fn same_mode_only_makes_sure_its_service_runs() {
++        let pins = set(&["ffs.smoo"]);
++        let snap = snapshot(&["ffs.smoo"], &[NCM_FUNCTION], &[], UDCMode::Developer);
++        let plan = plan(&snap, &pins, &UDCMode::Developer, None).unwrap();
++        assert!(!plan.rebind());
++        assert_eq!(plan.services.stop, None);
++        assert_eq!(plan.services.start, Some(DEVELOPER_SERVICE));
++    }
++
++    #[test]
++    fn charging_to_developer_creates_and_links_ncm() {
++        let pins = set(&["ffs.smoo"]);
++        let snap = snapshot(&["ffs.smoo"], &[], &[], UDCMode::Charging);
++        let plan = plan(&snap, &pins, &UDCMode::Developer, None).unwrap();
++        assert_eq!(plan.create, vec![NCM_FUNCTION.to_string()]);
++        assert_eq!(plan.link, vec![NCM_FUNCTION.to_string()]);
++        assert!(plan.unlink.is_empty());
++        assert!(plan.destroy.is_empty());
++        assert_eq!(plan.services.start, Some(DEVELOPER_SERVICE));
++        let text = plan.to_string();
++        assert!(text.contains("g/c.1: charging_only -> developer_mode"));
++        assert!(text.contains("window (unbound): unlink -; link ncm.usb0; bind"));
++    }
++
++    #[test]
++    fn allowed_modes_restrict_the_targets() {
++        let pins = set(&["ffs.smoo"]);
++        let snap = snapshot(&["ffs.smoo"], &[], &[], UDCMode::Charging);
++        let allowed = set(&["charging_only", "developer_mode"]);
++        assert!(plan(&snap, &pins, &UDCMode::Developer, Some(&allowed)).is_ok());
++        let error = plan(&snap, &pins, &UDCMode::Tethering, Some(&allowed)).unwrap_err();
++        assert_eq!(
++            error.to_string(),
++            "tethering_mode is not in allowed_modes for gadget g"
++        );
++    }
++
++    #[test]
++    fn missing_or_non_ready_pins_are_refused() {
++        let pins = set(&["ffs.smoo"]);
++        let snap = snapshot(&[], &[], &[], UDCMode::Charging);
++        assert_eq!(
++            plan(&snap, &pins, &UDCMode::Developer, None)
++                .unwrap_err()
++                .to_string(),
++            "pinned function ffs.smoo is not linked in g/c.1"
++        );
++        let mut snap = snapshot(&["ffs.smoo"], &[], &[], UDCMode::Charging);
++        snap.ready.insert("ffs.smoo".into(), Some(false));
++        assert_eq!(
++            plan(&snap, &pins, &UDCMode::Developer, None)
++                .unwrap_err()
++                .to_string(),
++            "pinned function ffs.smoo is not ready"
++        );
++        /* Without a 'ready' attribute a bound pin counts as ready */
++        snap.ready.insert("ffs.smoo".into(), None);
++        assert!(plan(&snap, &pins, &UDCMode::Developer, None).is_ok());
++    }
++
++    #[test]
++    fn unmanaged_functions_are_refused_with_a_hint() {
++        let pins = set(&["ffs.smoo"]);
++        let snap = snapshot(&["ffs.smoo"], &["acm.GS0"], &[], UDCMode::Unknown);
++        assert_eq!(
++            plan(&snap, &pins, &UDCMode::Charging, None)
++                .unwrap_err()
++                .to_string(),
++            "function acm.GS0 linked in g/c.1 is neither pinned nor managed by usb-signaller; pin it or remove it"
++        );
++    }
++
++    #[test]
++    fn link_names_may_differ_from_function_names() {
++        let pins = set(&["ffs.smoo"]);
++        let mut snap = snapshot(&["ffs.smoo"], &[], &[], UDCMode::Developer);
++        snap.links.push(("net".into(), NCM_FUNCTION.into()));
++        let plan = plan(&snap, &pins, &UDCMode::Charging, None).unwrap();
++        assert_eq!(
++            plan.unlink,
++            vec![("net".to_string(), NCM_FUNCTION.to_string())]
++        );
++        let window = window_plan(&snap, &plan, &pins, "udc0");
++        let WindowOp::Unlink(i) = window.target[0] else {
++            panic!("expected an unlink");
++        };
++        assert_eq!(window.entries[i].link, "net");
++        assert_eq!(window.previous, vec![WindowOp::Link(i)]);
++    }
++
++    #[test]
++    fn classification() {
++        let set = |items: &[&'static str]| -> BTreeSet<&'static str> {
++            return items.iter().copied().collect();
++        };
++        assert_eq!(classify(&set(&[]), true, true), UDCMode::Charging);
++        assert_eq!(
++            classify(&set(&[NCM_FUNCTION]), false, false),
++            UDCMode::Developer
++        );
++        assert_eq!(
++            classify(&set(&[NCM_FUNCTION]), true, false),
++            UDCMode::Tethering
++        );
++        assert_eq!(classify(&set(&[MTP_FUNCTION]), false, false), UDCMode::MTP);
++        assert_eq!(
++            classify(&set(&[MASS_STORAGE_FUNCTION]), false, true),
++            UDCMode::CdRom
++        );
++        assert_eq!(
++            classify(&set(&[MASS_STORAGE_FUNCTION]), false, false),
++            UDCMode::MassStorage
++        );
++        assert_eq!(
++            classify(&set(&[NCM_FUNCTION, MTP_FUNCTION]), false, false),
++            UDCMode::Unknown
++        );
++        assert_eq!(classify(&set(&["acm.GS0"]), false, false), UDCMode::Unknown);
++    }
++}
+diff --git a/src/window.rs b/src/window.rs
+new file mode 100644
+index 0000000..c4b31bc
+--- /dev/null
++++ b/src/window.rs
+@@ -0,0 +1,883 @@
++/*
++ * usb-signaller: replacement for usb-moded on mainline Linux Mobile devices
++ * Copyright (C) 2026 Dylan Van Assche
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published
++ * by the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program. If not, see <https://www.gnu.org/licenses/>.
++ */
++
++/*
++ * The critical window of a mode switch on an adopted gadget: unbind, change
++ * the links, bind again.
++ *
++ * The kernel refuses links while a gadget has a UDC set, so the composition
++ * of a gadget that stays in use (for example one serving the root
++ * filesystem over FunctionFS) can only change while it is unbound. While it
++ * is unbound, the root filesystem may be unreachable: anything that reads a
++ * file, pages in memory, logs, execs or waits for another task could block
++ * forever. The window therefore:
++ *
++ * - runs on a dedicated thread, spawned before mlockall(), in a process
++ *   whose memory stays locked for as long as a gadget is adopted;
++ * - only makes raw syscalls on file descriptors opened and buffers built
++ *   before the unbind: no println!, allocation, exec, await or lock another
++ *   task can hold;
++ * - never returns while the gadget is unbound: target composition, else the
++ *   previous one, else only the pinned functions, retried until it binds.
++ */
++
++/* The adopted-gadget transaction that uses this is not part of this change yet */
++#![allow(dead_code)]
++
++use std::ffi::{CStr, CString};
++use std::fs::OpenOptions;
++use std::io;
++use std::os::fd::{AsRawFd, OwnedFd};
++use std::os::unix::ffi::OsStrExt;
++use std::os::unix::fs::OpenOptionsExt;
++use std::panic::{AssertUnwindSafe, catch_unwind};
++use std::path::Path;
++use std::process;
++use std::sync::mpsc;
++use std::thread;
++
++use tokio::sync::oneshot;
++
++const WINDOW_THREAD_NAME: &str = "usb-signaller-window";
++const WINDOW_THREAD_STACK: usize = 256 * 1024;
++const FIRST_RETRY_MS: u64 = 10;
++const LAST_RETRY_MS: u64 = 1000;
++
++/*
++ * The only operations the window performs besides writing and reading the
++ * UDC attribute and reading 'ready' attributes. Attribute writes that open
++ * files (a mass storage LUN's 'file') can not be expressed here.
++ */
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum WindowOp {
++    /* Remove the entry's link from the configuration; ENOENT counts as done */
++    Unlink(usize),
++    /* Link the entry's function into the configuration; EEXIST counts as done */
++    Link(usize),
++}
++
++/* A function the window links, unlinks or checks, and its link name in the configuration */
++#[derive(Debug, Clone, PartialEq)]
++pub struct WindowEntry {
++    pub link: String,
++    pub function: String,
++}
++
++/* Everything the window does, decided before the unbind */
++#[derive(Debug, Clone, PartialEq)]
++pub struct WindowPlan {
++    pub gadget: String,
++    pub config: String,
++    pub udc: String,
++    pub entries: Vec<WindowEntry>,
++    /* Reach the requested composition */
++    pub target: Vec<WindowOp>,
++    /* FunctionFS entries that must be ready before binding the target */
++    pub target_ffs: Vec<usize>,
++    /* Go back to the composition before the switch */
++    pub previous: Vec<WindowOp>,
++    pub previous_ffs: Vec<usize>,
++    /* Keep only the pinned functions linked */
++    pub pins_only: Vec<WindowOp>,
++    pub pins_ffs: Vec<usize>,
++}
++
++/*
++ * The syscalls of the window. Errors are raw errno values. Every read opens
++ * the attribute again: configfs caches an attribute's value per open file.
++ */
++pub trait WindowIo: Send {
++    /* Write an empty name to the UDC attribute */
++    fn unbind(&mut self) -> Result<(), i32>;
++    /* Write the UDC name to the UDC attribute */
++    fn bind(&mut self) -> Result<(), i32>;
++    fn unlink(&mut self, entry: usize) -> Result<(), i32>;
++    fn link(&mut self, entry: usize) -> Result<(), i32>;
++    /* The entry's 'ready' attribute; None when the kernel has none (before 6.9) */
++    fn ready(&mut self, entry: usize) -> Result<Option<bool>, i32>;
++    /* Whether the UDC attribute names a UDC, read through a new file */
++    fn udc_set(&mut self) -> bool;
++    fn pause(&mut self, millis: u64);
++    fn now_us(&mut self) -> u64;
++}
++
++/* How the window ended. Every rung except Untouched rebound the gadget */
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum Rung {
++    /* The requested composition is bound */
++    Target,
++    /* The unbind failed: the gadget is still bound and unchanged */
++    Untouched,
++    /* The target failed; the previous composition is bound */
++    Previous,
++    /* Only the pinned functions are linked and bound */
++    PinsOnly,
++    /* Someone else (the kernel, a guardian) bound the gadget meanwhile */
++    RecoveredByOther,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum Step {
++    Unbind,
++    Unlink,
++    Link,
++    Ready,
++    NotReady,
++    Bind,
++}
++
++/* Fixed size, so the window can fill it in without allocating */
++#[derive(Debug, Clone, Copy, PartialEq)]
++pub struct WindowOutcome {
++    pub rung: Rung,
++    /* The first failure: step, entry index and errno (0 for "not ready") */
++    pub failure: Option<(Step, usize, i32)>,
++    pub binds: u32,
++    pub micros: u64,
++}
++
++impl WindowOutcome {
++    /* Why the target was not reached, for logs and D-Bus errors */
++    pub fn cause(&self, plan: &WindowPlan) -> String {
++        let Some((step, entry, code)) = self.failure else {
++            return "no failure recorded".to_string();
++        };
++        let function = plan
++            .entries
++            .get(entry)
++            .map_or("?", |entry| entry.function.as_str());
++        let error = io::Error::from_raw_os_error(code);
++        return match step {
++            Step::Unbind => format!("unbind: {error}"),
++            Step::Unlink => format!("unlink {function}: {error}"),
++            Step::Link => format!("link {function}: {error}"),
++            Step::Ready => format!("reading {function}/ready: {error}"),
++            Step::NotReady => format!("{function} is not ready"),
++            Step::Bind if code == libc::EBUSY => {
++                format!("bind: {error}; see dmesg 'failed to start'")
++            }
++            Step::Bind => format!("bind: {error}"),
++        };
++    }
++
++    pub fn describe(&self, plan: &WindowPlan) -> String {
++        let mut text = format!(
++            "{} on {}: window ended at {:?} after {} µs, {} bind attempt(s)",
++            plan.gadget, plan.udc, self.rung, self.micros, self.binds
++        );
++        if self.failure.is_some() {
++            text.push_str(&format!("; first failure: {}", self.cause(plan)));
++        }
++        return text;
++    }
++}
++
++fn record(outcome: &mut WindowOutcome, step: Step, entry: usize, code: i32) {
++    if outcome.failure.is_none() {
++        outcome.failure = Some((step, entry, code));
++    }
++}
++
++/* Apply ops in order. With 'stop', give up at the first failure */
++fn apply(io: &mut dyn WindowIo, ops: &[WindowOp], stop: bool, outcome: &mut WindowOutcome) -> bool {
++    let mut ok = true;
++    for op in ops {
++        let result = match *op {
++            WindowOp::Unlink(entry) => match io.unlink(entry) {
++                Err(code) if code != libc::ENOENT => Err((Step::Unlink, entry, code)),
++                _ => Ok(()),
++            },
++            WindowOp::Link(entry) => match io.link(entry) {
++                Err(code) if code != libc::EEXIST => Err((Step::Link, entry, code)),
++                _ => Ok(()),
++            },
++        };
++        if let Err((step, entry, code)) = result {
++            record(outcome, step, entry, code);
++            ok = false;
++            if stop {
++                return false;
++            }
++        }
++    }
++    return ok;
++}
++
++/* Every listed FunctionFS function reads ready (a missing attribute counts as ready) */
++fn all_ready(io: &mut dyn WindowIo, entries: &[usize], outcome: &mut WindowOutcome) -> bool {
++    for &entry in entries {
++        match io.ready(entry) {
++            Ok(Some(true)) | Ok(None) => {}
++            Ok(Some(false)) => {
++                record(outcome, Step::NotReady, entry, 0);
++                return false;
++            }
++            Err(code) => {
++                record(outcome, Step::Ready, entry, code);
++                return false;
++            }
++        }
++    }
++    return true;
++}
++
++fn bind(io: &mut dyn WindowIo, outcome: &mut WindowOutcome) -> bool {
++    outcome.binds = outcome.binds.saturating_add(1);
++    if let Err(code) = io.bind() {
++        record(outcome, Step::Bind, 0, code);
++        return false;
++    }
++    return true;
++}
++
++/*
++ * The window itself. Runs on the window thread; see the top of this file
++ * for what it may and may not do.
++ */
++pub fn run_window(io: &mut dyn WindowIo, plan: &WindowPlan) -> WindowOutcome {
++    let start = io.now_us();
++    let mut outcome = WindowOutcome {
++        rung: Rung::Untouched,
++        failure: None,
++        binds: 0,
++        micros: 0,
++    };
++
++    /* ENODEV: nothing was bound (a UDC name was not even set) */
++    match io.unbind() {
++        Ok(()) => {}
++        Err(code) if code == libc::ENODEV => {}
++        Err(code) => {
++            record(&mut outcome, Step::Unbind, 0, code);
++            outcome.micros = io.now_us().saturating_sub(start);
++            return outcome;
++        }
++    }
++
++    outcome.rung = 'ladder: {
++        if apply(io, &plan.target, true, &mut outcome)
++            && all_ready(io, &plan.target_ffs, &mut outcome)
++            && bind(io, &mut outcome)
++        {
++            break 'ladder Rung::Target;
++        }
++        /* A link refused with EINVAL ends up here when someone else bound the gadget */
++        if io.udc_set() {
++            break 'ladder Rung::RecoveredByOther;
++        }
++
++        apply(io, &plan.previous, false, &mut outcome);
++        if all_ready(io, &plan.previous_ffs, &mut outcome) && bind(io, &mut outcome) {
++            break 'ladder Rung::Previous;
++        }
++        if io.udc_set() {
++            break 'ladder Rung::RecoveredByOther;
++        }
++
++        /*
++         * Last resort: the pinned functions alone. The UDC may be gone for a
++         * while (role switch), so retry until it binds.
++         */
++        apply(io, &plan.pins_only, false, &mut outcome);
++        let mut delay = FIRST_RETRY_MS;
++        loop {
++            if all_ready(io, &plan.pins_ffs, &mut outcome) && bind(io, &mut outcome) {
++                break 'ladder Rung::PinsOnly;
++            }
++            if io.udc_set() {
++                break 'ladder Rung::RecoveredByOther;
++            }
++            io.pause(delay);
++            delay = (delay * 2).min(LAST_RETRY_MS);
++        }
++    };
++
++    outcome.micros = io.now_us().saturating_sub(start);
++    return outcome;
++}
++
++fn errno() -> i32 {
++    return io::Error::last_os_error()
++        .raw_os_error()
++        .unwrap_or(libc::EIO);
++}
++
++fn c_path(path: &Path) -> io::Result<CString> {
++    return CString::new(path.as_os_str().as_bytes())
++        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err));
++}
++
++fn open_dir(path: &Path) -> io::Result<OwnedFd> {
++    let file = OpenOptions::new()
++        .read(true)
++        .custom_flags(libc::O_PATH | libc::O_DIRECTORY)
++        .open(path)?;
++    return Ok(file.into());
++}
++
++/*
++ * The window on the running kernel: directory file descriptors opened and
++ * every path and value encoded before the unbind.
++ */
++pub struct RawWindowIo {
++    gadget: OwnedFd,
++    config: OwnedFd,
++    functions: OwnedFd,
++    udc: OwnedFd,
++    udc_name: Vec<u8>,
++    links: Vec<CString>,
++    /* Absolute: configfs resolves symlink targets itself */
++    targets: Vec<CString>,
++    ready: Vec<CString>,
++}
++
++impl RawWindowIo {
++    pub fn open(gadget_dir: &Path, plan: &WindowPlan) -> io::Result<Self> {
++        let gadget = open_dir(gadget_dir)?;
++        let config = open_dir(&gadget_dir.join("configs").join(&plan.config))?;
++        let functions_dir = gadget_dir.join("functions");
++        let functions = open_dir(&functions_dir)?;
++        let udc: OwnedFd = OpenOptions::new()
++            .read(true)
++            .write(true)
++            .open(gadget_dir.join("UDC"))?
++            .into();
++
++        /* Read once, so configfs allocates the attribute's buffer page now, not in the window */
++        let mut buffer = [0u8; 64];
++        let length =
++            unsafe { libc::pread(udc.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len(), 0) };
++        if length < 0 {
++            return Err(io::Error::last_os_error());
++        }
++
++        let mut links = vec![];
++        let mut targets = vec![];
++        let mut ready = vec![];
++        for entry in &plan.entries {
++            links.push(c_path(Path::new(&entry.link))?);
++            targets.push(c_path(&functions_dir.join(&entry.function))?);
++            ready.push(c_path(&Path::new(&entry.function).join("ready"))?);
++        }
++
++        let mut udc_name = plan.udc.as_bytes().to_vec();
++        udc_name.push(b'\n');
++
++        return Ok(Self {
++            gadget,
++            config,
++            functions,
++            udc,
++            udc_name,
++            links,
++            targets,
++            ready,
++        });
++    }
++
++    fn write_udc(udc: &OwnedFd, value: &[u8]) -> Result<(), i32> {
++        let written =
++            unsafe { libc::pwrite(udc.as_raw_fd(), value.as_ptr().cast(), value.len(), 0) };
++        if written < 0 {
++            return Err(errno());
++        }
++        return Ok(());
++    }
++
++    /* Open, read into a stack buffer and close an attribute below 'dirfd' */
++    fn read_fresh(dirfd: &OwnedFd, name: &CStr, buffer: &mut [u8]) -> Result<usize, i32> {
++        let fd = unsafe {
++            libc::openat(
++                dirfd.as_raw_fd(),
++                name.as_ptr(),
++                libc::O_RDONLY | libc::O_CLOEXEC,
++            )
++        };
++        if fd < 0 {
++            return Err(errno());
++        }
++        let length = unsafe { libc::read(fd, buffer.as_mut_ptr().cast(), buffer.len()) };
++        let code = errno();
++        unsafe { libc::close(fd) };
++        if length < 0 {
++            return Err(code);
++        }
++        return Ok(length as usize);
++    }
++}
++
++impl WindowIo for RawWindowIo {
++    fn unbind(&mut self) -> Result<(), i32> {
++        return Self::write_udc(&self.udc, b"\n");
++    }
++
++    fn bind(&mut self) -> Result<(), i32> {
++        return Self::write_udc(&self.udc, &self.udc_name);
++    }
++
++    fn unlink(&mut self, entry: usize) -> Result<(), i32> {
++        let result =
++            unsafe { libc::unlinkat(self.config.as_raw_fd(), self.links[entry].as_ptr(), 0) };
++        if result < 0 {
++            return Err(errno());
++        }
++        return Ok(());
++    }
++
++    fn link(&mut self, entry: usize) -> Result<(), i32> {
++        let result = unsafe {
++            libc::symlinkat(
++                self.targets[entry].as_ptr(),
++                self.config.as_raw_fd(),
++                self.links[entry].as_ptr(),
++            )
++        };
++        if result < 0 {
++            return Err(errno());
++        }
++        return Ok(());
++    }
++
++    fn ready(&mut self, entry: usize) -> Result<Option<bool>, i32> {
++        let mut buffer = [0u8; 8];
++        return match Self::read_fresh(&self.functions, &self.ready[entry], &mut buffer) {
++            Err(code) if code == libc::ENOENT => Ok(None),
++            Err(code) => Err(code),
++            Ok(length) if length > 0 && buffer[0] == b'1' => Ok(Some(true)),
++            Ok(length) if length > 0 && buffer[0] == b'0' => Ok(Some(false)),
++            Ok(_) => Err(libc::EINVAL),
++        };
++    }
++
++    fn udc_set(&mut self) -> bool {
++        let mut buffer = [0u8; 64];
++        return match Self::read_fresh(&self.gadget, c"UDC", &mut buffer) {
++            Ok(length) => length > 0 && buffer[0] != b'\n',
++            Err(_) => false,
++        };
++    }
++
++    fn pause(&mut self, millis: u64) {
++        let delay = libc::timespec {
++            tv_sec: (millis / 1000) as libc::time_t,
++            tv_nsec: ((millis % 1000) * 1_000_000) as libc::c_long,
++        };
++        unsafe { libc::nanosleep(&delay, std::ptr::null_mut()) };
++    }
++
++    fn now_us(&mut self) -> u64 {
++        let mut now = libc::timespec {
++            tv_sec: 0,
++            tv_nsec: 0,
++        };
++        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) };
++        return (now.tv_sec as u64) * 1_000_000 + (now.tv_nsec as u64) / 1000;
++    }
++}
++
++type Reply = (WindowOutcome, Box<dyn WindowIo>, WindowPlan);
++
++struct Job {
++    io: Box<dyn WindowIo>,
++    plan: WindowPlan,
++    reply: oneshot::Sender<Reply>,
++}
++
++/*
++ * The thread that runs windows. It is spawned at startup, before memory is
++ * locked, so its stack is already mapped and locked when a window runs.
++ */
++pub struct WindowThread {
++    jobs: mpsc::Sender<Job>,
++}
++
++impl WindowThread {
++    pub fn spawn() -> io::Result<Self> {
++        let (jobs, queue) = mpsc::channel::<Job>();
++        thread::Builder::new()
++            .name(WINDOW_THREAD_NAME.to_string())
++            .stack_size(WINDOW_THREAD_STACK)
++            .spawn(move || {
++                while let Ok(mut job) = queue.recv() {
++                    /*
++                     * A panic inside the window would otherwise end the
++                     * transaction with the gadget possibly unbound and
++                     * the transaction lock released. Abort instead: the
++                     * process is gone, and whoever rebinds the gadget
++                     * (the initramfs' guardian, for example) sees it.
++                     */
++                    let outcome = match catch_unwind(AssertUnwindSafe(|| {
++                        run_window(&mut *job.io, &job.plan)
++                    })) {
++                        Ok(outcome) => outcome,
++                        Err(_) => process::abort(),
++                    };
++                    /* The gadget is bound again: replying, and dropping, is safe now */
++                    let _ = job.reply.send((outcome, job.io, job.plan));
++                }
++            })?;
++        return Ok(Self { jobs });
++    }
++
++    /* A window thread that is already gone, to test that path */
++    #[cfg(test)]
++    pub fn stopped() -> Self {
++        let (jobs, _) = mpsc::channel::<Job>();
++        return Self { jobs };
++    }
++
++    /* Run a window and wait for it; file descriptors are closed afterwards, outside the window */
++    pub async fn run(
++        &self,
++        io: Box<dyn WindowIo>,
++        plan: WindowPlan,
++    ) -> anyhow::Result<(WindowOutcome, WindowPlan)> {
++        let (reply, answer) = oneshot::channel();
++        if self.jobs.send(Job { io, plan, reply }).is_err() {
++            return Err(anyhow::anyhow!("the window thread is gone"));
++        }
++        let Ok((outcome, io, plan)) = answer.await else {
++            return Err(anyhow::anyhow!(
++                "the window thread stopped inside a window; the gadget may be unbound"
++            ));
++        };
++        drop(io);
++        return Ok((outcome, plan));
++    }
++}
++
++/*
++ * Lock every current and future page of the process in memory, for the rest
++ * of its life. Needed before the first window: a page fault while the root
++ * filesystem is unreachable would never complete.
++ */
++pub fn lock_memory() -> io::Result<()> {
++    let result = unsafe { libc::mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE) };
++    if result != 0 {
++        return Err(io::Error::last_os_error());
++    }
++    return Ok(());
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::configuration::testing::TempRoot;
++    use std::collections::BTreeSet;
++
++    /*
++     * A scripted gadget: links, whether bound, and a list of errors to
++     * return for the next calls of each kind.
++     */
++    #[derive(Default)]
++    struct Script {
++        links: BTreeSet<String>,
++        entries: Vec<String>,
++        pins: BTreeSet<String>,
++        bound: bool,
++        udc_present: bool,
++        unbind_error: Option<i32>,
++        bind_errors: Vec<i32>,
++        link_errors: Vec<i32>,
++        not_ready: BTreeSet<String>,
++        /* After this many pauses, the UDC comes back */
++        udc_returns_after: Option<u32>,
++        pauses: u32,
++        calls: Vec<String>,
++    }
++
++    impl WindowIo for Script {
++        fn unbind(&mut self) -> Result<(), i32> {
++            self.calls.push("unbind".into());
++            if let Some(code) = self.unbind_error {
++                return Err(code);
++            }
++            if !self.bound {
++                return Err(libc::ENODEV);
++            }
++            self.bound = false;
++            return Ok(());
++        }
++
++        fn bind(&mut self) -> Result<(), i32> {
++            self.calls.push("bind".into());
++            if !self.bind_errors.is_empty() {
++                return Err(self.bind_errors.remove(0));
++            }
++            if !self.udc_present || self.links.is_empty() {
++                return Err(libc::EBUSY);
++            }
++            self.bound = true;
++            return Ok(());
++        }
++
++        fn unlink(&mut self, entry: usize) -> Result<(), i32> {
++            let name = self.entries[entry].clone();
++            self.calls.push(format!("unlink {name}"));
++            assert!(!self.pins.contains(&name), "unlinked pin {name}");
++            if self.links.remove(&name) {
++                return Ok(());
++            }
++            return Err(libc::ENOENT);
++        }
++
++        fn link(&mut self, entry: usize) -> Result<(), i32> {
++            let name = self.entries[entry].clone();
++            self.calls.push(format!("link {name}"));
++            if !self.link_errors.is_empty() {
++                return Err(self.link_errors.remove(0));
++            }
++            if !self.links.insert(name) {
++                return Err(libc::EEXIST);
++            }
++            return Ok(());
++        }
++
++        fn ready(&mut self, entry: usize) -> Result<Option<bool>, i32> {
++            return Ok(Some(!self.not_ready.contains(&self.entries[entry])));
++        }
++
++        fn udc_set(&mut self) -> bool {
++            return self.bound;
++        }
++
++        fn pause(&mut self, _millis: u64) {
++            self.pauses += 1;
++            if self.udc_returns_after == Some(self.pauses) {
++                self.udc_present = true;
++            }
++            assert!(self.pauses < 100, "the window never bound");
++        }
++
++        fn now_us(&mut self) -> u64 {
++            return 0;
++        }
++    }
++
++    /* ffs.pin (pin, entry 0), ncm.usb0 (entry 1): charging -> developer */
++    fn plan() -> WindowPlan {
++        return WindowPlan {
++            gadget: "g".into(),
++            config: "c.1".into(),
++            udc: "udc0".into(),
++            entries: vec![
++                WindowEntry {
++                    link: "ffs.pin".into(),
++                    function: "ffs.pin".into(),
++                },
++                WindowEntry {
++                    link: "ncm.usb0".into(),
++                    function: "ncm.usb0".into(),
++                },
++            ],
++            target: vec![WindowOp::Link(1)],
++            target_ffs: vec![0],
++            previous: vec![WindowOp::Unlink(1)],
++            previous_ffs: vec![0],
++            pins_only: vec![WindowOp::Unlink(1)],
++            pins_ffs: vec![0],
++        };
++    }
++
++    fn script() -> Script {
++        return Script {
++            links: ["ffs.pin".to_string()].into(),
++            entries: vec!["ffs.pin".into(), "ncm.usb0".into()],
++            pins: ["ffs.pin".to_string()].into(),
++            bound: true,
++            udc_present: true,
++            ..Default::default()
++        };
++    }
++
++    #[test]
++    fn target_is_reached() {
++        let mut io = script();
++        let outcome = run_window(&mut io, &plan());
++        assert_eq!(outcome.rung, Rung::Target);
++        assert_eq!(outcome.failure, None);
++        assert_eq!(io.calls, vec!["unbind", "link ncm.usb0", "bind"]);
++        assert!(io.bound);
++    }
++
++    #[test]
++    fn failed_unbind_leaves_everything_alone() {
++        let mut io = script();
++        io.unbind_error = Some(libc::EIO);
++        let outcome = run_window(&mut io, &plan());
++        assert_eq!(outcome.rung, Rung::Untouched);
++        assert_eq!(io.calls, vec!["unbind"]);
++        assert!(io.bound);
++    }
++
++    #[test]
++    fn enodev_on_unbind_means_already_unbound() {
++        let mut io = script();
++        io.bound = false;
++        let outcome = run_window(&mut io, &plan());
++        assert_eq!(outcome.rung, Rung::Target);
++        assert!(io.bound);
++    }
++
++    #[test]
++    fn failed_bind_goes_back_to_the_previous_composition() {
++        let mut io = script();
++        io.bind_errors = vec![libc::EBUSY];
++        let outcome = run_window(&mut io, &plan());
++        assert_eq!(outcome.rung, Rung::Previous);
++        assert_eq!(outcome.failure, Some((Step::Bind, 0, libc::EBUSY)));
++        assert!(outcome.cause(&plan()).contains("failed to start"));
++        assert_eq!(io.links, ["ffs.pin".to_string()].into());
++        assert!(io.bound);
++    }
++
++    #[test]
++    fn a_non_ready_target_is_never_bound() {
++        let mut io = script();
++        let mut plan = plan();
++        plan.target_ffs = vec![1];
++        io.not_ready.insert("ncm.usb0".into());
++        let outcome = run_window(&mut io, &plan);
++        assert_eq!(outcome.rung, Rung::Previous);
++        assert_eq!(outcome.failure, Some((Step::NotReady, 1, 0)));
++        assert_eq!(io.calls.iter().filter(|c| *c == "bind").count(), 1);
++    }
++
++    #[test]
++    fn missing_udc_is_retried_until_it_returns() {
++        let mut io = script();
++        io.udc_present = false;
++        io.udc_returns_after = Some(4);
++        let outcome = run_window(&mut io, &plan());
++        assert_eq!(outcome.rung, Rung::PinsOnly);
++        assert_eq!(io.pauses, 4);
++        assert_eq!(io.links, ["ffs.pin".to_string()].into());
++        assert!(io.bound);
++    }
++
++    #[test]
++    fn a_concurrent_binder_ends_the_window() {
++        let mut io = script();
++        /* Someone bound the gadget before the link: EINVAL, and it is bound */
++        io.link_errors = vec![libc::EINVAL];
++        io.bound = true;
++        io.unbind_error = None;
++        let mut plan = plan();
++        plan.target = vec![WindowOp::Link(1)];
++        /* The unbind succeeds, then another actor binds */
++        struct Rebinder(Script);
++        impl WindowIo for Rebinder {
++            fn unbind(&mut self) -> Result<(), i32> {
++                let result = self.0.unbind();
++                self.0.bound = true;
++                return result;
++            }
++            fn bind(&mut self) -> Result<(), i32> {
++                return self.0.bind();
++            }
++            fn unlink(&mut self, entry: usize) -> Result<(), i32> {
++                return self.0.unlink(entry);
++            }
++            fn link(&mut self, entry: usize) -> Result<(), i32> {
++                return self.0.link(entry);
++            }
++            fn ready(&mut self, entry: usize) -> Result<Option<bool>, i32> {
++                return self.0.ready(entry);
++            }
++            fn udc_set(&mut self) -> bool {
++                return self.0.udc_set();
++            }
++            fn pause(&mut self, millis: u64) {
++                self.0.pause(millis);
++            }
++            fn now_us(&mut self) -> u64 {
++                return 0;
++            }
++        }
++        let mut rebinder = Rebinder(io);
++        let outcome = run_window(&mut rebinder, &plan);
++        assert_eq!(outcome.rung, Rung::RecoveredByOther);
++        assert_eq!(outcome.failure, Some((Step::Link, 1, libc::EINVAL)));
++    }
++
++    #[test]
++    fn window_thread_runs_windows_one_after_the_other() {
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .build()
++            .unwrap();
++        let thread = WindowThread::spawn().unwrap();
++        for _ in 0..3 {
++            let (outcome, plan) = runtime
++                .block_on(thread.run(Box::new(script()), plan()))
++                .unwrap();
++            assert_eq!(outcome.rung, Rung::Target);
++            assert_eq!(plan.udc, "udc0");
++        }
++    }
++
++    /* The real syscalls, against a plain directory tree standing in for configfs */
++    #[test]
++    fn raw_window_on_a_directory_tree() {
++        let root = TempRoot::new("raw-window");
++        let gadget = root.path.join("g");
++        root.write("g/UDC", "udc0\n");
++        root.write("g/functions/ffs.pin/ready", "1\n");
++        std::fs::create_dir_all(gadget.join("functions/ncm.usb0")).unwrap();
++        std::fs::create_dir_all(gadget.join("configs/c.1")).unwrap();
++        std::os::unix::fs::symlink(
++            gadget.join("functions/ffs.pin"),
++            gadget.join("configs/c.1/ffs.pin"),
++        )
++        .unwrap();
++
++        let plan = plan();
++        let mut io = RawWindowIo::open(&gadget, &plan).unwrap();
++        assert!(io.udc_set());
++        assert_eq!(io.ready(0), Ok(Some(true)));
++        assert_eq!(io.ready(1), Ok(None));
++
++        io.unbind().unwrap();
++        assert!(
++            std::fs::read_to_string(gadget.join("UDC"))
++                .unwrap()
++                .starts_with('\n')
++        );
++        assert!(!io.udc_set());
++        io.link(1).unwrap();
++        assert_eq!(io.link(1), Err(libc::EEXIST));
++        assert_eq!(
++            std::fs::read_link(gadget.join("configs/c.1/ncm.usb0")).unwrap(),
++            gadget.join("functions/ncm.usb0")
++        );
++        io.bind().unwrap();
++        assert!(
++            std::fs::read_to_string(gadget.join("UDC"))
++                .unwrap()
++                .starts_with("udc0\n")
++        );
++        assert!(io.udc_set());
++        io.unlink(1).unwrap();
++        assert_eq!(io.unlink(1), Err(libc::ENOENT));
++
++        root.write("g/functions/ffs.pin/ready", "0\n");
++        assert_eq!(io.ready(0), Ok(Some(false)));
++        let start = io.now_us();
++        io.pause(1);
++        assert!(io.now_us() >= start + 1000);
++    }
++}
+-- 
+2.55.0
+

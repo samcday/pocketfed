@@ -1,0 +1,3164 @@
+From f8c5d4dcf2bc8803ff169cfb299eac470f8ba809 Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 17:42:02 +1000
+Subject: [PATCH 4/6] tests: add SysRoot, a configfs trait and a kernel-rule
+ fake
+
+Every path to configfs, sysfs and procfs was a hard-coded constant (plus
+two literal /sys/kernel/config strings), and a mode switch read
+/proc/device-tree/compatible with `?`, so nothing beyond the pure helpers
+could be tested without root, a UDC and a device tree. The configfs
+tests are all #[ignore]d and CI never runs them.
+
+- SysRoot { configfs, sysfs, proc } replaces the constants and is passed
+  explicitly, so tests point the code at a directory tree. main uses the
+  real mount points.
+- Systems without a device tree (x86 dummy_hcd test VMs, for example)
+  get the serial number "usb-signaller" instead of failing every mode
+  switch.
+- A small ConfigFs trait covers what recomposing a bound gadget needs:
+  mkdir/rmdir of functions, link/unlink, UDC reads and writes, the
+  FunctionFS ready attribute and plain attribute writes, with the
+  kernel's errno kept in every error. SysConfigFs implements it on the
+  real configfs; attribute handles keep configfs' per-open read buffer
+  semantics, so fresh reads open a new handle.
+- A test-only FakeConfigFs implements the same trait with the kernel's
+  rules: no link while a UDC name is set (also after the UDC vanished),
+  no cross-gadget links, unlink while bound unbinds, EBUSY for binding
+  twice and for every failed bind, ENODEV for unbinding twice, global
+  FunctionFS names, no bind with a non-ready FunctionFS function, a
+  daemon exit unbinding a bound gadget (deferred with no_disconnect), a
+  busy mass storage LUN blocking unbind until forced_eject, rebind when
+  the UDC returns, and stale reads through a reused attribute handle.
+  Calls are numbered so tests can inject an errno or a concurrent change
+  at any step.
+
+New tests cover UDC::load against directory trees (bound gadget through
+the function attribute, the scanning fallback, unparseable foreign
+gadgets, a gadget without linked functions), set_mode refusing declared,
+preserved and broken-config foreign gadgets without writing anything,
+the serial fallback, the host role cleanup skipping non-owned gadgets
+and continuing past failures, and each fake rule. The #[ignore]d
+hardware tests still build and run through scripts/run-tests.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ CHANGELOG.md    |    5 +
+ Cargo.lock      |    1 +
+ Cargo.toml      |    3 +
+ README.md       |    5 +
+ src/configfs.rs | 1276 +++++++++++++++++++++++++++++++++++++++++++++++
+ src/dbus.rs     |   40 +-
+ src/gadget.rs   |  169 +++----
+ src/main.rs     |   14 +-
+ src/sysroot.rs  |  224 +++++++++
+ src/udc.rs      |  331 ++++++++----
+ src/urs.rs      |   94 ++--
+ 11 files changed, 1920 insertions(+), 242 deletions(-)
+ create mode 100644 src/configfs.rs
+ create mode 100644 src/sysroot.rs
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 2b29441..bbb3aa1 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+   The default, `"replace"`, keeps the previous behaviour.
+ 
+ ### Changed
++- Paths to configfs, sysfs and procfs are no longer hard-coded, so tests can run against a
++  directory tree. Configfs changes can be tested against a fake that follows the kernel's
++  rules.
+ - Mode switches run one at a time: D-Bus calls, the default mode at startup and the cleanup on
+   SIGTERM share one lock, and D-Bus calls are no longer handled in parallel tasks.
+ - Configuration is read once at startup instead of on every use.
+@@ -28,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+   reported, and listed by `--print-config`.
+ 
+ ### Fixed
++- Mode switches no longer fail on systems without a device tree: the serial number falls back
++  to `usb-signaller`.
+ - `set_mode` returns an error when the new gadget cannot be enabled or its service cannot be
+   started, instead of reporting the requested mode. The same applies to leaving netboot mode
+   and to a failed switch to host role.
+diff --git a/Cargo.lock b/Cargo.lock
+index 3cfa12b..0265b45 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -668,6 +668,7 @@ version = "0.4.2"
+ dependencies = [
+  "anyhow",
+  "futures-lite",
++ "libc",
+  "serde",
+  "tokio",
+  "tokio-udev",
+diff --git a/Cargo.toml b/Cargo.toml
+index abfcc8e..eff2c15 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -14,6 +14,9 @@ serde = { version = "1.0.229", default-features = false, features = ["derive"] }
+ toml = "1.1.3"
+ uapi-config = "0.2.0"
+ 
++[dev-dependencies]
++libc = "0.2.183"
++
+ [profile.ci]
+ inherits = "dev"
+ debug = false
+diff --git a/README.md b/README.md
+index c655404..7885661 100644
+--- a/README.md
++++ b/README.md
+@@ -39,6 +39,11 @@ cargo clippy
+ cargo test
+ ```
+ 
++These tests need neither root nor USB hardware: kernel interfaces are read
++from temporary directory trees, and configfs changes run against a fake that
++follows the kernel's rules. Tests that need `libcomposite` and `dummy_hcd` are
++ignored by default; `./scripts/run-tests` runs them as well.
++
+ ## Distro integration
+ 
+ usb-signaller will call userspace services when configuring USB gadgets
+diff --git a/src/configfs.rs b/src/configfs.rs
+new file mode 100644
+index 0000000..9f5a6fa
+--- /dev/null
++++ b/src/configfs.rs
+@@ -0,0 +1,1276 @@
++/*
++ * usb-signaller: replacement for usb-moded on mainline Linux Mobile devices
++ * Copyright (C) 2026 Dylan Van Assche
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published
++ * by the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program. If not, see <https://www.gnu.org/licenses/>.
++ */
++
++/*
++ * The configfs operations needed to change the composition of a gadget that
++ * stays in use, behind a trait. SysConfigFs talks to the kernel; the test
++ * FakeConfigFs follows the kernel's rules, so the order of operations can be
++ * tested without root or a UDC.
++ *
++ * Errors keep the kernel's errno: callers must tell ENODEV ("already
++ * unbound") from EBUSY ("bind failed", whatever the reason) and EINVAL ("link
++ * refused while bound").
++ */
++
++/* The adopted-gadget transaction that uses this is not part of this change yet */
++#![cfg_attr(not(test), allow(dead_code))]
++
++use std::fs::{self, OpenOptions};
++use std::io;
++use std::os::unix::fs::{FileExt, symlink};
++use std::path::PathBuf;
++
++use crate::sysroot::SysRoot;
++
++const FUNCTIONS_PATH: &str = "functions";
++const CONFIGS_PATH: &str = "configs";
++const UDC_NODE: &str = "UDC";
++const READY_NODE: &str = "ready";
++
++/* Written to a gadget's UDC attribute to unbind it; an empty write never reaches the kernel */
++pub const UNBIND: &str = "\n";
++
++/*
++ * An open configfs attribute. configfs fills the read buffer once per open
++ * file and only refills it after a write through the same file: reading an
++ * attribute twice through one handle returns the first value again. Open a
++ * new handle for every check; keep a handle only to write through it.
++ */
++pub trait Attribute: Send {
++    fn read(&mut self) -> io::Result<String>;
++    fn write(&mut self, value: &str) -> io::Result<()>;
++}
++
++pub trait ConfigFs: Send + Sync {
++    /* Function directories of a gadget, in creation order */
++    fn functions(&self, gadget: &str) -> io::Result<Vec<String>>;
++
++    /* Configuration directories of a gadget, in creation order */
++    fn configs(&self, gadget: &str) -> io::Result<Vec<String>>;
++
++    /* (link name, function) for every function linked into a configuration, in link order */
++    fn links(&self, gadget: &str, config: &str) -> io::Result<Vec<(String, String)>>;
++
++    /* mkdir functions/<function>; allowed while the gadget is bound */
++    fn mkdir_function(&self, gadget: &str, function: &str) -> io::Result<()>;
++
++    /* rmdir functions/<function>; EBUSY while it is linked */
++    fn rmdir_function(&self, gadget: &str, function: &str) -> io::Result<()>;
++
++    /*
++     * Link from_gadget's function into configs/<config>/<link>. EINVAL while
++     * the gadget has a UDC set, or for another gadget's function.
++     */
++    fn link_function(
++        &self,
++        gadget: &str,
++        config: &str,
++        link: &str,
++        from_gadget: &str,
++        function: &str,
++    ) -> io::Result<()>;
++
++    /* Link the gadget's own function, named after the function */
++    fn link(&self, gadget: &str, config: &str, function: &str) -> io::Result<()> {
++        return self.link_function(gadget, config, function, gadget, function);
++    }
++
++    /* Remove configs/<config>/<link>. While the gadget has a UDC set, this unbinds it */
++    fn unlink(&self, gadget: &str, config: &str, link: &str) -> io::Result<()>;
++
++    /* Open the gadget's UDC attribute */
++    fn open_udc(&self, gadget: &str) -> io::Result<Box<dyn Attribute>>;
++
++    /* Read the UDC attribute through a new handle, so the value is current */
++    fn read_udc(&self, gadget: &str) -> io::Result<String> {
++        let mut attribute = self.open_udc(gadget)?;
++        return attribute.read();
++    }
++
++    /*
++     * Bind to a UDC, or unbind with UNBIND. Binding while bound gives EBUSY,
++     * unbinding while unbound ENODEV, and every failed bind EBUSY.
++     */
++    fn write_udc(&self, gadget: &str, value: &str) -> io::Result<()> {
++        let mut attribute = self.open_udc(gadget)?;
++        return attribute.write(value);
++    }
++
++    /*
++     * Current value of functions/<function>/ready for a FunctionFS function:
++     * whether its daemon has written its descriptors. None when the kernel
++     * has no such attribute (before Linux 6.9).
++     */
++    fn ffs_ready(&self, gadget: &str, function: &str) -> io::Result<Option<bool>>;
++
++    /* Write an attribute below the gadget directory, for example functions/mass_storage.0/lun.0/file */
++    fn write_attr(&self, gadget: &str, path: &str, value: &str) -> io::Result<()>;
++}
++
++/* configfs as mounted on the running system (or below a SysRoot) */
++pub struct SysConfigFs {
++    sys: SysRoot,
++}
++
++struct SysAttribute {
++    file: fs::File,
++}
++
++impl Attribute for SysAttribute {
++    fn read(&mut self) -> io::Result<String> {
++        let mut buffer = vec![0u8; 4096];
++        let length = self.file.read_at(&mut buffer, 0)?;
++        return Ok(String::from_utf8_lossy(&buffer[..length])
++            .trim_end()
++            .to_string());
++    }
++
++    fn write(&mut self, value: &str) -> io::Result<()> {
++        let written = self.file.write_at(value.as_bytes(), 0)?;
++        if written != value.len() {
++            return Err(io::Error::new(
++                io::ErrorKind::WriteZero,
++                format!("short write: {written} of {} bytes", value.len()),
++            ));
++        }
++        return Ok(());
++    }
++}
++
++fn names(path: PathBuf) -> io::Result<Vec<String>> {
++    let mut names = vec![];
++
++    /* configfs lists entries in creation order: keep it */
++    for entry in fs::read_dir(path)? {
++        names.push(entry?.file_name().to_string_lossy().to_string());
++    }
++
++    return Ok(names);
++}
++
++impl SysConfigFs {
++    pub fn new(sys: SysRoot) -> Self {
++        return Self { sys };
++    }
++
++    fn function_path(&self, gadget: &str, function: &str) -> PathBuf {
++        return self.sys.gadget(gadget).join(FUNCTIONS_PATH).join(function);
++    }
++
++    fn config_path(&self, gadget: &str, config: &str) -> PathBuf {
++        return self.sys.gadget(gadget).join(CONFIGS_PATH).join(config);
++    }
++}
++
++impl ConfigFs for SysConfigFs {
++    fn functions(&self, gadget: &str) -> io::Result<Vec<String>> {
++        return names(self.sys.gadget(gadget).join(FUNCTIONS_PATH));
++    }
++
++    fn configs(&self, gadget: &str) -> io::Result<Vec<String>> {
++        return names(self.sys.gadget(gadget).join(CONFIGS_PATH));
++    }
++
++    fn links(&self, gadget: &str, config: &str) -> io::Result<Vec<(String, String)>> {
++        let mut links = vec![];
++
++        for entry in fs::read_dir(self.config_path(gadget, config))? {
++            let entry = entry?;
++            if !entry.file_type()?.is_symlink() {
++                continue;
++            }
++            /* Link names may differ from function names: resolve the target */
++            let target = fs::read_link(entry.path())?;
++            let Some(function) = target.file_name() else {
++                continue;
++            };
++            links.push((
++                entry.file_name().to_string_lossy().to_string(),
++                function.to_string_lossy().to_string(),
++            ));
++        }
++
++        return Ok(links);
++    }
++
++    fn mkdir_function(&self, gadget: &str, function: &str) -> io::Result<()> {
++        return fs::create_dir(self.function_path(gadget, function));
++    }
++
++    fn rmdir_function(&self, gadget: &str, function: &str) -> io::Result<()> {
++        return fs::remove_dir(self.function_path(gadget, function));
++    }
++
++    fn link_function(
++        &self,
++        gadget: &str,
++        config: &str,
++        link: &str,
++        from_gadget: &str,
++        function: &str,
++    ) -> io::Result<()> {
++        /* configfs resolves the target path itself: make it absolute */
++        return symlink(
++            self.function_path(from_gadget, function),
++            self.config_path(gadget, config).join(link),
++        );
++    }
++
++    fn unlink(&self, gadget: &str, config: &str, link: &str) -> io::Result<()> {
++        return fs::remove_file(self.config_path(gadget, config).join(link));
++    }
++
++    fn open_udc(&self, gadget: &str) -> io::Result<Box<dyn Attribute>> {
++        let file = OpenOptions::new()
++            .read(true)
++            .write(true)
++            .open(self.sys.gadget(gadget).join(UDC_NODE))?;
++        return Ok(Box::new(SysAttribute { file }));
++    }
++
++    fn ffs_ready(&self, gadget: &str, function: &str) -> io::Result<Option<bool>> {
++        let value = match fs::read_to_string(self.function_path(gadget, function).join(READY_NODE))
++        {
++            Ok(value) => value,
++            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
++            Err(err) => return Err(err),
++        };
++
++        return match value.trim() {
++            "1" => Ok(Some(true)),
++            "0" => Ok(Some(false)),
++            other => Err(io::Error::new(
++                io::ErrorKind::InvalidData,
++                format!("unexpected ready value '{other}'"),
++            )),
++        };
++    }
++
++    fn write_attr(&self, gadget: &str, path: &str, value: &str) -> io::Result<()> {
++        let file = OpenOptions::new()
++            .write(true)
++            .open(self.sys.gadget(gadget).join(path))?;
++        let mut attribute = SysAttribute { file };
++        return attribute.write(value);
++    }
++}
++
++#[cfg(test)]
++pub mod fake {
++    /*
++     * An in-memory configfs gadget tree that follows the kernel's rules
++     * (drivers/usb/gadget/configfs.c, udc/core.c, function/f_fs.c,
++     * function/f_mass_storage.c and fs/configfs/file.c, Linux 7.3):
++     *
++     * - K1: linking while the gadget has a UDC name set gives EINVAL, also
++     *   when the UDC vanished and the name was kept.
++     * - K2: linking another gadget's function gives EINVAL.
++     * - K3: unlinking while a UDC name is set unbinds the whole gadget first.
++     * - K4: binding while a UDC name is set gives EBUSY, unbinding while none
++     *   is set ENODEV, and a failed bind leaves no UDC name.
++     * - K5: every bind failure is reported as EBUSY.
++     * - K6: a gadget whose UDC vanished keeps its UDC name and is bound again
++     *   when the UDC returns.
++     * - K8: FunctionFS instance names are global; a linked FunctionFS
++     *   function whose daemon is not ready makes the bind fail.
++     * - K10: when a FunctionFS daemon closes while its function is bound, the
++     *   whole gadget is unbound.
++     * - K11: with no_disconnect, that unbind is only deferred to the next bus
++     *   reset, disconnect or SET_CONFIGURATION.
++     * - K12: unbinding while a mass storage LUN is busy with its backing file
++     *   blocks forever (reported as EDEADLK); forced_eject releases it.
++     * - K13: an attribute handle returns its first read again until it is
++     *   written through.
++     *
++     * Plus: rmdir of a linked function gives EBUSY, a configuration without
++     * functions cannot bind, duplicate links give EEXIST.
++     *
++     * Every trait call is logged and numbered from 0, so tests can make call
++     * N fail with an errno (fail_op) or change the state right before it runs
++     * (before_op), for example to simulate a concurrent binder.
++     */
++
++    use std::collections::BTreeMap;
++    use std::io;
++    use std::sync::{Arc, Mutex};
++
++    use super::{Attribute, ConfigFs};
++
++    fn errno(code: i32) -> io::Error {
++        return io::Error::from_raw_os_error(code);
++    }
++
++    #[derive(Debug, Clone, PartialEq)]
++    pub enum FakeOp {
++        Functions(String),
++        Configs(String),
++        Links(String, String),
++        Mkdir(String, String),
++        Rmdir(String, String),
++        Link {
++            gadget: String,
++            config: String,
++            link: String,
++            from_gadget: String,
++            function: String,
++        },
++        Unlink(String, String, String),
++        OpenUdc(String),
++        ReadUdc(String),
++        WriteUdc(String, String),
++        FfsReady(String, String),
++        WriteAttr(String, String, String),
++    }
++
++    #[derive(Debug, Clone, PartialEq)]
++    pub struct FakeRecord {
++        pub op: FakeOp,
++        /* None: success, Some(errno): failure */
++        pub errno: Option<i32>,
++    }
++
++    #[derive(Debug, Clone, Default)]
++    pub struct FakeFunction {
++        pub name: String,
++        /* FunctionFS: the daemon wrote its descriptors */
++        pub ready: bool,
++        /* FunctionFS: the kernel has a 'ready' attribute (6.9+) */
++        pub has_ready_attr: bool,
++        /* FunctionFS with no_disconnect: the daemon closed, the unbind is deferred */
++        pub deactivated: bool,
++        /* Mass storage: the worker is inside a command on the backing file */
++        pub lun_busy: bool,
++    }
++
++    impl FakeFunction {
++        pub fn is_ffs(&self) -> bool {
++            return self.name.starts_with("ffs.");
++        }
++    }
++
++    #[derive(Debug, Clone, Default)]
++    pub struct FakeGadget {
++        pub functions: Vec<FakeFunction>,
++        /* config -> (link name, function) in link order; configs are listed sorted by name */
++        pub configs: BTreeMap<String, Vec<(String, String)>>,
++        /* The UDC attribute: set by a successful bind, kept when the UDC vanishes */
++        pub udc_name: Option<String>,
++        /* Actually bound to a present UDC */
++        pub bound: bool,
++        /* Attributes written with write_attr */
++        pub attrs: BTreeMap<String, String>,
++    }
++
++    impl FakeGadget {
++        fn function(&self, name: &str) -> Option<&FakeFunction> {
++            return self.functions.iter().find(|f| f.name == name);
++        }
++
++        fn function_mut(&mut self, name: &str) -> Option<&mut FakeFunction> {
++            return self.functions.iter_mut().find(|f| f.name == name);
++        }
++
++        pub fn is_linked(&self, function: &str) -> bool {
++            return self
++                .configs
++                .values()
++                .any(|links| links.iter().any(|(_, f)| f == function));
++        }
++
++        fn linked_functions(&self) -> Vec<&FakeFunction> {
++            return self
++                .functions
++                .iter()
++                .filter(|f| self.is_linked(&f.name))
++                .collect();
++        }
++    }
++
++    type Hook = Box<dyn FnMut(&mut FakeState) + Send>;
++
++    #[derive(Default)]
++    pub struct FakeState {
++        pub gadgets: BTreeMap<String, FakeGadget>,
++        /* Present UDCs and the gadget bound to each */
++        pub udcs: BTreeMap<String, Option<String>>,
++        /* An unbind blocked forever (K12) */
++        pub deadlocked: bool,
++        ops: Vec<FakeRecord>,
++        faults: BTreeMap<usize, i32>,
++        hooks: BTreeMap<usize, Hook>,
++    }
++
++    impl FakeState {
++        fn gadget(&self, gadget: &str) -> io::Result<&FakeGadget> {
++            return self.gadgets.get(gadget).ok_or(errno(libc::ENOENT));
++        }
++
++        fn gadget_mut(&mut self, gadget: &str) -> io::Result<&mut FakeGadget> {
++            return self.gadgets.get_mut(gadget).ok_or(errno(libc::ENOENT));
++        }
++
++        /* Number the call, run its hook, and fail it if a fault is planned */
++        fn begin(&mut self, op: &FakeOp) -> io::Result<usize> {
++            let index = self.ops.len();
++            if let Some(mut hook) = self.hooks.remove(&index) {
++                hook(self);
++            }
++            self.ops.push(FakeRecord {
++                op: op.clone(),
++                errno: None,
++            });
++            if let Some(code) = self.faults.remove(&index) {
++                self.ops[index].errno = Some(code);
++                return Err(errno(code));
++            }
++            return Ok(index);
++        }
++
++        fn finish<T>(&mut self, index: usize, result: io::Result<T>) -> io::Result<T> {
++            if let Err(err) = &result {
++                self.ops[index].errno = err.raw_os_error();
++            }
++            return result;
++        }
++
++        fn can_bind(&self, gadget: &str, udc: &str) -> bool {
++            let Ok(g) = self.gadget(gadget) else {
++                return false;
++            };
++            let udc_free = matches!(self.udcs.get(udc), Some(None));
++            let configs_ok = !g.configs.is_empty() && g.configs.values().all(|l| !l.is_empty());
++            let ffs_ready = g.linked_functions().iter().all(|f| !f.is_ffs() || f.ready);
++            return udc_free && configs_ok && ffs_ready;
++        }
++
++        /* Write a UDC name to the gadget's UDC attribute (K4, K5, K8) */
++        pub fn bind(&mut self, gadget: &str, udc: &str) -> io::Result<()> {
++            if self.gadget(gadget)?.udc_name.is_some() {
++                return Err(errno(libc::EBUSY));
++            }
++            if !self.can_bind(gadget, udc) {
++                /* configfs sets match_existing_only: every failure is EBUSY */
++                return Err(errno(libc::EBUSY));
++            }
++            let g = self.gadget_mut(gadget)?;
++            g.udc_name = Some(udc.to_string());
++            g.bound = true;
++            self.udcs.insert(udc.to_string(), Some(gadget.to_string()));
++            return Ok(());
++        }
++
++        /* Write UNBIND to the gadget's UDC attribute (K4, K11, K12) */
++        pub fn unbind(&mut self, gadget: &str) -> io::Result<()> {
++            let g = self.gadget(gadget)?;
++            if g.udc_name.is_none() {
++                return Err(errno(libc::ENODEV));
++            }
++            if g.bound
++                && g.linked_functions()
++                    .iter()
++                    .any(|f| f.name.starts_with("mass_storage.") && f.lun_busy)
++            {
++                /* fsg_unbind waits uninterruptibly for the worker */
++                self.deadlocked = true;
++                return Err(errno(libc::EDEADLK));
++            }
++
++            let g = self.gadget_mut(gadget)?;
++            let udc = g.udc_name.take();
++            let was_bound = g.bound;
++            g.bound = false;
++            /* Disabling a deactivated FunctionFS function resets it, now unbound */
++            let linked: Vec<String> = g
++                .linked_functions()
++                .iter()
++                .map(|f| f.name.clone())
++                .collect();
++            for function in g.functions.iter_mut() {
++                if function.deactivated && linked.contains(&function.name) {
++                    function.deactivated = false;
++                    function.ready = false;
++                }
++            }
++            if was_bound && let Some(udc) = udc {
++                self.udcs.insert(udc, None);
++            }
++            return Ok(());
++        }
++
++        /* unregister_gadget_item: the kernel unbinds the gadget by itself */
++        fn unregister(&mut self, gadget: &str) {
++            let _ = self.unbind(gadget);
++        }
++
++        fn mkdir(&mut self, gadget: &str, function: &str) -> io::Result<()> {
++            if !function.contains('.') {
++                return Err(errno(libc::EINVAL));
++            }
++            if self.gadget(gadget)?.function(function).is_some() {
++                return Err(errno(libc::EEXIST));
++            }
++            /* FunctionFS instance names are global */
++            if function.starts_with("ffs.")
++                && self
++                    .gadgets
++                    .values()
++                    .any(|g| g.function(function).is_some())
++            {
++                return Err(errno(libc::EBUSY));
++            }
++            let ffs = function.starts_with("ffs.");
++            self.gadget_mut(gadget)?.functions.push(FakeFunction {
++                name: function.to_string(),
++                ready: false,
++                has_ready_attr: ffs,
++                deactivated: false,
++                lun_busy: false,
++            });
++            return Ok(());
++        }
++
++        fn rmdir(&mut self, gadget: &str, function: &str) -> io::Result<()> {
++            let g = self.gadget(gadget)?;
++            if g.function(function).is_none() {
++                return Err(errno(libc::ENOENT));
++            }
++            if g.is_linked(function) {
++                return Err(errno(libc::EBUSY));
++            }
++            self.gadget_mut(gadget)?
++                .functions
++                .retain(|f| f.name != function);
++            return Ok(());
++        }
++
++        fn link(
++            &mut self,
++            gadget: &str,
++            config: &str,
++            link: &str,
++            from_gadget: &str,
++            function: &str,
++        ) -> io::Result<()> {
++            let g = self.gadget(gadget)?;
++            let Some(links) = g.configs.get(config) else {
++                return Err(errno(libc::ENOENT));
++            };
++            if links.iter().any(|(name, _)| name == link) {
++                return Err(errno(libc::EEXIST));
++            }
++            /* K1: no link while a UDC name is set */
++            if g.udc_name.is_some() {
++                return Err(errno(libc::EINVAL));
++            }
++            /* K2: only this gadget's own functions */
++            if from_gadget != gadget || g.function(function).is_none() {
++                return Err(errno(libc::EINVAL));
++            }
++            if links.iter().any(|(_, f)| f == function) {
++                return Err(errno(libc::EEXIST));
++            }
++            self.gadget_mut(gadget)?
++                .configs
++                .get_mut(config)
++                .unwrap()
++                .push((link.to_string(), function.to_string()));
++            return Ok(());
++        }
++
++        fn unlink(&mut self, gadget: &str, config: &str, link: &str) -> io::Result<()> {
++            let g = self.gadget(gadget)?;
++            let Some(links) = g.configs.get(config) else {
++                return Err(errno(libc::ENOENT));
++            };
++            if !links.iter().any(|(name, _)| name == link) {
++                return Err(errno(libc::ENOENT));
++            }
++            /* K3: unlinking while a UDC name is set unbinds the gadget */
++            if g.udc_name.is_some() {
++                self.unbind(gadget)?;
++            }
++            self.gadget_mut(gadget)?
++                .configs
++                .get_mut(config)
++                .unwrap()
++                .retain(|(name, _)| name != link);
++            return Ok(());
++        }
++
++        fn write_udc(&mut self, gadget: &str, value: &str) -> io::Result<()> {
++            let name = value.strip_suffix('\n').unwrap_or(value);
++            if name.is_empty() {
++                return self.unbind(gadget);
++            }
++            return self.bind(gadget, name);
++        }
++
++        fn write_attr(&mut self, gadget: &str, path: &str, value: &str) -> io::Result<()> {
++            let parts: Vec<&str> = path.split('/').collect();
++            if parts.first() == Some(&"functions") && parts.len() >= 3 {
++                let function = parts[1];
++                let g = self.gadget_mut(gadget)?;
++                let Some(f) = g.function_mut(function) else {
++                    return Err(errno(libc::ENOENT));
++                };
++                if parts.last() == Some(&"forced_eject") && value.trim() == "1" {
++                    f.lun_busy = false;
++                }
++            }
++            self.gadget_mut(gadget)?
++                .attrs
++                .insert(path.to_string(), value.to_string());
++            return Ok(());
++        }
++    }
++
++    #[derive(Clone, Default)]
++    pub struct FakeConfigFs {
++        state: Arc<Mutex<FakeState>>,
++    }
++
++    struct FakeUdcAttribute {
++        state: Arc<Mutex<FakeState>>,
++        gadget: String,
++        /* K13: filled by the first read, refilled only after a write */
++        buffer: Option<String>,
++    }
++
++    impl Attribute for FakeUdcAttribute {
++        fn read(&mut self) -> io::Result<String> {
++            let mut state = self.state.lock().unwrap();
++            let index = state.begin(&FakeOp::ReadUdc(self.gadget.clone()))?;
++            if self.buffer.is_none() {
++                let value = state
++                    .gadget(&self.gadget)
++                    .map(|g| g.udc_name.clone().unwrap_or_default());
++                match value {
++                    Ok(value) => self.buffer = Some(value),
++                    Err(err) => return state.finish(index, Err(err)),
++                }
++            }
++            return Ok(self.buffer.clone().unwrap());
++        }
++
++        fn write(&mut self, value: &str) -> io::Result<()> {
++            let mut state = self.state.lock().unwrap();
++            let index = state.begin(&FakeOp::WriteUdc(self.gadget.clone(), value.to_string()))?;
++            self.buffer = None;
++            let result = state.write_udc(&self.gadget, value);
++            return state.finish(index, result);
++        }
++    }
++
++    impl FakeConfigFs {
++        pub fn new() -> Self {
++            return Self::default();
++        }
++
++        /* Direct access to the state, not logged */
++        pub fn with_state<T>(&self, f: impl FnOnce(&mut FakeState) -> T) -> T {
++            let mut state = self.state.lock().unwrap();
++            return f(&mut state);
++        }
++
++        pub fn add_gadget(&self, gadget: &str, configs: &[&str]) {
++            self.with_state(|s| {
++                let g = s.gadgets.entry(gadget.to_string()).or_default();
++                for config in configs {
++                    g.configs.entry(config.to_string()).or_default();
++                }
++            });
++        }
++
++        /* A UDC appears; a gadget that kept its name is bound again (K6) */
++        pub fn add_udc(&self, udc: &str) {
++            self.with_state(|s| {
++                s.udcs.insert(udc.to_string(), None);
++                let waiting: Vec<String> = s
++                    .gadgets
++                    .iter()
++                    .filter(|(_, g)| g.udc_name.as_deref() == Some(udc) && !g.bound)
++                    .map(|(name, _)| name.clone())
++                    .collect();
++                for gadget in waiting {
++                    if s.can_bind(&gadget, udc) {
++                        s.gadgets.get_mut(&gadget).unwrap().bound = true;
++                        s.udcs.insert(udc.to_string(), Some(gadget));
++                        break;
++                    }
++                }
++            });
++        }
++
++        /* A UDC vanishes (for example host role): its gadget keeps the UDC name (K6) */
++        pub fn remove_udc(&self, udc: &str) {
++            self.with_state(|s| {
++                if let Some(Some(gadget)) = s.udcs.remove(udc)
++                    && let Some(g) = s.gadgets.get_mut(&gadget)
++                {
++                    g.bound = false;
++                }
++            });
++        }
++
++        pub fn set_ffs_ready(&self, gadget: &str, function: &str, ready: bool) {
++            self.with_state(|s| {
++                s.gadgets
++                    .get_mut(gadget)
++                    .and_then(|g| g.function_mut(function))
++                    .expect("no such function")
++                    .ready = ready;
++            });
++        }
++
++        /* Kernels before 6.9 have no 'ready' attribute */
++        pub fn remove_ready_attr(&self, gadget: &str, function: &str) {
++            self.with_state(|s| {
++                s.gadgets
++                    .get_mut(gadget)
++                    .and_then(|g| g.function_mut(function))
++                    .expect("no such function")
++                    .has_ready_attr = false;
++            });
++        }
++
++        pub fn set_lun_busy(&self, gadget: &str, function: &str, busy: bool) {
++            self.with_state(|s| {
++                s.gadgets
++                    .get_mut(gadget)
++                    .and_then(|g| g.function_mut(function))
++                    .expect("no such function")
++                    .lun_busy = busy;
++            });
++        }
++
++        /* The FunctionFS daemon closes its files (K10) */
++        pub fn ffs_daemon_closed(&self, gadget: &str, function: &str) {
++            self.with_state(|s| {
++                let g = s.gadgets.get_mut(gadget).expect("no such gadget");
++                let bound_function = g.bound && g.is_linked(function);
++                g.function_mut(function).expect("no such function").ready = false;
++                if bound_function {
++                    s.unregister(gadget);
++                }
++            });
++        }
++
++        /* The daemon of a FunctionFS mounted with no_disconnect closes its files (K11) */
++        pub fn ffs_daemon_closed_no_disconnect(&self, gadget: &str, function: &str) {
++            self.with_state(|s| {
++                let g = s.gadgets.get_mut(gadget).expect("no such gadget");
++                g.function_mut(function)
++                    .expect("no such function")
++                    .deactivated = true;
++            });
++        }
++
++        /* Bus reset, disconnect or SET_CONFIGURATION on a UDC (K11) */
++        pub fn bus_reset(&self, udc: &str) {
++            self.with_state(|s| {
++                let Some(Some(gadget)) = s.udcs.get(udc).cloned() else {
++                    return;
++                };
++                let g = s.gadgets.get_mut(&gadget).unwrap();
++                let linked: Vec<String> = g
++                    .linked_functions()
++                    .iter()
++                    .map(|f| f.name.clone())
++                    .collect();
++                let mut reset = false;
++                for function in g.functions.iter_mut() {
++                    if function.deactivated && linked.contains(&function.name) {
++                        function.deactivated = false;
++                        function.ready = false;
++                        reset = true;
++                    }
++                }
++                if reset {
++                    s.unregister(&gadget);
++                }
++            });
++        }
++
++        /* Make trait call number 'index' fail with 'code', without effect */
++        pub fn fail_op(&self, index: usize, code: i32) {
++            self.with_state(|s| {
++                s.faults.insert(index, code);
++            });
++        }
++
++        /* Run 'hook' on the state right before trait call number 'index' */
++        pub fn before_op(&self, index: usize, hook: impl FnMut(&mut FakeState) + Send + 'static) {
++            self.with_state(|s| {
++                s.hooks.insert(index, Box::new(hook));
++            });
++        }
++
++        pub fn ops(&self) -> Vec<FakeRecord> {
++            return self.with_state(|s| s.ops.clone());
++        }
++
++        /* Forget the log, planned faults and hooks, for example after setting up */
++        pub fn clear_ops(&self) {
++            self.with_state(|s| {
++                s.ops.clear();
++                s.faults.clear();
++                s.hooks.clear();
++            });
++        }
++
++        pub fn udc_name(&self, gadget: &str) -> Option<String> {
++            return self.with_state(|s| s.gadgets.get(gadget).and_then(|g| g.udc_name.clone()));
++        }
++
++        pub fn is_bound(&self, gadget: &str) -> bool {
++            return self.with_state(|s| s.gadgets.get(gadget).is_some_and(|g| g.bound));
++        }
++
++        pub fn deadlocked(&self) -> bool {
++            return self.with_state(|s| s.deadlocked);
++        }
++
++        pub fn attr(&self, gadget: &str, path: &str) -> Option<String> {
++            return self.with_state(|s| {
++                s.gadgets
++                    .get(gadget)
++                    .and_then(|g| g.attrs.get(path).cloned())
++            });
++        }
++
++        fn run<T>(
++            &self,
++            op: FakeOp,
++            f: impl FnOnce(&mut FakeState) -> io::Result<T>,
++        ) -> io::Result<T> {
++            let mut state = self.state.lock().unwrap();
++            let index = state.begin(&op)?;
++            let result = f(&mut state);
++            return state.finish(index, result);
++        }
++    }
++
++    impl ConfigFs for FakeConfigFs {
++        fn functions(&self, gadget: &str) -> io::Result<Vec<String>> {
++            return self.run(FakeOp::Functions(gadget.to_string()), |s| {
++                Ok(s.gadget(gadget)?
++                    .functions
++                    .iter()
++                    .map(|f| f.name.clone())
++                    .collect())
++            });
++        }
++
++        fn configs(&self, gadget: &str) -> io::Result<Vec<String>> {
++            return self.run(FakeOp::Configs(gadget.to_string()), |s| {
++                Ok(s.gadget(gadget)?.configs.keys().cloned().collect())
++            });
++        }
++
++        fn links(&self, gadget: &str, config: &str) -> io::Result<Vec<(String, String)>> {
++            return self.run(FakeOp::Links(gadget.to_string(), config.to_string()), |s| {
++                s.gadget(gadget)?
++                    .configs
++                    .get(config)
++                    .cloned()
++                    .ok_or(errno(libc::ENOENT))
++            });
++        }
++
++        fn mkdir_function(&self, gadget: &str, function: &str) -> io::Result<()> {
++            return self.run(
++                FakeOp::Mkdir(gadget.to_string(), function.to_string()),
++                |s| s.mkdir(gadget, function),
++            );
++        }
++
++        fn rmdir_function(&self, gadget: &str, function: &str) -> io::Result<()> {
++            return self.run(
++                FakeOp::Rmdir(gadget.to_string(), function.to_string()),
++                |s| s.rmdir(gadget, function),
++            );
++        }
++
++        fn link_function(
++            &self,
++            gadget: &str,
++            config: &str,
++            link: &str,
++            from_gadget: &str,
++            function: &str,
++        ) -> io::Result<()> {
++            return self.run(
++                FakeOp::Link {
++                    gadget: gadget.to_string(),
++                    config: config.to_string(),
++                    link: link.to_string(),
++                    from_gadget: from_gadget.to_string(),
++                    function: function.to_string(),
++                },
++                |s| s.link(gadget, config, link, from_gadget, function),
++            );
++        }
++
++        fn unlink(&self, gadget: &str, config: &str, link: &str) -> io::Result<()> {
++            return self.run(
++                FakeOp::Unlink(gadget.to_string(), config.to_string(), link.to_string()),
++                |s| s.unlink(gadget, config, link),
++            );
++        }
++
++        fn open_udc(&self, gadget: &str) -> io::Result<Box<dyn Attribute>> {
++            self.run(FakeOp::OpenUdc(gadget.to_string()), |s| {
++                s.gadget(gadget).map(|_| ())
++            })?;
++            return Ok(Box::new(FakeUdcAttribute {
++                state: self.state.clone(),
++                gadget: gadget.to_string(),
++                buffer: None,
++            }));
++        }
++
++        fn ffs_ready(&self, gadget: &str, function: &str) -> io::Result<Option<bool>> {
++            return self.run(
++                FakeOp::FfsReady(gadget.to_string(), function.to_string()),
++                |s| {
++                    let f = s
++                        .gadget(gadget)?
++                        .function(function)
++                        .ok_or(errno(libc::ENOENT))?;
++                    if !f.is_ffs() || !f.has_ready_attr {
++                        return Ok(None);
++                    }
++                    return Ok(Some(f.ready));
++                },
++            );
++        }
++
++        fn write_attr(&self, gadget: &str, path: &str, value: &str) -> io::Result<()> {
++            return self.run(
++                FakeOp::WriteAttr(gadget.to_string(), path.to_string(), value.to_string()),
++                |s| s.write_attr(gadget, path, value),
++            );
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::fake::{FakeConfigFs, FakeOp};
++    use super::*;
++    use crate::configuration::testing::TempRoot;
++
++    fn code(result: io::Result<()>) -> Option<i32> {
++        return result.err().and_then(|err| err.raw_os_error());
++    }
++
++    /* Gadget g with config c.1, pin ffs.pin (ready) linked, bound to udc0 */
++    fn bound_gadget() -> FakeConfigFs {
++        let fs = FakeConfigFs::new();
++        fs.add_udc("udc0");
++        fs.add_gadget("g", &["c.1"]);
++        fs.mkdir_function("g", "ffs.pin").unwrap();
++        fs.link("g", "c.1", "ffs.pin").unwrap();
++        fs.set_ffs_ready("g", "ffs.pin", true);
++        fs.write_udc("g", "udc0").unwrap();
++        fs.clear_ops();
++        return fs;
++    }
++
++    #[test]
++    fn k1_link_while_bound_is_einval() {
++        let fs = bound_gadget();
++        fs.mkdir_function("g", "ncm.usb0").unwrap();
++        assert_eq!(code(fs.link("g", "c.1", "ncm.usb0")), Some(libc::EINVAL));
++        assert!(fs.is_bound("g"));
++
++        /* Also when the UDC vanished but its name is kept */
++        fs.remove_udc("udc0");
++        assert_eq!(fs.udc_name("g").as_deref(), Some("udc0"));
++        assert_eq!(code(fs.link("g", "c.1", "ncm.usb0")), Some(libc::EINVAL));
++    }
++
++    #[test]
++    fn k2_link_of_another_gadgets_function_is_einval() {
++        let fs = FakeConfigFs::new();
++        fs.add_gadget("a", &["c.1"]);
++        fs.add_gadget("b", &["c.1"]);
++        fs.mkdir_function("b", "acm.GS0").unwrap();
++        assert_eq!(
++            code(fs.link_function("a", "c.1", "acm.GS0", "b", "acm.GS0")),
++            Some(libc::EINVAL)
++        );
++        fs.link("b", "c.1", "acm.GS0").unwrap();
++        assert_eq!(code(fs.link("b", "c.1", "acm.GS0")), Some(libc::EEXIST));
++    }
++
++    #[test]
++    fn k3_unlink_while_bound_unbinds_the_gadget() {
++        let fs = bound_gadget();
++        fs.write_udc("g", UNBIND).unwrap();
++        fs.mkdir_function("g", "ncm.usb0").unwrap();
++        fs.link("g", "c.1", "ncm.usb0").unwrap();
++        fs.write_udc("g", "udc0").unwrap();
++        fs.unlink("g", "c.1", "ncm.usb0").unwrap();
++        assert!(!fs.is_bound("g"));
++        assert_eq!(fs.udc_name("g"), None);
++        assert_eq!(fs.read_udc("g").unwrap(), "");
++        assert_eq!(code(fs.unlink("g", "c.1", "ncm.usb0")), Some(libc::ENOENT));
++    }
++
++    #[test]
++    fn k4_bind_and_unbind_errors() {
++        let fs = bound_gadget();
++        assert_eq!(code(fs.write_udc("g", "udc0")), Some(libc::EBUSY));
++        fs.write_udc("g", UNBIND).unwrap();
++        assert_eq!(code(fs.write_udc("g", UNBIND)), Some(libc::ENODEV));
++        /* A failed bind leaves the gadget unbound and forgotten */
++        assert_eq!(code(fs.write_udc("g", "udc9")), Some(libc::EBUSY));
++        assert_eq!(fs.udc_name("g"), None);
++        fs.write_udc("g", "udc0\n").unwrap();
++        assert!(fs.is_bound("g"));
++    }
++
++    #[test]
++    fn k5_every_bind_failure_is_ebusy() {
++        let fs = FakeConfigFs::new();
++        fs.add_udc("udc0");
++        /* No configuration */
++        fs.add_gadget("empty", &[]);
++        assert_eq!(code(fs.write_udc("empty", "udc0")), Some(libc::EBUSY));
++        /* A configuration without functions */
++        fs.add_gadget("nofn", &["c.1"]);
++        assert_eq!(code(fs.write_udc("nofn", "udc0")), Some(libc::EBUSY));
++        /* UDC busy with another gadget */
++        fs.add_gadget("a", &["c.1"]);
++        fs.mkdir_function("a", "acm.a").unwrap();
++        fs.link("a", "c.1", "acm.a").unwrap();
++        fs.add_gadget("b", &["c.1"]);
++        fs.mkdir_function("b", "acm.b").unwrap();
++        fs.link("b", "c.1", "acm.b").unwrap();
++        fs.write_udc("a", "udc0").unwrap();
++        assert_eq!(code(fs.write_udc("b", "udc0")), Some(libc::EBUSY));
++    }
++
++    #[test]
++    fn k6_gadget_rebinds_when_its_udc_returns() {
++        let fs = bound_gadget();
++        fs.remove_udc("udc0");
++        assert!(!fs.is_bound("g"));
++        fs.add_udc("udc0");
++        assert!(fs.is_bound("g"));
++    }
++
++    #[test]
++    fn k8_ffs_names_are_global_and_must_be_ready() {
++        let fs = bound_gadget();
++        fs.add_gadget("other", &["c.1"]);
++        assert_eq!(
++            code(fs.mkdir_function("other", "ffs.pin")),
++            Some(libc::EBUSY)
++        );
++
++        fs.write_udc("g", UNBIND).unwrap();
++        fs.mkdir_function("g", "ffs.mtp").unwrap();
++        fs.link("g", "c.1", "ffs.mtp").unwrap();
++        assert_eq!(fs.ffs_ready("g", "ffs.mtp").unwrap(), Some(false));
++        assert_eq!(code(fs.write_udc("g", "udc0")), Some(libc::EBUSY));
++        fs.set_ffs_ready("g", "ffs.mtp", true);
++        fs.write_udc("g", "udc0").unwrap();
++
++        assert_eq!(fs.ffs_ready("g", "ffs.pin").unwrap(), Some(true));
++        fs.remove_ready_attr("g", "ffs.pin");
++        assert_eq!(fs.ffs_ready("g", "ffs.pin").unwrap(), None);
++    }
++
++    #[test]
++    fn k10_daemon_exit_unbinds_only_a_bound_function() {
++        let fs = bound_gadget();
++        fs.write_udc("g", UNBIND).unwrap();
++        fs.mkdir_function("g", "ffs.mtp").unwrap();
++        fs.set_ffs_ready("g", "ffs.mtp", true);
++        fs.write_udc("g", "udc0").unwrap();
++        /* Not linked: closing is harmless */
++        fs.ffs_daemon_closed("g", "ffs.mtp");
++        assert!(fs.is_bound("g"));
++        /* Linked and bound: the whole gadget goes */
++        fs.ffs_daemon_closed("g", "ffs.pin");
++        assert!(!fs.is_bound("g"));
++        assert_eq!(fs.udc_name("g"), None);
++    }
++
++    #[test]
++    fn k11_no_disconnect_only_defers_the_unbind() {
++        let fs = bound_gadget();
++        fs.ffs_daemon_closed_no_disconnect("g", "ffs.pin");
++        assert!(fs.is_bound("g"));
++        fs.bus_reset("udc0");
++        assert!(!fs.is_bound("g"));
++        assert_eq!(fs.ffs_ready("g", "ffs.pin").unwrap(), Some(false));
++    }
++
++    #[test]
++    fn k12_busy_lun_blocks_unbind_until_forced_eject() {
++        let fs = bound_gadget();
++        fs.write_udc("g", UNBIND).unwrap();
++        fs.mkdir_function("g", "mass_storage.0").unwrap();
++        fs.link("g", "c.1", "mass_storage.0").unwrap();
++        fs.write_udc("g", "udc0").unwrap();
++        fs.set_lun_busy("g", "mass_storage.0", true);
++        assert_eq!(code(fs.write_udc("g", UNBIND)), Some(libc::EDEADLK));
++        assert!(fs.deadlocked());
++
++        let fs = bound_gadget();
++        fs.write_udc("g", UNBIND).unwrap();
++        fs.mkdir_function("g", "mass_storage.0").unwrap();
++        fs.link("g", "c.1", "mass_storage.0").unwrap();
++        fs.write_udc("g", "udc0").unwrap();
++        fs.set_lun_busy("g", "mass_storage.0", true);
++        fs.write_attr("g", "functions/mass_storage.0/lun.0/forced_eject", "1")
++            .unwrap();
++        fs.write_udc("g", UNBIND).unwrap();
++        assert!(!fs.deadlocked());
++        assert_eq!(
++            fs.attr("g", "functions/mass_storage.0/lun.0/forced_eject")
++                .as_deref(),
++            Some("1")
++        );
++    }
++
++    #[test]
++    fn k13_attribute_handle_reads_stale_until_written() {
++        let fs = bound_gadget();
++        let mut handle = fs.open_udc("g").unwrap();
++        assert_eq!(handle.read().unwrap(), "udc0");
++        /* Someone else unbinds: the old handle still says udc0 */
++        fs.write_udc("g", UNBIND).unwrap();
++        assert_eq!(handle.read().unwrap(), "udc0");
++        assert_eq!(fs.read_udc("g").unwrap(), "");
++        /* Writing through the handle refills it */
++        handle.write("udc0").unwrap();
++        assert_eq!(handle.read().unwrap(), "udc0");
++    }
++
++    #[test]
++    fn rmdir_of_a_linked_function_is_ebusy() {
++        let fs = bound_gadget();
++        assert_eq!(code(fs.rmdir_function("g", "ffs.pin")), Some(libc::EBUSY));
++        fs.mkdir_function("g", "ncm.usb0").unwrap();
++        assert_eq!(code(fs.mkdir_function("g", "ncm.usb0")), Some(libc::EEXIST));
++        fs.rmdir_function("g", "ncm.usb0").unwrap();
++        assert_eq!(fs.functions("g").unwrap(), vec!["ffs.pin".to_string()]);
++    }
++
++    #[test]
++    fn links_keep_link_order() {
++        let fs = bound_gadget();
++        fs.write_udc("g", UNBIND).unwrap();
++        fs.mkdir_function("g", "ncm.usb0").unwrap();
++        fs.link_function("g", "c.1", "net", "g", "ncm.usb0")
++            .unwrap();
++        assert_eq!(
++            fs.links("g", "c.1").unwrap(),
++            vec![
++                ("ffs.pin".to_string(), "ffs.pin".to_string()),
++                ("net".to_string(), "ncm.usb0".to_string())
++            ]
++        );
++        assert_eq!(fs.configs("g").unwrap(), vec!["c.1".to_string()]);
++    }
++
++    #[test]
++    fn faults_and_hooks_are_numbered_by_call() {
++        let fs = bound_gadget();
++        /* Call 0 fails without effect */
++        fs.fail_op(0, libc::EIO);
++        assert_eq!(code(fs.write_udc("g", UNBIND)), Some(libc::EIO));
++        assert!(fs.is_bound("g"));
++
++        /* A concurrent binder rebinds the gadget right before call 5 */
++        fs.clear_ops();
++        fs.before_op(5, |state| {
++            state.bind("g", "udc0").unwrap();
++        });
++        fs.write_udc("g", UNBIND).unwrap(); /* 0 open, 1 write */
++        fs.mkdir_function("g", "ncm.usb0").unwrap(); /* 2 */
++        assert_eq!(fs.read_udc("g").unwrap(), ""); /* 3 open, 4 read */
++        assert_eq!(fs.read_udc("g").unwrap(), "udc0"); /* 5 open (hook first), 6 read */
++        assert_eq!(code(fs.link("g", "c.1", "ncm.usb0")), Some(libc::EINVAL)); /* 7 */
++
++        let ops = fs.ops();
++        assert_eq!(ops[1].op, FakeOp::WriteUdc("g".into(), UNBIND.into()));
++        assert_eq!(ops[1].errno, None);
++        assert_eq!(ops.last().unwrap().errno, Some(libc::EINVAL));
++    }
++
++    /* The real implementation, against a plain directory tree */
++    #[test]
++    fn sysconfigfs_on_a_directory_tree() {
++        let root = TempRoot::new("sysconfigfs");
++        root.write("sys/kernel/config/usb_gadget/g/UDC", "udc0\n");
++        root.write("sys/kernel/config/usb_gadget/g/configs/c.1/MaxPower", "500");
++        root.write(
++            "sys/kernel/config/usb_gadget/g/functions/ffs.pin/ready",
++            "1\n",
++        );
++        let sys = SysRoot::under(&root.path);
++        let fs = SysConfigFs::new(sys.clone());
++
++        assert_eq!(fs.read_udc("g").unwrap(), "udc0");
++        assert_eq!(fs.ffs_ready("g", "ffs.pin").unwrap(), Some(true));
++
++        fs.mkdir_function("g", "ncm.usb0").unwrap();
++        assert_eq!(fs.ffs_ready("g", "ncm.usb0").unwrap(), None);
++        assert_eq!(
++            fs.mkdir_function("g", "ncm.usb0").unwrap_err().kind(),
++            io::ErrorKind::AlreadyExists
++        );
++        fs.link_function("g", "c.1", "net", "g", "ncm.usb0")
++            .unwrap();
++        fs.link("g", "c.1", "ffs.pin").unwrap();
++        let mut links = fs.links("g", "c.1").unwrap();
++        links.sort();
++        assert_eq!(
++            links,
++            vec![
++                ("ffs.pin".to_string(), "ffs.pin".to_string()),
++                ("net".to_string(), "ncm.usb0".to_string())
++            ]
++        );
++        /* Targets are absolute */
++        assert_eq!(
++            fs::read_link(sys.gadget("g").join("configs/c.1/net")).unwrap(),
++            sys.gadget("g").join("functions/ncm.usb0")
++        );
++
++        fs.unlink("g", "c.1", "net").unwrap();
++        fs.rmdir_function("g", "ncm.usb0").unwrap();
++        let mut functions = fs.functions("g").unwrap();
++        functions.sort();
++        assert_eq!(functions, vec!["ffs.pin".to_string()]);
++        assert_eq!(fs.configs("g").unwrap(), vec!["c.1".to_string()]);
++
++        fs.write_attr("g", "configs/c.1/MaxPower", "100").unwrap();
++        assert_eq!(
++            fs::read_to_string(sys.gadget("g").join("configs/c.1/MaxPower")).unwrap(),
++            "100"
++        );
++        assert!(fs.write_attr("g", "no/such/attribute", "1").is_err());
++        assert!(fs.read_udc("missing").is_err());
++    }
++}
+diff --git a/src/dbus.rs b/src/dbus.rs
+index 884a8c5..2264f49 100644
+--- a/src/dbus.rs
++++ b/src/dbus.rs
+@@ -7,6 +7,7 @@ use zbus::{Connection, connection, interface, object_server::SignalEmitter};
+ 
+ use crate::configuration::Configuration;
+ use crate::policy::{GadgetClass, check_host_mode, check_replaceable};
++use crate::sysroot::SysRoot;
+ use crate::udc::{UDC, discover_udcs};
+ use crate::urs::URSRole;
+ use crate::urs::{URS, discover_urss};
+@@ -19,21 +20,25 @@ use crate::utils::{string_to_udcmode, udcmode_to_string};
+  */
+ pub struct Core {
+     config: Arc<Configuration>,
++    sys: SysRoot,
+ }
+ 
+ pub struct Daemon {
+     pub core: Mutex<Core>,
+     /* Configuration read once at startup */
+     pub config: Arc<Configuration>,
++    pub sys: SysRoot,
+ }
+ 
+ impl Daemon {
+-    pub fn new(config: Arc<Configuration>) -> Arc<Self> {
++    pub fn new(config: Arc<Configuration>, sys: SysRoot) -> Arc<Self> {
+         return Arc::new(Self {
+             core: Mutex::new(Core {
+                 config: config.clone(),
++                sys: sys.clone(),
+             }),
+             config,
++            sys,
+         });
+     }
+ }
+@@ -64,7 +69,7 @@ impl Core {
+      * filesystem, stays untouched: no configfs write.
+      */
+     pub async fn shutdown(&mut self, emitter: &SignalEmitter<'_>) -> Result<(), zbus::fdo::Error> {
+-        for (udc, gadget) in UDC::bound_gadgets() {
++        for (udc, gadget) in UDC::bound_gadgets(&self.sys) {
+             let class = GadgetClass::classify(&self.config, &gadget);
+             if class.is_protected() {
+                 println!(
+@@ -98,7 +103,7 @@ impl Core {
+          * Gadgets usb-signaller must not replace are checked before any USB
+          * role is written: host role removes the UDC, which unbinds them.
+          */
+-        let bound = UDC::bound_gadgets();
++        let bound = UDC::bound_gadgets(&self.sys);
+         if mode == "host_mode" {
+             if let Err(err) = check_host_mode(&self.config, &bound) {
+                 eprintln!("❌ {err}");
+@@ -114,15 +119,15 @@ impl Core {
+         }
+ 
+         /* USB Role Switcher */
+-        for name in &discover_urss() {
+-            if URS::load(name).is_ok() {
++        for name in &discover_urss(&self.sys) {
++            if URS::load(&self.sys, name).is_ok() {
+                 let role = match mode {
+                     "host_mode" => URSRole::Host,
+                     _ => URSRole::Device,
+                 };
+ 
+                 /* Configure role */
+-                match URS::set_role(&role) {
++                match URS::set_role(&self.sys, &role) {
+                     Ok(urs) => {
+                         println!("URS reconfigured:");
+                         println!("  Name: {}", urs.name);
+@@ -162,10 +167,10 @@ impl Core {
+         let target_mode = string_to_udcmode(mode);
+ 
+         /* Apply the mode to discovered UDCs */
+-        for name in &discover_udcs() {
+-            match UDC::load(name) {
++        for name in &discover_udcs(&self.sys) {
++            match UDC::load(&self.sys, name) {
+                 Ok(udc) => {
+-                    match UDC::set_mode(udc, target_mode.clone(), &self.config) {
++                    match UDC::set_mode(&self.sys, udc, target_mode.clone(), &self.config) {
+                         Ok(udc) => {
+                             println!("UDC reconfigured:");
+                             println!("  Name: {}", udc.name);
+@@ -239,16 +244,17 @@ impl UsbModedDBus {
+     pub async fn mode_request(&self) -> Result<String, zbus::fdo::Error> {
+         println!("ℹ️  DBus: mode_request()");
+         /* Do not report a mode while it is being changed */
+-        let _core = self.daemon.core.lock().await;
++        let core = self.daemon.core.lock().await;
++        let sys = &core.sys;
+         /* Search for USB Role Switcher */
+-        for name in &discover_urss() {
++        for name in &discover_urss(sys) {
+             let mut skipped: bool = false;
+             /* When the cable is plugged in, reading the URS immediately may give 'device'
+              * as role. A few ms later, it may have switched to 'host', causing no UDC
+              * to be present anymore. Retry in that case until role is stable
+              */
+             for _n in 1..10 {
+-                if let Ok(urs) = URS::load(name) {
++                if let Ok(urs) = URS::load(sys, name) {
+                     let role = urs.role;
+                     println!("Loaded URS: {} ({:?})", urs.name, role);
+ 
+@@ -291,9 +297,9 @@ impl UsbModedDBus {
+         }
+ 
+         /* No USB Role Switcher available, fallback to UDC only */
+-        for name in &discover_udcs() {
++        for name in &discover_udcs(sys) {
+             println!("⚠️  Fallback to UDC-only mode, UDC: {name}");
+-            if let Ok(udc) = UDC::load(name) {
++            if let Ok(udc) = UDC::load(sys, name) {
+                 let mode = udc.mode;
+                 return Ok(udcmode_to_string(mode).to_string());
+             }
+@@ -320,9 +326,9 @@ impl UsbModedDBus {
+          * while set_mode would refuse it.
+          */
+         let host_mode_refused =
+-            check_host_mode(&self.daemon.config, &UDC::bound_gadgets()).is_err();
+-        for name in &discover_urss() {
+-            if !host_mode_refused && URS::load(name).is_ok() {
++            check_host_mode(&self.daemon.config, &UDC::bound_gadgets(&self.daemon.sys)).is_err();
++        for name in &discover_urss(&self.daemon.sys) {
++            if !host_mode_refused && URS::load(&self.daemon.sys, name).is_ok() {
+                 available_modes.push_str(",host_mode");
+                 break;
+             }
+diff --git a/src/gadget.rs b/src/gadget.rs
+index f2d18b9..ec57559 100644
+--- a/src/gadget.rs
++++ b/src/gadget.rs
+@@ -16,6 +16,7 @@
+  * along with this program. If not, see <https://www.gnu.org/licenses/>.
+  */
+ use crate::sysfs::{sysfs_mkdir, sysfs_read, sysfs_rm, sysfs_symlink, sysfs_write};
++use crate::sysroot::SysRoot;
+ use crate::utils::dir_entries;
+ use std::fs::DirEntry;
+ use std::fs::read_dir;
+@@ -23,9 +24,6 @@ use std::path::PathBuf;
+ use std::thread;
+ use std::time::Duration;
+ 
+-const CONFIGFS_BASE_PATH: &str = "/sys/kernel/config";
+-const SYSFS_CLASS_BASE_PATH: &str = "/sys/class";
+-const USB_GADGET_PATH: &str = "usb_gadget";
+ const LANGUAGE_PATH: &str = "0x409";
+ const STRINGS_PATH: &str = "strings";
+ const CONFIGS_PATH: &str = "configs";
+@@ -67,10 +65,10 @@ pub struct ConfigFsGadgetFunction {
+     pub name: String,
+ }
+ 
+-pub fn discover_gadgets() -> Vec<String> {
++pub fn discover_gadgets(sys: &SysRoot) -> Vec<String> {
+     let mut gadgets: Vec<String> = vec![];
+ 
+-    for entry in dir_entries(PathBuf::from(CONFIGFS_BASE_PATH).join(USB_GADGET_PATH)) {
++    for entry in dir_entries(sys.usb_gadget()) {
+         gadgets.push(entry);
+     }
+ 
+@@ -78,21 +76,14 @@ pub fn discover_gadgets() -> Vec<String> {
+ }
+ 
+ impl ConfigFsGadget {
+-    fn configfs_base_path(name: &str) -> PathBuf {
+-        return PathBuf::from(CONFIGFS_BASE_PATH)
+-            .join(USB_GADGET_PATH)
+-            .join(name);
++    fn configfs_base_path(sys: &SysRoot, name: &str) -> PathBuf {
++        return sys.gadget(name);
+     }
+ 
+-    fn discover_functions(gadget_name: &str) -> Vec<ConfigFsGadgetFunction> {
++    fn discover_functions(sys: &SysRoot, gadget_name: &str) -> Vec<ConfigFsGadgetFunction> {
+         let mut functions: Vec<ConfigFsGadgetFunction> = vec![];
+ 
+-        for entry in dir_entries(
+-            PathBuf::from(CONFIGFS_BASE_PATH)
+-                .join(USB_GADGET_PATH)
+-                .join(gadget_name)
+-                .join(FUNCTIONS_PATH),
+-        ) {
++        for entry in dir_entries(Self::configfs_base_path(sys, gadget_name).join(FUNCTIONS_PATH)) {
+             functions.push(ConfigFsGadgetFunction {
+                 name: entry.to_string(),
+             })
+@@ -101,14 +92,17 @@ impl ConfigFsGadget {
+         return functions;
+     }
+ 
+-    fn discover_configurations(gadget_name: &str) -> Vec<ConfigFsGadgetConfiguration> {
++    fn discover_configurations(
++        sys: &SysRoot,
++        gadget_name: &str,
++    ) -> Vec<ConfigFsGadgetConfiguration> {
+         let mut configurations: Vec<ConfigFsGadgetConfiguration> = vec![];
+ 
+-        for entry in dir_entries(Self::configfs_base_path(gadget_name).join(CONFIGS_PATH)) {
+-            let functions: Vec<ConfigFsGadgetFunction> = Self::discover_functions(gadget_name)
++        for entry in dir_entries(Self::configfs_base_path(sys, gadget_name).join(CONFIGS_PATH)) {
++            let functions: Vec<ConfigFsGadgetFunction> = Self::discover_functions(sys, gadget_name)
+                 .into_iter()
+                 .filter_map(|f| {
+-                    Self::configfs_base_path(gadget_name)
++                    Self::configfs_base_path(sys, gadget_name)
+                         .join(CONFIGS_PATH)
+                         .join(&entry)
+                         .join(&f.name)
+@@ -117,7 +111,7 @@ impl ConfigFsGadget {
+                 })
+                 .collect::<Vec<ConfigFsGadgetFunction>>();
+             let Ok(configuration) = sysfs_read(
+-                Self::configfs_base_path(gadget_name)
++                Self::configfs_base_path(sys, gadget_name)
+                     .join(CONFIGS_PATH)
+                     .join(&entry)
+                     .join(STRINGS_PATH)
+@@ -137,15 +131,10 @@ impl ConfigFsGadget {
+         return configurations;
+     }
+ 
+-    fn wait_for_state(udc_name: &str, state: &str) -> anyhow::Result<()> {
++    fn wait_for_state(sys: &SysRoot, udc_name: &str, state: &str) -> anyhow::Result<()> {
+         for _n in 1..30 {
+             thread::sleep(Duration::from_millis(100));
+-            let value = sysfs_read(
+-                PathBuf::from(SYSFS_CLASS_BASE_PATH)
+-                    .join(UDC_PATH)
+-                    .join(udc_name)
+-                    .join(STATE_NODE),
+-            )?;
++            let value = sysfs_read(sys.class(UDC_PATH).join(udc_name).join(STATE_NODE))?;
+             if value == state {
+                 return Ok(());
+             }
+@@ -156,9 +145,9 @@ impl ConfigFsGadget {
+         ));
+     }
+ 
+-    pub fn enable(gadget_name: &str, udc_name: &str) -> anyhow::Result<()> {
++    pub fn enable(sys: &SysRoot, gadget_name: &str, udc_name: &str) -> anyhow::Result<()> {
+         sysfs_write(
+-            Self::configfs_base_path(gadget_name).join(UDC_NODE),
++            Self::configfs_base_path(sys, gadget_name).join(UDC_NODE),
+             udc_name,
+         )?;
+ 
+@@ -166,7 +155,7 @@ impl ConfigFsGadget {
+          * Block until UDC enters 'configured' mode before considered enabled,
+          * allow escaping when cable is unplugged.
+          */
+-        match Self::wait_for_state(udc_name, "configured") {
++        match Self::wait_for_state(sys, udc_name, "configured") {
+             Ok(()) => {
+                 println!("UDC entered 'configured' state");
+             }
+@@ -180,17 +169,21 @@ impl ConfigFsGadget {
+         return Ok(());
+     }
+ 
+-    pub fn disable(gadget_name: &str) -> anyhow::Result<()> {
+-        let udc_name = sysfs_read(Self::configfs_base_path(gadget_name).join(UDC_NODE))?;
+-        sysfs_write(Self::configfs_base_path(gadget_name).join(UDC_NODE), "\n")?;
++    pub fn disable(sys: &SysRoot, gadget_name: &str) -> anyhow::Result<()> {
++        let udc_name = sysfs_read(Self::configfs_base_path(sys, gadget_name).join(UDC_NODE))?;
++        sysfs_write(
++            Self::configfs_base_path(sys, gadget_name).join(UDC_NODE),
++            "\n",
++        )?;
+ 
+         /* Block until UDC enters 'not attached' mode before gadget is considered disabled */
+-        Self::wait_for_state(&udc_name, "not attached")?;
++        Self::wait_for_state(sys, &udc_name, "not attached")?;
+ 
+         return Ok(());
+     }
+ 
+     pub fn create(
++        sys: &SysRoot,
+         gadget_name: &str,
+         id_vendor: u16,
+         id_product: u16,
+@@ -200,41 +193,41 @@ impl ConfigFsGadget {
+         default_function: &str,
+         configuration_description: &str,
+     ) -> anyhow::Result<Self> {
+-        if Self::configfs_base_path(gadget_name).exists() {
+-            //return Err(format!("Gadget already exists: {}", Self::configfs_base_path(gadget_name).display()).into());
+-            ConfigFsGadget::delete(gadget_name)?;
++        if Self::configfs_base_path(sys, gadget_name).exists() {
++            //return Err(format!("Gadget already exists: {}", Self::configfs_base_path(sys, gadget_name).display()).into());
++            ConfigFsGadget::delete(sys, gadget_name)?;
+         }
+ 
+         /* Create gadget */
+-        sysfs_mkdir(Self::configfs_base_path(gadget_name))?;
++        sysfs_mkdir(Self::configfs_base_path(sys, gadget_name))?;
+         sysfs_mkdir(
+-            Self::configfs_base_path(gadget_name)
++            Self::configfs_base_path(sys, gadget_name)
+                 .join(STRINGS_PATH)
+                 .join(LANGUAGE_PATH),
+         )?;
+ 
+         /* Create default function */
+         sysfs_mkdir(
+-            Self::configfs_base_path(gadget_name)
++            Self::configfs_base_path(sys, gadget_name)
+                 .join(FUNCTIONS_PATH)
+                 .join(default_function),
+         )?;
+ 
+         /* Create configuration */
+         sysfs_mkdir(
+-            Self::configfs_base_path(gadget_name)
++            Self::configfs_base_path(sys, gadget_name)
+                 .join(CONFIGS_PATH)
+                 .join(DEFAULT_CONFIG_PATH),
+         )?;
+         sysfs_mkdir(
+-            Self::configfs_base_path(gadget_name)
++            Self::configfs_base_path(sys, gadget_name)
+                 .join(CONFIGS_PATH)
+                 .join(DEFAULT_CONFIG_PATH)
+                 .join(STRINGS_PATH)
+                 .join(LANGUAGE_PATH),
+         )?;
+         sysfs_write(
+-            Self::configfs_base_path(gadget_name)
++            Self::configfs_base_path(sys, gadget_name)
+                 .join(CONFIGS_PATH)
+                 .join(DEFAULT_CONFIG_PATH)
+                 .join(STRINGS_PATH)
+@@ -245,10 +238,10 @@ impl ConfigFsGadget {
+ 
+         /* Link single function to configuration to expose this function when the gadget is enabled */
+         sysfs_symlink(
+-            Self::configfs_base_path(gadget_name)
++            Self::configfs_base_path(sys, gadget_name)
+                 .join(FUNCTIONS_PATH)
+                 .join(default_function),
+-            Self::configfs_base_path(gadget_name)
++            Self::configfs_base_path(sys, gadget_name)
+                 .join(CONFIGS_PATH)
+                 .join(DEFAULT_CONFIG_PATH)
+                 .join(default_function),
+@@ -256,51 +249,53 @@ impl ConfigFsGadget {
+ 
+         /* Write properties */
+         sysfs_write(
+-            Self::configfs_base_path(gadget_name).join(ID_VENDOR_NODE),
++            Self::configfs_base_path(sys, gadget_name).join(ID_VENDOR_NODE),
+             format!("{id_vendor:#04x}").as_str(),
+         )?;
+         sysfs_write(
+-            Self::configfs_base_path(gadget_name).join(ID_PRODUCT_NODE),
++            Self::configfs_base_path(sys, gadget_name).join(ID_PRODUCT_NODE),
+             format!("{id_product:#04x}").as_str(),
+         )?;
+         sysfs_write(
+-            Self::configfs_base_path(gadget_name)
++            Self::configfs_base_path(sys, gadget_name)
+                 .join(STRINGS_PATH)
+                 .join(LANGUAGE_PATH)
+                 .join(MANUFACTURER_NODE),
+             manufacturer,
+         )?;
+         sysfs_write(
+-            Self::configfs_base_path(gadget_name)
++            Self::configfs_base_path(sys, gadget_name)
+                 .join(STRINGS_PATH)
+                 .join(LANGUAGE_PATH)
+                 .join(PRODUCT_NODE),
+             product,
+         )?;
+         sysfs_write(
+-            Self::configfs_base_path(gadget_name)
++            Self::configfs_base_path(sys, gadget_name)
+                 .join(STRINGS_PATH)
+                 .join(LANGUAGE_PATH)
+                 .join(SERIALNUMBER_NODE),
+             serialnumber,
+         )?;
+ 
+-        return Self::load(gadget_name);
++        return Self::load(sys, gadget_name);
+     }
+ 
+-    pub fn load(gadget_name: &str) -> anyhow::Result<Self> {
+-        if !Self::configfs_base_path(gadget_name).exists() {
++    pub fn load(sys: &SysRoot, gadget_name: &str) -> anyhow::Result<Self> {
++        if !Self::configfs_base_path(sys, gadget_name).exists() {
+             return Err(anyhow::anyhow!(
+                 "Gadget does not exists: {}",
+-                Self::configfs_base_path(gadget_name).display()
++                Self::configfs_base_path(sys, gadget_name).display()
+             ));
+         }
+ 
+         /* Load gadget */
+-        let udc = sysfs_read(Self::configfs_base_path(gadget_name).join(UDC_NODE))?;
++        let udc = sysfs_read(Self::configfs_base_path(sys, gadget_name).join(UDC_NODE))?;
+         let enabled = !udc.is_empty();
+-        let id_vendor = sysfs_read(Self::configfs_base_path(gadget_name).join(ID_VENDOR_NODE))?;
+-        let id_product = sysfs_read(Self::configfs_base_path(gadget_name).join(ID_PRODUCT_NODE))?;
++        let id_vendor =
++            sysfs_read(Self::configfs_base_path(sys, gadget_name).join(ID_VENDOR_NODE))?;
++        let id_product =
++            sysfs_read(Self::configfs_base_path(sys, gadget_name).join(ID_PRODUCT_NODE))?;
+ 
+         return Ok(Self {
+             name: gadget_name.to_string(),
+@@ -308,35 +303,35 @@ impl ConfigFsGadget {
+             id_vendor: u16::from_str_radix(id_vendor.trim_start_matches("0x"), 16)?,
+             id_product: u16::from_str_radix(id_product.trim_start_matches("0x"), 16)?,
+             manufacturer: sysfs_read(
+-                Self::configfs_base_path(gadget_name)
++                Self::configfs_base_path(sys, gadget_name)
+                     .join(STRINGS_PATH)
+                     .join(LANGUAGE_PATH)
+                     .join(MANUFACTURER_NODE),
+             )?,
+             product: sysfs_read(
+-                Self::configfs_base_path(gadget_name)
++                Self::configfs_base_path(sys, gadget_name)
+                     .join(STRINGS_PATH)
+                     .join(LANGUAGE_PATH)
+                     .join(PRODUCT_NODE),
+             )?,
+             serialnumber: sysfs_read(
+-                Self::configfs_base_path(gadget_name)
++                Self::configfs_base_path(sys, gadget_name)
+                     .join(STRINGS_PATH)
+                     .join(LANGUAGE_PATH)
+                     .join(SERIALNUMBER_NODE),
+             )?,
+             enabled,
+-            configs: Self::discover_configurations(gadget_name),
+-            functions: Self::discover_functions(gadget_name),
++            configs: Self::discover_configurations(sys, gadget_name),
++            functions: Self::discover_functions(sys, gadget_name),
+         });
+     }
+ 
+-    pub fn delete(gadget_name: &str) -> anyhow::Result<()> {
++    pub fn delete(sys: &SysRoot, gadget_name: &str) -> anyhow::Result<()> {
+         /* Remove configuration, linked functions, and configuration strings */
+-        for entry in dir_entries(Self::configfs_base_path(gadget_name).join(CONFIGS_PATH)) {
++        for entry in dir_entries(Self::configfs_base_path(sys, gadget_name).join(CONFIGS_PATH)) {
+             /* Configuration strings */
+             sysfs_rm(
+-                Self::configfs_base_path(gadget_name)
++                Self::configfs_base_path(sys, gadget_name)
+                     .join(CONFIGS_PATH)
+                     .join(&entry)
+                     .join(STRINGS_PATH)
+@@ -345,7 +340,7 @@ impl ConfigFsGadget {
+ 
+             /* Functions are symlinked into a configuration, remove them */
+             if let Ok(subentries) = read_dir(
+-                Self::configfs_base_path(gadget_name)
++                Self::configfs_base_path(sys, gadget_name)
+                     .join(CONFIGS_PATH)
+                     .join(&entry),
+             ) {
+@@ -356,7 +351,7 @@ impl ConfigFsGadget {
+                 {
+                     if subentry.path().is_symlink() {
+                         sysfs_rm(
+-                            Self::configfs_base_path(gadget_name)
++                            Self::configfs_base_path(sys, gadget_name)
+                                 .join(CONFIGS_PATH)
+                                 .join(&entry)
+                                 .join(subentry.path()),
+@@ -367,32 +362,32 @@ impl ConfigFsGadget {
+ 
+             /* Configuration */
+             sysfs_rm(
+-                Self::configfs_base_path(gadget_name)
++                Self::configfs_base_path(sys, gadget_name)
+                     .join(CONFIGS_PATH)
+                     .join(&entry),
+             )?;
+         }
+ 
+         /* Remove functions */
+-        for entry in dir_entries(Self::configfs_base_path(gadget_name).join(FUNCTIONS_PATH)) {
++        for entry in dir_entries(Self::configfs_base_path(sys, gadget_name).join(FUNCTIONS_PATH)) {
+             sysfs_rm(
+-                Self::configfs_base_path(gadget_name)
++                Self::configfs_base_path(sys, gadget_name)
+                     .join(FUNCTIONS_PATH)
+                     .join(&entry),
+             )?;
+         }
+ 
+         /* Remove gadget strings */
+-        for entry in dir_entries(Self::configfs_base_path(gadget_name).join(STRINGS_PATH)) {
++        for entry in dir_entries(Self::configfs_base_path(sys, gadget_name).join(STRINGS_PATH)) {
+             sysfs_rm(
+-                Self::configfs_base_path(gadget_name)
++                Self::configfs_base_path(sys, gadget_name)
+                     .join(STRINGS_PATH)
+                     .join(&entry),
+             )?;
+         }
+ 
+         /* Remove gadget */
+-        sysfs_rm(Self::configfs_base_path(gadget_name))?;
++        sysfs_rm(Self::configfs_base_path(sys, gadget_name))?;
+ 
+         return Ok(());
+     }
+@@ -404,7 +399,7 @@ mod tests {
+ 
+     #[test]
+     fn load_not_existing_gadget() {
+-        let result = ConfigFsGadget::load("non-existing-gadget");
++        let result = ConfigFsGadget::load(&SysRoot::default(), "non-existing-gadget");
+         assert!(
+             result
+                 .unwrap_err()
+@@ -417,10 +412,11 @@ mod tests {
+     #[ignore = "Requires libcomposite kernel module, use ./scripts/run-tests"]
+     fn properties() {
+         /* Delete gadget in case it exists */
+-        let _ = ConfigFsGadget::delete("properties");
++        let _ = ConfigFsGadget::delete(&SysRoot::default(), "properties");
+ 
+         /* Create gadget */
+         let result = ConfigFsGadget::create(
++            &SysRoot::default(),
+             "properties",
+             0x123,
+             0x456,
+@@ -448,7 +444,7 @@ mod tests {
+         }
+ 
+         /* Delete gadget */
+-        assert!(ConfigFsGadget::delete("properties").is_ok());
++        assert!(ConfigFsGadget::delete(&SysRoot::default(), "properties").is_ok());
+     }
+ 
+     #[test]
+@@ -456,6 +452,7 @@ mod tests {
+     fn create_existing_gadget() {
+         /* Create gadget */
+         let _ = ConfigFsGadget::create(
++            &SysRoot::default(),
+             "existing-gadget",
+             0x123,
+             0x456,
+@@ -468,6 +465,7 @@ mod tests {
+ 
+         /* Try to create the same gadget again */
+         let result = ConfigFsGadget::create(
++            &SysRoot::default(),
+             "existing-gadget",
+             0x123,
+             0x456,
+@@ -480,18 +478,19 @@ mod tests {
+         assert!(result.is_ok());
+ 
+         /* Delete gadget */
+-        assert!(ConfigFsGadget::delete("existing-gadget").is_ok());
++        assert!(ConfigFsGadget::delete(&SysRoot::default(), "existing-gadget").is_ok());
+     }
+ 
+     #[test]
+     #[ignore = "Requires libcomposite kernel module, use ./scripts/run-tests"]
+     fn create_gadget() {
+         /* Delete gadget in case it exists */
+-        let _ = ConfigFsGadget::delete("new-gadget");
++        let _ = ConfigFsGadget::delete(&SysRoot::default(), "new-gadget");
+ 
+         /* Create gadget */
+         assert!(
+             ConfigFsGadget::create(
++                &SysRoot::default(),
+                 "new-gadget",
+                 0x123,
+                 0x456,
+@@ -505,17 +504,18 @@ mod tests {
+         );
+ 
+         /* Delete gadget */
+-        assert!(ConfigFsGadget::delete("new-gadget").is_ok());
++        assert!(ConfigFsGadget::delete(&SysRoot::default(), "new-gadget").is_ok());
+     }
+ 
+     #[test]
+     #[ignore = "Requires libcomposite kernel module, use ./scripts/run-tests"]
+     fn load_gadget() {
+         /* Delete gadget in case it exists */
+-        let _ = ConfigFsGadget::delete("load-gadget");
++        let _ = ConfigFsGadget::delete(&SysRoot::default(), "load-gadget");
+ 
+         /* Create gadget */
+         let _ = ConfigFsGadget::create(
++            &SysRoot::default(),
+             "load-gadget",
+             0x123,
+             0x456,
+@@ -527,12 +527,12 @@ mod tests {
+         );
+ 
+         /* Load gadget */
+-        let result = ConfigFsGadget::load("load-gadget");
++        let result = ConfigFsGadget::load(&SysRoot::default(), "load-gadget");
+         assert!(result.is_ok());
+         assert_eq!(result.unwrap().name, "load-gadget");
+ 
+         /* Delete gadget */
+-        assert!(ConfigFsGadget::delete("load-gadget").is_ok());
++        assert!(ConfigFsGadget::delete(&SysRoot::default(), "load-gadget").is_ok());
+     }
+ 
+     #[test]
+@@ -540,6 +540,7 @@ mod tests {
+     fn delete_gadget() {
+         /* Create gadget */
+         let _ = ConfigFsGadget::create(
++            &SysRoot::default(),
+             "delete-gadget",
+             0x123,
+             0x456,
+@@ -551,6 +552,6 @@ mod tests {
+         );
+ 
+         /* Delete gadget */
+-        assert!(ConfigFsGadget::delete("delete-gadget").is_ok());
++        assert!(ConfigFsGadget::delete(&SysRoot::default(), "delete-gadget").is_ok());
+     }
+ }
+diff --git a/src/main.rs b/src/main.rs
+index a91148a..69235bd 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -27,6 +27,7 @@ use tokio::signal::unix::{SignalKind, signal};
+ use tokio::task::LocalSet;
+ use zbus::object_server::SignalEmitter;
+ 
++mod configfs;
+ mod configuration;
+ mod dbus;
+ mod gadget;
+@@ -34,6 +35,7 @@ mod monitor;
+ mod policy;
+ mod service;
+ mod sysfs;
++mod sysroot;
+ mod udc;
+ mod urs;
+ mod utils;
+@@ -41,6 +43,7 @@ mod utils;
+ use crate::configuration::Configuration;
+ use crate::dbus::{Daemon, UsbModedDBus, create_usbmoded_connection};
+ use crate::monitor::monitor_usb_events;
++use crate::sysroot::SysRoot;
+ use crate::udc::{UDC, discover_udcs};
+ use crate::urs::{URS, discover_urss};
+ 
+@@ -86,14 +89,15 @@ async fn main() -> Result<()> {
+     /* Configuration is read once, every consumer shares this snapshot */
+     let config = Arc::new(Configuration::load());
+ 
++    let sys = SysRoot::default();
+     let mut has_hardware: bool = false;
+ 
+     println!("ℹ️  Pre-flight checks");
+ 
+     /* USB Role Switcher hardware detection */
+     println!("🔍 Discovering URSs");
+-    for name in &discover_urss() {
+-        if let Ok(urs) = URS::load(name) {
++    for name in &discover_urss(&sys) {
++        if let Ok(urs) = URS::load(&sys, name) {
+             println!(" - Name: {}", urs.name);
+             println!("   Role: {:?}", urs.role);
+             if let Some(udc) = urs.udc {
+@@ -106,8 +110,8 @@ async fn main() -> Result<()> {
+ 
+     /* USB Device Controller hardware detection */
+     println!("🔍 Discovering UDCs");
+-    for name in &discover_udcs() {
+-        let udc = UDC::load(name)?;
++    for name in &discover_udcs(&sys) {
++        let udc = UDC::load(&sys, name)?;
+         println!(" - Name: {}", udc.name);
+         println!("   Enabled: {}", udc.enabled);
+         println!("   Mode: {:?}", udc.mode);
+@@ -148,7 +152,7 @@ async fn main() -> Result<()> {
+ 
+     println!("ℹ️  Running DBus server");
+     /* Create DBus server */
+-    let daemon = Daemon::new(config.clone());
++    let daemon = Daemon::new(config.clone(), sys);
+     let connection = create_usbmoded_connection(daemon.clone()).await?;
+     /* Startup and shutdown go through the same instance, and lock, as D-Bus calls */
+     let dbus = UsbModedDBus::new(daemon);
+diff --git a/src/sysroot.rs b/src/sysroot.rs
+new file mode 100644
+index 0000000..fb44946
+--- /dev/null
++++ b/src/sysroot.rs
+@@ -0,0 +1,224 @@
++/*
++ * usb-signaller: replacement for usb-moded on mainline Linux Mobile devices
++ * Copyright (C) 2026 Dylan Van Assche
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published
++ * by the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program. If not, see <https://www.gnu.org/licenses/>.
++ */
++
++use std::path::PathBuf;
++
++const USB_GADGET_PATH: &str = "usb_gadget";
++const CLASS_PATH: &str = "class";
++const DEVICE_TREE_PATH: &str = "device-tree";
++const PROC_SYS_PATH: &str = "sys";
++
++/*
++ * Where the kernel interfaces usb-signaller uses are mounted. Tests point
++ * these at a directory tree instead of the running system.
++ */
++#[derive(Debug, Clone, PartialEq)]
++pub struct SysRoot {
++    /* configfs, normally /sys/kernel/config */
++    pub configfs: PathBuf,
++    /* sysfs, normally /sys */
++    pub sysfs: PathBuf,
++    /* procfs, normally /proc */
++    pub proc: PathBuf,
++}
++
++impl Default for SysRoot {
++    fn default() -> Self {
++        return Self {
++            configfs: PathBuf::from("/sys/kernel/config"),
++            sysfs: PathBuf::from("/sys"),
++            proc: PathBuf::from("/proc"),
++        };
++    }
++}
++
++impl SysRoot {
++    /* The usual layout below another root directory, for example a test fixture */
++    #[cfg(test)]
++    pub fn under(root: &std::path::Path) -> Self {
++        return Self {
++            configfs: root.join("sys/kernel/config"),
++            sysfs: root.join("sys"),
++            proc: root.join("proc"),
++        };
++    }
++
++    /* <configfs>/usb_gadget */
++    pub fn usb_gadget(&self) -> PathBuf {
++        return self.configfs.join(USB_GADGET_PATH);
++    }
++
++    /* <configfs>/usb_gadget/<gadget> */
++    pub fn gadget(&self, gadget: &str) -> PathBuf {
++        return self.usb_gadget().join(gadget);
++    }
++
++    /* <sysfs>/class/<class> */
++    pub fn class(&self, class: &str) -> PathBuf {
++        return self.sysfs.join(CLASS_PATH).join(class);
++    }
++
++    /* <proc>/device-tree */
++    pub fn device_tree(&self) -> PathBuf {
++        return self.proc.join(DEVICE_TREE_PATH);
++    }
++
++    /* <proc>/sys */
++    pub fn proc_sys(&self) -> PathBuf {
++        return self.proc.join(PROC_SYS_PATH);
++    }
++}
++
++/*
++ * Test helper: a sysfs, configfs and procfs tree in a temporary directory.
++ * Plain files and directories cannot enforce configfs rules (see
++ * configfs::fake for that); this is for code that reads the tree.
++ */
++#[cfg(test)]
++pub mod fixture {
++    use super::SysRoot;
++    use crate::configuration::testing::TempRoot;
++    use std::fs;
++
++    pub struct SysFixture {
++        pub root: TempRoot,
++        pub sys: SysRoot,
++    }
++
++    impl SysFixture {
++        pub fn new(name: &str) -> Self {
++            let root = TempRoot::new(name);
++            let sys = SysRoot::under(&root.path);
++            fs::create_dir_all(sys.configfs.join("usb_gadget")).unwrap();
++            let fixture = Self { root, sys };
++            fixture.set_ip_forward(false);
++            return fixture;
++        }
++
++        fn write(&self, relative: &str, contents: &str) {
++            self.root.write(relative, contents);
++        }
++
++        /* /sys/class/udc/<udc> with its state and bound gadget driver ('function') */
++        pub fn add_udc(&self, udc: &str, state: &str, function: Option<&str>) {
++            self.write(&format!("sys/class/udc/{udc}/state"), &format!("{state}\n"));
++            if let Some(function) = function {
++                self.write(
++                    &format!("sys/class/udc/{udc}/function"),
++                    &format!("{function}\n"),
++                );
++            }
++        }
++
++        /*
++         * usb_gadget/<gadget> with IDs, strings (unless 'strings' is false),
++         * the given function directories and configs/c.1 linking 'linked'.
++         */
++        pub fn add_gadget(
++            &self,
++            gadget: &str,
++            udc: &str,
++            strings: bool,
++            functions: &[&str],
++            linked: &[&str],
++        ) {
++            let base = self.sys.gadget(gadget);
++            let relative = format!("sys/kernel/config/usb_gadget/{gadget}");
++            self.write(&format!("{relative}/UDC"), &format!("{udc}\n"));
++            self.write(&format!("{relative}/idVendor"), "0xdead\n");
++            self.write(&format!("{relative}/idProduct"), "0xbeef\n");
++            if strings {
++                self.write(&format!("{relative}/strings/0x409/manufacturer"), "m\n");
++                self.write(&format!("{relative}/strings/0x409/product"), "p\n");
++                self.write(&format!("{relative}/strings/0x409/serialnumber"), "s\n");
++                self.write(
++                    &format!("{relative}/configs/c.1/strings/0x409/configuration"),
++                    "c\n",
++                );
++            }
++            fs::create_dir_all(base.join("configs/c.1")).unwrap();
++            for function in functions {
++                fs::create_dir_all(base.join("functions").join(function)).unwrap();
++            }
++            for function in linked {
++                std::os::unix::fs::symlink(
++                    base.join("functions").join(function),
++                    base.join("configs/c.1").join(function),
++                )
++                .unwrap();
++            }
++        }
++
++        pub fn set_ip_forward(&self, forward: bool) {
++            self.write(
++                "proc/sys/net/ipv4/ip_forward",
++                if forward { "1\n" } else { "0\n" },
++            );
++        }
++
++        pub fn set_compatible(&self, compatible: &str) {
++            self.write("proc/device-tree/compatible", compatible);
++        }
++
++        /* /sys/class/usb_role/<switch>/role */
++        pub fn add_role_switch(&self, switch: &str, role: &str) {
++            self.write(&format!("sys/class/usb_role/{switch}/role"), role);
++        }
++
++        pub fn read(&self, relative: &str) -> String {
++            return fs::read_to_string(self.root.path.join(relative)).unwrap();
++        }
++
++        pub fn exists(&self, relative: &str) -> bool {
++            return self.root.path.join(relative).exists();
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::path::Path;
++
++    #[test]
++    fn default_is_the_running_system() {
++        let sys = SysRoot::default();
++        assert_eq!(
++            sys.gadget("g1"),
++            PathBuf::from("/sys/kernel/config/usb_gadget/g1")
++        );
++        assert_eq!(sys.class("udc"), PathBuf::from("/sys/class/udc"));
++        assert_eq!(sys.device_tree(), PathBuf::from("/proc/device-tree"));
++        assert_eq!(sys.proc_sys(), PathBuf::from("/proc/sys"));
++    }
++
++    #[test]
++    fn under_moves_every_root() {
++        let sys = SysRoot::under(Path::new("/tmp/x"));
++        assert_eq!(sys, SysRoot::under(Path::new("/tmp/x")));
++        assert_eq!(
++            sys.usb_gadget(),
++            PathBuf::from("/tmp/x/sys/kernel/config/usb_gadget")
++        );
++        assert_eq!(
++            sys.class("usb_role"),
++            PathBuf::from("/tmp/x/sys/class/usb_role")
++        );
++        assert_eq!(sys.proc_sys(), PathBuf::from("/tmp/x/proc/sys"));
++    }
++}
+diff --git a/src/udc.rs b/src/udc.rs
+index d5f2930..38578ec 100644
+--- a/src/udc.rs
++++ b/src/udc.rs
+@@ -22,22 +22,19 @@ use crate::gadget::discover_gadgets;
+ use crate::policy::check_replaceable;
+ use crate::service::{service_start, service_stop};
+ use crate::sysfs::{sysfs_mount_functionfs, sysfs_read, sysfs_umount_functionfs, sysfs_write};
++use crate::sysroot::SysRoot;
+ use crate::utils::dir_entries;
+ use std::path::PathBuf;
+ 
+-const DEVICE_TREE_BASE_PATH: &str = "/proc/device-tree";
+-const SYSFS_CLASS_BASE_PATH: &str = "/sys/class";
+-const SYSFS_PROC_BASE_PATH: &str = "/proc/sys";
+ const NET_PATH: &str = "net";
+ const IPV4_PATH: &str = "ipv4";
+ const FORWARD_NODE: &str = "ip_forward";
+ const UDC_PATH: &str = "udc";
+ const STATE_NODE: &str = "state";
+ const FUNCTION_NODE: &str = "function";
+-const CONFIGFS_BASE_PATH: &str = "/sys/kernel/config";
+-const USB_GADGET_PATH: &str = "usb_gadget";
+ const GADGET_UDC_NODE: &str = "UDC";
+ const COMPATIBLE_NODE: &str = "compatible";
++const DEFAULT_SERIALNUMBER: &str = "usb-signaller";
+ 
+ #[derive(Debug)]
+ pub struct UDC {
+@@ -62,10 +59,10 @@ pub enum UDCMode {
+     Unknown,
+ }
+ 
+-pub fn discover_udcs() -> Vec<String> {
++pub fn discover_udcs(sys: &SysRoot) -> Vec<String> {
+     let mut udcs: Vec<String> = vec![];
+ 
+-    for entry in dir_entries(PathBuf::from(SYSFS_CLASS_BASE_PATH).join(UDC_PATH)) {
++    for entry in dir_entries(sys.class(UDC_PATH)) {
+         udcs.push(entry);
+     }
+ 
+@@ -78,10 +75,10 @@ impl UDC {
+         return PathBuf::from("/dev/nbd0").exists();
+     }
+ 
+-    fn detect_tethering_mode() -> anyhow::Result<bool> {
++    fn detect_tethering_mode(sys: &SysRoot) -> anyhow::Result<bool> {
+         /* Tethering mode enables IP forwarding */
+         let state = sysfs_read(
+-            PathBuf::from(SYSFS_PROC_BASE_PATH)
++            sys.proc_sys()
+                 .join(NET_PATH)
+                 .join(IPV4_PATH)
+                 .join(FORWARD_NODE),
+@@ -95,13 +92,8 @@ impl UDC {
+         unreachable!("IP forwarding state is either 0 or 1");
+     }
+ 
+-    fn is_enabled(udc_name: &str) -> anyhow::Result<bool> {
+-        let state = sysfs_read(
+-            PathBuf::from(SYSFS_CLASS_BASE_PATH)
+-                .join(UDC_PATH)
+-                .join(udc_name)
+-                .join(STATE_NODE),
+-        )?;
++    fn is_enabled(sys: &SysRoot, udc_name: &str) -> anyhow::Result<bool> {
++        let state = sysfs_read(sys.class(UDC_PATH).join(udc_name).join(STATE_NODE))?;
+         if state == "attached" || state == "not attached" {
+             return Ok(false);
+         } else {
+@@ -109,7 +101,27 @@ impl UDC {
+         }
+     }
+ 
+-    pub fn set_mode(udc: Self, mode: UDCMode, config: &Configuration) -> anyhow::Result<Self> {
++    /*
++     * Serial number for usb-signaller's own gadgets: the first device tree
++     * 'compatible' entry, or a fixed string on systems without a device tree.
++     */
++    fn serial_number(sys: &SysRoot) -> String {
++        if let Ok(compatible) = sysfs_read(sys.device_tree().join(COMPATIBLE_NODE))
++            && let Some(first) = compatible.split('\0').find(|entry| !entry.is_empty())
++        {
++            return first.to_string();
++        }
++
++        println!("ℹ️  No device tree compatible found, using serial number {DEFAULT_SERIALNUMBER}");
++        return DEFAULT_SERIALNUMBER.to_string();
++    }
++
++    pub fn set_mode(
++        sys: &SysRoot,
++        udc: Self,
++        mode: UDCMode,
++        config: &Configuration,
++    ) -> anyhow::Result<Self> {
+         println!(
+             "Setting mode of UDC {} from {:?} to {:?}",
+             udc.name, udc.mode, mode
+@@ -126,7 +138,7 @@ impl UDC {
+                 "⚠️  Already in requested mode: {:?}, ignoring request",
+                 udc.mode
+             );
+-            let new_udc = UDC::load(&udc.name)?;
++            let new_udc = UDC::load(sys, &udc.name)?;
+             return Ok(new_udc);
+         }
+ 
+@@ -151,12 +163,7 @@ impl UDC {
+         /* Prepare mode switch by creating new gadget with all configuration */
+         println!("Preparing gadget mode switch");
+         let name;
+-        let binding = sysfs_read(PathBuf::from(DEVICE_TREE_BASE_PATH).join(COMPATIBLE_NODE))?;
+-        let serialnumber = binding
+-            .split("\0")
+-            .collect::<Vec<&str>>()
+-            .first()
+-            .map_or("usb-signaller", |v| v);
++        let serialnumber = Self::serial_number(sys);
+         let vendor;
+         let product;
+         let id_vendor;
+@@ -226,11 +233,11 @@ impl UDC {
+                     }
+ 
+                     /* Gadget */
+-                    let _ = ConfigFsGadget::disable(gadget.as_str());
+-                    ConfigFsGadget::delete(gadget.as_str())?;
++                    let _ = ConfigFsGadget::disable(sys, gadget.as_str());
++                    ConfigFsGadget::delete(sys, gadget.as_str())?;
+                 }
+ 
+-                return UDC::load(&udc.name);
++                return UDC::load(sys, &udc.name);
+             }
+             /* Mass storage (disk) and CD-ROM share the same mass_storage
+              * gadget, like Developer and Tethering share the NCM gadget; they
+@@ -258,12 +265,13 @@ impl UDC {
+         /* Create new gadget with new configuration */
+         println!("Creating new gadget with requested configuration");
+         let new_gadget = ConfigFsGadget::create(
++            sys,
+             name,
+             id_vendor,
+             id_product,
+             vendor,
+             product,
+-            serialnumber,
++            &serialnumber,
+             default_function,
+             configuration_description,
+         )?;
+@@ -293,13 +301,13 @@ impl UDC {
+             }
+ 
+             /* Disable gadget, if necessary */
+-            let _ = ConfigFsGadget::disable(gadget.as_str());
++            let _ = ConfigFsGadget::disable(sys, gadget.as_str());
+         }
+ 
+         /* If we get to this point, the new gadget is activated, remove the old gadget */
+         if let Some(gadget) = udc.bound_gadget {
+             println!("Removing old gadget: {gadget}");
+-            ConfigFsGadget::delete(gadget.as_str())?;
++            ConfigFsGadget::delete(sys, gadget.as_str())?;
+         }
+ 
+         /* Launch userspace services needed for gadget */
+@@ -307,15 +315,15 @@ impl UDC {
+         match mode {
+             UDCMode::Developer => {
+                 /* Enable gadget first */
+-                match ConfigFsGadget::enable(new_gadget.name.as_str(), &udc.name) {
++                match ConfigFsGadget::enable(sys, new_gadget.name.as_str(), &udc.name) {
+                     Ok(()) => println!("Gadget enabled: {}", new_gadget.name),
+                     Err(error) => {
+                         eprintln!(
+                             "❌ Failed to enable gadget: {} ({:?})",
+                             new_gadget.name, error
+                         );
+-                        let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+-                        ConfigFsGadget::delete(new_gadget.name.as_str())?;
++                        let _ = ConfigFsGadget::disable(sys, new_gadget.name.as_str());
++                        ConfigFsGadget::delete(sys, new_gadget.name.as_str())?;
+                         return Err(anyhow::anyhow!(
+                             "Failed to enable gadget {}: {error:?}",
+                             new_gadget.name
+@@ -328,8 +336,8 @@ impl UDC {
+                     println!("Gadget userspace service started: {}", new_gadget.name);
+                 } else {
+                     eprintln!("❌ Failed to start userspace service: {}", new_gadget.name);
+-                    let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+-                    ConfigFsGadget::delete(new_gadget.name.as_str())?;
++                    let _ = ConfigFsGadget::disable(sys, new_gadget.name.as_str());
++                    ConfigFsGadget::delete(sys, new_gadget.name.as_str())?;
+                     return Err(anyhow::anyhow!(
+                         "Failed to start userspace service usb-signaller-developer-mode for gadget {}",
+                         new_gadget.name
+@@ -338,15 +346,15 @@ impl UDC {
+             }
+             UDCMode::Tethering => {
+                 /* Enable gadget first */
+-                match ConfigFsGadget::enable(new_gadget.name.as_str(), &udc.name) {
++                match ConfigFsGadget::enable(sys, new_gadget.name.as_str(), &udc.name) {
+                     Ok(()) => println!("Gadget enabled: {}", new_gadget.name),
+                     Err(error) => {
+                         eprintln!(
+                             "❌ Failed to enable gadget: {} ({:?})",
+                             new_gadget.name, error
+                         );
+-                        let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+-                        ConfigFsGadget::delete(new_gadget.name.as_str())?;
++                        let _ = ConfigFsGadget::disable(sys, new_gadget.name.as_str());
++                        ConfigFsGadget::delete(sys, new_gadget.name.as_str())?;
+                         return Err(anyhow::anyhow!(
+                             "Failed to enable gadget {}: {error:?}",
+                             new_gadget.name
+@@ -359,8 +367,8 @@ impl UDC {
+                     println!("Gadget userspace service started: {}", new_gadget.name);
+                 } else {
+                     eprintln!("❌ Failed to start userspace service: {}", new_gadget.name);
+-                    let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+-                    ConfigFsGadget::delete(new_gadget.name.as_str())?;
++                    let _ = ConfigFsGadget::disable(sys, new_gadget.name.as_str());
++                    ConfigFsGadget::delete(sys, new_gadget.name.as_str())?;
+                     return Err(anyhow::anyhow!(
+                         "Failed to start userspace service usb-signaller-tethering-mode for gadget {}",
+                         new_gadget.name
+@@ -373,8 +381,8 @@ impl UDC {
+                     println!("Gadget FunctionFS mounted: {}", new_gadget.name);
+                 } else {
+                     eprintln!("❌ Failed to mount gadget FunctionFS: {}", new_gadget.name);
+-                    let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+-                    ConfigFsGadget::delete(new_gadget.name.as_str())?;
++                    let _ = ConfigFsGadget::disable(sys, new_gadget.name.as_str());
++                    ConfigFsGadget::delete(sys, new_gadget.name.as_str())?;
+                     return Err(anyhow::anyhow!(
+                         "Failed to mount FunctionFS at /dev/mtp for gadget {}",
+                         new_gadget.name
+@@ -386,8 +394,8 @@ impl UDC {
+                     println!("Gadget userspace service started: {}", new_gadget.name);
+                 } else {
+                     eprintln!("❌ Failed to start userspace service: {}", new_gadget.name);
+-                    let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+-                    ConfigFsGadget::delete(new_gadget.name.as_str())?;
++                    let _ = ConfigFsGadget::disable(sys, new_gadget.name.as_str());
++                    ConfigFsGadget::delete(sys, new_gadget.name.as_str())?;
+                     return Err(anyhow::anyhow!(
+                         "Failed to start userspace service usb-signaller-mtp-mode for gadget {}",
+                         new_gadget.name
+@@ -395,7 +403,7 @@ impl UDC {
+                 }
+ 
+                 /* Enable gadget now */
+-                match ConfigFsGadget::enable(new_gadget.name.as_str(), &udc.name) {
++                match ConfigFsGadget::enable(sys, new_gadget.name.as_str(), &udc.name) {
+                     Ok(()) => println!("Gadget enabled: {}", new_gadget.name),
+                     Err(error) => {
+                         eprintln!(
+@@ -409,8 +417,8 @@ impl UDC {
+                         let _ = sysfs_umount_functionfs("/dev/mtp");
+ 
+                         /* Remove new gadget */
+-                        let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+-                        ConfigFsGadget::delete(new_gadget.name.as_str())?;
++                        let _ = ConfigFsGadget::disable(sys, new_gadget.name.as_str());
++                        ConfigFsGadget::delete(sys, new_gadget.name.as_str())?;
+                         return Err(anyhow::anyhow!(
+                             "Failed to enable gadget {}: {error:?}",
+                             new_gadget.name
+@@ -427,9 +435,8 @@ impl UDC {
+                  */
+                 let image = config.storage_path()?;
+                 let cdrom = mode == UDCMode::CdRom;
+-                let lun = PathBuf::from("/sys/kernel/config")
+-                    .join("usb_gadget")
+-                    .join(new_gadget.name.as_str())
++                let lun = sys
++                    .gadget(new_gadget.name.as_str())
+                     .join("functions")
+                     .join("mass_storage.0")
+                     .join("lun.0");
+@@ -445,20 +452,20 @@ impl UDC {
+ 
+                 if let Err(error) = configure() {
+                     eprintln!("Failed to configure mass storage LUN: {error:?}");
+-                    let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+-                    ConfigFsGadget::delete(new_gadget.name.as_str())?;
++                    let _ = ConfigFsGadget::disable(sys, new_gadget.name.as_str());
++                    ConfigFsGadget::delete(sys, new_gadget.name.as_str())?;
+                     return Err(anyhow::anyhow!(
+                         "Failed to configure mass storage LUN: {error:?}"
+                     ));
+                 }
+ 
+                 /* Enable gadget */
+-                match ConfigFsGadget::enable(new_gadget.name.as_str(), &udc.name) {
++                match ConfigFsGadget::enable(sys, new_gadget.name.as_str(), &udc.name) {
+                     Ok(()) => println!("Gadget enabled: {}", new_gadget.name),
+                     Err(error) => {
+                         eprintln!("Failed to enable gadget: {} ({:?})", new_gadget.name, error);
+-                        let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+-                        ConfigFsGadget::delete(new_gadget.name.as_str())?;
++                        let _ = ConfigFsGadget::disable(sys, new_gadget.name.as_str());
++                        ConfigFsGadget::delete(sys, new_gadget.name.as_str())?;
+                         return Err(anyhow::anyhow!(
+                             "Failed to enable gadget {}: {error:?}",
+                             new_gadget.name
+@@ -472,7 +479,7 @@ impl UDC {
+         }
+ 
+         /* Update UDC structure */
+-        let new_udc = UDC::load(&udc.name)?;
++        let new_udc = UDC::load(sys, &udc.name)?;
+ 
+         return Ok(new_udc);
+     }
+@@ -483,32 +490,19 @@ impl UDC {
+      * the gadget directory name. Fall back to scanning every gadget's UDC
+      * attribute, skipping gadgets that cannot be read.
+      */
+-    pub fn bound_gadget_name(udc_name: &str) -> Option<String> {
+-        if let Ok(function) = sysfs_read(
+-            PathBuf::from(SYSFS_CLASS_BASE_PATH)
+-                .join(UDC_PATH)
+-                .join(udc_name)
+-                .join(FUNCTION_NODE),
+-        ) {
++    pub fn bound_gadget_name(sys: &SysRoot, udc_name: &str) -> Option<String> {
++        if let Ok(function) = sysfs_read(sys.class(UDC_PATH).join(udc_name).join(FUNCTION_NODE)) {
+             if function.is_empty() {
+                 return None;
+             }
+-            if PathBuf::from(CONFIGFS_BASE_PATH)
+-                .join(USB_GADGET_PATH)
+-                .join(&function)
+-                .is_dir()
+-            {
++            if sys.gadget(&function).is_dir() {
+                 return Some(function);
+             }
+         }
+ 
+-        for gadget in discover_gadgets() {
+-            if let Ok(udc) = sysfs_read(
+-                PathBuf::from(CONFIGFS_BASE_PATH)
+-                    .join(USB_GADGET_PATH)
+-                    .join(&gadget)
+-                    .join(GADGET_UDC_NODE),
+-            ) && udc == udc_name
++        for gadget in discover_gadgets(sys) {
++            if let Ok(udc) = sysfs_read(sys.gadget(&gadget).join(GADGET_UDC_NODE))
++                && udc == udc_name
+             {
+                 return Some(gadget);
+             }
+@@ -518,11 +512,11 @@ impl UDC {
+     }
+ 
+     /* (UDC, gadget) for every UDC that has a configfs gadget bound */
+-    pub fn bound_gadgets() -> Vec<(String, String)> {
++    pub fn bound_gadgets(sys: &SysRoot) -> Vec<(String, String)> {
+         let mut bound = vec![];
+ 
+-        for udc in discover_udcs() {
+-            if let Some(gadget) = Self::bound_gadget_name(&udc) {
++        for udc in discover_udcs(sys) {
++            if let Some(gadget) = Self::bound_gadget_name(sys, &udc) {
+                 bound.push((udc, gadget));
+             }
+         }
+@@ -531,7 +525,7 @@ impl UDC {
+     }
+ 
+     /* Mode of an enabled gadget, from the first function linked in its first configuration */
+-    fn detect_mode(gadget: &ConfigFsGadget) -> anyhow::Result<UDCMode> {
++    fn detect_mode(sys: &SysRoot, gadget: &ConfigFsGadget) -> anyhow::Result<UDCMode> {
+         let Some(function) = gadget
+             .configs
+             .first()
+@@ -547,7 +541,7 @@ impl UDC {
+         /* USB Ethernet NCM gadget */
+         if function.name.starts_with("ncm.") {
+             /* Tethering mode allows IP forwarding such as using mobile data */
+-            if Self::detect_tethering_mode()? {
++            if Self::detect_tethering_mode(sys)? {
+                 return Ok(UDCMode::Tethering);
+             /* Netboot enforces the USB port into an readonly state */
+             } else if Self::detect_netboot_mode() {
+@@ -565,9 +559,7 @@ impl UDC {
+          * the LUN 'cdrom' flag, not by any kept state. */
+         } else if function.name.starts_with("mass_storage.") {
+             let cdrom = sysfs_read(
+-                PathBuf::from(CONFIGFS_BASE_PATH)
+-                    .join(USB_GADGET_PATH)
+-                    .join(&gadget.name)
++                sys.gadget(&gadget.name)
+                     .join("functions")
+                     .join(&function.name)
+                     .join("lun.0")
+@@ -588,17 +580,17 @@ impl UDC {
+         return Ok(UDCMode::Unknown);
+     }
+ 
+-    pub fn load(udc_name: &str) -> anyhow::Result<Self> {
++    pub fn load(sys: &SysRoot, udc_name: &str) -> anyhow::Result<Self> {
+         let mut mode = UDCMode::Charging;
+         let mut gadget = None;
+ 
+         /* UDC is enabled when not 'attached' or 'not attached', for example: 'configured' */
+-        let enabled = Self::is_enabled(udc_name)?;
++        let enabled = Self::is_enabled(sys, udc_name)?;
+ 
+         /* Find the gadget bound to the UDC; a gadget that cannot be parsed is still bound */
+-        let bound_gadget = Self::bound_gadget_name(udc_name);
++        let bound_gadget = Self::bound_gadget_name(sys, udc_name);
+         if let Some(name) = &bound_gadget {
+-            match ConfigFsGadget::load(name) {
++            match ConfigFsGadget::load(sys, name) {
+                 Ok(entry) => {
+                     if entry.udc != udc_name {
+                         eprintln!(
+@@ -607,7 +599,7 @@ impl UDC {
+                         );
+                     }
+                     if entry.enabled {
+-                        mode = Self::detect_mode(&entry)?;
++                        mode = Self::detect_mode(sys, &entry)?;
+                     }
+                     gadget = Some(entry);
+                 }
+@@ -631,12 +623,171 @@ impl UDC {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    use crate::configuration::testing::TempRoot;
++    use crate::sysroot::fixture::SysFixture;
++
++    fn config(contents: &str) -> Configuration {
++        let root = TempRoot::new("udc-config");
++        root.write("etc/usb-signaller/usb-signaller.toml", contents);
++        return Configuration::load_with_root(Some(&root.path));
++    }
++
++    #[test]
++    fn load_finds_the_bound_gadget_through_the_function_attribute() {
++        let fixture = SysFixture::new("udc-function");
++        fixture.add_udc("udc0", "configured", Some("smoo"));
++        fixture.add_gadget(
++            "usb-signaller-developer",
++            "",
++            true,
++            &["ncm.usb0"],
++            &["ncm.usb0"],
++        );
++        fixture.add_gadget(
++            "smoo",
++            "udc0",
++            true,
++            &["ffs.smoo", "ncm.usb0"],
++            &["ffs.smoo"],
++        );
++
++        let udc = UDC::load(&fixture.sys, "udc0").unwrap();
++        assert!(udc.enabled);
++        assert_eq!(udc.bound_gadget.as_deref(), Some("smoo"));
++        assert_eq!(udc.gadget.unwrap().name, "smoo");
++        /* ffs.smoo is not a mode function */
++        assert_eq!(udc.mode, UDCMode::Unknown);
++        assert_eq!(
++            UDC::bound_gadgets(&fixture.sys),
++            vec![("udc0".to_string(), "smoo".to_string())]
++        );
++    }
++
++    #[test]
++    fn load_tolerates_gadgets_it_cannot_parse() {
++        let fixture = SysFixture::new("udc-unparseable");
++        fixture.add_udc("udc0", "configured", Some("initrd"));
++        /* No strings at all: ConfigFsGadget::load fails */
++        fixture.add_gadget("initrd", "udc0", false, &["acm.GS0"], &["acm.GS0"]);
++        fixture.add_gadget("other", "", false, &[], &[]);
++
++        let udc = UDC::load(&fixture.sys, "udc0").unwrap();
++        assert_eq!(udc.bound_gadget.as_deref(), Some("initrd"));
++        assert!(udc.gadget.is_none());
++        assert_eq!(udc.mode, UDCMode::Unknown);
++    }
++
++    #[test]
++    fn load_does_not_index_a_gadget_without_linked_functions() {
++        let fixture = SysFixture::new("udc-no-link");
++        fixture.add_udc("udc0", "configured", Some("g1"));
++        fixture.add_gadget("g1", "udc0", true, &["acm.GS0"], &[]);
++
++        let udc = UDC::load(&fixture.sys, "udc0").unwrap();
++        assert_eq!(udc.mode, UDCMode::Unknown);
++        assert_eq!(udc.gadget.unwrap().configs[0].functions.len(), 0);
++    }
++
++    #[test]
++    fn load_falls_back_to_scanning_gadgets() {
++        let fixture = SysFixture::new("udc-scan");
++        /* No 'function' attribute */
++        fixture.add_udc("udc0", "configured", None);
++        fixture.add_gadget("broken", "", false, &[], &[]);
++        fixture.add_gadget(
++            "usb-signaller-tethering",
++            "udc0",
++            true,
++            &["ncm.usb0"],
++            &["ncm.usb0"],
++        );
++        fixture.set_ip_forward(true);
++
++        let udc = UDC::load(&fixture.sys, "udc0").unwrap();
++        assert_eq!(udc.bound_gadget.as_deref(), Some("usb-signaller-tethering"));
++        assert_eq!(udc.mode, UDCMode::Tethering);
++    }
++
++    #[test]
++    fn load_without_a_bound_gadget_is_charging() {
++        let fixture = SysFixture::new("udc-free");
++        fixture.add_udc("udc0", "not attached", Some(""));
++        fixture.add_gadget("g1", "", true, &["acm.GS0"], &["acm.GS0"]);
++
++        let udc = UDC::load(&fixture.sys, "udc0").unwrap();
++        assert!(!udc.enabled);
++        assert_eq!(udc.bound_gadget, None);
++        assert_eq!(udc.mode, UDCMode::Charging);
++        assert!(UDC::bound_gadgets(&fixture.sys).is_empty());
++    }
++
++    fn assert_refused(config: &Configuration, class: &str) {
++        let fixture = SysFixture::new("udc-refuse");
++        fixture.add_udc("udc0", "configured", Some("smoo"));
++        fixture.add_gadget("smoo", "udc0", true, &["ffs.smoo"], &["ffs.smoo"]);
++
++        for mode in [UDCMode::Developer, UDCMode::Charging, UDCMode::Unknown] {
++            let udc = UDC::load(&fixture.sys, "udc0").unwrap();
++            let error = UDC::set_mode(&fixture.sys, udc, mode, config).unwrap_err();
++            assert_eq!(
++                error.to_string(),
++                format!("UDC udc0 is held by {class} gadget smoo; not replacing it")
++            );
++        }
++
++        /* Nothing was written */
++        assert!(!fixture.exists("sys/kernel/config/usb_gadget/usb-signaller-developer"));
++        assert_eq!(
++            fixture.read("sys/kernel/config/usb_gadget/smoo/UDC"),
++            "udc0\n"
++        );
++        assert!(fixture.exists("sys/kernel/config/usb_gadget/smoo/configs/c.1/ffs.smoo"));
++    }
++
++    #[test]
++    fn set_mode_never_replaces_a_declared_gadget() {
++        assert_refused(
++            &config("[gadget.smoo]\npinned_functions = [\"ffs.smoo\"]\n"),
++            "declared",
++        );
++    }
++
++    #[test]
++    fn set_mode_never_replaces_a_preserved_foreign_gadget() {
++        assert_refused(
++            &config("[main]\nforeign_gadgets = \"preserve\"\n"),
++            "foreign",
++        );
++    }
++
++    #[test]
++    fn set_mode_never_replaces_a_foreign_gadget_with_a_broken_configuration() {
++        let config = config("[gadget.smoo]\npinned_function = [\"ffs.smoo\"]\n");
++        assert!(config.is_broken());
++        assert_refused(&config, "foreign");
++    }
++
++    #[test]
++    fn serial_number_is_the_first_compatible_entry() {
++        let fixture = SysFixture::new("serial-dt");
++        fixture.set_compatible("google,sargo\0qcom,sdm670\0");
++        assert_eq!(UDC::serial_number(&fixture.sys), "google,sargo");
++    }
++
++    #[test]
++    fn serial_number_without_device_tree() {
++        let fixture = SysFixture::new("serial-no-dt");
++        assert_eq!(UDC::serial_number(&fixture.sys), DEFAULT_SERIALNUMBER);
++        fixture.set_compatible("");
++        assert_eq!(UDC::serial_number(&fixture.sys), DEFAULT_SERIALNUMBER);
++    }
+ 
+     #[test]
+     #[ignore = "Requires hardware with an UDC, use ./scripts/run-tests"]
+     fn load_udc() {
+-        let names = discover_udcs();
+-        let udc = UDC::load(names.first().unwrap());
++        let sys = SysRoot::default();
++        let names = discover_udcs(&sys);
++        let udc = UDC::load(&sys, names.first().unwrap());
+         assert!(udc.is_ok());
+     }
+ }
+diff --git a/src/urs.rs b/src/urs.rs
+index 7465a1b..b704838 100644
+--- a/src/urs.rs
++++ b/src/urs.rs
+@@ -19,13 +19,12 @@
+ use crate::configuration::is_owned_gadget;
+ use crate::gadget::{ConfigFsGadget, discover_gadgets};
+ use crate::sysfs::{sysfs_read, sysfs_write};
++use crate::sysroot::SysRoot;
+ use crate::udc::UDC;
+ use crate::utils::dir_entries;
+-use std::path::PathBuf;
+ use std::thread;
+ use std::time::Duration;
+ 
+-const SYSFS_CLASS_BASE_PATH: &str = "/sys/class";
+ const USB_ROLE_PATH: &str = "usb_role";
+ const DEVICE_PATH: &str = "device";
+ const ROLE_NODE: &str = "role";
+@@ -45,10 +44,10 @@ pub enum URSRole {
+     Unknown,
+ }
+ 
+-pub fn discover_urss() -> Vec<String> {
++pub fn discover_urss(sys: &SysRoot) -> Vec<String> {
+     let mut urss: Vec<String> = vec![];
+ 
+-    for entry in dir_entries(PathBuf::from(SYSFS_CLASS_BASE_PATH).join(USB_ROLE_PATH)) {
++    for entry in dir_entries(sys.class(USB_ROLE_PATH)) {
+         urss.push(entry);
+     }
+ 
+@@ -56,15 +55,10 @@ pub fn discover_urss() -> Vec<String> {
+ }
+ 
+ impl URS {
+-    fn wait_for_role(switch_name: &str, role: &str) -> anyhow::Result<()> {
++    fn wait_for_role(sys: &SysRoot, switch_name: &str, role: &str) -> anyhow::Result<()> {
+         for _n in 1..30 {
+             thread::sleep(Duration::from_millis(100));
+-            let value = sysfs_read(
+-                PathBuf::from(SYSFS_CLASS_BASE_PATH)
+-                    .join(USB_ROLE_PATH)
+-                    .join(switch_name)
+-                    .join(ROLE_NODE),
+-            )?;
++            let value = sysfs_read(sys.class(USB_ROLE_PATH).join(switch_name).join(ROLE_NODE))?;
+             if value == role {
+                 println!("Role activated: {role}");
+                 return Ok(());
+@@ -77,71 +71,61 @@ impl URS {
+     }
+ 
+     //pub fn set_role(role: &URSRole) -> anyhow::Result<Self> {
+-    pub fn set_role(role: &URSRole) -> anyhow::Result<Self> {
++    pub fn set_role(sys: &SysRoot, role: &URSRole) -> anyhow::Result<Self> {
+         println!("Setting USB role: {role:?}");
+ 
+-        for switch_name in dir_entries(PathBuf::from(SYSFS_CLASS_BASE_PATH).join(USB_ROLE_PATH)) {
++        for switch_name in dir_entries(sys.class(USB_ROLE_PATH)) {
+             /* Read current role */
+-            let current_role = sysfs_read(
+-                PathBuf::from(SYSFS_CLASS_BASE_PATH)
+-                    .join(USB_ROLE_PATH)
+-                    .join(&switch_name)
+-                    .join(ROLE_NODE),
+-            )?;
++            let current_role =
++                sysfs_read(sys.class(USB_ROLE_PATH).join(&switch_name).join(ROLE_NODE))?;
+             match current_role.as_str() {
+                 "host" => match role {
+                     URSRole::Host => {
+                         eprintln!("Already in host mode");
+-                        return URS::load(&switch_name);
++                        return URS::load(sys, &switch_name);
+                     }
+                     URSRole::Device | URSRole::Unknown => {
+                         println!("Switching from host to device role");
+                         sysfs_write(
+-                            PathBuf::from(SYSFS_CLASS_BASE_PATH)
+-                                .join(USB_ROLE_PATH)
+-                                .join(&switch_name)
+-                                .join(ROLE_NODE),
++                            sys.class(USB_ROLE_PATH).join(&switch_name).join(ROLE_NODE),
+                             "device",
+                         )?;
+-                        Self::wait_for_role(&switch_name, "device")?;
++                        Self::wait_for_role(sys, &switch_name, "device")?;
+ 
+-                        return URS::load(&switch_name);
++                        return URS::load(sys, &switch_name);
+                     }
+                 },
+                 "device" => match role {
+                     URSRole::Device => {
+                         eprintln!("Already in device mode");
+-                        return URS::load(&switch_name);
++                        return URS::load(sys, &switch_name);
+                     }
+                     URSRole::Host | URSRole::Unknown => {
+                         println!("Switching from device to host role");
+                         sysfs_write(
+-                            PathBuf::from(SYSFS_CLASS_BASE_PATH)
+-                                .join(USB_ROLE_PATH)
+-                                .join(&switch_name)
+-                                .join(ROLE_NODE),
++                            sys.class(USB_ROLE_PATH).join(&switch_name).join(ROLE_NODE),
+                             "host",
+                         )?;
+-                        Self::wait_for_role(&switch_name, "host")?;
++                        Self::wait_for_role(sys, &switch_name, "host")?;
+ 
+                         /*
+                          * Only remove gadgets usb-signaller created. A failure
+                          * to remove one must not leave the others behind.
+                          */
+                         println!("Cleaning up gadgets after switch to host role");
+-                        for gadget_name in discover_gadgets() {
++                        for gadget_name in discover_gadgets(sys) {
+                             if !is_owned_gadget(&gadget_name) {
+                                 println!(
+                                     "ℹ️  Leaving gadget {gadget_name} alone: not created by usb-signaller"
+                                 );
+                                 continue;
+                             }
+-                            if let Err(err) = ConfigFsGadget::delete(gadget_name.as_str()) {
++                            if let Err(err) = ConfigFsGadget::delete(sys, gadget_name.as_str()) {
+                                 eprintln!("❌ Failed to remove gadget {gadget_name}: {err:?}");
+                             }
+                         }
+ 
+-                        return URS::load(&switch_name);
++                        return URS::load(sys, &switch_name);
+                     }
+                 },
+                 _ => {
+@@ -149,23 +133,18 @@ impl URS {
+                 }
+             }
+ 
+-            return URS::load(&switch_name);
++            return URS::load(sys, &switch_name);
+         }
+ 
+         /* If no usb role switcher has been found for UDC, return false */
+         return Err(anyhow::anyhow!("No USB role switcher found!"));
+     }
+ 
+-    pub fn load(switcher_name: &str) -> anyhow::Result<Self> {
++    pub fn load(sys: &SysRoot, switcher_name: &str) -> anyhow::Result<Self> {
+         let mut udc: Option<UDC> = None;
+ 
+         /* Read current role */
+-        let value = sysfs_read(
+-            PathBuf::from(SYSFS_CLASS_BASE_PATH)
+-                .join(USB_ROLE_PATH)
+-                .join(switcher_name)
+-                .join(ROLE_NODE),
+-        )?;
++        let value = sysfs_read(sys.class(USB_ROLE_PATH).join(switcher_name).join(ROLE_NODE))?;
+         let role = match value.as_str() {
+             "device" => URSRole::Device,
+             "host" => URSRole::Host,
+@@ -176,13 +155,12 @@ impl URS {
+         /* Load UDC in Device role associated with USB Role Switcher, UHCs are not loaded since they are not devices on its own */
+         if role == URSRole::Device {
+             for entry in dir_entries(
+-                PathBuf::from(SYSFS_CLASS_BASE_PATH)
+-                    .join(USB_ROLE_PATH)
++                sys.class(USB_ROLE_PATH)
+                     .join(switcher_name)
+                     .join(DEVICE_PATH)
+                     .join(UDC_PATH),
+             ) {
+-                udc = UDC::load(&entry).ok();
++                udc = UDC::load(sys, &entry).ok();
+                 break;
+             }
+         }
+@@ -194,3 +172,27 @@ impl URS {
+         });
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::sysroot::fixture::SysFixture;
++
++    #[test]
++    fn host_role_cleanup_only_removes_owned_gadgets() {
++        let fixture = SysFixture::new("urs-host");
++        fixture.add_role_switch("switch0", "device");
++        fixture.add_gadget("smoo", "", true, &["ffs.smoo"], &["ffs.smoo"]);
++        /*
++         * On a plain directory tree removing these fails (their directories
++         * are not empty): the cleanup must carry on and still succeed.
++         */
++        fixture.add_gadget("usb-signaller-developer", "", true, &["ncm.usb0"], &[]);
++        fixture.add_gadget("usb-signaller-mtp", "", true, &["ffs.mtp"], &[]);
++
++        let urs = URS::set_role(&fixture.sys, &URSRole::Host).unwrap();
++        assert_eq!(urs.role, URSRole::Host);
++        assert!(fixture.exists("sys/kernel/config/usb_gadget/smoo/configs/c.1/ffs.smoo"));
++        assert!(fixture.exists("sys/kernel/config/usb_gadget/smoo/functions/ffs.smoo"));
++    }
++}
+-- 
+2.55.0
+
