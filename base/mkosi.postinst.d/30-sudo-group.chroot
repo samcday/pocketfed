@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euxo pipefail
+
+# Ignition creates users from the initrd with `useradd --root /sysroot`,
+# before systemd-sysusers runs on the device, so groups that FCOS-style
+# configs name must already be in the image's /etc/group.
+systemd-sysusers /usr/lib/sysusers.d/pocketfed-sudo.conf
+grep -Eq '^sudo:x:16:' /etc/group
+
+chmod 0440 /etc/sudoers.d/pocketfed-sudo-group
+visudo -c

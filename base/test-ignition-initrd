@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Build an Ignition provisioning initrd inside a device image and compare it
+# with a normal one built the same way. Run inside the image, e.g.
+#   podman run --rm -i IMAGE /usr/bin/bash < base/test-ignition-initrd
+#
+# The shipped initramfs must not contain Ignition, and requesting
+# pocketfed-ignition must add that module alone: no qemu, network or other
+# dependency chain.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+fail() {
+    echo "test-ignition-initrd: $*" >&2
+    exit 1
+}
+
+set -- /usr/lib/modules/*
+[[ $# -eq 1 && -d $1 ]] || fail "expected exactly one kernel in /usr/lib/modules"
+kver=${1##*/}
+shipped=$1/initramfs.img
+[[ -f $shipped ]] || fail "missing $shipped"
+dracut_modules() {
+    lsinitrd -m "$1" | sed '1,/^dracut modules:$/d' | grep -Ev '^(=+)?$' | sort -u
+}
+
+if dracut_modules "$shipped" | grep -Fxq pocketfed-ignition; then
+    fail "the shipped initramfs contains pocketfed-ignition"
+fi
+
+work=$(mktemp -d /tmp/test-ignition-initrd.XXXXXX)
+trap 'rm -rf -- "$work"' EXIT
+
+# Match the device images' strict hostonly builds, without letting the build
+# host's loaded modules into the comparison. Device initrd stages create the
+# /root target the same way.
+: >"$work/modaliases"
+[[ -d /var/roothome ]] || install -d -m 0700 /var/roothome
+build() {
+    DRACUT_KERNEL_MODALIASES=$work/modaliases dracut \
+        --quiet \
+        --force \
+        --reproducible \
+        --hostonly \
+        --hostonly-mode=strict \
+        --no-hostonly-cmdline \
+        --no-hostonly-default-device \
+        "$@" "$kver"
+}
+build "$work/normal.img"
+build --add pocketfed-ignition "$work/ignition.img"
+
+dracut_modules "$shipped" >"$work/shipped.modules"
+dracut_modules "$work/normal.img" >"$work/normal.modules"
+dracut_modules "$work/ignition.img" >"$work/ignition.modules"
+
+# The comparison is only meaningful if this build matches the image's own.
+cmp -s "$work/shipped.modules" "$work/normal.modules" ||
+    fail "a normal build here differs from the shipped initramfs: $(diff "$work/shipped.modules" "$work/normal.modules" | grep '^[<>]' | tr '\n' ' ')"
+added=$(comm -13 "$work/normal.modules" "$work/ignition.modules")
+[[ $added == pocketfed-ignition ]] ||
+    fail "pocketfed-ignition added modules: $(tr '\n' ' ' <<<"$added")"
+
+lsinitrd "$work/ignition.img" >"$work/ignition.list"
+has() {
+    grep -Eq " $1( |$)" "$work/ignition.list"
+}
+# Fedora merges sbin into bin; accept either.
+for command in \
+    ignition ignition-kargs-helper basename chmod groupadd groupdel groupmod \
+    head jq lsblk mountpoint realpath sed setfiles stat sync systemd-tmpfiles \
+    useradd userdel usermod
+do
+    has "usr/s?bin/$command" || fail "the Ignition initrd lacks $command"
+done
+for path in \
+    usr/lib/systemd/system-generators/ignition-generator \
+    usr/lib/ignition/base.d/00-core.ign \
+    usr/libexec/pocketfed-ignition-guard \
+    usr/libexec/pocketfed-ignition-mount-var \
+    usr/libexec/pocketfed-ignition-populate-var \
+    usr/libexec/pocketfed-ignition-relabel \
+    usr/lib64/libresolv.so.2
+do
+    has "${path//./\\.}" || fail "the Ignition initrd lacks /$path"
+done
+for unit in \
+    ignition-fetch-offline.service \
+    ignition-fetch.service \
+    ignition-kargs.service \
+    ignition-disks.service \
+    ignition-mount.service \
+    ignition-files.service \
+    pocketfed-ignition-guard.service \
+    pocketfed-ignition-mount-var.service \
+    pocketfed-ignition-populate-var.service \
+    pocketfed-ignition-finish.service
+do
+    # systemctl add-requires links units from the initrd's /etc.
+    has "(etc|usr/lib)/systemd/system/ignition-complete\.target\.requires/${unit//./\\.}" ||
+        fail "$unit is not required by ignition-complete.target"
+done
+
+normal=$(stat -c %s "$work/normal.img")
+ignition=$(stat -c %s "$work/ignition.img")
+printf 'PocketFed Ignition initrd verified: %s bytes, %s more than the normal initrd (%s bytes)\n' \
+    "$ignition" "$((ignition - normal))" "$normal"

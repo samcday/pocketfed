@@ -1,0 +1,3 @@
+# Members of the sudo group, such as the Ignition-provisioned core user, have
+# no password to give. Matches Fedora CoreOS's coreos-sudo-group.
+%sudo ALL=(ALL) NOPASSWD: ALL

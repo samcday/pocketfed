@@ -249,6 +249,9 @@ jobs:
       - name: Verify base utilities
         run: sudo chroot base/mkosi.output/pocketfed-base_rawhide /usr/bin/bash < base/test-utilities
 
+      - name: Verify Ignition integration
+        run: sudo base/test-ignition base/mkosi.output/pocketfed-base_rawhide
+
       - name: Pack base OCI artifact
         if: github.event_name != 'push'
         run: |
@@ -617,6 +620,11 @@ jobs:
         run: >-
           sudo podman run --rm --pull=never --arch arm64
           "$PF_CI_DEVICE_IMAGE" /usr/libexec/pocketfed-verify-oci
+
+      - name: Verify Ignition provisioning initrd
+        run: |
+          sudo podman run --rm --interactive --pull=never --arch arm64 \
+            "$PF_CI_DEVICE_IMAGE" /usr/bin/bash < base/test-ignition-initrd
 
       - name: Inspect Device OCI
         run: sudo skopeo inspect "containers-storage:$PF_CI_DEVICE_IMAGE"

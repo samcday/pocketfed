@@ -1,0 +1,19 @@
+[Unit]
+Description=PocketFed Ignition: finish provisioning
+DefaultDependencies=no
+ConditionPathExists=/etc/initrd-release
+
+After=ignition-files.service
+Before=ignition-complete.target
+
+OnFailure=emergency.target
+OnFailureJobMode=isolate
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The cached config survives switch-root in /run and can carry secrets.
+# Ignition's umount stage still reads it, so restrict it rather than delete it.
+ExecStart=/usr/bin/chmod 0600 /run/ignition.json
+# Ignition does not sync, and an installed deployment may lose power next.
+ExecStart=/usr/bin/sync

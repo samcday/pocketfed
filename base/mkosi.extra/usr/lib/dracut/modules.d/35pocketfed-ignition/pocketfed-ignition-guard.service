@@ -1,0 +1,19 @@
+[Unit]
+Description=PocketFed Ignition: check the config
+DefaultDependencies=no
+ConditionPathExists=/etc/initrd-release
+
+# Between fetch-offline and every stage that acts on the config.
+After=ignition-fetch-offline.service
+Before=ignition-fetch.service ignition-kargs.service ignition-disks.service
+Before=ignition-mount.service ignition-files.service
+
+OnFailure=emergency.target
+OnFailureJobMode=isolate
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStart=/usr/libexec/pocketfed-ignition-guard

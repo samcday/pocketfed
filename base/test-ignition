@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+# Check PocketFed's Ignition integration inside a built image.
+#
+#   base/test-ignition ROOTFS   as root on the host: runs in a private mount
+#                               namespace chrooted into ROOTFS
+#   base/test-ignition          as root inside the image (e.g. a privileged
+#                               container)
+#
+# Runs Fedora's real Ignition binary and PocketFed's initrd helpers against a
+# throwaway OSTree-shaped /sysroot built on tmpfs. Nothing in the image is
+# modified.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+if [[ $# -gt 1 ]]; then
+    echo "usage: $0 [ROOTFS]" >&2
+    exit 2
+fi
+
+# Every mount below stays in a private namespace.
+if [[ -z ${PF_TEST_IGNITION_NS:-} ]]; then
+    export PF_TEST_IGNITION_NS=1
+    if [[ $# -eq 0 ]]; then
+        exec unshare --mount --propagation private --fork -- "$0"
+    fi
+    # shellcheck disable=SC2016
+    exec unshare --mount --propagation private --fork -- bash -euc '
+        root=$1 script=$2
+        mount -t proc proc "$root/proc"
+        mount --rbind /dev "$root/dev"
+        mount -t tmpfs tmpfs "$root/run"
+        mount -t tmpfs tmpfs "$root/tmp"
+        install -m 0755 "$script" "$root/tmp/test-ignition"
+        exec chroot "$root" /tmp/test-ignition
+    ' bash "$(realpath -- "$1")" "$(realpath -- "$0")"
+fi
+
+igndir=/usr/lib/dracut/modules.d/30ignition
+moddir=/usr/lib/dracut/modules.d/35pocketfed-ignition
+ignition=$igndir/ignition
+
+fail() {
+    echo "test-ignition: $*" >&2
+    exit 1
+}
+
+rpm -q ignition
+[[ -x $ignition ]] || fail "missing $ignition"
+[[ -f $moddir/module-setup.sh ]] || fail "missing $moddir"
+
+# Fedora's 30ignition must not gain files that pocketfed-ignition neither
+# installs nor deliberately leaves out.
+installed=(
+    ignition
+    ignition-generator
+    ignition-kargs-helper.sh
+    ignition-complete.target
+    ignition-subsequent.target
+    ignition-diskful.target
+    ignition-diskful-subsequent.target
+    ignition-fetch-offline.service
+    ignition-fetch.service
+    ignition-kargs.service
+    ignition-disks.service
+    ignition-mount.service
+    ignition-files.service
+    ignition-remount-sysroot.service
+)
+omitted=(
+    module-setup.sh
+    99-xx-ignition-systemd-cryptsetup.rules
+    ignition-cex
+    ignition-luks.conf
+)
+for path in "$igndir"/*; do
+    name=${path##*/}
+    case " ${installed[*]} ${omitted[*]} " in
+        *" $name "*) ;;
+        *) fail "30ignition ships $name, which pocketfed-ignition does not account for" ;;
+    esac
+done
+for name in "${installed[@]}"; do
+    [[ -e $igndir/$name ]] || fail "30ignition no longer ships $name"
+done
+
+# FCOS group parity and the sshd fragment Ignition relies on.
+[[ $(getent group sudo | cut -d: -f3) == 16 ]] || fail "sudo group is not GID 16"
+grep -Eq '^sudo:x:16:' /etc/group || fail "sudo group is not in /etc/group"
+visudo -c
+
+work=$(mktemp -d /tmp/test-ignition.XXXXXX)
+mount -t tmpfs tmpfs "$work"
+ssh-keygen -q -t ed25519 -N '' -C pocketfed-ignition-test -f "$work/host"
+ssh-keygen -q -t ed25519 -N '' -C pocketfed-ignition-test -f "$work/user"
+sshd -T -h "$work/host" -C user=core,host=localhost,addr=127.0.0.1 |
+    grep -i '^authorizedkeysfile ' | grep -Fq '.ssh/authorized_keys.d/*' ||
+    fail "sshd does not read .ssh/authorized_keys.d"
+
+# The helpers at their initrd paths, on a private /usr/libexec.
+mkdir -p "$work/libexec"
+for helper in mount-var populate-var guard relabel; do
+    install -m 0755 "$moddir/pocketfed-ignition-$helper.sh" \
+        "$work/libexec/pocketfed-ignition-$helper"
+done
+mount --bind "$work/libexec" /usr/libexec
+
+# An OSTree-shaped /sysroot like ostree-prepare-root leaves it: the
+# deployment bound on /sysroot and the physical root on /sysroot/sysroot.
+phys=$work/phys
+stateroot=$phys/ostree/deploy/pocketfed
+deployment=$stateroot/deploy/0123456789abcdef.0
+mkdir -p "$stateroot/var" "$deployment"/{usr,var,sysroot}
+cp -a /etc "$deployment/etc"
+printf '%s\n' uninitialized >"$deployment/etc/machine-id"
+ln -s var/home "$deployment/home"
+ln -s var/roothome "$deployment/root"
+[[ -d /sysroot ]] || fail "missing /sysroot mount point"
+mount --bind "$deployment" /sysroot
+mount --bind /usr /sysroot/usr
+mount --bind "$phys" /sysroot/sysroot
+touch /run/ostree-booted
+
+mkdir -p "$work/system/base.d" "$work/local" "$work/runtime"
+cp "$moddir/00-core.ign" "$work/system/base.d/00-core.ign"
+printf '%s\n' 'ignition.firstboot ignition.platform.id=metal' >"$work/cmdline"
+export IGNITION_SYSTEM_CONFIG_DIR=$work/system
+export IGNITION_SYSTEM_LOCAL_CONFIG_DIR=$work/local
+export IGNITION_SYSTEM_RUNTIME_CONFIG_DIR=$work/runtime
+export IGNITION_KERNEL_CMDLINE_PATH=$work/cmdline
+
+stage() {
+    "$ignition" --root=/sysroot --platform=metal --log-to-stdout --stage="$1"
+}
+
+reset_run() {
+    rm -rf /run/ignition /run/ignition.json
+}
+
+guard_rejects() {
+    local label=$1 expected=$2
+    reset_run
+    cat >"$work/local/user.ign"
+    stage fetch-offline >"$work/$label.log" 2>&1 ||
+        fail "fetch-offline failed for the $label config"
+    if /usr/libexec/pocketfed-ignition-guard >>"$work/$label.log" 2>&1; then
+        fail "guard accepted the $label config"
+    fi
+    grep -Fq "$expected" "$work/$label.log" ||
+        fail "guard rejected the $label config without reporting $expected"
+}
+
+guard_rejects disks storage.disks <<'EOF'
+{"ignition":{"version":"3.4.0"},"storage":{"disks":[{"device":"/dev/null","wipeTable":true}]}}
+EOF
+guard_rejects kargs kernelArguments <<'EOF'
+{"ignition":{"version":"3.4.0"},"kernelArguments":{"shouldExist":["quiet"]}}
+EOF
+guard_rejects remote 'remote resources' <<'EOF'
+{"ignition":{"version":"3.4.0"},"storage":{"files":[{"path":"/etc/remote","contents":{"source":"http://192.0.2.1/remote"}}]}}
+EOF
+merged=$(printf '%s' '{"ignition":{"version":"3.4.0"},"storage":{"filesystems":[{"device":"/dev/null","format":"ext4"}]}}' | base64 -w0)
+guard_rejects merged storage.filesystems <<EOF
+{"ignition":{"version":"3.4.0","config":{"merge":[{"source":"data:;base64,$merged"}]}}}
+EOF
+mkdir -p "$work/local/base.d"
+printf '%s\n' '{"ignition":{"version":"3.4.0"},"storage":{"luks":[{"name":"x","device":"/dev/null"}]}}' \
+    >"$work/local/base.d/10-luks.ign"
+guard_rejects fragment storage.luks <<'EOF'
+{"ignition":{"version":"3.4.0"}}
+EOF
+rm "$work/local/base.d/10-luks.ign"
+
+# Without a user config Ignition would run the base configs alone.
+reset_run
+rm -f "$work/local/user.ign"
+stage fetch-offline >"$work/empty.log" 2>&1 || fail "fetch-offline failed without a user config"
+if /usr/libexec/pocketfed-ignition-guard >>"$work/empty.log" 2>&1; then
+    fail "guard accepted a boot without a user config"
+fi
+grep -Fq 'no user config' "$work/empty.log" || fail "guard did not report the missing user config"
+
+# A provisioning boot can drop the default core user by shadowing its base
+# config from /etc/ignition. The cached config never includes base configs,
+# so check which fragment Ignition read.
+reset_run
+printf '%s\n' '{"ignition":{"version":"3.4.0"}}' >"$work/local/base.d/00-core.ign"
+printf '%s\n' '{"ignition":{"version":"3.4.0"}}' >"$work/local/user.ign"
+stage fetch-offline >"$work/no-core.log" 2>&1 || fail "fetch-offline failed without core"
+grep -Fq "reading system config file \"$work/local/base.d/00-core.ign\"" "$work/no-core.log" ||
+    fail "Ignition did not read the shadowing base.d/00-core.ign"
+if grep -Fq "$work/system/base.d/00-core.ign" "$work/no-core.log"; then
+    fail "shadowing base.d/00-core.ign did not drop core"
+fi
+rm -r "$work/local/base.d"
+
+# A deployment that has booted once would silently ignore unit presets.
+printf '%s\n' 0123456789abcdef0123456789abcdef >"$deployment/etc/machine-id"
+if /usr/libexec/pocketfed-ignition-mount-var mount >"$work/booted.log" 2>&1; then
+    fail "mount-var accepted a deployment that has booted before"
+fi
+grep -Fq 'has booted before' "$work/booted.log" || fail "mount-var did not report the booted deployment"
+! mountpoint -q /sysroot/var || fail "mount-var mounted /var for a booted deployment"
+printf '%s\n' uninitialized >"$deployment/etc/machine-id"
+
+# A config in the supported subset, applied the way the initrd units run it.
+reset_run
+jq -n --arg key "$(cat "$work/user.pub")" '{
+    ignition: {version: "3.4.0"},
+    passwd: {users: [
+        {name: "core", sshAuthorizedKeys: [$key]},
+        {name: "tester", groups: ["wheel"]}
+    ]},
+    storage: {files: [
+        {path: "/etc/hostname", mode: 420, overwrite: true,
+         contents: {source: "data:,pocketfed-ignition-test%0A"}},
+        {path: "/var/lib/pocketfed-ignition-test/marker", mode: 420,
+         contents: {source: "data:,ok%0A"}}
+    ]},
+    systemd: {units: [{
+        name: "pocketfed-ignition-test.service", enabled: true,
+        contents: "[Service]\nType=oneshot\nExecStart=/usr/bin/true\n[Install]\nWantedBy=multi-user.target\n"
+    }]}
+}' >"$work/local/user.ign"
+
+stage fetch-offline
+/usr/libexec/pocketfed-ignition-guard
+stage kargs
+stage disks
+/usr/libexec/pocketfed-ignition-mount-var mount
+[[ $(findmnt -no SOURCE --mountpoint /sysroot/var) == *"/ostree/deploy/pocketfed/var"* ]] ||
+    fail "/sysroot/var is not the stateroot var"
+stage mount
+/usr/libexec/pocketfed-ignition-populate-var
+stage files
+stage umount
+/usr/libexec/pocketfed-ignition-mount-var umount
+! mountpoint -q /sysroot/var || fail "/sysroot/var is still mounted"
+
+etc=/sysroot/etc
+grep -Eq '^core:' "$etc/passwd" || fail "core was not created"
+grep -Eq '^tester:' "$etc/passwd" || fail "tester was not created"
+for group in adm sudo systemd-journal wheel; do
+    grep -Eq "^$group:[^:]*:[0-9]+:(.*,)?core(,|$)" "$etc/group" ||
+        fail "core is not in $group"
+done
+grep -Eq '^wheel:[^:]*:[0-9]+:(.*,)?tester(,|$)' "$etc/group" || fail "tester is not in wheel"
+[[ $(<"$etc/hostname") == pocketfed-ignition-test ]] || fail "hostname was not written"
+[[ -f $etc/.ignition-result.json ]] || fail "missing /etc/.ignition-result.json"
+grep -Fxq 'enable pocketfed-ignition-test.service' "$etc/systemd/system-preset/20-ignition.preset" ||
+    fail "unit preset was not written"
+
+# /var writes must land in the stateroot, not the deployment's own var.
+keys=$stateroot/var/home/core/.ssh/authorized_keys.d/ignition
+[[ -f $keys ]] || fail "core's SSH key is not in the stateroot /var"
+grep -Fqf "$work/user.pub" "$keys" || fail "core's SSH key is wrong"
+[[ $(stat -c %a "$keys") == 600 ]] || fail "core's SSH key file is not 0600"
+core_uid=$(awk -F: '$1 == "core" { print $3 }' "$etc/passwd")
+[[ $(stat -c %u "$keys") == "$core_uid" ]] || fail "core's SSH key file is not owned by core"
+[[ -f $stateroot/var/lib/pocketfed-ignition-test/marker ]] ||
+    fail "the /var file is not in the stateroot /var"
+[[ -z $(ls -A "$deployment/var") ]] || fail "Ignition wrote into the deployment's own var"
+
+echo 'PocketFed Ignition integration verified'

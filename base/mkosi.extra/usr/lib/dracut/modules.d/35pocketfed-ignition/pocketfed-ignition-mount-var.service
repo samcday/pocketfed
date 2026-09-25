@@ -1,0 +1,24 @@
+[Unit]
+Description=PocketFed Ignition: mount the stateroot /var
+DefaultDependencies=no
+ConditionPathExists=/etc/initrd-release
+
+# Mount after prepare-root has built /sysroot, before Ignition writes to it.
+Requires=initrd-root-fs.target
+After=initrd-root-fs.target ostree-prepare-root.service
+Before=ignition-mount.service ignition-files.service
+
+# Unmount before switch-root so var.mount behaves as on every other boot.
+Before=initrd-switch-root.target
+
+# Skipping this would silently lose everything Ignition writes under /var.
+OnFailure=emergency.target
+OnFailureJobMode=isolate
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStart=/usr/libexec/pocketfed-ignition-mount-var mount
+ExecStop=/usr/libexec/pocketfed-ignition-mount-var umount
