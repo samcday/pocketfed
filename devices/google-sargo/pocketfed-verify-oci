@@ -196,6 +196,12 @@ if rpm -q plymouth-theme-fedora-mobile >/dev/null 2>&1; then
 fi
 
 dracut_policy=/etc/dracut.conf.d/60-google-sargo.conf
+# The Fedora kernel builds neither downstream-only module; the final image must
+# carry the filtered policy so a later dracut run cannot request them.
+if [ "$(cat /usr/lib/pocketfed/kernel-variant 2>/dev/null || echo copr)" = "fedora" ] &&
+    grep -Eq 'qcom_pmic_typec_smb2|qcom_fg' "$dracut_policy"; then
+    fail 'Sargo fedora variant dracut policy still names qcom_pmic_typec_smb2 or qcom_fg'
+fi
 grep -Fxq 'hostonly="yes"' "$dracut_policy"
 grep -Fxq 'hostonly_mode="strict"' "$dracut_policy"
 grep -Fxq 'hostonly_cmdline="no"' "$dracut_policy"
