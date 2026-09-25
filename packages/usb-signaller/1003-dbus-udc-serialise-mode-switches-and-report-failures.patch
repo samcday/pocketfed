@@ -1,0 +1,488 @@
+From 0f2793d2ffe544aa511d11db5129fff501ee44eb Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 17:34:21 +1000
+Subject: [PATCH 03/11] dbus, udc: serialise mode switches and report failures
+
+zbus spawns a task per method call by default, and the default mode at
+startup and the charging_only cleanup on SIGTERM called the D-Bus
+handler directly on a stateless unit struct. Concurrent set_mode calls,
+startup and shutdown could therefore interleave configfs changes, with
+nothing to stop two of them creating, disabling and deleting gadgets at
+the same time.
+
+UsbModedDBus now holds an Arc<Daemon> with a tokio::sync::Mutex<Core>
+and the configuration. The interface is declared with spawn = false, and
+set_mode, mode_request, the startup default mode and the SIGTERM cleanup
+all run under the lock, through the same instance. The SIGTERM path
+takes the lock first, so a mode switch in progress finishes before the
+process exits.
+
+UDC::set_mode used to roll back a failed activation (enable, service
+start, FunctionFS mount, LUN setup) and return Ok with the reloaded UDC,
+so D-Bus callers were told the requested mode was active while the port
+had no gadget at all. It now returns an error after the rollback, as do
+leaving netboot mode and a failed switch to host role. aoa_ffs_mode is
+refused up front: its gadget was created but never enabled, after the
+previous gadget had already been removed. get_modes no longer offers
+host_mode while set_mode would refuse it.
+
+The SIGTERM and SIGINT handlers are installed before the default mode
+is applied, so a stop or restart during startup is queued and waits for
+that switch instead of killing the process in the middle of it.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ CHANGELOG.md |   9 ++++
+ src/dbus.rs  | 133 ++++++++++++++++++++++++++++++++++++++-------------
+ src/main.rs  |  34 +++++++------
+ src/udc.rs   |  75 ++++++++++++++++++-----------
+ 4 files changed, 177 insertions(+), 74 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 64433b6..2b29441 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+   The default, `"replace"`, keeps the previous behaviour.
+ 
+ ### Changed
++- Mode switches run one at a time: D-Bus calls, the default mode at startup and the cleanup on
++  SIGTERM share one lock, and D-Bus calls are no longer handled in parallel tasks.
+ - Configuration is read once at startup instead of on every use.
+ - Configuration is searched in `/run` instead of `/var/run`, as UAPI.6 specifies.
+ - A missing configuration is no longer an error: defaults are used.
+@@ -26,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+   reported, and listed by `--print-config`.
+ 
+ ### Fixed
++- `set_mode` returns an error when the new gadget cannot be enabled or its service cannot be
++  started, instead of reporting the requested mode. The same applies to leaving netboot mode
++  and to a failed switch to host role.
++- `aoa_ffs_mode` is refused before the current gadget is touched: its gadget was created but
++  never enabled.
++- SIGTERM and SIGINT are handled from the start: a stop or restart while the default mode is
++  being applied waits for it instead of killing usb-signaller halfway through.
+ - One gadget that cannot be parsed no longer makes loading the UDC fail, and a gadget without
+   a linked function no longer crashes usb-signaller. The bound gadget is found through the
+   UDC's `function` attribute.
+diff --git a/src/dbus.rs b/src/dbus.rs
+index c5e763b..884a8c5 100644
+--- a/src/dbus.rs
++++ b/src/dbus.rs
+@@ -1,6 +1,7 @@
+ use anyhow::Result;
+ use std::string::String;
+ use std::sync::Arc;
++use tokio::sync::Mutex;
+ use tokio::time::{Duration, sleep};
+ use zbus::{Connection, connection, interface, object_server::SignalEmitter};
+ 
+@@ -11,22 +12,58 @@ use crate::urs::URSRole;
+ use crate::urs::{URS, discover_urss};
+ use crate::utils::{string_to_udcmode, udcmode_to_string};
+ 
+-pub struct UsbModedDBus {
+-    /* Configuration read once at startup */
++/*
++ * State shared by every mode switch. Holding the daemon lock grants it, so
++ * D-Bus calls, the default mode at startup and the SIGTERM cleanup never
++ * change gadgets concurrently.
++ */
++pub struct Core {
+     config: Arc<Configuration>,
+ }
+ 
++pub struct Daemon {
++    pub core: Mutex<Core>,
++    /* Configuration read once at startup */
++    pub config: Arc<Configuration>,
++}
++
++impl Daemon {
++    pub fn new(config: Arc<Configuration>) -> Arc<Self> {
++        return Arc::new(Self {
++            core: Mutex::new(Core {
++                config: config.clone(),
++            }),
++            config,
++        });
++    }
++}
++
++pub struct UsbModedDBus {
++    daemon: Arc<Daemon>,
++}
++
+ impl UsbModedDBus {
+-    pub fn new(config: Arc<Configuration>) -> Self {
+-        return Self { config };
++    pub fn new(daemon: Arc<Daemon>) -> Self {
++        return Self { daemon };
+     }
+ 
+     /*
+-     * Cleanup on SIGTERM: fall back to charging_only, unless a gadget that
+-     * usb-signaller must not replace holds a UDC. That gadget, for example
+-     * one serving the root filesystem, stays untouched: no configfs write.
++     * Cleanup on SIGTERM. Waits for a mode switch in progress to finish,
++     * then falls back to charging_only.
+      */
+     pub async fn shutdown(&self, emitter: SignalEmitter<'_>) -> Result<(), zbus::fdo::Error> {
++        let mut core = self.daemon.core.lock().await;
++        return core.shutdown(&emitter).await;
++    }
++}
++
++impl Core {
++    /*
++     * Fall back to charging_only, unless a gadget that usb-signaller must not
++     * replace holds a UDC. That gadget, for example one serving the root
++     * filesystem, stays untouched: no configfs write.
++     */
++    pub async fn shutdown(&mut self, emitter: &SignalEmitter<'_>) -> Result<(), zbus::fdo::Error> {
+         for (udc, gadget) in UDC::bound_gadgets() {
+             let class = GadgetClass::classify(&self.config, &gadget);
+             if class.is_protected() {
+@@ -41,26 +78,11 @@ impl UsbModedDBus {
+         self.set_mode("charging_only", emitter).await?;
+         return Ok(());
+     }
+-}
+-
+-pub async fn create_usbmoded_connection(config: Arc<Configuration>) -> Result<Connection> {
+-    return Ok(connection::Builder::system()?
+-        .name("com.meego.usb_moded")?
+-        .serve_at("/com/meego/usb_moded", UsbModedDBus::new(config))?
+-        .build()
+-        .await?);
+-}
+ 
+-#[interface(name = "com.meego.usb_moded")]
+-impl UsbModedDBus {
+-    #[zbus(signal, name = "sig_usb_event_ind")]
+-    pub async fn sig_usb_event_ind(emitter: &SignalEmitter<'_>, event: String) -> zbus::Result<()>;
+-
+-    #[zbus(name = "set_mode")]
+     pub async fn set_mode(
+-        &self,
++        &mut self,
+         mode: &str,
+-        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
++        emitter: &SignalEmitter<'_>,
+     ) -> Result<String, zbus::fdo::Error> {
+         println!("ℹ️  DBus: set_mode({mode})");
+ 
+@@ -100,12 +122,24 @@ impl UsbModedDBus {
+                 };
+ 
+                 /* Configure role */
+-                if let Ok(urs) = URS::set_role(&role) {
+-                    println!("URS reconfigured:");
+-                    println!("  Name: {}", urs.name);
+-                    println!("  Role: {:?}", urs.role);
+-                    if let Some(udc) = urs.udc {
+-                        println!("  UDC: {}", udc.name);
++                match URS::set_role(&role) {
++                    Ok(urs) => {
++                        println!("URS reconfigured:");
++                        println!("  Name: {}", urs.name);
++                        println!("  Role: {:?}", urs.role);
++                        if let Some(udc) = urs.udc {
++                            println!("  UDC: {}", udc.name);
++                        }
++                    }
++                    /* Host mode is only reached through the role switch */
++                    Err(err) if role == URSRole::Host => {
++                        eprintln!("❌ Switching to host role failed: {err:?}");
++                        return Err(zbus::fdo::Error::Failed(format!(
++                            "Switching to host role failed: {err:?}"
++                        )));
++                    }
++                    Err(err) => {
++                        eprintln!("⚠️  Switching to device role failed: {err:?}");
+                     }
+                 }
+ 
+@@ -172,10 +206,40 @@ impl UsbModedDBus {
+         /* UDC failed so this must be an error */
+         return Err(zbus::fdo::Error::Failed("UDC failed".to_string()));
+     }
++}
++
++pub async fn create_usbmoded_connection(daemon: Arc<Daemon>) -> Result<Connection> {
++    return Ok(connection::Builder::system()?
++        .name("com.meego.usb_moded")?
++        .serve_at("/com/meego/usb_moded", UsbModedDBus::new(daemon))?
++        .build()
++        .await?);
++}
++
++/*
++ * spawn = false: method calls are handled one after the other instead of in
++ * a task each, so they cannot interleave configfs changes.
++ */
++#[interface(name = "com.meego.usb_moded", spawn = false)]
++impl UsbModedDBus {
++    #[zbus(signal, name = "sig_usb_event_ind")]
++    pub async fn sig_usb_event_ind(emitter: &SignalEmitter<'_>, event: String) -> zbus::Result<()>;
++
++    #[zbus(name = "set_mode")]
++    pub async fn set_mode(
++        &self,
++        mode: &str,
++        #[zbus(signal_emitter)] emitter: SignalEmitter<'_>,
++    ) -> Result<String, zbus::fdo::Error> {
++        let mut core = self.daemon.core.lock().await;
++        return core.set_mode(mode, &emitter).await;
++    }
+ 
+     #[zbus(name = "mode_request")]
+     pub async fn mode_request(&self) -> Result<String, zbus::fdo::Error> {
+         println!("ℹ️  DBus: mode_request()");
++        /* Do not report a mode while it is being changed */
++        let _core = self.daemon.core.lock().await;
+         /* Search for USB Role Switcher */
+         for name in &discover_urss() {
+             let mut skipped: bool = false;
+@@ -251,9 +315,14 @@ impl UsbModedDBus {
+         let mut available_modes =
+             String::from("developer_mode,tethering_mode,charging_only,mtp_ffs_mode");
+ 
+-        /* USB Role Switcher is required for host mode */
++        /*
++         * USB Role Switcher is required for host mode, which is not offered
++         * while set_mode would refuse it.
++         */
++        let host_mode_refused =
++            check_host_mode(&self.daemon.config, &UDC::bound_gadgets()).is_err();
+         for name in &discover_urss() {
+-            if URS::load(name).is_ok() {
++            if !host_mode_refused && URS::load(name).is_ok() {
+                 available_modes.push_str(",host_mode");
+                 break;
+             }
+diff --git a/src/main.rs b/src/main.rs
+index 5357439..a91148a 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -23,7 +23,7 @@
+ use anyhow::Result;
+ use std::process;
+ use std::sync::Arc;
+-use tokio::signal;
++use tokio::signal::unix::{SignalKind, signal};
+ use tokio::task::LocalSet;
+ use zbus::object_server::SignalEmitter;
+ 
+@@ -39,7 +39,7 @@ mod urs;
+ mod utils;
+ 
+ use crate::configuration::Configuration;
+-use crate::dbus::{UsbModedDBus, create_usbmoded_connection};
++use crate::dbus::{Daemon, UsbModedDBus, create_usbmoded_connection};
+ use crate::monitor::monitor_usb_events;
+ use crate::udc::{UDC, discover_udcs};
+ use crate::urs::{URS, discover_urss};
+@@ -74,6 +74,15 @@ async fn main() -> Result<()> {
+         return Ok(());
+     }
+ 
++    /*
++     * Handle SIGTERM and SIGINT from here on, before the default mode is
++     * applied. Until the select! below, a signal is only queued: a stop or
++     * restart during startup waits for the startup mode switch, instead of
++     * killing the process in the middle of it.
++     */
++    let mut sigterm = signal(SignalKind::terminate())?;
++    let mut sigint = signal(SignalKind::interrupt())?;
++
+     /* Configuration is read once, every consumer shares this snapshot */
+     let config = Arc::new(Configuration::load());
+ 
+@@ -139,8 +148,10 @@ async fn main() -> Result<()> {
+ 
+     println!("ℹ️  Running DBus server");
+     /* Create DBus server */
+-    let connection = create_usbmoded_connection(config.clone()).await?;
+-    let dbus = UsbModedDBus::new(config.clone());
++    let daemon = Daemon::new(config.clone());
++    let connection = create_usbmoded_connection(daemon.clone()).await?;
++    /* Startup and shutdown go through the same instance, and lock, as D-Bus calls */
++    let dbus = UsbModedDBus::new(daemon);
+ 
+     /* Apply default mode if needed */
+     if config.is_broken() {
+@@ -167,17 +178,10 @@ async fn main() -> Result<()> {
+                 }
+             });
+ 
+-            /* Gracefull shutdown */
+-            #[cfg(unix)]
+-            {
+-                use tokio::signal::unix::{SignalKind, signal};
+-
+-                let mut sigterm = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+-
+-                tokio::select! {
+-                    _ = sigterm.recv() => println!("ℹ️  Received SIGTERM"),
+-                    _ = signal::ctrl_c()  => println!("ℹ️  Received SIGINT (Ctrl+C)"),
+-                }
++            /* Gracefull shutdown, also for signals queued during startup */
++            tokio::select! {
++                _ = sigterm.recv() => println!("ℹ️  Received SIGTERM"),
++                _ = sigint.recv()  => println!("ℹ️  Received SIGINT (Ctrl+C)"),
+             }
+ 
+             /* Clean up */
+diff --git a/src/udc.rs b/src/udc.rs
+index 9fcae39..d5f2930 100644
+--- a/src/udc.rs
++++ b/src/udc.rs
+@@ -133,8 +133,19 @@ impl UDC {
+         /* Check if we are in readonly mode such as Netboot to prevent changing mode */
+         if udc.mode == UDCMode::Netboot {
+             eprintln!("⚠️  Cannot change read-only mode: {:?}", udc.mode);
+-            let new_udc = UDC::load(&udc.name)?;
+-            return Ok(new_udc);
++            return Err(anyhow::anyhow!(
++                "Cannot change read-only mode {:?}",
++                udc.mode
++            ));
++        }
++
++        /*
++         * The accessory gadget would be created but never enabled, since
++         * nothing starts its FunctionFS daemon. Refuse it before the current
++         * gadget is touched.
++         */
++        if mode == UDCMode::Accessory {
++            return Err(anyhow::anyhow!("Mode {mode:?} is not supported"));
+         }
+ 
+         /* Prepare mode switch by creating new gadget with all configuration */
+@@ -305,9 +316,10 @@ impl UDC {
+                         );
+                         let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+                         ConfigFsGadget::delete(new_gadget.name.as_str())?;
+-                        let new_udc = UDC::load(&udc.name)?;
+-
+-                        return Ok(new_udc);
++                        return Err(anyhow::anyhow!(
++                            "Failed to enable gadget {}: {error:?}",
++                            new_gadget.name
++                        ));
+                     }
+                 };
+ 
+@@ -318,9 +330,10 @@ impl UDC {
+                     eprintln!("❌ Failed to start userspace service: {}", new_gadget.name);
+                     let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+                     ConfigFsGadget::delete(new_gadget.name.as_str())?;
+-                    let new_udc = UDC::load(&udc.name)?;
+-
+-                    return Ok(new_udc);
++                    return Err(anyhow::anyhow!(
++                        "Failed to start userspace service usb-signaller-developer-mode for gadget {}",
++                        new_gadget.name
++                    ));
+                 }
+             }
+             UDCMode::Tethering => {
+@@ -334,9 +347,10 @@ impl UDC {
+                         );
+                         let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+                         ConfigFsGadget::delete(new_gadget.name.as_str())?;
+-                        let new_udc = UDC::load(&udc.name)?;
+-
+-                        return Ok(new_udc);
++                        return Err(anyhow::anyhow!(
++                            "Failed to enable gadget {}: {error:?}",
++                            new_gadget.name
++                        ));
+                     }
+                 };
+ 
+@@ -347,9 +361,10 @@ impl UDC {
+                     eprintln!("❌ Failed to start userspace service: {}", new_gadget.name);
+                     let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+                     ConfigFsGadget::delete(new_gadget.name.as_str())?;
+-                    let new_udc = UDC::load(&udc.name)?;
+-
+-                    return Ok(new_udc);
++                    return Err(anyhow::anyhow!(
++                        "Failed to start userspace service usb-signaller-tethering-mode for gadget {}",
++                        new_gadget.name
++                    ));
+                 }
+             }
+             UDCMode::MTP => {
+@@ -360,9 +375,10 @@ impl UDC {
+                     eprintln!("❌ Failed to mount gadget FunctionFS: {}", new_gadget.name);
+                     let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+                     ConfigFsGadget::delete(new_gadget.name.as_str())?;
+-                    let new_udc = UDC::load(&udc.name)?;
+-
+-                    return Ok(new_udc);
++                    return Err(anyhow::anyhow!(
++                        "Failed to mount FunctionFS at /dev/mtp for gadget {}",
++                        new_gadget.name
++                    ));
+                 }
+ 
+                 /* Start userspace service */
+@@ -372,9 +388,10 @@ impl UDC {
+                     eprintln!("❌ Failed to start userspace service: {}", new_gadget.name);
+                     let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+                     ConfigFsGadget::delete(new_gadget.name.as_str())?;
+-                    let new_udc = UDC::load(&udc.name)?;
+-
+-                    return Ok(new_udc);
++                    return Err(anyhow::anyhow!(
++                        "Failed to start userspace service usb-signaller-mtp-mode for gadget {}",
++                        new_gadget.name
++                    ));
+                 }
+ 
+                 /* Enable gadget now */
+@@ -394,9 +411,10 @@ impl UDC {
+                         /* Remove new gadget */
+                         let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+                         ConfigFsGadget::delete(new_gadget.name.as_str())?;
+-                        let new_udc = UDC::load(&udc.name)?;
+-
+-                        return Ok(new_udc);
++                        return Err(anyhow::anyhow!(
++                            "Failed to enable gadget {}: {error:?}",
++                            new_gadget.name
++                        ));
+                     }
+                 };
+             }
+@@ -429,7 +447,9 @@ impl UDC {
+                     eprintln!("Failed to configure mass storage LUN: {error:?}");
+                     let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+                     ConfigFsGadget::delete(new_gadget.name.as_str())?;
+-                    return UDC::load(&udc.name);
++                    return Err(anyhow::anyhow!(
++                        "Failed to configure mass storage LUN: {error:?}"
++                    ));
+                 }
+ 
+                 /* Enable gadget */
+@@ -439,9 +459,10 @@ impl UDC {
+                         eprintln!("Failed to enable gadget: {} ({:?})", new_gadget.name, error);
+                         let _ = ConfigFsGadget::disable(new_gadget.name.as_str());
+                         ConfigFsGadget::delete(new_gadget.name.as_str())?;
+-                        let new_udc = UDC::load(&udc.name)?;
+-
+-                        return Ok(new_udc);
++                        return Err(anyhow::anyhow!(
++                            "Failed to enable gadget {}: {error:?}",
++                            new_gadget.name
++                        ));
+                     }
+                 };
+             }
+-- 
+2.55.0
+

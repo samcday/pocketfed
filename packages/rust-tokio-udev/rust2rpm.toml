@@ -1,0 +1,19 @@
+[package]
+license-files = ["LICENSES/Apache-2.0.txt", "LICENSES/MIT.txt"]
+
+[[package.extra-sources]]
+number = 10
+file = "https://raw.githubusercontent.com/jeandudey/tokio-udev/v%{version}/LICENSES/Apache-2.0.txt"
+comments = [
+    "The published crate omits the license texts that the upstream repository ships in its REUSE LICENSES/ directory; take them from the matching tag.",
+]
+
+[[package.extra-sources]]
+number = 11
+file = "https://raw.githubusercontent.com/jeandudey/tokio-udev/v%{version}/LICENSES/MIT.txt"
+
+[scripts]
+prep.pre = [
+    "mkdir -p LICENSES",
+    "cp -pav %{SOURCE10} %{SOURCE11} LICENSES/",
+]

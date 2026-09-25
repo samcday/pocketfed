@@ -1,0 +1,35 @@
+From: Sam Day <me@samcday.com>
+Subject: [PATCH] distro: scripts: use ip instead of ifconfig
+
+ifconfig comes from the deprecated net-tools package, which many
+distributions (Fedora among them) no longer install by default. Bring the
+NCM interface down with iproute2's ip(8) instead; BusyBox also provides a
+compatible "ip link set dev X down" applet.
+
+---
+diff --git a/distro/scripts/usb-signaller-developer-mode.sh b/distro/scripts/usb-signaller-developer-mode.sh
+index 995cbc7..55154c5 100644
+--- a/distro/scripts/usb-signaller-developer-mode.sh
++++ b/distro/scripts/usb-signaller-developer-mode.sh
+@@ -55,7 +55,7 @@ down() {
+ 
+     # NetworkManager brings the interface up automatically,
+     # but doesn't remove it when bringing down.
+-    ifconfig "$IFACE" down
++    ip link set dev "$IFACE" down
+ }
+ 
+ case $1 in
+diff --git a/distro/scripts/usb-signaller-tethering-mode.sh b/distro/scripts/usb-signaller-tethering-mode.sh
+index 16560ba..1ae2f77 100644
+--- a/distro/scripts/usb-signaller-tethering-mode.sh
++++ b/distro/scripts/usb-signaller-tethering-mode.sh
+@@ -32,7 +32,7 @@ down() {
+ 
+     # NetworkManager brings the interface up automatically,
+     # but doesn't remove it when bringing down.
+-    ifconfig "$IFACE" down
++    ip link set dev "$IFACE" down
+ }
+ 
+ case $1 in

@@ -1,0 +1,936 @@
+From b2ee6b23ad50a2ab2eab158ea722cd3efa8d9f6c Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 17:27:17 +1000
+Subject: [PATCH 01/11] configuration: merge field-wise, search /run, read once
+
+The configuration loader had three problems that matter as soon as more
+than one file is involved:
+
+- A later file with a [main] or [mass_storage] section that does not set
+  a key reset it to None, so a drop-in adding an unrelated key silently
+  dropped default_mode. Keys are now merged field-wise: a key that is set
+  wins, an absent key never resets it.
+- classic_system() searches /var/run rather than /run. That only works
+  where /var/run is a symlink to /run and /var is already mounted. Search
+  /usr/lib, /run and /etc literally, as UAPI.6 describes, so runtime
+  configuration written by an initramfs is always found.
+- Having no configuration file at all was treated as an error. It now
+  means "use the defaults" and is logged as information.
+
+The configuration is parsed once at startup into an immutable
+Arc<Configuration> that remembers which file set each key, instead of
+re-reading every file on each access. Any I/O, parse or validation error
+(for example a default_mode that is not a known mode) marks the whole
+configuration as broken: the offending file is logged, no value from any
+file is used and no default mode is applied.
+
+`usb-signaller --print-config` prints the merged configuration with the
+source of each key and exits without touching D-Bus or USB, which makes
+drop-in precedence easy to check on a device.
+
+The search root can be moved for tests; the new tests cover precedence,
+/dev/null masking, the merge fix, a missing configuration, a /run drop-in
+without /var/run and broken files. Tokio's rt-multi-thread and sync
+features are now declared explicitly instead of relying on zbus enabling
+them.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ CHANGELOG.md         |  14 +
+ Cargo.toml           |   2 +-
+ README.md            |  31 ++-
+ src/configuration.rs | 589 +++++++++++++++++++++++++++++++++++++------
+ src/dbus.rs          |  19 +-
+ src/main.rs          |  47 +++-
+ src/udc.rs           |   6 +-
+ 7 files changed, 616 insertions(+), 92 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index b502953..5165491 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ 
+ ## Unreleased
+ 
++### Added
++- `--print-config` prints the merged configuration and the file that set each key.
++
++### Changed
++- Configuration is read once at startup instead of on every use.
++- Configuration is searched in `/run` instead of `/var/run`, as UAPI.6 specifies.
++- A missing configuration is no longer an error: defaults are used.
++- A broken configuration file (unreadable, unparseable or with an invalid value) is reported
++  with its path, and no value from any file is used.
++
++### Fixed
++- A later configuration file that contains a section without a key no longer resets that key,
++  for example `default_mode`.
++
+ ## [0.4.2] - 2026-07-30
+ 
+ ### Fixed
+diff --git a/Cargo.toml b/Cargo.toml
+index 0fcca50..abfcc8e 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -6,7 +6,7 @@ license = "GPL-3.0-or-later"
+ 
+ [dependencies]
+ zbus = { version = "5.18.0", default-features = false, features = ["tokio"] }
+-tokio = { version = "1.53.0", default-features = false, features = ["macros", "signal"] }
++tokio = { version = "1.53.0", default-features = false, features = ["macros", "rt-multi-thread", "signal", "sync"] }
+ futures-lite = { version = "2.6.1", default-features = false }
+ anyhow = "1.0.104"
+ tokio-udev = "0.10.0"
+diff --git a/README.md b/README.md
+index 8db7180..4f16e3b 100644
+--- a/README.md
++++ b/README.md
+@@ -64,9 +64,35 @@ usb-signaller reads a TOML file to allow configuring several options, divided in
+ usb-signaller complies with [UAPI 6](https://uapi-group.org/specifications/specs/configuration_files_specification/)
+ allowing distros to provide a sane default but also users to change that default.
+ 
++Files are searched in `/usr/lib` (distro defaults), `/run` (runtime configuration,
++for example written by an initramfs) and `/etc` (administrator), in increasing
++order of precedence, and read in this order:
++
++1. The main file `usb-signaller/usb-signaller.toml`. Only the one with the
++   highest precedence is read: `/etc/usb-signaller/usb-signaller.toml` hides the
++   one in `/usr/lib`.
++2. Drop-ins `usb-signaller/usb-signaller.toml.d/*.toml` from all three
++   directories, sorted by file name. A drop-in replaces a lower precedence
++   drop-in with the same file name; a symlink to `/dev/null` masks it.
++3. Drop-ins `usb-signaller.d/*.toml`, with the same rules.
++
++Settings from later files override earlier ones key by key: a file that does
++not set a key never resets it. The configuration is read once at startup;
++restart usb-signaller to apply changes. Without any configuration file,
++usb-signaller runs with defaults.
++
++If any file cannot be read or parsed, or contains an invalid value, the whole
++configuration is considered broken: usb-signaller logs the file and the error,
++ignores every file and does not apply a default mode.
++
++`usb-signaller --print-config` prints the merged configuration with the file
++that set each key and exits without touching D-Bus or USB. It exits with status
++1 if the configuration is broken.
++
+ ### Section main
+ 
+ - **default_mode** (String): defines which USB mode must be applied on startup, for example: `developer_mode`.
++  Must be one of the USB modes below.
+ 
+ ### Section mass\_storage
+ 
+@@ -79,10 +105,11 @@ The following USB modes are available:
+ - `charging_only`: no USB gadget is active, only charging is possible.
+ - `developer_mode`: USB NCM ethernet gadget is active, only local IP traffic is allowed such SSHing into a device.
+ - `tethering_mode`: USB NCM ethernet gadget is active, internet access from the device is shared.
+-- `mtp_mode`: FunctionFS gadget is active, MTP daemon allows to exchange data over [Media Transfer Protocol](https://en.wikipedia.org/wiki/Media_Transfer_Protocol).
++- `mtp_ffs_mode`: FunctionFS gadget is active, MTP daemon allows to exchange data over [Media Transfer Protocol](https://en.wikipedia.org/wiki/Media_Transfer_Protocol).
+ - `mass_storage_mode`: Mass Storage gadget is active, device acts as a storage device.
+ - `cdrom_mode`: Mass Storage gadget is active, device acts as an inserted CD-ROM.
+-- `accessory`: FunctionFS gadget is active, [Android Open Accessory](https://source.android.com/docs/core/interaction/accessories/protocol) ID vendor and product is advertised.
++- `aoa_ffs_mode`: FunctionFS gadget is active, [Android Open Accessory](https://source.android.com/docs/core/interaction/accessories/protocol) ID vendor and product is advertised.
++- `host_mode`: the USB role switch is put in host role, the device acts as USB host.
+ 
+ ## DBus API
+ 
+diff --git a/src/configuration.rs b/src/configuration.rs
+index 7ad5708..38ee0d2 100644
+--- a/src/configuration.rs
++++ b/src/configuration.rs
+@@ -1,111 +1,548 @@
+-use anyhow::Result;
+ use serde::Deserialize;
+-use std::fs;
++use std::borrow::Cow;
++use std::fmt::Write as _;
++use std::io::Read;
++use std::path::{Path, PathBuf};
+ use uapi_config::SearchDirectories;
+ 
++const PROJECT_NAME: &str = "usb-signaller";
++const MAIN_FILE_NAME: &str = "usb-signaller.toml";
++const DROPIN_SUFFIX: &str = ".toml";
++
++/*
++ * UAPI.6 search directories, lowest precedence first: the vendor ships
++ * configuration in /usr/lib, ephemeral configuration (for example written by
++ * an initramfs) lives in /run and the administrator overrides in /etc.
++ * uapi-config's classic_system() uses /var/run instead of /run, which only
++ * works where /var/run is a symlink and /var is already mounted.
++ */
++pub const SEARCH_DIRECTORIES: [&str; 3] = ["/usr/lib", "/run", "/etc"];
++
++/* Modes accepted by set_mode(), and therefore by default_mode */
++pub const MODE_NAMES: [&str; 8] = [
++    "developer_mode",
++    "tethering_mode",
++    "charging_only",
++    "mtp_ffs_mode",
++    "aoa_ffs_mode",
++    "mass_storage_mode",
++    "cdrom_mode",
++    "host_mode",
++];
++
++/* One configuration file as written on disk, every key optional */
+ #[derive(Debug, Deserialize, Default)]
+-pub struct Configuration {
+-    main: Option<MainConfiguration>,
+-    mass_storage: Option<MassStorageConfiguration>,
++struct RawConfiguration {
++    main: Option<RawMainConfiguration>,
++    mass_storage: Option<RawMassStorageConfiguration>,
+ }
+ 
+ #[derive(Debug, Deserialize, Default)]
+-struct MainConfiguration {
++struct RawMainConfiguration {
+     default_mode: Option<String>,
+ }
+ 
+ #[derive(Debug, Deserialize, Default)]
+-struct MassStorageConfiguration {
++struct RawMassStorageConfiguration {
+     /* Backing image exposed by mass_storage_mode / cdrom_mode. */
+     storage_path: Option<String>,
+ }
+ 
++/* A merged value together with the file that set it */
++#[derive(Debug, Clone, PartialEq)]
++pub struct Sourced<T> {
++    pub value: T,
++    pub source: PathBuf,
++}
++
++#[derive(Debug, Clone, Default, PartialEq)]
++pub enum ConfigState {
++    /* All files parsed and validated, or no file present at all */
++    #[default]
++    Ok,
++    /*
++     * A file could not be read, parsed or validated. Nothing from any file is
++     * used: the daemon runs with defaults and fails closed.
++     */
++    Broken {
++        path: Option<PathBuf>,
++        error: String,
++    },
++}
++
++/*
++ * The merged configuration. It is read once at startup and never changes
++ * afterwards, so every consumer sees the same values.
++ */
++#[derive(Debug, Clone, Default)]
++pub struct Configuration {
++    state: ConfigState,
++    files: Vec<PathBuf>,
++    default_mode: Option<Sourced<String>>,
++    storage_path: Option<Sourced<String>>,
++}
++
++pub fn is_mode_name(mode: &str) -> bool {
++    return MODE_NAMES.contains(&mode);
++}
++
++fn search_directories(root: Option<&Path>) -> anyhow::Result<SearchDirectories<'static>> {
++    let directories: SearchDirectories<'static> = SEARCH_DIRECTORIES
++        .iter()
++        .map(|directory| Cow::Borrowed(Path::new(*directory)))
++        .collect();
++
++    return match root {
++        Some(root) => Ok(directories.chroot(root).map_err(|err| {
++            anyhow::anyhow!("invalid configuration root {}: {err}", root.display())
++        })?),
++        None => Ok(directories),
++    };
++}
++
++/* Quote a value the way TOML expects it */
++fn toml_string(value: &str) -> String {
++    return toml::Value::String(value.to_string()).to_string();
++}
++
+ impl Configuration {
+-    fn read() -> Result<Self> {
+-        let main_config_files = SearchDirectories::classic_system()
+-            .with_project("usb-signaller")
+-            .with_file_name("usb-signaller.toml")
+-            .find_files(Some(".toml"))?;
+-        let files = main_config_files.chain(
+-            SearchDirectories::classic_system()
+-                .with_project("usb-signaller")
+-                .find_files(".toml")?,
+-        );
++    /* Read the system configuration */
++    pub fn load() -> Self {
++        return Self::load_with_root(None);
++    }
+ 
+-        /* Accumulate merged state with mutable, initialized defaults */
+-        let mut merged_main = MainConfiguration::default();
+-        let mut merged_mass_storage = MassStorageConfiguration::default();
+-        let mut found = false;
++    /* Read the system configuration without progress messages, for --print-config */
++    pub fn load_quietly() -> Self {
++        return Self::read_all(None, false);
++    }
++
++    /*
++     * Read the configuration below 'root' instead of '/', for example
++     * <root>/etc/usb-signaller/usb-signaller.toml. Used by tests.
++     */
++    pub fn load_with_root(root: Option<&Path>) -> Self {
++        return Self::read_all(root, true);
++    }
+ 
+-        for (path, _file) in files {
+-            found = true;
+-            println!("Parsing configuration file: {}", path.display());
+-            let raw = fs::read_to_string(&path)?;
+-            let parsed: Configuration = toml::from_str(&raw)?;
++    fn read_all(root: Option<&Path>, verbose: bool) -> Self {
++        let mut configuration = Self::default();
+ 
+-            if let Some(main_section) = parsed.main {
+-                merged_main.default_mode = main_section.default_mode;
+-            }
+-            if let Some(mass_storage_section) = parsed.mass_storage {
+-                merged_mass_storage.storage_path = mass_storage_section.storage_path;
++        if let Err((path, err)) = configuration.read(root, verbose) {
++            match &path {
++                Some(path) => {
++                    eprintln!("❌ Configuration file {} is broken: {err}", path.display())
++                }
++                None => eprintln!("❌ Configuration is broken: {err}"),
+             }
++
++            /* Fail closed: forget every value that was merged before the error */
++            return Self {
++                state: ConfigState::Broken {
++                    path,
++                    error: format!("{err}"),
++                },
++                files: configuration.files,
++                ..Self::default()
++            };
+         }
+ 
+-        if !found {
+-            eprintln!("❌ No configuration file found");
+-            return Err(anyhow::anyhow!("No configuration file found"));
++        if verbose && configuration.files.is_empty() {
++            println!("ℹ️  No configuration file found, using defaults");
+         }
+ 
+-        return Ok(Configuration {
+-            main: Some(merged_main),
+-            mass_storage: Some(merged_mass_storage),
+-        });
++        return configuration;
+     }
+ 
+-    pub fn get_default_mode() -> Result<String> {
+-        match Self::read() {
+-            Ok(config) => match config.main {
+-                Some(main) => match main.default_mode {
+-                    Some(mode) => return Ok(mode),
+-                    None => {
+-                        eprintln!("⚠️  Default mode not present in config");
+-                        Err(anyhow::anyhow!("Default mode not present in configuration"))
+-                    }
+-                },
+-                None => {
+-                    eprintln!("⚠️  [main] section missing from config");
+-                    Err(anyhow::anyhow!("[main] section missing from configuration"))
+-                }
+-            },
+-            Err(err) => {
+-                eprintln!("⚠️  Unable to read default mode: {err:?}");
+-                Err(err)
++    fn read(
++        &mut self,
++        root: Option<&Path>,
++        verbose: bool,
++    ) -> Result<(), (Option<PathBuf>, anyhow::Error)> {
++        let main_config_files = search_directories(root)
++            .map_err(|err| (None, err))?
++            .with_project(PROJECT_NAME)
++            .with_file_name(MAIN_FILE_NAME)
++            .find_files(Some(DROPIN_SUFFIX))
++            .map_err(|err| {
++                (
++                    None,
++                    anyhow::anyhow!("searching configuration files: {err}"),
++                )
++            })?;
++        let project_files = search_directories(root)
++            .map_err(|err| (None, err))?
++            .with_project(PROJECT_NAME)
++            .find_files(DROPIN_SUFFIX)
++            .map_err(|err| {
++                (
++                    None,
++                    anyhow::anyhow!("searching configuration files: {err}"),
++                )
++            })?;
++
++        /* Main file, then its drop-ins, then project drop-ins: later files win */
++        for (path, mut file) in main_config_files.chain(project_files) {
++            if verbose {
++                println!("Parsing configuration file: {}", path.display());
+             }
++            self.files.push(path.clone());
++
++            let mut raw = String::new();
++            file.read_to_string(&mut raw)
++                .map_err(|err| (Some(path.clone()), anyhow::anyhow!("{err}")))?;
++            let parsed: RawConfiguration = toml::from_str(&raw)
++                .map_err(|err| (Some(path.clone()), anyhow::anyhow!("{err}")))?;
++
++            self.merge(parsed, &path)
++                .map_err(|err| (Some(path.clone()), err))?;
+         }
++
++        return Ok(());
++    }
++
++    /* Merge one file: a key that is set wins, a key that is absent never resets anything */
++    fn merge(&mut self, parsed: RawConfiguration, path: &Path) -> anyhow::Result<()> {
++        if let Some(main) = parsed.main
++            && let Some(mode) = main.default_mode
++        {
++            if !is_mode_name(&mode) {
++                return Err(anyhow::anyhow!(
++                    "[main] default_mode {} is not one of: {}",
++                    toml_string(&mode),
++                    MODE_NAMES.join(", ")
++                ));
++            }
++            self.default_mode = Some(Sourced {
++                value: mode,
++                source: path.to_path_buf(),
++            });
++        }
++
++        if let Some(mass_storage) = parsed.mass_storage
++            && let Some(storage_path) = mass_storage.storage_path
++        {
++            self.storage_path = Some(Sourced {
++                value: storage_path,
++                source: path.to_path_buf(),
++            });
++        }
++
++        return Ok(());
++    }
++
++    pub fn is_broken(&self) -> bool {
++        return matches!(self.state, ConfigState::Broken { .. });
++    }
++
++    /* Default mode to apply at startup; never set while the configuration is broken */
++    pub fn default_mode(&self) -> Option<&str> {
++        return self.default_mode.as_ref().map(|mode| mode.value.as_str());
+     }
+ 
+     /* Backing image for mass_storage_mode / cdrom_mode, from [mass_storage]. */
+-    pub fn get_storage_path() -> Result<String> {
+-        match Self::read() {
+-            Ok(config) => match config.mass_storage {
+-                Some(mass_storage) => match mass_storage.storage_path {
+-                    Some(path) => return Ok(path),
+-                    None => {
+-                        eprintln!("⚠️  storage_path not present in config");
+-                        Err(anyhow::anyhow!("storage_path not present in configuration"))
+-                    }
+-                },
+-                None => {
+-                    eprintln!("⚠️  [mass_storage] section missing from config");
+-                    Err(anyhow::anyhow!(
+-                        "[mass_storage] section missing from configuration"
+-                    ))
+-                }
+-            },
+-            Err(err) => {
+-                eprintln!("⚠️  Unable to read storage path: {err:?}");
+-                Err(err)
++    pub fn storage_path(&self) -> anyhow::Result<String> {
++        match &self.storage_path {
++            Some(path) => return Ok(path.value.clone()),
++            None => {
++                eprintln!("⚠️  storage_path not present in config");
++                return Err(anyhow::anyhow!("storage_path not present in configuration"));
+             }
+         }
+     }
++
++    /* Human readable merged configuration, with the file that set each key */
++    pub fn render(&self) -> String {
++        let mut out = String::new();
++
++        match &self.state {
++            ConfigState::Ok => {
++                let _ = writeln!(out, "# state: ok");
++            }
++            ConfigState::Broken { path, error } => {
++                let path = path
++                    .as_ref()
++                    .map_or("(search)".to_string(), |p| p.display().to_string());
++                let _ = writeln!(out, "# state: broken: {path}: {error}");
++                let _ = writeln!(
++                    out,
++                    "# nothing from any file is used; gadgets usb-signaller does not own are preserved"
++                );
++            }
++        }
++        if self.files.is_empty() {
++            let _ = writeln!(out, "# no configuration file found");
++        }
++        for file in &self.files {
++            let _ = writeln!(out, "# read: {}", file.display());
++        }
++
++        let _ = writeln!(out, "[main]");
++        match &self.default_mode {
++            Some(mode) => {
++                let _ = writeln!(
++                    out,
++                    "default_mode = {}    # {}",
++                    toml_string(&mode.value),
++                    mode.source.display()
++                );
++            }
++            None => {
++                let _ = writeln!(out, "# default_mode is not set");
++            }
++        }
++
++        let _ = writeln!(out, "[mass_storage]");
++        match &self.storage_path {
++            Some(path) => {
++                let _ = writeln!(
++                    out,
++                    "storage_path = {}    # {}",
++                    toml_string(&path.value),
++                    path.source.display()
++                );
++            }
++            None => {
++                let _ = writeln!(out, "# storage_path is not set");
++            }
++        }
++
++        return out;
++    }
++}
++
++/*
++ * Test helper: a throwaway directory tree that acts as a filesystem root.
++ * Only compiled for tests.
++ */
++#[cfg(test)]
++pub mod testing {
++    use std::fs;
++    use std::path::{Path, PathBuf};
++    use std::sync::atomic::{AtomicUsize, Ordering};
++
++    static COUNTER: AtomicUsize = AtomicUsize::new(0);
++
++    pub struct TempRoot {
++        pub path: PathBuf,
++    }
++
++    impl TempRoot {
++        pub fn new(name: &str) -> Self {
++            let path = std::env::temp_dir().join(format!(
++                "usb-signaller-test-{}-{}-{}",
++                std::process::id(),
++                COUNTER.fetch_add(1, Ordering::SeqCst),
++                name
++            ));
++            let _ = fs::remove_dir_all(&path);
++            fs::create_dir_all(&path).unwrap();
++            return Self { path };
++        }
++
++        /* Write <root>/<relative>, creating parent directories */
++        pub fn write(&self, relative: &str, contents: &str) -> PathBuf {
++            let path = self.path.join(relative);
++            fs::create_dir_all(path.parent().unwrap()).unwrap();
++            fs::write(&path, contents).unwrap();
++            return path;
++        }
++
++        /* Create <root>/<relative> as a symlink to 'target' */
++        pub fn symlink(&self, relative: &str, target: &Path) -> PathBuf {
++            let path = self.path.join(relative);
++            fs::create_dir_all(path.parent().unwrap()).unwrap();
++            std::os::unix::fs::symlink(target, &path).unwrap();
++            return path;
++        }
++    }
++
++    impl Drop for TempRoot {
++        fn drop(&mut self) {
++            let _ = fs::remove_dir_all(&self.path);
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::testing::TempRoot;
++    use super::*;
++
++    const USR_D: &str = "usr/lib/usb-signaller/usb-signaller.toml.d";
++    const RUN_D: &str = "run/usb-signaller/usb-signaller.toml.d";
++    const USR: &str = "usr/lib/usb-signaller/usb-signaller.toml";
++    const ETC: &str = "etc/usb-signaller/usb-signaller.toml";
++    const ETC_D: &str = "etc/usb-signaller/usb-signaller.toml.d";
++
++    fn load(root: &TempRoot) -> Configuration {
++        return Configuration::load_with_root(Some(&root.path));
++    }
++
++    #[test]
++    fn missing_configuration_is_defaults() {
++        let root = TempRoot::new("missing");
++        let config = load(&root);
++        assert_eq!(&config.state, &ConfigState::Ok);
++        assert_eq!(config.default_mode(), None);
++        assert!(config.storage_path().is_err());
++        assert!(config.render().contains("no configuration file found"));
++    }
++
++    #[test]
++    fn etc_main_file_masks_vendor_main_file() {
++        let root = TempRoot::new("precedence");
++        root.write(USR, "[main]\ndefault_mode = \"developer_mode\"\n");
++        let etc = root.write(ETC, "[main]\ndefault_mode = \"charging_only\"\n");
++        let config = load(&root);
++        assert_eq!(config.default_mode(), Some("charging_only"));
++        assert_eq!(config.default_mode.as_ref().unwrap().source, etc);
++        assert_eq!(config.files, vec![etc]);
++    }
++
++    #[test]
++    fn dropins_override_main_file_in_basename_order() {
++        let root = TempRoot::new("dropins");
++        root.write(ETC, "[main]\ndefault_mode = \"charging_only\"\n");
++        root.write(
++            &format!("{USR_D}/50-vendor.toml"),
++            "[main]\ndefault_mode = \"developer_mode\"\n",
++        );
++        let later = root.write(
++            &format!("{ETC_D}/60-admin.toml"),
++            "[main]\ndefault_mode = \"tethering_mode\"\n",
++        );
++        let config = load(&root);
++        assert_eq!(config.default_mode(), Some("tethering_mode"));
++        assert_eq!(config.default_mode.as_ref().unwrap().source, later);
++    }
++
++    #[test]
++    fn same_basename_in_etc_replaces_vendor_dropin() {
++        let root = TempRoot::new("same-basename");
++        root.write(
++            &format!("{USR_D}/50-vendor.toml"),
++            "[main]\ndefault_mode = \"developer_mode\"\n",
++        );
++        root.write(
++            &format!("{ETC_D}/50-vendor.toml"),
++            "[main]\ndefault_mode = \"mtp_ffs_mode\"\n",
++        );
++        let config = load(&root);
++        assert_eq!(config.default_mode(), Some("mtp_ffs_mode"));
++        assert_eq!(config.files.len(), 1);
++    }
++
++    #[test]
++    fn dev_null_masks_a_dropin() {
++        let root = TempRoot::new("mask");
++        root.write(
++            &format!("{RUN_D}/50-smoo.toml"),
++            "[main]\ndefault_mode = \"developer_mode\"\n",
++        );
++        root.symlink(&format!("{ETC_D}/50-smoo.toml"), Path::new("/dev/null"));
++        let config = load(&root);
++        assert_eq!(&config.state, &ConfigState::Ok);
++        assert_eq!(config.default_mode(), None);
++    }
++
++    #[test]
++    fn later_section_without_key_does_not_reset_it() {
++        let root = TempRoot::new("merge");
++        let vendor = root.write(
++            &format!("{USR_D}/50-vendor.toml"),
++            "[main]\ndefault_mode = \"developer_mode\"\n[mass_storage]\nstorage_path = \"/srv/a.iso\"\n",
++        );
++        root.write(
++            &format!("{ETC_D}/60-admin.toml"),
++            "[main]\n[mass_storage]\n",
++        );
++        let config = load(&root);
++        assert_eq!(config.default_mode(), Some("developer_mode"));
++        assert_eq!(config.default_mode.as_ref().unwrap().source, vendor);
++        assert_eq!(config.storage_path().unwrap(), "/srv/a.iso");
++    }
++
++    #[test]
++    fn run_dropin_is_found_without_var_run() {
++        let root = TempRoot::new("run");
++        let run = root.write(
++            &format!("{RUN_D}/50-smoo.toml"),
++            "[main]\ndefault_mode = \"developer_mode\"\n",
++        );
++        assert!(!root.path.join("var/run").exists());
++        let config = load(&root);
++        assert_eq!(config.default_mode(), Some("developer_mode"));
++        assert_eq!(config.files, vec![run]);
++    }
++
++    #[test]
++    fn unknown_sections_and_main_keys_are_ignored() {
++        let root = TempRoot::new("unknown");
++        root.write(
++            ETC,
++            "[main]\ndefault_mode = \"developer_mode\"\nfuture_key = 1\n[future]\nx = 2\n",
++        );
++        let config = load(&root);
++        assert_eq!(&config.state, &ConfigState::Ok);
++        assert_eq!(config.default_mode(), Some("developer_mode"));
++    }
++
++    #[test]
++    fn parse_error_is_broken_and_drops_every_value() {
++        let root = TempRoot::new("parse-error");
++        root.write(
++            &format!("{USR_D}/50-vendor.toml"),
++            "[main]\ndefault_mode = \"developer_mode\"\n",
++        );
++        let broken = root.write(&format!("{RUN_D}/60-broken.toml"), "[main\n");
++        let config = load(&root);
++        match &config.state {
++            ConfigState::Broken { path, .. } => assert_eq!(path.as_ref(), Some(&broken)),
++            ConfigState::Ok => panic!("expected a broken configuration"),
++        }
++        assert!(config.is_broken());
++        assert_eq!(config.default_mode(), None);
++        assert!(config.render().contains("# state: broken"));
++    }
++
++    #[test]
++    fn invalid_default_mode_is_broken() {
++        let root = TempRoot::new("invalid-mode");
++        root.write(ETC, "[main]\ndefault_mode = \"mtp_mode\"\n");
++        let config = load(&root);
++        assert!(config.is_broken());
++        assert_eq!(config.default_mode(), None);
++    }
++
++    #[test]
++    fn wrong_type_is_broken() {
++        let root = TempRoot::new("wrong-type");
++        root.write(ETC, "[main]\ndefault_mode = 3\n");
++        assert!(load(&root).is_broken());
++    }
++
++    #[test]
++    fn unreadable_dropin_directory_is_broken() {
++        let root = TempRoot::new("enotdir");
++        /* A regular file where the drop-in directory should be gives ENOTDIR */
++        root.write(RUN_D, "not a directory");
++        let config = load(&root);
++        assert!(config.is_broken());
++    }
++
++    #[test]
++    fn render_names_the_source_of_each_key() {
++        let root = TempRoot::new("render");
++        let vendor = root.write(
++            &format!("{USR_D}/50-vendor.toml"),
++            "[main]\ndefault_mode = \"developer_mode\"\n",
++        );
++        let rendered = load(&root).render();
++        assert!(rendered.contains("# state: ok"));
++        assert!(rendered.contains(&format!(
++            "default_mode = \"developer_mode\"    # {}",
++            vendor.display()
++        )));
++        assert!(rendered.contains("# storage_path is not set"));
++    }
+ }
+diff --git a/src/dbus.rs b/src/dbus.rs
+index 29dc217..b9c7d58 100644
+--- a/src/dbus.rs
++++ b/src/dbus.rs
+@@ -1,19 +1,30 @@
+ use anyhow::Result;
+ use std::string::String;
++use std::sync::Arc;
+ use tokio::time::{Duration, sleep};
+ use zbus::{Connection, connection, interface, object_server::SignalEmitter};
+ 
++use crate::configuration::Configuration;
+ use crate::udc::{UDC, discover_udcs};
+ use crate::urs::URSRole;
+ use crate::urs::{URS, discover_urss};
+ use crate::utils::{string_to_udcmode, udcmode_to_string};
+ 
+-pub struct UsbModedDBus;
++pub struct UsbModedDBus {
++    /* Configuration read once at startup */
++    config: Arc<Configuration>,
++}
++
++impl UsbModedDBus {
++    pub fn new(config: Arc<Configuration>) -> Self {
++        return Self { config };
++    }
++}
+ 
+-pub async fn create_usbmoded_connection() -> Result<Connection> {
++pub async fn create_usbmoded_connection(config: Arc<Configuration>) -> Result<Connection> {
+     return Ok(connection::Builder::system()?
+         .name("com.meego.usb_moded")?
+-        .serve_at("/com/meego/usb_moded", UsbModedDBus)?
++        .serve_at("/com/meego/usb_moded", UsbModedDBus::new(config))?
+         .build()
+         .await?);
+ }
+@@ -79,7 +90,7 @@ impl UsbModedDBus {
+         for name in &discover_udcs() {
+             match UDC::load(name) {
+                 Ok(udc) => {
+-                    match UDC::set_mode(udc, target_mode.clone()) {
++                    match UDC::set_mode(udc, target_mode.clone(), &self.config) {
+                         Ok(udc) => {
+                             println!("UDC reconfigured:");
+                             println!("  Name: {}", udc.name);
+diff --git a/src/main.rs b/src/main.rs
+index 0cf27ea..f9fc584 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -22,6 +22,7 @@
+ 
+ use anyhow::Result;
+ use std::process;
++use std::sync::Arc;
+ use tokio::signal;
+ use tokio::task::LocalSet;
+ use zbus::object_server::SignalEmitter;
+@@ -42,8 +43,39 @@ use crate::monitor::monitor_usb_events;
+ use crate::udc::{UDC, discover_udcs};
+ use crate::urs::{URS, discover_urss};
+ 
++const USAGE: &str = "Usage: usb-signaller [--print-config]";
++
+ #[tokio::main]
+ async fn main() -> Result<()> {
++    let mut print_config = false;
++    for argument in std::env::args().skip(1) {
++        match argument.as_str() {
++            "--print-config" => print_config = true,
++            "--help" | "-h" => {
++                println!("{USAGE}");
++                return Ok(());
++            }
++            _ => {
++                eprintln!("❌ Unknown argument: {argument}");
++                eprintln!("{USAGE}");
++                process::exit(2);
++            }
++        }
++    }
++
++    /* Print the merged configuration and the file that set each key, without touching D-Bus or USB */
++    if print_config {
++        let config = Configuration::load_quietly();
++        print!("{}", config.render());
++        if config.is_broken() {
++            process::exit(1);
++        }
++        return Ok(());
++    }
++
++    /* Configuration is read once, every consumer shares this snapshot */
++    let config = Arc::new(Configuration::load());
++
+     let mut has_hardware: bool = false;
+ 
+     println!("ℹ️  Pre-flight checks");
+@@ -101,15 +133,20 @@ async fn main() -> Result<()> {
+ 
+     println!("ℹ️  Running DBus server");
+     /* Create DBus server */
+-    let connection = create_usbmoded_connection().await?;
++    let connection = create_usbmoded_connection(config.clone()).await?;
++    let dbus = UsbModedDBus::new(config.clone());
+ 
+     /* Apply default mode if needed */
+-    if let Ok(default_mode) = Configuration::get_default_mode() {
++    if config.is_broken() {
++        eprintln!("❌ Configuration is broken, not applying a default mode");
++    } else if let Some(default_mode) = config.default_mode() {
+         println!("ℹ️  Applying default mode: {default_mode}");
+         let emitter = SignalEmitter::new(&connection.clone(), "/com/meego/usb_moded")?;
+-        if let Err(error) = UsbModedDBus::set_mode(&UsbModedDBus, &default_mode, emitter).await {
++        if let Err(error) = dbus.set_mode(default_mode, emitter).await {
+             eprintln!("⚠️  Failed to set default mode: {error:?}");
+         };
++    } else {
++        println!("ℹ️  No default mode configured");
+     }
+ 
+     /* Spawn udev monitor as background task */
+@@ -141,9 +178,7 @@ async fn main() -> Result<()> {
+             println!("ℹ️  Cleaning up!");
+             let emitter =
+                 SignalEmitter::new(&shutdown_connection.clone(), "/com/meego/usb_moded").unwrap();
+-            if let Err(error) =
+-                UsbModedDBus::set_mode(&UsbModedDBus, "charging_only", emitter).await
+-            {
++            if let Err(error) = dbus.set_mode("charging_only", emitter).await {
+                 eprintln!("⚠️  Failed to clean up before shutdown: {error:?}");
+             };
+         })
+diff --git a/src/udc.rs b/src/udc.rs
+index 11712dd..d792bf1 100644
+--- a/src/udc.rs
++++ b/src/udc.rs
+@@ -102,7 +102,7 @@ impl UDC {
+         }
+     }
+ 
+-    pub fn set_mode(udc: Self, mode: UDCMode) -> anyhow::Result<Self> {
++    pub fn set_mode(udc: Self, mode: UDCMode, config: &Configuration) -> anyhow::Result<Self> {
+         println!(
+             "Setting mode of UDC {} from {:?} to {:?}",
+             udc.name, udc.mode, mode
+@@ -215,7 +215,7 @@ impl UDC {
+              * image comes from the [mass_storage] config section, so bail out
+              * early here if it is not set. */
+             UDCMode::MassStorage | UDCMode::CdRom => {
+-                Configuration::get_storage_path()?;
++                config.storage_path()?;
+                 name = "usb-signaller-mass-storage";
+                 vendor = "Linux Foundation";
+                 product = "Mass Storage USB gadget";
+@@ -395,7 +395,7 @@ impl UDC {
+                  * comes from the config; CD-ROM mode differs from plain mass
+                  * storage only by the 'cdrom' flag.
+                  */
+-                let image = Configuration::get_storage_path()?;
++                let image = config.storage_path()?;
+                 let cdrom = mode == UDCMode::CdRom;
+                 let lun = PathBuf::from("/sys/kernel/config")
+                     .join("usb_gadget")
+-- 
+2.55.0
+

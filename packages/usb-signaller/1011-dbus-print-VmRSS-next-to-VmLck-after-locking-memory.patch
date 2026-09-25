@@ -1,0 +1,50 @@
+From 064c7b01a5af71c5adf78750378791f693744818 Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 20:43:09 +1000
+Subject: [PATCH 11/11] dbus: print VmRSS next to VmLck after locking memory
+
+After mlockall the daemon logged only VmLck, about 270 MB on a Pixel 3a.
+VmLck counts every locked mapping, including address space that is only
+reserved, such as malloc arenas, while about 16 MB is resident. Print
+VmRSS next to it so the number is not mistaken for memory in use.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ src/dbus.rs | 21 +++++++++++++++++----
+ 1 file changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/src/dbus.rs b/src/dbus.rs
+index dbf8e3d..90e15c7 100644
+--- a/src/dbus.rs
++++ b/src/dbus.rs
+@@ -211,10 +211,23 @@ impl Core {
+             return false;
+         }
+         self.memory_locked = true;
+-        if let Ok(status) = sysfs_read(self.sys.proc.join("self/status"))
+-            && let Some(line) = status.lines().find(|line| line.starts_with("VmLck:"))
+-        {
+-            println!("ℹ️  Memory locked for adopted gadgets: {}", line.trim());
++        /*
++         * VmLck counts every locked mapping, also address space that is only
++         * reserved, such as malloc arenas; VmRSS is what is resident.
++         */
++        if let Ok(status) = sysfs_read(self.sys.proc.join("self/status")) {
++            let field = |name: &str| {
++                return status
++                    .lines()
++                    .find_map(|line| line.strip_prefix(name))
++                    .map(|value| value.trim().to_string());
++            };
++            if let Some(locked) = field("VmLck:") {
++                println!(
++                    "ℹ️  Memory locked for adopted gadgets: VmLck {locked} (mapped), VmRSS {} (resident)",
++                    field("VmRSS:").unwrap_or_else(|| "unknown".to_string())
++                );
++            }
+         }
+         return true;
+     }
+-- 
+2.55.0
+

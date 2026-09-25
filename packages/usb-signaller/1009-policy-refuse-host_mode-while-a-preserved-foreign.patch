@@ -1,0 +1,158 @@
+From 7460275581613eb2ed48f3832af9dbd8f8259fe4 Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 20:41:44 +1000
+Subject: [PATCH 09/11] policy: refuse host_mode while a preserved foreign
+ gadget is bound
+
+foreign_gadgets = "preserve" promises that usb-signaller never touches a
+gadget it did not create, but check_host_mode let host_mode through for
+such a gadget. Host role removes the UDC and so unbinds every gadget on
+it: a preserved gadget that serves the root filesystem, but is not
+declared, took the root filesystem with it.
+
+check_host_mode now refuses host_mode while a foreign gadget is bound
+under "preserve", before any role is written. get_modes reuses the check
+and no longer offers host_mode in that state. A broken configuration
+keeps its own, more specific, message.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ CHANGELOG.md  |  5 +++--
+ README.md     |  5 +++--
+ src/dbus.rs   | 28 ++++++++++++++++++++++++++++
+ src/policy.rs | 32 ++++++++++++++++++++++++++++----
+ 4 files changed, 62 insertions(+), 8 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 730dff3..0d48254 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -12,8 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ - `[gadget.<dir>]` sections declare gadgets created by someone else, for example an initramfs.
+   usb-signaller never disables, removes or replaces a declared gadget, and refuses `host_mode`
+   while a declared gadget with `pinned_functions` is bound.
+-- `[main] foreign_gadgets = "preserve"` leaves every gadget usb-signaller did not create alone.
+-  The default, `"replace"`, keeps the previous behaviour.
++- `[main] foreign_gadgets = "preserve"` leaves every gadget usb-signaller did not create alone,
++  and refuses `host_mode` while such a gadget is bound. The default, `"replace"`, keeps the
++  previous behaviour.
+ - `[gadget.<dir>] adopt = true` adopts a declared gadget: usb-signaller switches between
+   `charging_only`, `developer_mode` and `tethering_mode` by linking its own functions next to
+   the pinned ones, in place, without ever unlinking a pin. Adopting touches nothing; a switch
+diff --git a/README.md b/README.md
+index eda5841..a8b8ca8 100644
+--- a/README.md
++++ b/README.md
+@@ -102,8 +102,9 @@ that set each key and exits without touching D-Bus or USB. It exits with status
+   usb-signaller did not create (its directory does not start with
+   `usb-signaller-`) and that is not declared in a `[gadget.<dir>]` section:
+   - `replace` (default): disable and remove it when switching modes, as before.
+-  - `preserve`: never touch it. Mode switches fail while it holds the UDC and
+-    it is left alone on shutdown.
++  - `preserve`: never touch it. Mode switches fail while it holds the UDC,
++    `host_mode` is refused (host role would unbind it) and not offered by
++    `get_modes`, and it is left alone on shutdown.
+ 
+ ### Section gadget.\<dir\>
+ 
+diff --git a/src/dbus.rs b/src/dbus.rs
+index 44c9b46..dbf8e3d 100644
+--- a/src/dbus.rs
++++ b/src/dbus.rs
+@@ -826,6 +826,34 @@ mod tests {
+         assert_eq!(s.writes(), 0);
+     }
+ 
++    /* Host role would unbind a preserved gadget, for example one serving the root filesystem */
++    #[test]
++    fn host_mode_is_neither_offered_nor_set_while_a_preserved_foreign_gadget_is_bound() {
++        let s = setup("[main]\nforeign_gadgets = \"preserve\"\n", locked);
++        s.core(|core| core.refresh_adoption());
++        assert!(s.core(|core| core.adopted.is_empty()));
++        assert_eq!(
++            s.core(|core| core.available_modes()),
++            "developer_mode,tethering_mode,charging_only,mtp_ffs_mode"
++        );
++        let error = fdo_message(s.set_mode("host_mode").unwrap_err());
++        assert_eq!(
++            error,
++            "host_mode refused: foreign gadget smoo on UDC udc0 is preserved"
++        );
++        assert_eq!(s.writes(), 0);
++        assert!(s.services.calls().is_empty());
++        assert_eq!(s.fixture.read("sys/class/usb_role/switch0/role"), "device");
++        assert!(s.fs.is_bound("smoo"));
++
++        /* Under replace, host_mode is offered */
++        let s = setup("[main]\nforeign_gadgets = \"replace\"\n", locked);
++        assert!(
++            s.core(|core| core.available_modes())
++                .ends_with(",host_mode")
++        );
++    }
++
+     #[test]
+     fn available_modes_follow_adoption_and_allowed_modes() {
+         let s = setup(SMOO, locked);
+diff --git a/src/policy.rs b/src/policy.rs
+index 5c9738b..712bec2 100644
+--- a/src/policy.rs
++++ b/src/policy.rs
+@@ -91,8 +91,9 @@ pub fn check_replaceable(config: &Configuration, udc: &str, gadget: &str) -> any
+ /*
+  * Host role removes the UDC, which unbinds every gadget on it. Refuse it,
+  * before any role is written, while a declared gadget with pinned functions
+- * is bound, or while the configuration is broken and a gadget usb-signaller
+- * does not own is bound. 'bound' lists (UDC, gadget) pairs.
++ * is bound, while a foreign gadget is bound under foreign_gadgets =
++ * "preserve", or while the configuration is broken and a gadget
++ * usb-signaller does not own is bound. 'bound' lists (UDC, gadget) pairs.
+  */
+ pub fn check_host_mode(config: &Configuration, bound: &[(String, String)]) -> anyhow::Result<()> {
+     for (udc, gadget) in bound {
+@@ -109,6 +110,13 @@ pub fn check_host_mode(config: &Configuration, bound: &[(String, String)]) -> an
+                     "host_mode refused: the configuration is broken and gadget {gadget}, which usb-signaller does not own, is bound to UDC {udc}"
+                 ));
+             }
++            GadgetClass::Foreign {
++                policy: ForeignGadgets::Preserve,
++            } => {
++                return Err(anyhow::anyhow!(
++                    "host_mode refused: foreign gadget {gadget} on UDC {udc} is preserved"
++                ));
++            }
+             _ => {}
+         }
+     }
+@@ -214,10 +222,26 @@ mod tests {
+         assert!(check_host_mode(&config, &bound("udc0", "usb-signaller-developer")).is_ok());
+     }
+ 
++    /*
++     * Host role cleanup never removes gadgets usb-signaller does not own,
++     * but removing the UDC unbinds them: a preserved gadget may serve the
++     * root filesystem.
++     */
+     #[test]
+-    fn host_mode_is_allowed_for_preserved_foreign_gadgets() {
+-        /* Host role cleanup never removes gadgets usb-signaller does not own */
++    fn host_mode_is_refused_for_preserved_foreign_gadgets() {
+         let config = config("[main]\nforeign_gadgets = \"preserve\"\n");
++        let error = check_host_mode(&config, &bound("udc0", "g1")).unwrap_err();
++        assert_eq!(
++            error.to_string(),
++            "host_mode refused: foreign gadget g1 on UDC udc0 is preserved"
++        );
++        assert!(check_host_mode(&config, &bound("udc0", "usb-signaller-developer")).is_ok());
++        assert!(check_host_mode(&config, &[]).is_ok());
++    }
++
++    #[test]
++    fn host_mode_is_allowed_for_replaced_foreign_gadgets() {
++        let config = config("[main]\nforeign_gadgets = \"replace\"\n");
+         assert!(check_host_mode(&config, &bound("udc0", "g1")).is_ok());
+     }
+ }
+-- 
+2.55.0
+

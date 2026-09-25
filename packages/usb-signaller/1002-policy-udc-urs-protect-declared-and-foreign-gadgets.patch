@@ -1,0 +1,1525 @@
+From 068327c7bbc012a9689d48debf27f3660273678e Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 17:31:41 +1000
+Subject: [PATCH 02/11] policy, udc, urs: protect declared and foreign gadgets
+
+usb-signaller disables and removes whatever gadget holds the UDC when it
+switches modes, when it falls back to charging_only on SIGTERM and when
+it switches to host role. That destroys gadgets other components rely
+on, for example an initramfs gadget that serves the root filesystem over
+USB: the root disappears and the device hangs.
+
+Add [gadget.<dir>] tables that declare such gadgets, with
+pinned_functions (merged as a union, so a later file can never silently
+unpin anything) plus adopt, config, keep_identity and allowed_modes,
+which are validated now and used by in-place management later. Unknown
+keys in these tables make the configuration broken, so a typo cannot
+drop a pin. [main] foreign_gadgets = "replace" (the default, today's
+behaviour) or "preserve" decides what happens to gadgets that are
+neither owned (usb-signaller-*) nor declared.
+
+A declared gadget, or a preserved foreign one, holding the UDC makes
+set_mode fail with "UDC <udc> is held by <declared|foreign> gadget <g>;
+not replacing it" before any USB role is written, and the SIGTERM
+cleanup leaves it without a single configfs write. host_mode is refused
+before the role is written while a declared gadget with pins is bound,
+or while the configuration is broken and a gadget usb-signaller does not
+own is bound. A broken configuration declares nothing and preserves
+every non-owned gadget, and (as before) applies no default mode.
+
+The host role cleanup now only removes owned gadgets and keeps going
+when one removal fails. UDC::load finds the bound gadget through
+/sys/class/udc/<udc>/function, tolerates foreign gadgets it cannot
+parse, and no longer indexes configs[0]/functions[0] unchecked, which
+panicked on a bound gadget without configuration strings.
+
+Unknown keys under [main] stay allowed, for forward compatibility, but
+are reported with a warning naming the file and listed by
+--print-config: a typo such as foreign_gadget = "preserve" would
+otherwise silently leave foreign_gadgets at "replace".
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ CHANGELOG.md         |  15 +-
+ README.md            |  48 ++++
+ src/configuration.rs | 604 ++++++++++++++++++++++++++++++++++++++++++-
+ src/dbus.rs          |  41 +++
+ src/main.rs          |   8 +-
+ src/policy.rs        | 223 ++++++++++++++++
+ src/udc.rs           | 210 ++++++++++-----
+ src/urs.rs           |  15 +-
+ 8 files changed, 1096 insertions(+), 68 deletions(-)
+ create mode 100644 src/policy.rs
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 5165491..64433b6 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,15 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ 
+ ### Added
+ - `--print-config` prints the merged configuration and the file that set each key.
++- `[gadget.<dir>]` sections declare gadgets created by someone else, for example an initramfs.
++  usb-signaller never disables, removes or replaces a declared gadget, and refuses `host_mode`
++  while a declared gadget with `pinned_functions` is bound.
++- `[main] foreign_gadgets = "preserve"` leaves every gadget usb-signaller did not create alone.
++  The default, `"replace"`, keeps the previous behaviour.
+ 
+ ### Changed
+ - Configuration is read once at startup instead of on every use.
+ - Configuration is searched in `/run` instead of `/var/run`, as UAPI.6 specifies.
+ - A missing configuration is no longer an error: defaults are used.
+ - A broken configuration file (unreadable, unparseable or with an invalid value) is reported
+-  with its path, and no value from any file is used.
++  with its path, and no value from any file is used. Gadgets usb-signaller did not create are
++  then preserved.
++- Unknown keys under `[main]`, for example a misspelt `foreign_gadgets`, are still ignored but
++  reported, and listed by `--print-config`.
+ 
+ ### Fixed
++- One gadget that cannot be parsed no longer makes loading the UDC fail, and a gadget without
++  a linked function no longer crashes usb-signaller. The bound gadget is found through the
++  UDC's `function` attribute.
++- Switching to host role only removes gadgets usb-signaller created, and one failure no longer
++  stops the cleanup.
+ - A later configuration file that contains a section without a key no longer resets that key,
+   for example `default_mode`.
+ 
+diff --git a/README.md b/README.md
+index 4f16e3b..c655404 100644
+--- a/README.md
++++ b/README.md
+@@ -93,6 +93,54 @@ that set each key and exits without touching D-Bus or USB. It exits with status
+ 
+ - **default_mode** (String): defines which USB mode must be applied on startup, for example: `developer_mode`.
+   Must be one of the USB modes below.
++- **foreign_gadgets** (String): what to do with a bound configfs gadget that
++  usb-signaller did not create (its directory does not start with
++  `usb-signaller-`) and that is not declared in a `[gadget.<dir>]` section:
++  - `replace` (default): disable and remove it when switching modes, as before.
++  - `preserve`: never touch it. Mode switches fail while it holds the UDC and
++    it is left alone on shutdown.
++
++### Section gadget.\<dir\>
++
++Declares a configfs gadget that someone else created, for example an
++initramfs whose gadget serves the root filesystem. `<dir>` is the directory
++name under `/sys/kernel/config/usb_gadget/`. usb-signaller never disables,
++removes or replaces a declared gadget:
++
++- `set_mode` fails with `UDC <udc> is held by declared gadget <dir>; not
++  replacing it` while the gadget holds the UDC, and no USB role is written.
++- On shutdown the gadget is left untouched.
++- Switching to host role only removes gadgets usb-signaller created.
++- `host_mode` is refused while a declared gadget with pinned functions is bound.
++
++Keys:
++
++- **pinned_functions** (list of strings): functions of the gadget, as
++  `<driver>.<instance>` (for example `ffs.smoo` or `acm.GS0`), that must stay
++  linked and bound. Pins from all files are combined: a later file can add
++  pins but never remove one. Mask the file that added a pin (a same-named
++  symlink to `/dev/null`) to drop it.
++- **adopt** (boolean, default `false`), **config** (string),
++  **keep_identity** (boolean, default `true`) and **allowed_modes** (list of
++  USB modes, combined across files by keeping only modes every file allows)
++  are reserved for managing a declared gadget in place. They are validated,
++  but a declared gadget is currently only protected.
++
++An empty `[gadget.<dir>]` section declares the gadget without pins. Any other
++key in this section, an invalid function or mode name, or a directory name
++starting with `usb-signaller-` makes the configuration broken.
++
++While the configuration is broken, nothing is declared and every gadget
++usb-signaller does not own is preserved, whatever `foreign_gadgets` says.
++`host_mode` is refused while such a gadget is bound.
++
++Example, written at boot by an initramfs to
++`/run/usb-signaller/usb-signaller.toml.d/50-console.toml`:
++
++```toml
++[gadget.g1]
++pinned_functions = ["acm.GS0"]
++```
+ 
+ ### Section mass\_storage
+ 
+diff --git a/src/configuration.rs b/src/configuration.rs
+index 38ee0d2..2bdc83a 100644
+--- a/src/configuration.rs
++++ b/src/configuration.rs
+@@ -1,5 +1,6 @@
+ use serde::Deserialize;
+ use std::borrow::Cow;
++use std::collections::{BTreeMap, BTreeSet};
+ use std::fmt::Write as _;
+ use std::io::Read;
+ use std::path::{Path, PathBuf};
+@@ -30,16 +31,43 @@ pub const MODE_NAMES: [&str; 8] = [
+     "host_mode",
+ ];
+ 
++/* Gadget directories starting with this prefix are created and owned by usb-signaller */
++pub const OWNED_GADGET_PREFIX: &str = "usb-signaller-";
++
+ /* One configuration file as written on disk, every key optional */
+ #[derive(Debug, Deserialize, Default)]
+ struct RawConfiguration {
+     main: Option<RawMainConfiguration>,
+     mass_storage: Option<RawMassStorageConfiguration>,
++    gadget: Option<BTreeMap<String, RawGadgetConfiguration>>,
+ }
+ 
+ #[derive(Debug, Deserialize, Default)]
+ struct RawMainConfiguration {
+     default_mode: Option<String>,
++    foreign_gadgets: Option<String>,
++    /*
++     * Unknown keys stay allowed, for forward compatibility, but are
++     * reported: a typo such as foreign_gadget would otherwise silently
++     * fall back to the default.
++     */
++    #[serde(flatten)]
++    unknown: BTreeMap<String, toml::Value>,
++}
++
++/*
++ * [gadget.<dir>]: a configfs gadget created by someone else, for example an
++ * initramfs. Unknown keys are an error: a typo must never silently drop a
++ * pinned function.
++ */
++#[derive(Debug, Deserialize, Default)]
++#[serde(deny_unknown_fields)]
++struct RawGadgetConfiguration {
++    adopt: Option<bool>,
++    pinned_functions: Option<Vec<String>>,
++    config: Option<String>,
++    keep_identity: Option<bool>,
++    allowed_modes: Option<Vec<String>>,
+ }
+ 
+ #[derive(Debug, Deserialize, Default)]
+@@ -55,6 +83,49 @@ pub struct Sourced<T> {
+     pub source: PathBuf,
+ }
+ 
++/* What to do with a bound gadget that usb-signaller neither owns nor has declared */
++#[derive(Debug, Clone, Copy, Default, PartialEq)]
++pub enum ForeignGadgets {
++    /* Disable and remove it when switching modes (the historical behaviour) */
++    #[default]
++    Replace,
++    /* Never touch it: refuse mode switches while it holds the UDC */
++    Preserve,
++}
++
++impl ForeignGadgets {
++    pub fn as_str(&self) -> &'static str {
++        return match self {
++            ForeignGadgets::Replace => "replace",
++            ForeignGadgets::Preserve => "preserve",
++        };
++    }
++}
++
++/*
++ * A gadget declared in a [gadget.<dir>] table. usb-signaller never disables,
++ * removes or replaces a declared gadget.
++ */
++#[derive(Debug, Clone, Default, PartialEq)]
++pub struct GadgetDeclaration {
++    /* Manage the gadget in place while it stays bound (default: false) */
++    pub adopt: Option<Sourced<bool>>,
++    /* Union across files: function -> first file that pinned it */
++    pub pinned_functions: BTreeMap<String, PathBuf>,
++    /* Configuration directory to manage when the gadget has several */
++    pub config: Option<Sourced<String>>,
++    /* Keep the gadget's vendor/product IDs, class and strings (default: true) */
++    pub keep_identity: Option<Sourced<bool>>,
++    /* Intersection across the files that set it, and those files */
++    pub allowed_modes: Option<(BTreeSet<String>, Vec<PathBuf>)>,
++}
++
++impl GadgetDeclaration {
++    pub fn pins(&self) -> BTreeSet<String> {
++        return self.pinned_functions.keys().cloned().collect();
++    }
++}
++
+ #[derive(Debug, Clone, Default, PartialEq)]
+ pub enum ConfigState {
+     /* All files parsed and validated, or no file present at all */
+@@ -79,13 +150,39 @@ pub struct Configuration {
+     state: ConfigState,
+     files: Vec<PathBuf>,
+     default_mode: Option<Sourced<String>>,
++    foreign_gadgets: Option<Sourced<ForeignGadgets>>,
+     storage_path: Option<Sourced<String>>,
++    gadgets: BTreeMap<String, GadgetDeclaration>,
++    /* Unknown [main] keys, ignored, and the file that set each */
++    ignored: Vec<Sourced<String>>,
+ }
+ 
+ pub fn is_mode_name(mode: &str) -> bool {
+     return MODE_NAMES.contains(&mode);
+ }
+ 
++pub fn is_owned_gadget(gadget: &str) -> bool {
++    return gadget.starts_with(OWNED_GADGET_PREFIX);
++}
++
++/* A single configfs directory name: no path separator, NUL or whitespace */
++fn is_plain_name(name: &str) -> bool {
++    return !name.is_empty()
++        && name != "."
++        && name != ".."
++        && !name.contains('/')
++        && !name.contains('\0')
++        && !name.chars().any(char::is_whitespace);
++}
++
++/* A function instance as named in configfs: <driver>.<instance> */
++pub fn is_function_name(name: &str) -> bool {
++    return is_plain_name(name)
++        && name
++            .split_once('.')
++            .is_some_and(|(driver, instance)| !driver.is_empty() && !instance.is_empty());
++}
++
+ fn search_directories(root: Option<&Path>) -> anyhow::Result<SearchDirectories<'static>> {
+     let directories: SearchDirectories<'static> = SEARCH_DIRECTORIES
+         .iter()
+@@ -105,6 +202,34 @@ fn toml_string(value: &str) -> String {
+     return toml::Value::String(value.to_string()).to_string();
+ }
+ 
++/* A table key, bare when TOML allows it */
++fn toml_key(key: &str) -> String {
++    if !key.is_empty()
++        && key
++            .chars()
++            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
++    {
++        return key.to_string();
++    }
++    return toml_string(key);
++}
++
++fn toml_list<'a>(values: impl IntoIterator<Item = &'a String>) -> String {
++    let values: Vec<String> = values.into_iter().map(|v| toml_string(v)).collect();
++    return format!("[{}]", values.join(", "));
++}
++
++fn display_paths<'a>(paths: impl IntoIterator<Item = &'a PathBuf>) -> String {
++    let mut unique: Vec<String> = vec![];
++    for path in paths {
++        let path = path.display().to_string();
++        if !unique.contains(&path) {
++            unique.push(path);
++        }
++    }
++    return unique.join(", ");
++}
++
+ impl Configuration {
+     /* Read the system configuration */
+     pub fn load() -> Self {
+@@ -202,9 +327,25 @@ impl Configuration {
+ 
+     /* Merge one file: a key that is set wins, a key that is absent never resets anything */
+     fn merge(&mut self, parsed: RawConfiguration, path: &Path) -> anyhow::Result<()> {
+-        if let Some(main) = parsed.main
+-            && let Some(mode) = main.default_mode
+-        {
++        let (default_mode, foreign_gadgets) = match parsed.main {
++            Some(main) => {
++                for key in main.unknown.keys() {
++                    eprintln!(
++                        "⚠️  Unknown key {} under [main] in {}: ignored",
++                        toml_key(key),
++                        path.display()
++                    );
++                    self.ignored.push(Sourced {
++                        value: key.clone(),
++                        source: path.to_path_buf(),
++                    });
++                }
++                (main.default_mode, main.foreign_gadgets)
++            }
++            None => (None, None),
++        };
++
++        if let Some(mode) = default_mode {
+             if !is_mode_name(&mode) {
+                 return Err(anyhow::anyhow!(
+                     "[main] default_mode {} is not one of: {}",
+@@ -218,6 +359,23 @@ impl Configuration {
+             });
+         }
+ 
++        if let Some(foreign) = foreign_gadgets {
++            let policy = match foreign.as_str() {
++                "replace" => ForeignGadgets::Replace,
++                "preserve" => ForeignGadgets::Preserve,
++                _ => {
++                    return Err(anyhow::anyhow!(
++                        "[main] foreign_gadgets {} is not \"replace\" or \"preserve\"",
++                        toml_string(&foreign)
++                    ));
++                }
++            };
++            self.foreign_gadgets = Some(Sourced {
++                value: policy,
++                source: path.to_path_buf(),
++            });
++        }
++
+         if let Some(mass_storage) = parsed.mass_storage
+             && let Some(storage_path) = mass_storage.storage_path
+         {
+@@ -227,6 +385,97 @@ impl Configuration {
+             });
+         }
+ 
++        for (name, raw) in parsed.gadget.unwrap_or_default() {
++            self.merge_gadget(&name, raw, path)
++                .map_err(|err| anyhow::anyhow!("[gadget.{}]: {err}", toml_key(&name)))?;
++        }
++
++        return Ok(());
++    }
++
++    fn merge_gadget(
++        &mut self,
++        name: &str,
++        raw: RawGadgetConfiguration,
++        path: &Path,
++    ) -> anyhow::Result<()> {
++        if !is_plain_name(name) {
++            return Err(anyhow::anyhow!(
++                "not a gadget directory name (empty, or contains '/', NUL or whitespace)"
++            ));
++        }
++        if is_owned_gadget(name) {
++            return Err(anyhow::anyhow!(
++                "gadget names starting with {OWNED_GADGET_PREFIX} belong to usb-signaller and cannot be declared"
++            ));
++        }
++
++        /* Validate the whole table before merging anything from it */
++        for function in raw.pinned_functions.iter().flatten() {
++            if !is_function_name(function) {
++                return Err(anyhow::anyhow!(
++                    "pinned function {} is not <driver>.<instance> without '/', NUL or whitespace",
++                    toml_string(function)
++                ));
++            }
++        }
++        if let Some(config) = &raw.config
++            && !is_plain_name(config)
++        {
++            return Err(anyhow::anyhow!(
++                "config {} is not a configuration directory name",
++                toml_string(config)
++            ));
++        }
++        for mode in raw.allowed_modes.iter().flatten() {
++            if !is_mode_name(mode) {
++                return Err(anyhow::anyhow!(
++                    "allowed mode {} is not one of: {}",
++                    toml_string(mode),
++                    MODE_NAMES.join(", ")
++                ));
++            }
++        }
++
++        let declaration = self.gadgets.entry(name.to_string()).or_default();
++        let sourced = |value| Sourced {
++            value,
++            source: path.to_path_buf(),
++        };
++
++        if let Some(adopt) = raw.adopt {
++            declaration.adopt = Some(sourced(adopt));
++        }
++        if let Some(keep_identity) = raw.keep_identity {
++            declaration.keep_identity = Some(sourced(keep_identity));
++        }
++        if let Some(config) = raw.config {
++            declaration.config = Some(Sourced {
++                value: config,
++                source: path.to_path_buf(),
++            });
++        }
++
++        /* Pins are a union: a later file can add pins but never remove one */
++        for function in raw.pinned_functions.unwrap_or_default() {
++            declaration
++                .pinned_functions
++                .entry(function)
++                .or_insert_with(|| path.to_path_buf());
++        }
++
++        /* Allowed modes are an intersection: every file that sets them can only narrow them */
++        if let Some(modes) = raw.allowed_modes {
++            let modes: BTreeSet<String> = modes.into_iter().collect();
++            declaration.allowed_modes = Some(match declaration.allowed_modes.take() {
++                Some((previous, mut sources)) => {
++                    sources.push(path.to_path_buf());
++                    (previous.intersection(&modes).cloned().collect(), sources)
++                }
++                None => (modes, vec![path.to_path_buf()]),
++            });
++        }
++
+         return Ok(());
+     }
+ 
+@@ -239,6 +488,22 @@ impl Configuration {
+         return self.default_mode.as_ref().map(|mode| mode.value.as_str());
+     }
+ 
++    /* Policy for bound gadgets that are neither owned nor declared; preserve when broken */
++    pub fn foreign_gadgets(&self) -> ForeignGadgets {
++        if self.is_broken() {
++            return ForeignGadgets::Preserve;
++        }
++        return self
++            .foreign_gadgets
++            .as_ref()
++            .map_or(ForeignGadgets::default(), |policy| policy.value);
++    }
++
++    /* Declaration for a gadget directory; nothing is declared while the configuration is broken */
++    pub fn gadget(&self, name: &str) -> Option<&GadgetDeclaration> {
++        return self.gadgets.get(name);
++    }
++
+     /* Backing image for mass_storage_mode / cdrom_mode, from [mass_storage]. */
+     pub fn storage_path(&self) -> anyhow::Result<String> {
+         match &self.storage_path {
+@@ -291,6 +556,37 @@ impl Configuration {
+             }
+         }
+ 
++        match &self.foreign_gadgets {
++            Some(policy) if !self.is_broken() => {
++                let _ = writeln!(
++                    out,
++                    "foreign_gadgets = {}    # {}",
++                    toml_string(policy.value.as_str()),
++                    policy.source.display()
++                );
++            }
++            _ => {
++                let why = if self.is_broken() {
++                    "broken configuration"
++                } else {
++                    "default"
++                };
++                let _ = writeln!(
++                    out,
++                    "foreign_gadgets = {}    # {why}",
++                    toml_string(self.foreign_gadgets().as_str())
++                );
++            }
++        }
++        for key in &self.ignored {
++            let _ = writeln!(
++                out,
++                "# unknown key {} ignored    # {}",
++                toml_key(&key.value),
++                key.source.display()
++            );
++        }
++
+         let _ = writeln!(out, "[mass_storage]");
+         match &self.storage_path {
+             Some(path) => {
+@@ -306,6 +602,60 @@ impl Configuration {
+             }
+         }
+ 
++        for (name, gadget) in &self.gadgets {
++            let _ = writeln!(out, "[gadget.{}]", toml_key(name));
++            match &gadget.adopt {
++                Some(adopt) => {
++                    let _ = writeln!(
++                        out,
++                        "adopt = {}    # {}",
++                        adopt.value,
++                        adopt.source.display()
++                    );
++                }
++                None => {
++                    let _ = writeln!(out, "adopt = false    # default");
++                }
++            }
++            if !gadget.pinned_functions.is_empty() {
++                let _ = writeln!(
++                    out,
++                    "pinned_functions = {}    # {}",
++                    toml_list(gadget.pinned_functions.keys()),
++                    display_paths(gadget.pinned_functions.values())
++                );
++            }
++            if let Some(config) = &gadget.config {
++                let _ = writeln!(
++                    out,
++                    "config = {}    # {}",
++                    toml_string(&config.value),
++                    config.source.display()
++                );
++            }
++            match &gadget.keep_identity {
++                Some(keep) => {
++                    let _ = writeln!(
++                        out,
++                        "keep_identity = {}    # {}",
++                        keep.value,
++                        keep.source.display()
++                    );
++                }
++                None => {
++                    let _ = writeln!(out, "keep_identity = true    # default");
++                }
++            }
++            if let Some((modes, sources)) = &gadget.allowed_modes {
++                let _ = writeln!(
++                    out,
++                    "allowed_modes = {}    # intersection of {}",
++                    toml_list(modes),
++                    display_paths(sources)
++                );
++            }
++        }
++
+         return out;
+     }
+ }
+@@ -485,6 +835,28 @@ mod tests {
+         let config = load(&root);
+         assert_eq!(&config.state, &ConfigState::Ok);
+         assert_eq!(config.default_mode(), Some("developer_mode"));
++        assert!(
++            config
++                .render()
++                .contains("# unknown key future_key ignored    # ")
++        );
++    }
++
++    /* A typo in foreign_gadgets is reported, and the default stays */
++    #[test]
++    fn a_misspelt_main_key_is_reported() {
++        let root = TempRoot::new("misspelt");
++        root.write(ETC, "[main]\nforeign_gadget = \"preserve\"\n");
++        let config = load(&root);
++        assert_eq!(&config.state, &ConfigState::Ok);
++        assert_eq!(config.foreign_gadgets(), ForeignGadgets::Replace);
++        assert_eq!(config.ignored.len(), 1);
++        assert_eq!(config.ignored[0].value, "foreign_gadget");
++        assert!(
++            config
++                .render()
++                .contains("# unknown key foreign_gadget ignored")
++        );
+     }
+ 
+     #[test]
+@@ -530,6 +902,232 @@ mod tests {
+         assert!(config.is_broken());
+     }
+ 
++    #[test]
++    fn foreign_gadgets_defaults_to_replace() {
++        let root = TempRoot::new("foreign-default");
++        assert_eq!(load(&root).foreign_gadgets(), ForeignGadgets::Replace);
++        root.write(ETC, "[main]\nforeign_gadgets = \"preserve\"\n");
++        assert_eq!(load(&root).foreign_gadgets(), ForeignGadgets::Preserve);
++    }
++
++    #[test]
++    fn invalid_foreign_gadgets_is_broken() {
++        let root = TempRoot::new("foreign-invalid");
++        root.write(ETC, "[main]\nforeign_gadgets = \"keep\"\n");
++        let config = load(&root);
++        assert!(config.is_broken());
++        /* Broken fails closed */
++        assert_eq!(config.foreign_gadgets(), ForeignGadgets::Preserve);
++    }
++
++    #[test]
++    fn broken_configuration_preserves_and_declares_nothing() {
++        let root = TempRoot::new("broken-preserve");
++        root.write(
++            &format!("{USR_D}/50-vendor.toml"),
++            "[main]\nforeign_gadgets = \"replace\"\n",
++        );
++        root.write(
++            &format!("{RUN_D}/50-smoo.toml"),
++            "[gadget.smoo]\npinned_functions = [\"ffs.smoo\"]\n",
++        );
++        root.write(
++            &format!("{ETC_D}/60-broken.toml"),
++            "[main]\ndefault_mode = \n",
++        );
++        let config = load(&root);
++        assert!(config.is_broken());
++        assert_eq!(config.foreign_gadgets(), ForeignGadgets::Preserve);
++        assert!(config.gadget("smoo").is_none());
++        assert!(
++            config
++                .render()
++                .contains("foreign_gadgets = \"preserve\"    # broken configuration")
++        );
++    }
++
++    #[test]
++    fn empty_gadget_table_declares_the_gadget() {
++        let root = TempRoot::new("declare-empty");
++        root.write(ETC, "[gadget.g1]\n");
++        let config = load(&root);
++        let gadget = config.gadget("g1").unwrap();
++        assert!(gadget.pins().is_empty());
++        assert_eq!(gadget.adopt, None);
++        assert_eq!(gadget.keep_identity, None);
++        assert!(config.gadget("g2").is_none());
++    }
++
++    #[test]
++    fn pinned_functions_are_a_union() {
++        let root = TempRoot::new("pin-union");
++        let run = root.write(
++            &format!("{RUN_D}/50-smoo.toml"),
++            "[gadget.smoo]\nadopt = true\npinned_functions = [\"ffs.smoo\"]\n",
++        );
++        let etc = root.write(
++            &format!("{ETC_D}/60-admin.toml"),
++            "[gadget.smoo]\npinned_functions = [\"acm.GS0\"]\n",
++        );
++        root.write(
++            &format!("{ETC_D}/70-empty.toml"),
++            "[gadget.smoo]\npinned_functions = []\n",
++        );
++        let config = load(&root);
++        let gadget = config.gadget("smoo").unwrap();
++        assert_eq!(
++            gadget.pins().into_iter().collect::<Vec<String>>(),
++            vec!["acm.GS0".to_string(), "ffs.smoo".to_string()]
++        );
++        assert_eq!(gadget.pinned_functions["ffs.smoo"], run);
++        assert_eq!(gadget.pinned_functions["acm.GS0"], etc);
++        /* adopt set in the first file survives later files that do not set it */
++        assert!(gadget.adopt.as_ref().unwrap().value);
++    }
++
++    #[test]
++    fn masking_the_dropin_removes_its_pins() {
++        let root = TempRoot::new("pin-mask");
++        root.write(
++            &format!("{RUN_D}/50-smoo.toml"),
++            "[gadget.smoo]\npinned_functions = [\"ffs.smoo\"]\n",
++        );
++        root.symlink(&format!("{ETC_D}/50-smoo.toml"), Path::new("/dev/null"));
++        assert!(load(&root).gadget("smoo").is_none());
++    }
++
++    #[test]
++    fn allowed_modes_are_an_intersection() {
++        let root = TempRoot::new("allowed-modes");
++        root.write(
++            &format!("{USR_D}/50-vendor.toml"),
++            "[gadget.smoo]\nallowed_modes = [\"charging_only\", \"developer_mode\", \"tethering_mode\"]\n",
++        );
++        root.write(
++            &format!("{ETC_D}/60-admin.toml"),
++            "[gadget.smoo]\nallowed_modes = [\"developer_mode\", \"mtp_ffs_mode\", \"charging_only\"]\n",
++        );
++        root.write(
++            &format!("{ETC_D}/70-other.toml"),
++            "[gadget.smoo]\nadopt = false\n",
++        );
++        let config = load(&root);
++        let (modes, sources) = config
++            .gadget("smoo")
++            .unwrap()
++            .allowed_modes
++            .clone()
++            .unwrap();
++        assert_eq!(
++            modes.into_iter().collect::<Vec<String>>(),
++            vec!["charging_only".to_string(), "developer_mode".to_string()]
++        );
++        assert_eq!(sources.len(), 2);
++    }
++
++    #[test]
++    fn scalar_gadget_keys_are_last_set_wins() {
++        let root = TempRoot::new("gadget-scalars");
++        root.write(
++            &format!("{USR_D}/50-vendor.toml"),
++            "[gadget.smoo]\nadopt = true\nkeep_identity = false\nconfig = \"c.1\"\n",
++        );
++        let etc = root.write(
++            &format!("{ETC_D}/60-admin.toml"),
++            "[gadget.smoo]\nadopt = false\n",
++        );
++        let config = load(&root);
++        let gadget = config.gadget("smoo").unwrap();
++        assert!(!gadget.adopt.as_ref().unwrap().value);
++        assert_eq!(gadget.adopt.as_ref().unwrap().source, etc);
++        assert!(!gadget.keep_identity.as_ref().unwrap().value);
++        assert_eq!(gadget.config.as_ref().unwrap().value, "c.1");
++    }
++
++    #[test]
++    fn unknown_gadget_key_is_broken() {
++        let root = TempRoot::new("gadget-unknown");
++        root.write(
++            &format!("{RUN_D}/50-smoo.toml"),
++            "[gadget.smoo]\npinned_function = [\"ffs.smoo\"]\n",
++        );
++        let config = load(&root);
++        assert!(config.is_broken());
++        assert!(config.gadget("smoo").is_none());
++    }
++
++    #[test]
++    fn invalid_gadget_values_are_broken() {
++        for (name, contents) in [
++            (
++                "pin-no-dot",
++                "[gadget.smoo]\npinned_functions = [\"ffs\"]\n",
++            ),
++            (
++                "pin-empty-instance",
++                "[gadget.smoo]\npinned_functions = [\"ffs.\"]\n",
++            ),
++            (
++                "pin-slash",
++                "[gadget.smoo]\npinned_functions = [\"ffs.a/b\"]\n",
++            ),
++            (
++                "pin-space",
++                "[gadget.smoo]\npinned_functions = [\"ffs.a b\"]\n",
++            ),
++            (
++                "pin-nul",
++                "[gadget.smoo]\npinned_functions = [\"ffs.a\\u0000\"]\n",
++            ),
++            (
++                "pin-type",
++                "[gadget.smoo]\npinned_functions = \"ffs.smoo\"\n",
++            ),
++            ("mode", "[gadget.smoo]\nallowed_modes = [\"mtp_mode\"]\n"),
++            ("config", "[gadget.smoo]\nconfig = \"../c.1\"\n"),
++            ("gadget-slash", "[gadget.\"a/b\"]\n"),
++            ("gadget-owned", "[gadget.usb-signaller-developer]\n"),
++            ("gadget-type", "gadget = 1\n"),
++        ] {
++            let root = TempRoot::new(name);
++            root.write(ETC, contents);
++            assert!(load(&root).is_broken(), "{name} should be broken");
++        }
++    }
++
++    #[test]
++    fn function_names() {
++        assert!(is_function_name("ffs.smoo"));
++        assert!(is_function_name("ncm.usb0"));
++        assert!(is_function_name("mass_storage.0"));
++        assert!(is_function_name("ffs.gadgetry-most-foul0-0"));
++        assert!(!is_function_name("ffs"));
++        assert!(!is_function_name(".smoo"));
++        assert!(!is_function_name("ffs."));
++        assert!(!is_function_name("ffs.a/b"));
++        assert!(!is_function_name("ffs.a\tb"));
++    }
++
++    #[test]
++    fn render_prints_gadget_tables() {
++        let root = TempRoot::new("render-gadget");
++        let run = root.write(
++            &format!("{RUN_D}/50-smoo.toml"),
++            "[gadget.smoo]\nadopt = true\npinned_functions = [\"ffs.smoo\"]\n",
++        );
++        root.write(&format!("{ETC_D}/50-quoted.toml"), "[gadget.\"g.1\"]\n");
++        let rendered = load(&root).render();
++        assert!(rendered.contains("[gadget.smoo]\n"));
++        assert!(rendered.contains(&format!("adopt = true    # {}", run.display())));
++        assert!(rendered.contains(&format!(
++            "pinned_functions = [\"ffs.smoo\"]    # {}",
++            run.display()
++        )));
++        assert!(rendered.contains("keep_identity = true    # default"));
++        assert!(rendered.contains("[gadget.\"g.1\"]\n"));
++        assert!(rendered.contains("foreign_gadgets = \"replace\"    # default"));
++    }
++
+     #[test]
+     fn render_names_the_source_of_each_key() {
+         let root = TempRoot::new("render");
+diff --git a/src/dbus.rs b/src/dbus.rs
+index b9c7d58..c5e763b 100644
+--- a/src/dbus.rs
++++ b/src/dbus.rs
+@@ -5,6 +5,7 @@ use tokio::time::{Duration, sleep};
+ use zbus::{Connection, connection, interface, object_server::SignalEmitter};
+ 
+ use crate::configuration::Configuration;
++use crate::policy::{GadgetClass, check_host_mode, check_replaceable};
+ use crate::udc::{UDC, discover_udcs};
+ use crate::urs::URSRole;
+ use crate::urs::{URS, discover_urss};
+@@ -19,6 +20,27 @@ impl UsbModedDBus {
+     pub fn new(config: Arc<Configuration>) -> Self {
+         return Self { config };
+     }
++
++    /*
++     * Cleanup on SIGTERM: fall back to charging_only, unless a gadget that
++     * usb-signaller must not replace holds a UDC. That gadget, for example
++     * one serving the root filesystem, stays untouched: no configfs write.
++     */
++    pub async fn shutdown(&self, emitter: SignalEmitter<'_>) -> Result<(), zbus::fdo::Error> {
++        for (udc, gadget) in UDC::bound_gadgets() {
++            let class = GadgetClass::classify(&self.config, &gadget);
++            if class.is_protected() {
++                println!(
++                    "ℹ️  Leaving {} gadget {gadget} on UDC {udc} untouched",
++                    class.describe()
++                );
++                return Ok(());
++            }
++        }
++
++        self.set_mode("charging_only", emitter).await?;
++        return Ok(());
++    }
+ }
+ 
+ pub async fn create_usbmoded_connection(config: Arc<Configuration>) -> Result<Connection> {
+@@ -50,6 +72,25 @@ impl UsbModedDBus {
+             ));
+         }
+ 
++        /*
++         * Gadgets usb-signaller must not replace are checked before any USB
++         * role is written: host role removes the UDC, which unbinds them.
++         */
++        let bound = UDC::bound_gadgets();
++        if mode == "host_mode" {
++            if let Err(err) = check_host_mode(&self.config, &bound) {
++                eprintln!("❌ {err}");
++                return Err(zbus::fdo::Error::Failed(format!("{err}")));
++            }
++        } else {
++            for (udc, gadget) in &bound {
++                if let Err(err) = check_replaceable(&self.config, udc, gadget) {
++                    eprintln!("❌ {err}");
++                    return Err(zbus::fdo::Error::Failed(format!("{err}")));
++                }
++            }
++        }
++
+         /* USB Role Switcher */
+         for name in &discover_urss() {
+             if URS::load(name).is_ok() {
+diff --git a/src/main.rs b/src/main.rs
+index f9fc584..5357439 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -31,6 +31,7 @@ mod configuration;
+ mod dbus;
+ mod gadget;
+ mod monitor;
++mod policy;
+ mod service;
+ mod sysfs;
+ mod udc;
+@@ -101,6 +102,11 @@ async fn main() -> Result<()> {
+         println!(" - Name: {}", udc.name);
+         println!("   Enabled: {}", udc.enabled);
+         println!("   Mode: {:?}", udc.mode);
++        if udc.gadget.is_none()
++            && let Some(name) = &udc.bound_gadget
++        {
++            println!("   Gadget: {name} (unreadable)");
++        }
+         if let Some(gadget) = udc.gadget {
+             println!("   Gadget: {}", gadget.name);
+             println!(
+@@ -178,7 +184,7 @@ async fn main() -> Result<()> {
+             println!("ℹ️  Cleaning up!");
+             let emitter =
+                 SignalEmitter::new(&shutdown_connection.clone(), "/com/meego/usb_moded").unwrap();
+-            if let Err(error) = dbus.set_mode("charging_only", emitter).await {
++            if let Err(error) = dbus.shutdown(emitter).await {
+                 eprintln!("⚠️  Failed to clean up before shutdown: {error:?}");
+             };
+         })
+diff --git a/src/policy.rs b/src/policy.rs
+new file mode 100644
+index 0000000..5c9738b
+--- /dev/null
++++ b/src/policy.rs
+@@ -0,0 +1,223 @@
++/*
++ * usb-signaller: replacement for usb-moded on mainline Linux Mobile devices
++ * Copyright (C) 2026 Dylan Van Assche
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published
++ * by the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program. If not, see <https://www.gnu.org/licenses/>.
++ */
++
++/*
++ * Which gadgets usb-signaller may replace.
++ *
++ * - Owned: the gadget directory starts with "usb-signaller-". usb-signaller
++ *   created it and manages it as before.
++ * - Declared: named in a [gadget.<dir>] table, for example a gadget built by
++ *   the initramfs that serves the root filesystem. Never disabled, removed or
++ *   replaced.
++ * - Foreign: anything else. [main] foreign_gadgets decides: "replace" (the
++ *   default) keeps the historical behaviour, "preserve" never touches it.
++ *
++ * A broken configuration declares nothing and preserves every gadget
++ * usb-signaller does not own.
++ */
++
++use std::collections::BTreeSet;
++
++use crate::configuration::{Configuration, ForeignGadgets, is_owned_gadget};
++
++#[derive(Debug, Clone, PartialEq)]
++pub enum GadgetClass {
++    Owned,
++    Declared { pins: BTreeSet<String> },
++    Foreign { policy: ForeignGadgets },
++}
++
++impl GadgetClass {
++    pub fn classify(config: &Configuration, gadget: &str) -> Self {
++        if is_owned_gadget(gadget) {
++            return GadgetClass::Owned;
++        }
++        if let Some(declaration) = config.gadget(gadget) {
++            return GadgetClass::Declared {
++                pins: declaration.pins(),
++            };
++        }
++        return GadgetClass::Foreign {
++            policy: config.foreign_gadgets(),
++        };
++    }
++
++    /* usb-signaller must not disable, remove or replace this gadget */
++    pub fn is_protected(&self) -> bool {
++        return match self {
++            GadgetClass::Owned => false,
++            GadgetClass::Declared { .. } => true,
++            GadgetClass::Foreign { policy } => *policy == ForeignGadgets::Preserve,
++        };
++    }
++
++    pub fn describe(&self) -> &'static str {
++        return match self {
++            GadgetClass::Owned => "owned",
++            GadgetClass::Declared { .. } => "declared",
++            GadgetClass::Foreign { .. } => "foreign",
++        };
++    }
++}
++
++/* Refuse to replace a protected gadget that holds a UDC */
++pub fn check_replaceable(config: &Configuration, udc: &str, gadget: &str) -> anyhow::Result<()> {
++    let class = GadgetClass::classify(config, gadget);
++    if class.is_protected() {
++        return Err(anyhow::anyhow!(
++            "UDC {udc} is held by {} gadget {gadget}; not replacing it",
++            class.describe()
++        ));
++    }
++
++    return Ok(());
++}
++
++/*
++ * Host role removes the UDC, which unbinds every gadget on it. Refuse it,
++ * before any role is written, while a declared gadget with pinned functions
++ * is bound, or while the configuration is broken and a gadget usb-signaller
++ * does not own is bound. 'bound' lists (UDC, gadget) pairs.
++ */
++pub fn check_host_mode(config: &Configuration, bound: &[(String, String)]) -> anyhow::Result<()> {
++    for (udc, gadget) in bound {
++        match GadgetClass::classify(config, gadget) {
++            GadgetClass::Owned => {}
++            GadgetClass::Declared { pins } if !pins.is_empty() => {
++                return Err(anyhow::anyhow!(
++                    "host_mode refused: declared gadget {gadget} on UDC {udc} has pinned functions {}",
++                    pins.into_iter().collect::<Vec<String>>().join(", ")
++                ));
++            }
++            _ if config.is_broken() => {
++                return Err(anyhow::anyhow!(
++                    "host_mode refused: the configuration is broken and gadget {gadget}, which usb-signaller does not own, is bound to UDC {udc}"
++                ));
++            }
++            _ => {}
++        }
++    }
++
++    return Ok(());
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::configuration::testing::TempRoot;
++
++    const DROPIN: &str = "run/usb-signaller/usb-signaller.toml.d/50-test.toml";
++
++    fn config(contents: &str) -> Configuration {
++        let root = TempRoot::new("policy");
++        root.write(DROPIN, contents);
++        return Configuration::load_with_root(Some(&root.path));
++    }
++
++    fn bound(udc: &str, gadget: &str) -> Vec<(String, String)> {
++        return vec![(udc.to_string(), gadget.to_string())];
++    }
++
++    #[test]
++    fn owned_gadgets_are_never_protected() {
++        let config = config("[main]\nforeign_gadgets = \"preserve\"\n");
++        let class = GadgetClass::classify(&config, "usb-signaller-developer");
++        assert_eq!(class, GadgetClass::Owned);
++        assert!(!class.is_protected());
++        assert!(check_replaceable(&config, "udc0", "usb-signaller-developer").is_ok());
++    }
++
++    #[test]
++    fn foreign_gadgets_are_replaced_by_default() {
++        let config = config("");
++        let class = GadgetClass::classify(&config, "g1");
++        assert_eq!(
++            class,
++            GadgetClass::Foreign {
++                policy: ForeignGadgets::Replace
++            }
++        );
++        assert!(check_replaceable(&config, "udc0", "g1").is_ok());
++    }
++
++    #[test]
++    fn foreign_gadgets_can_be_preserved() {
++        let config = config("[main]\nforeign_gadgets = \"preserve\"\n");
++        let error = check_replaceable(&config, "udc0", "g1").unwrap_err();
++        assert_eq!(
++            error.to_string(),
++            "UDC udc0 is held by foreign gadget g1; not replacing it"
++        );
++    }
++
++    #[test]
++    fn declared_gadgets_are_protected_even_under_replace() {
++        let config = config("[gadget.smoo]\npinned_functions = [\"ffs.smoo\"]\n");
++        let class = GadgetClass::classify(&config, "smoo");
++        assert!(class.is_protected());
++        let error = check_replaceable(&config, "udc0", "smoo").unwrap_err();
++        assert_eq!(
++            error.to_string(),
++            "UDC udc0 is held by declared gadget smoo; not replacing it"
++        );
++        /* Other gadgets still follow foreign_gadgets */
++        assert!(check_replaceable(&config, "udc0", "g1").is_ok());
++    }
++
++    #[test]
++    fn broken_configuration_preserves_every_non_owned_gadget() {
++        let config = config("[gadget.smoo]\npinned_function = [\"ffs.smoo\"]\n");
++        assert!(config.is_broken());
++        assert_eq!(
++            GadgetClass::classify(&config, "smoo"),
++            GadgetClass::Foreign {
++                policy: ForeignGadgets::Preserve
++            }
++        );
++        assert!(check_replaceable(&config, "udc0", "smoo").is_err());
++        assert!(check_replaceable(&config, "udc0", "usb-signaller-developer").is_ok());
++    }
++
++    #[test]
++    fn host_mode_is_refused_while_pins_are_bound() {
++        let config = config("[gadget.smoo]\npinned_functions = [\"ffs.smoo\"]\n");
++        let error = check_host_mode(&config, &bound("udc0", "smoo")).unwrap_err();
++        assert!(error.to_string().contains("pinned functions ffs.smoo"));
++        assert!(check_host_mode(&config, &[]).is_ok());
++    }
++
++    #[test]
++    fn host_mode_is_allowed_for_declared_gadgets_without_pins() {
++        let config = config("[gadget.g1]\n");
++        assert!(check_host_mode(&config, &bound("udc0", "g1")).is_ok());
++    }
++
++    #[test]
++    fn host_mode_is_refused_with_a_broken_configuration() {
++        let config = config("[main\n");
++        assert!(check_host_mode(&config, &bound("udc0", "g1")).is_err());
++        assert!(check_host_mode(&config, &bound("udc0", "usb-signaller-developer")).is_ok());
++    }
++
++    #[test]
++    fn host_mode_is_allowed_for_preserved_foreign_gadgets() {
++        /* Host role cleanup never removes gadgets usb-signaller does not own */
++        let config = config("[main]\nforeign_gadgets = \"preserve\"\n");
++        assert!(check_host_mode(&config, &bound("udc0", "g1")).is_ok());
++    }
++}
+diff --git a/src/udc.rs b/src/udc.rs
+index d792bf1..9fcae39 100644
+--- a/src/udc.rs
++++ b/src/udc.rs
+@@ -19,6 +19,7 @@
+ use crate::configuration::Configuration;
+ use crate::gadget::ConfigFsGadget;
+ use crate::gadget::discover_gadgets;
++use crate::policy::check_replaceable;
+ use crate::service::{service_start, service_stop};
+ use crate::sysfs::{sysfs_mount_functionfs, sysfs_read, sysfs_umount_functionfs, sysfs_write};
+ use crate::utils::dir_entries;
+@@ -32,6 +33,10 @@ const IPV4_PATH: &str = "ipv4";
+ const FORWARD_NODE: &str = "ip_forward";
+ const UDC_PATH: &str = "udc";
+ const STATE_NODE: &str = "state";
++const FUNCTION_NODE: &str = "function";
++const CONFIGFS_BASE_PATH: &str = "/sys/kernel/config";
++const USB_GADGET_PATH: &str = "usb_gadget";
++const GADGET_UDC_NODE: &str = "UDC";
+ const COMPATIBLE_NODE: &str = "compatible";
+ 
+ #[derive(Debug)]
+@@ -39,6 +44,8 @@ pub struct UDC {
+     pub name: String,
+     pub enabled: bool,
+     pub mode: UDCMode,
++    /* Name of the configfs gadget bound to this UDC, even when it cannot be parsed */
++    pub bound_gadget: Option<String>,
+     pub gadget: Option<ConfigFsGadget>,
+ }
+ 
+@@ -108,6 +115,11 @@ impl UDC {
+             udc.name, udc.mode, mode
+         );
+ 
++        /* Never replace a declared gadget, or a foreign one that must be preserved */
++        if let Some(gadget) = &udc.bound_gadget {
++            check_replaceable(config, &udc.name, gadget)?;
++        }
++
+         /* Prevent setting the same mode */
+         if udc.mode == mode {
+             eprintln!(
+@@ -180,7 +192,7 @@ impl UDC {
+             }
+             UDCMode::Charging => {
+                 /* Disable current gadget and userspace services to enforce charging-only */
+-                if let Some(gadget) = udc.gadget {
++                if let Some(gadget) = udc.bound_gadget {
+                     /*
+                      * Services: ignore errors since these services might
+                      * not be running when starting up. Errors are logged.
+@@ -203,8 +215,8 @@ impl UDC {
+                     }
+ 
+                     /* Gadget */
+-                    let _ = ConfigFsGadget::disable(gadget.name.as_str());
+-                    ConfigFsGadget::delete(gadget.name.as_str())?;
++                    let _ = ConfigFsGadget::disable(gadget.as_str());
++                    ConfigFsGadget::delete(gadget.as_str())?;
+                 }
+ 
+                 return UDC::load(&udc.name);
+@@ -247,7 +259,7 @@ impl UDC {
+ 
+         /* If all preparations went well, disable current gadget and enable new one */
+         println!("Disabling current active gadget");
+-        if let Some(ref gadget) = udc.gadget {
++        if let Some(ref gadget) = udc.bound_gadget {
+             /*
+              * Services: ignore errors since these services might
+              * not be running when starting up. Errors are logged.
+@@ -270,13 +282,13 @@ impl UDC {
+             }
+ 
+             /* Disable gadget, if necessary */
+-            let _ = ConfigFsGadget::disable(gadget.name.as_str());
++            let _ = ConfigFsGadget::disable(gadget.as_str());
+         }
+ 
+         /* If we get to this point, the new gadget is activated, remove the old gadget */
+-        if let Some(gadget) = udc.gadget {
+-            println!("Removing old gadget: {}", gadget.name);
+-            ConfigFsGadget::delete(gadget.name.as_str())?;
++        if let Some(gadget) = udc.bound_gadget {
++            println!("Removing old gadget: {gadget}");
++            ConfigFsGadget::delete(gadget.as_str())?;
+         }
+ 
+         /* Launch userspace services needed for gadget */
+@@ -444,6 +456,117 @@ impl UDC {
+         return Ok(new_udc);
+     }
+ 
++    /*
++     * Name of the configfs gadget bound to a UDC. The UDC's 'function'
++     * attribute holds the bound gadget driver's name, which configfs sets to
++     * the gadget directory name. Fall back to scanning every gadget's UDC
++     * attribute, skipping gadgets that cannot be read.
++     */
++    pub fn bound_gadget_name(udc_name: &str) -> Option<String> {
++        if let Ok(function) = sysfs_read(
++            PathBuf::from(SYSFS_CLASS_BASE_PATH)
++                .join(UDC_PATH)
++                .join(udc_name)
++                .join(FUNCTION_NODE),
++        ) {
++            if function.is_empty() {
++                return None;
++            }
++            if PathBuf::from(CONFIGFS_BASE_PATH)
++                .join(USB_GADGET_PATH)
++                .join(&function)
++                .is_dir()
++            {
++                return Some(function);
++            }
++        }
++
++        for gadget in discover_gadgets() {
++            if let Ok(udc) = sysfs_read(
++                PathBuf::from(CONFIGFS_BASE_PATH)
++                    .join(USB_GADGET_PATH)
++                    .join(&gadget)
++                    .join(GADGET_UDC_NODE),
++            ) && udc == udc_name
++            {
++                return Some(gadget);
++            }
++        }
++
++        return None;
++    }
++
++    /* (UDC, gadget) for every UDC that has a configfs gadget bound */
++    pub fn bound_gadgets() -> Vec<(String, String)> {
++        let mut bound = vec![];
++
++        for udc in discover_udcs() {
++            if let Some(gadget) = Self::bound_gadget_name(&udc) {
++                bound.push((udc, gadget));
++            }
++        }
++
++        return bound;
++    }
++
++    /* Mode of an enabled gadget, from the first function linked in its first configuration */
++    fn detect_mode(gadget: &ConfigFsGadget) -> anyhow::Result<UDCMode> {
++        let Some(function) = gadget
++            .configs
++            .first()
++            .and_then(|config| config.functions.first())
++        else {
++            eprintln!(
++                "❌ Cannot determine mode for gadget {}: no linked function",
++                gadget.name
++            );
++            return Ok(UDCMode::Unknown);
++        };
++
++        /* USB Ethernet NCM gadget */
++        if function.name.starts_with("ncm.") {
++            /* Tethering mode allows IP forwarding such as using mobile data */
++            if Self::detect_tethering_mode()? {
++                return Ok(UDCMode::Tethering);
++            /* Netboot enforces the USB port into an readonly state */
++            } else if Self::detect_netboot_mode() {
++                return Ok(UDCMode::Netboot);
++            }
++            /* Developer mode only allows local data transfer */
++            return Ok(UDCMode::Developer);
++        /* USB FunctionFS MTP gadget */
++        } else if function.name.starts_with("ffs.mtp") {
++            return Ok(UDCMode::MTP);
++        /* USB FunctionFS Accessory gadget */
++        } else if function.name.starts_with("ffs.accessory") {
++            return Ok(UDCMode::Accessory);
++        /* USB mass-storage gadget: disk vs CD-ROM is told apart by
++         * the LUN 'cdrom' flag, not by any kept state. */
++        } else if function.name.starts_with("mass_storage.") {
++            let cdrom = sysfs_read(
++                PathBuf::from(CONFIGFS_BASE_PATH)
++                    .join(USB_GADGET_PATH)
++                    .join(&gadget.name)
++                    .join("functions")
++                    .join(&function.name)
++                    .join("lun.0")
++                    .join("cdrom"),
++            )
++            .map(|v| v.trim() == "1")
++            .unwrap_or(false);
++            if cdrom {
++                return Ok(UDCMode::CdRom);
++            }
++            return Ok(UDCMode::MassStorage);
++        }
++
++        eprintln!(
++            "❌ Cannot determine mode for gadget function {}",
++            function.name
++        );
++        return Ok(UDCMode::Unknown);
++    }
++
+     pub fn load(udc_name: &str) -> anyhow::Result<Self> {
+         let mut mode = UDCMode::Charging;
+         let mut gadget = None;
+@@ -451,64 +574,26 @@ impl UDC {
+         /* UDC is enabled when not 'attached' or 'not attached', for example: 'configured' */
+         let enabled = Self::is_enabled(udc_name)?;
+ 
+-        /* Try to find a gadget assigned to the UDC */
+-        for entry in discover_gadgets() {
+-            let entry = ConfigFsGadget::load(&entry)?;
+-            if udc_name == entry.udc {
+-                if entry.enabled {
+-                    /* USB Ethernet NCM gadget */
+-                    if entry.configs[0].functions[0].name.starts_with("ncm.") {
+-                        /* Tethering mode allows IP forwarding such as using mobile data */
+-                        if Self::detect_tethering_mode()? {
+-                            mode = UDCMode::Tethering;
+-                        /* Netboot enforces the USB port into an readonly state */
+-                        } else if Self::detect_netboot_mode() {
+-                            mode = UDCMode::Netboot;
+-                        /* Developer mode only allows local data transfer */
+-                        } else {
+-                            mode = UDCMode::Developer;
+-                        }
+-                    /* USB FunctionFS MTP gadget */
+-                    } else if entry.configs[0].functions[0].name.starts_with("ffs.mtp") {
+-                        mode = UDCMode::MTP;
+-                    /* USB FunctionFS Accessory gadget */
+-                    } else if entry.configs[0].functions[0]
+-                        .name
+-                        .starts_with("ffs.accessory")
+-                    {
+-                        mode = UDCMode::Accessory;
+-                    /* USB mass-storage gadget: disk vs CD-ROM is told apart by
+-                     * the LUN 'cdrom' flag, not by any kept state. */
+-                    } else if entry.configs[0].functions[0]
+-                        .name
+-                        .starts_with("mass_storage.")
+-                    {
+-                        let cdrom = sysfs_read(
+-                            PathBuf::from("/sys/kernel/config")
+-                                .join("usb_gadget")
+-                                .join(&entry.name)
+-                                .join("functions")
+-                                .join(&entry.configs[0].functions[0].name)
+-                                .join("lun.0")
+-                                .join("cdrom"),
+-                        )
+-                        .map(|v| v.trim() == "1")
+-                        .unwrap_or(false);
+-                        mode = if cdrom {
+-                            UDCMode::CdRom
+-                        } else {
+-                            UDCMode::MassStorage
+-                        };
+-                    } else {
+-                        mode = UDCMode::Unknown;
++        /* Find the gadget bound to the UDC; a gadget that cannot be parsed is still bound */
++        let bound_gadget = Self::bound_gadget_name(udc_name);
++        if let Some(name) = &bound_gadget {
++            match ConfigFsGadget::load(name) {
++                Ok(entry) => {
++                    if entry.udc != udc_name {
+                         eprintln!(
+-                            "❌ Cannot determine mode for gadget function {}",
+-                            entry.configs[0].functions[0].name
++                            "⚠️  Gadget {name} is bound to UDC {udc_name} but its UDC attribute reads '{}'",
++                            entry.udc
+                         );
+                     }
++                    if entry.enabled {
++                        mode = Self::detect_mode(&entry)?;
++                    }
++                    gadget = Some(entry);
++                }
++                Err(err) => {
++                    eprintln!("⚠️  Cannot read gadget {name} bound to UDC {udc_name}: {err:?}");
++                    mode = UDCMode::Unknown;
+                 }
+-                gadget = Some(entry);
+-                break;
+             }
+         }
+ 
+@@ -516,6 +601,7 @@ impl UDC {
+             name: udc_name.to_string(),
+             enabled,
+             mode,
++            bound_gadget,
+             gadget,
+         });
+     }
+diff --git a/src/urs.rs b/src/urs.rs
+index 8ab71c8..7465a1b 100644
+--- a/src/urs.rs
++++ b/src/urs.rs
+@@ -16,6 +16,7 @@
+  * along with this program. If not, see <https://www.gnu.org/licenses/>.
+  */
+ 
++use crate::configuration::is_owned_gadget;
+ use crate::gadget::{ConfigFsGadget, discover_gadgets};
+ use crate::sysfs::{sysfs_read, sysfs_write};
+ use crate::udc::UDC;
+@@ -123,9 +124,21 @@ impl URS {
+                         )?;
+                         Self::wait_for_role(&switch_name, "host")?;
+ 
++                        /*
++                         * Only remove gadgets usb-signaller created. A failure
++                         * to remove one must not leave the others behind.
++                         */
+                         println!("Cleaning up gadgets after switch to host role");
+                         for gadget_name in discover_gadgets() {
+-                            ConfigFsGadget::delete(gadget_name.as_str())?;
++                            if !is_owned_gadget(&gadget_name) {
++                                println!(
++                                    "ℹ️  Leaving gadget {gadget_name} alone: not created by usb-signaller"
++                                );
++                                continue;
++                            }
++                            if let Err(err) = ConfigFsGadget::delete(gadget_name.as_str()) {
++                                eprintln!("❌ Failed to remove gadget {gadget_name}: {err:?}");
++                            }
+                         }
+ 
+                         return URS::load(&switch_name);
+-- 
+2.55.0
+

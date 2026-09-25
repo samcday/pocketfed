@@ -6,7 +6,8 @@ set -eu
 # This is an explicit, one-shot request for the currently attached powered dock.
 # It is never started automatically. With PD 2.0, TCPM cannot discover partner
 # identity while we are a data device, so VID/PID cannot gate the initial swap.
-# SYSFS/MODEL/REQUEST overrides exist solely for the isolated regression tests.
+# SYSFS/MODEL/REQUEST/SMOO_PIDFILE overrides exist solely for the isolated
+# regression tests.
 if [ "$#" -ne 0 ]; then
 	printf 'usage: pocketfed-sargo-typec-host (no arguments)\n' >&2
 	exit 2
@@ -19,6 +20,7 @@ readonly PORT_PATH="$SYSFS_ROOT/class/typec/port0"
 readonly PARTNER_PATH="$SYSFS_ROOT/class/typec/port0-partner"
 readonly POWER_SUPPLY_PATH="$SYSFS_ROOT/class/power_supply"
 readonly REQUEST_PATH="${TYPEC_HOST_REQUEST_PATH:-$PORT_PATH/data_role}"
+readonly SMOO_PIDFILE="${TYPEC_HOST_SMOO_PIDFILE:-/run/smoo/smoo-gadget.pid}"
 readonly WAIT_ATTEMPTS="${TYPEC_HOST_WAIT_ATTEMPTS:-150}"
 readonly WAIT_DELAY="${TYPEC_HOST_WAIT_DELAY:-0.1}"
 readonly POST_WAIT_ATTEMPTS="${TYPEC_HOST_POST_WAIT_ATTEMPTS:-30}"
@@ -121,6 +123,13 @@ esac
 if ! is_uint "$WAIT_ATTEMPTS" || [ "$WAIT_ATTEMPTS" -eq 0 ] ||
 	! is_uint "$POST_WAIT_ATTEMPTS" || [ "$POST_WAIT_ATTEMPTS" -eq 0 ]; then
 	log 'invalid wait-attempt configuration'
+	exit 1
+fi
+
+# On a smoo liveboot the USB gadget serves the root filesystem. Swapping to
+# host removes the UDC and stalls the root, so refuse whatever the cmdline says.
+if [ -e "$SMOO_PIDFILE" ]; then
+	log 'refusing: the root filesystem is served over USB by smoo; no swap requested'
 	exit 1
 fi
 
