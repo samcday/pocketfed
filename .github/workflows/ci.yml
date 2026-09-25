@@ -636,6 +636,26 @@ jobs:
             "containers-storage:$PF_CI_DEVICE_IMAGE" \
             "docker://ghcr.io/${PF_CI_OWNER}/pocketfed-phosh-${PF_CI_DEVICE}:sha-${GITHUB_SHA::12}"
 
+      - name: Build A5U split-UEFI fastboot artifacts
+        if: matrix.device == 'samsung-a5u-eur'
+        run: |
+          # Hosted arm64 runners boot via UEFI, which is the host condition
+          # that made bootupd probe for a partitioned ESP (see bootc-to-fastboot).
+          if [[ -d /sys/firmware/efi ]]; then
+            echo 'Runner is EFI-booted'
+          else
+            echo '::warning::Runner is not EFI-booted; the bootupd host-EFI probe is not exercised'
+          fi
+          PF_DEVICE="$PF_CI_DEVICE" \
+          PF_BUILDER_IMAGE=localhost/pocketfed-image-builder:ci \
+          PF_TARGET_IMAGE_REF="ghcr.io/${PF_CI_OWNER}/pocketfed-phosh-${PF_CI_DEVICE}:rawhide" \
+          PF_OUTPUT_DIR=.cache/a5u-artifacts \
+          just fastboot-from-image "containers-storage:$PF_CI_DEVICE_IMAGE"
+          cd .cache/a5u-artifacts
+          sha256sum --check --strict SHA256SUMS
+          ls -ls esp.img bootfs.img userdata.img
+          df -h .
+
       - name: Prepare Buildah cache for save
         if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         run: |
