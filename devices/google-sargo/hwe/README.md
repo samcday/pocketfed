@@ -9,10 +9,12 @@ The default `PF_KERNEL=copr` path is unchanged.
 - The pinned Fedora `kernel`, `kernel-core`, `kernel-modules`,
   `kernel-modules-core`, `kernel-modules-extra` and `kernel-modules-internal`
   aarch64 packages, from the Fedora repositories.
-- Three out-of-tree modules that Fedora ships disabled
-  (`PINCTRL_SDM670`, `INTERCONNECT_QCOM_SDM670`,
-  `DRM_PANEL_SAMSUNG_S6E3FA7`), built from verbatim kernel-ark sources against
-  the matching `kernel-devel`. See `kmods/`.
+- Nothing out of tree for the drivers any more: kernel-ark MR 4753 (merged
+  2026-09-22, in rawhide from `7.3.0-0.rc4.*.40`) builds `PINCTRL_SDM670`
+  and `INTERCONNECT_QCOM_SDM670` in and `DRM_PANEL_SAMSUNG_S6E3FA7` as a
+  module. Before that the variant built those three drivers out of tree from
+  verbatim kernel-ark sources; the next out-of-tree tier (remoteproc, wifi,
+  audio, ...) follows the design in pocketfed issue #76.
 - One devicetree overlay that adds the SDM670 debug UART (uart12, QUP1 SE4).
   Fedora's `sdm670-google-sargo.dtb` has no `serial0` alias and no
   `serial@a90000`, so the console never appeared. The overlay is applied to
@@ -28,32 +30,15 @@ for this variant.
 ## Picking a kernel
 
     PF_KERNEL=fedora \
-    PF_FEDORA_KERNEL=7.3.0-0.rc3.260914g704340f1cd0d.32.fc46 \
+    PF_FEDORA_KERNEL=7.3.0-0.rc4.260924g62f4c998b297.41.fc46 \
     just device PF_DEVICE=google-sargo
 
 `PF_FEDORA_KERNEL` is the aarch64 kernel release without the trailing
-`.aarch64`. `PF_KERNEL=copr` ignores it. The validated release is
-`7.3.0-0.rc3.260914g704340f1cd0d.32.fc46` (source tag
-`kernel-7.3.0-0.rc3.704340f1cd0d.32`); the tag is derived from the release by
+`.aarch64`. `PF_KERNEL=copr` ignores it. The pinned release is
+`7.3.0-0.rc4.260924g62f4c998b297.41.fc46` (source tag
+`kernel-7.3.0-0.rc4.62f4c998b297.41`); the tag is derived from the release by
 dropping the `.fcNN` suffix and the leading `YYMMDDg` date from the commit
 field.
-
-## Re-pinning the kmod sources
-
-`kmods/sources.txt` lists the six kernel-ark paths;
-`kmods/sources.sha256` pins each file's sha256 and the build fails with a
-re-pin hint on any mismatch. To move both to a new tag:
-
-    tag=kernel-7.3.0-0.rc3.704340f1cd0d.32
-    while read -r path; do
-        curl -fsSL "https://gitlab.com/cki-project/kernel-ark/-/raw/$tag/$path" -o /tmp/kmod-src
-        printf '%s  %s\n' "$(sha256sum /tmp/kmod-src | cut -d' ' -f1)" "$path"
-    done < devices/google-sargo/hwe/kmods/sources.txt \
-        > devices/google-sargo/hwe/kmods/sources.sha256
-
-The third fetch in the `hwe-dtb` stage (`include/uapi/linux/input-event-codes.h`)
-supplies the target of a symlink that `input.h` pulls in when only the
-`include/dt-bindings` slice of the tree is fetched.
 
 ## Evidence (2026-09-17)
 

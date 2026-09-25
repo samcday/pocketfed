@@ -11,7 +11,7 @@ base_oci_dir := env("PF_BASE_OCI_DIR", base_output / "pocketfed-base.oci")
 
 tag := env("PF_TAG", "rawhide")
 kernel := env("PF_KERNEL", "copr")
-fedora_kernel := env("PF_FEDORA_KERNEL", "7.3.0-0.rc3.260914g704340f1cd0d.32.fc46")
+fedora_kernel := env("PF_FEDORA_KERNEL", "7.3.0-0.rc4.260924g62f4c998b297.41.fc46")
 owner := env("PF_OWNER", "samcday")
 base_image := env("PF_BASE_IMAGE", "ghcr.io/" + owner + "/pocketfed-base:" + tag)
 oci_output := env("PF_OCI_OUTPUT", "oci:" + base_oci_dir + ":" + tag)

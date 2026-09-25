@@ -51,16 +51,21 @@ uts_release="${vermagic%% *}"
     fail "sdhci_msm vermagic $uts_release does not match module directory $kver"
 
 if [ "$variant" = "fedora" ]; then
-    for hwe_module in pinctrl-sdm670 qnoc-sdm670 panel-samsung-s6e3fa7; do
-        hwe_path="$(find "$module_dir/updates/sdm670-hwe" \
-            -type f -name "$hwe_module.ko*" -print -quit 2>/dev/null)"
-        [ -n "$hwe_path" ] || fail "$hwe_module module is missing"
-
-        hwe_vermagic="$(modinfo -F vermagic "$hwe_path")" ||
-            fail "cannot read vermagic from $hwe_path"
-        [ "${hwe_vermagic%% *}" = "$kver" ] ||
-            fail "$hwe_module vermagic ${hwe_vermagic%% *} does not match module directory $kver"
+    # kernel-ark MR 4753 (rawhide since 7.3.0-0.rc4.*.40): the SDM670 pinctrl
+    # and interconnect drivers are built in and the Sargo panel is a module.
+    for builtin in pinctrl-sdm670 qnoc-sdm670; do
+        grep -Eq "/$builtin[.]ko\$" "$module_dir/modules.builtin" ||
+            fail "$builtin is not built into the Fedora kernel"
     done
+    panel_module="$(find "$module_dir/kernel/drivers/gpu/drm/panel" \
+        -type f -name 'panel-samsung-s6e3fa7.ko*' -print -quit 2>/dev/null)"
+    [ -n "$panel_module" ] || fail 'panel-samsung-s6e3fa7 module is missing'
+    panel_vermagic="$(modinfo -F vermagic "$panel_module")" ||
+        fail "cannot read vermagic from $panel_module"
+    [ "${panel_vermagic%% *}" = "$kver" ] ||
+        fail "panel-samsung-s6e3fa7 vermagic ${panel_vermagic%% *} does not match module directory $kver"
+    [ ! -e "$module_dir/updates" ] ||
+        fail 'unexpected out-of-tree modules under updates/'
 
     printf 'fedora variant: rmnet is not built by Fedora, skipping modem checks\n'
     printf 'verified pocketfed fedora kernel release %s\n' "$kver"

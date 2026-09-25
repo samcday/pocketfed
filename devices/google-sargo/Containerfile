@@ -6,57 +6,11 @@ ARG Q6VOICED_NEVRA=q6voiced-0.3.1-1788567722.fc46.aarch64
 ARG KERNEL=copr
 ARG FEDORA_KERNEL=
 
-# Fedora's own rawhide kernel leaves PINCTRL_SDM670, INTERCONNECT_QCOM_SDM670
-# and DRM_PANEL_SAMSUNG_S6E3FA7 unset. For PF_KERNEL=fedora, build those three
-# drivers out of tree from verbatim kernel-ark sources. The stage is a no-op for
-# the default copr variant.
-FROM ${FEDORA_IMAGE} AS hwe-kmods
-ARG KERNEL=copr
-ARG FEDORA_KERNEL=
-COPY devices/google-sargo/hwe/kmods/ /build/
-RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-hwe-kmods,target=/var/cache,sharing=locked \
-    set -eux; \
-    mkdir -p /out; \
-    if [ "$KERNEL" != "fedora" ]; then \
-        echo "PF_KERNEL=$KERNEL: skipping hwe kmods"; \
-        exit 0; \
-    fi; \
-    dnf install -y \
-        --setopt=install_weak_deps=False \
-        --setopt=keepcache=True \
-        "kernel-devel-${FEDORA_KERNEL}.aarch64" \
-        gcc make elfutils-libelf-devel kmod xz flex bison openssl-devel curl; \
-    kver="${FEDORA_KERNEL}.aarch64"; \
-    tag="kernel-$(printf '%s' "$FEDORA_KERNEL" | sed -E 's/\.fc[0-9]+$//; s/\.([0-9]{6})g([0-9a-f]+)\./\.\2./')"; \
-    raw="https://gitlab.com/cki-project/kernel-ark/-/raw/$tag"; \
-    mkdir -p /build/src; \
-    while IFS= read -r path; do \
-        [ -n "$path" ] || continue; \
-        name="${path##*/}"; \
-        curl -fsSL "$raw/$path" -o "/build/src/$name"; \
-        expected="$(awk -v p="$path" '$2 == p { print $1 }' /build/sources.sha256)"; \
-        actual="$(sha256sum "/build/src/$name" | cut -d' ' -f1)"; \
-        if [ "$expected" != "$actual" ]; then \
-            printf 'kernel-ark source mismatch for %s\n' "$path" >&2; \
-            printf 'expected %s, got %s\n' "$expected" "$actual" >&2; \
-            printf 're-pin devices/google-sargo/hwe/kmods/sources.sha256 (see hwe/README.md)\n' >&2; \
-            exit 1; \
-        fi; \
-    done < /build/sources.txt; \
-    make -C "/usr/src/kernels/$kver" M=/build modules; \
-    for module in pinctrl-sdm670 qnoc-sdm670 panel-samsung-s6e3fa7; do \
-        sh /build/check-exports.sh "/build/$module.ko" "/usr/src/kernels/$kver/Module.symvers"; \
-        install -d "/out/lib/modules/$kver/updates/sdm670-hwe"; \
-        xz --check=crc32 --lzma2=dict=1MiB -T0 -c "/build/$module.ko" \
-            > "/out/lib/modules/$kver/updates/sdm670-hwe/$module.ko.xz"; \
-    done
-
 FROM ${BASE_IMAGE} AS device-root
 ARG BLOB_WRANGLER_NEVRA
 ARG Q6VOICED_NEVRA
 ARG KERNEL=copr
 ARG FEDORA_KERNEL=
-COPY --from=hwe-kmods /out /tmp/pocketfed-hwe-kmods
 COPY devices/google-sargo/samcday-kernel-sdm670-mainline.repo /etc/yum.repos.d/
 COPY devices/google-sargo/samcday-pocketfed.repo /etc/yum.repos.d/
 COPY devices/google-sargo/samcday-usb-signaller.repo /etc/yum.repos.d/
@@ -197,10 +151,6 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
             "kernel-modules-extra-$kernel_kver" \
             "kernel-modules-internal-$kernel_kver"; \
         printf '%s\n' "$kernel_kver" > /usr/lib/pocketfed/kernel-release; \
-        install -d "/usr/lib/modules/$kernel_kver/updates/sdm670-hwe"; \
-        cp /tmp/pocketfed-hwe-kmods/lib/modules/"$kernel_kver"/updates/sdm670-hwe/*.ko.xz \
-            "/usr/lib/modules/$kernel_kver/updates/sdm670-hwe/"; \
-        depmod -a "$kernel_kver"; \
         install -m0644 "/usr/lib/modules/$kernel_kver/dtb/qcom/sdm670-google-sargo.dtb" \
             /usr/lib/pocketfed/device-base.dtb; \
     else \
@@ -211,7 +161,6 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
             --setopt=keepcache=True \
             kernel; \
     fi; \
-    rm -rf /tmp/pocketfed-hwe-kmods; \
     /usr/libexec/pocketfed-verify-kernel; \
     find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
     systemctl enable \
