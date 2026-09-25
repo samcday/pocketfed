@@ -33,11 +33,16 @@ rm %{buildroot}%{_sysconfdir}/init.d/unudhcpd
 %check
 %meson_test
 
+# Template unit: "systemctl disable --now unudhcpd@.service" removes every
+# instance's symlinks and, since systemd 256, stops the running instances;
+# disable rejects globs. The restart marker is set per loaded unit, where
+# set-property accepts a glob of the running instances and the bare template
+# name is refused.
 %post
 %systemd_post unudhcpd@.service
 
 %preun
-%systemd_preun 'unudhcpd@*.service'
+%systemd_preun unudhcpd@.service
 
 %postun
 %systemd_postun_with_restart 'unudhcpd@*.service'
