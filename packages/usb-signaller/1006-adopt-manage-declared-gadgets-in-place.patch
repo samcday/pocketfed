@@ -1,7 +1,7 @@
 From bf6d8d9dd5df05f48f53da92f9f9ff1c96d1b8cd Mon Sep 17 00:00:00 2001
 From: Sam Day <me@samcday.com>
 Date: Fri, 25 Sep 2026 18:29:03 +1000
-Subject: [PATCH 6/6] adopt: manage declared gadgets in place
+Subject: [PATCH 06/11] adopt: manage declared gadgets in place
 
 A gadget declared with [gadget.<dir>] adopt = true, bound to a UDC, with
 one configuration (or config naming one) and every pinned function

@@ -1,0 +1,320 @@
+From 9b7e34d0feb7a51680513ca62559459f122881e9 Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 20:40:52 +1000
+Subject: [PATCH 08/11] plan, adopt: take the recorded mode when pinned links
+ hide it
+
+read_snapshot classifies an adopted gadget from the functions linked next
+to its pins. With ncm.usb0 pinned, charging_only, developer_mode and
+tethering_mode all link nothing else, so developer mode read back as
+charging_only. A switch to charging_only was then planned from
+charging_only to charging_only and never stopped the developer service,
+while the state file recorded charging_only.
+
+classify now takes the pins and the mode the state file records. That
+mode is used when the state file names the same gadget and configuration
+and the links match the mode's composition without the pins; otherwise
+the links decide, as before. This also covers developer and tethering,
+which the state file already told apart, now only for the configuration
+it records.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ README.md    |   6 ++-
+ src/adopt.rs |  91 +++++++++++++++++++++++++++++++++++++++++++--
+ src/plan.rs  | 102 +++++++++++++++++++++++++++++++++++++++++++--------
+ 3 files changed, 179 insertions(+), 20 deletions(-)
+
+diff --git a/README.md b/README.md
+index 53a57c0..eda5841 100644
+--- a/README.md
++++ b/README.md
+@@ -193,7 +193,11 @@ Adopting does not touch the gadget or the bus.
+ 
+ The mode of an adopted gadget is read from the functions linked next to the
+ pins: none is `charging_only`, `ncm.usb0` is `developer_mode` (or
+-`tethering_mode`, if that was the last mode set). While any other function
++`tethering_mode`, if that was the last mode set). When the links match the
++composition of the mode that `state.env` records for the same gadget and
++configuration, that mode is used instead: with `ncm.usb0` pinned, for
++example, `charging_only`, `developer_mode` and `tethering_mode` link the same
++functions. While any other function
+ that is neither pinned nor one of usb-signaller's own (`ncm.usb0`, `ffs.mtp`,
+ `ffs.accessory`, `mass_storage.0`) is linked, mode switches are refused.
+ 
+diff --git a/src/adopt.rs b/src/adopt.rs
+index 327bd02..3eb77df 100644
+--- a/src/adopt.rs
++++ b/src/adopt.rs
+@@ -245,9 +245,18 @@ pub fn read_snapshot(
+         .map(|(_, f)| f.as_str())
+         .filter(|f| !pins.contains(*f))
+         .collect();
++    /* The mode the last switch recorded, when it recorded this gadget and configuration */
+     let state = read_state_env(sys);
+-    let tethering = state.get(STATE_GADGET) == Some(&sys.gadget(gadget).display().to_string())
+-        && state.get(STATE_MODE).map(String::as_str) == Some("tethering_mode");
++    let recorded = if state.get(STATE_GADGET) == Some(&sys.gadget(gadget).display().to_string())
++        && state.get(STATE_CONFIG).map(String::as_str) == Some(config)
++    {
++        state
++            .get(STATE_MODE)
++            .map(String::as_str)
++            .and_then(adopted_mode)
++    } else {
++        None
++    };
+     let cdrom = others.contains(MASS_STORAGE_FUNCTION)
+         && cfs
+             .read_attr(gadget, "functions/mass_storage.0/lun.0/cdrom")
+@@ -257,7 +266,7 @@ pub fn read_snapshot(
+         gadget: gadget.to_string(),
+         config: config.to_string(),
+         udc,
+-        mode: classify(&others, tethering, cdrom),
++        mode: classify(&others, pins, recorded.as_ref(), cdrom),
+         links,
+         function_dirs,
+         ready,
+@@ -731,7 +740,11 @@ mod tests {
+     }
+ 
+     fn adopt(fs: &FakeConfigFs, sys: &SysRoot) -> Managed {
+-        let config = config(SMOO);
++        return adopt_with(fs, sys, SMOO);
++    }
++
++    fn adopt_with(fs: &FakeConfigFs, sys: &SysRoot, contents: &str) -> Managed {
++        let config = config(contents);
+         let Port::Adopted(managed) = classify_port(&config, fs, sys, "udc0", Some("smoo")) else {
+             panic!("not adopted");
+         };
+@@ -821,6 +834,76 @@ mod tests {
+         assert_eq!(adopt(&h.fs, &h.fixture.sys).mode, UDCMode::Tethering);
+     }
+ 
++    const SMOO_NCM_PINNED: &str =
++        "[gadget.smoo]\nadopt = true\npinned_functions = [\"ffs.smoo\", \"ncm.usb0\"]\n";
++
++    /*
++     * With ncm.usb0 pinned, developer mode links nothing next to the pins,
++     * just like charging_only: the state file tells them apart.
++     */
++    #[test]
++    fn a_pinned_ncm_is_classified_from_the_state_file() {
++        let h = Harness::new(true);
++        let mut managed = adopt_with(&h.fs, &h.fixture.sys, SMOO_NCM_PINNED);
++        /* Nothing recorded yet: the links decide */
++        assert_eq!(managed.mode, UDCMode::Charging);
++
++        h.switch(&mut managed, "developer_mode").unwrap();
++        assert_eq!(
++            adopt_with(&h.fs, &h.fixture.sys, SMOO_NCM_PINNED).mode,
++            UDCMode::Developer
++        );
++
++        /* Leaving developer mode stops its service, without touching configfs */
++        h.services.clear();
++        h.fs.clear_ops();
++        assert_eq!(
++            h.switch(&mut managed, "charging_only").unwrap(),
++            UDCMode::Charging
++        );
++        assert_eq!(
++            h.services.calls(),
++            vec!["stop usb-signaller-developer-mode"]
++        );
++        assert!(writes(&h.fs.ops()).is_empty());
++        assert_eq!(h.functions(), vec!["ffs.smoo", "ncm.usb0"]);
++        assert_eq!(
++            adopt_with(&h.fs, &h.fixture.sys, SMOO_NCM_PINNED).mode,
++            UDCMode::Charging
++        );
++    }
++
++    /* The state file only counts for the gadget and configuration it records */
++    #[test]
++    fn a_state_file_for_another_gadget_or_configuration_is_ignored() {
++        let h = Harness::new(true);
++        let managed = adopt_with(&h.fs, &h.fixture.sys, SMOO_NCM_PINNED);
++        for (gadget, config) in [("other", "c.1"), ("smoo", "c.2")] {
++            for mode in [UDCMode::Developer, UDCMode::Tethering] {
++                let stale = Managed {
++                    gadget: gadget.to_string(),
++                    config: config.to_string(),
++                    mode: mode.clone(),
++                    ..managed.clone()
++                };
++                write_state_env(&h.fixture.sys, &h.fs, &stale).unwrap();
++                let context = format!("{gadget}/{config} in {mode:?}");
++                /* ncm.usb0 pinned: the links say charging_only */
++                assert_eq!(
++                    adopt_with(&h.fs, &h.fixture.sys, SMOO_NCM_PINNED).mode,
++                    UDCMode::Charging,
++                    "{context}"
++                );
++                /* ncm.usb0 not pinned: the links say developer_mode */
++                assert_eq!(
++                    adopt(&h.fs, &h.fixture.sys).mode,
++                    UDCMode::Developer,
++                    "{context}"
++                );
++            }
++        }
++    }
++
+     #[test]
+     fn adoption_fails_closed() {
+         let fixture = SysFixture::new("adopt-refuse");
+diff --git a/src/plan.rs b/src/plan.rs
+index cc1255c..4d1c479 100644
+--- a/src/plan.rs
++++ b/src/plan.rs
+@@ -90,17 +90,36 @@ pub fn mode_service(mode: &UDCMode) -> Option<&'static str> {
+ 
+ /*
+  * Mode of an adopted gadget from the functions linked next to its pins.
+- * Developer and tethering link the same function: 'tethering' says which,
+- * from the state file written by the last switch.
++ * The links alone cannot tell every mode apart: developer and tethering
++ * link the same function, and a pinned mode function, for example
++ * ncm.usb0, stays linked in charging_only too. 'recorded' is the mode the
++ * state file of the last switch records for this gadget and configuration:
++ * it is the mode when the links match its composition. Otherwise the links
++ * decide.
+  */
+-pub fn classify(functions: &BTreeSet<&str>, tethering: bool, cdrom: bool) -> UDCMode {
++pub fn classify(
++    functions: &BTreeSet<&str>,
++    pins: &BTreeSet<String>,
++    recorded: Option<&UDCMode>,
++    cdrom: bool,
++) -> UDCMode {
++    if let Some(mode) = recorded
++        && let Some(wanted) = mode_functions(mode)
++    {
++        let expected: BTreeSet<&str> = wanted
++            .iter()
++            .copied()
++            .filter(|f| !pins.contains(*f))
++            .collect();
++        if *functions == expected {
++            return mode.clone();
++        }
++    }
++
+     let only = |function: &str| functions.len() == 1 && functions.contains(function);
+     if functions.is_empty() {
+         return UDCMode::Charging;
+     } else if only(NCM_FUNCTION) {
+-        if tethering {
+-            return UDCMode::Tethering;
+-        }
+         return UDCMode::Developer;
+     } else if only(MTP_FUNCTION) {
+         return UDCMode::MTP;
+@@ -518,7 +537,7 @@ mod tests {
+                         .copied()
+                         .filter(|f| !pin_set.contains(*f))
+                         .collect();
+-                    let mode = classify(&current, false, false);
++                    let mode = classify(&current, &pin_set, None, false);
+                     let snap = snapshot(&pins, &links, &extra, mode.clone());
+                     for target in TARGETS.iter() {
+                         check(&snap, &pin_set, target, &links);
+@@ -725,31 +744,84 @@ mod tests {
+ 
+     #[test]
+     fn classification() {
++        let pins = set(&["ffs.smoo"]);
+         let set = |items: &[&'static str]| -> BTreeSet<&'static str> {
+             return items.iter().copied().collect();
+         };
+-        assert_eq!(classify(&set(&[]), true, true), UDCMode::Charging);
++        let tethering = Some(&UDCMode::Tethering);
++        assert_eq!(
++            classify(&set(&[]), &pins, tethering, true),
++            UDCMode::Charging
++        );
+         assert_eq!(
+-            classify(&set(&[NCM_FUNCTION]), false, false),
++            classify(&set(&[NCM_FUNCTION]), &pins, None, false),
+             UDCMode::Developer
+         );
+         assert_eq!(
+-            classify(&set(&[NCM_FUNCTION]), true, false),
++            classify(&set(&[NCM_FUNCTION]), &pins, tethering, false),
+             UDCMode::Tethering
+         );
+-        assert_eq!(classify(&set(&[MTP_FUNCTION]), false, false), UDCMode::MTP);
+         assert_eq!(
+-            classify(&set(&[MASS_STORAGE_FUNCTION]), false, true),
++            classify(&set(&[MTP_FUNCTION]), &pins, None, false),
++            UDCMode::MTP
++        );
++        assert_eq!(
++            classify(&set(&[MASS_STORAGE_FUNCTION]), &pins, None, true),
+             UDCMode::CdRom
+         );
+         assert_eq!(
+-            classify(&set(&[MASS_STORAGE_FUNCTION]), false, false),
++            classify(&set(&[MASS_STORAGE_FUNCTION]), &pins, None, false),
+             UDCMode::MassStorage
+         );
+         assert_eq!(
+-            classify(&set(&[NCM_FUNCTION, MTP_FUNCTION]), false, false),
++            classify(&set(&[NCM_FUNCTION, MTP_FUNCTION]), &pins, None, false),
+             UDCMode::Unknown
+         );
+-        assert_eq!(classify(&set(&["acm.GS0"]), false, false), UDCMode::Unknown);
++        assert_eq!(
++            classify(&set(&["acm.GS0"]), &pins, None, false),
++            UDCMode::Unknown
++        );
++    }
++
++    /* With ncm.usb0 pinned, charging, developer and tethering all link nothing else */
++    #[test]
++    fn a_pinned_mode_function_is_classified_by_the_recorded_mode() {
++        let none: BTreeSet<&str> = BTreeSet::new();
++        let pins = set(&["ffs.smoo", NCM_FUNCTION]);
++        for mode in [UDCMode::Charging, UDCMode::Developer, UDCMode::Tethering] {
++            assert_eq!(classify(&none, &pins, Some(&mode), false), mode);
++        }
++        /* Nothing recorded: the links decide */
++        assert_eq!(classify(&none, &pins, None, false), UDCMode::Charging);
++        /* Modes an adopted gadget does not support are never taken from the state file */
++        assert_eq!(
++            classify(&none, &pins, Some(&UDCMode::MTP), false),
++            UDCMode::Charging
++        );
++    }
++
++    /* A recorded mode that the links contradict is ignored */
++    #[test]
++    fn a_recorded_mode_the_links_contradict_is_ignored() {
++        let pins = set(&["ffs.smoo"]);
++        let none: BTreeSet<&str> = BTreeSet::new();
++        let ncm: BTreeSet<&str> = [NCM_FUNCTION].into_iter().collect();
++        let mtp: BTreeSet<&str> = [MTP_FUNCTION].into_iter().collect();
++        assert_eq!(
++            classify(&none, &pins, Some(&UDCMode::Developer), false),
++            UDCMode::Charging
++        );
++        assert_eq!(
++            classify(&none, &pins, Some(&UDCMode::Tethering), false),
++            UDCMode::Charging
++        );
++        assert_eq!(
++            classify(&ncm, &pins, Some(&UDCMode::Charging), false),
++            UDCMode::Developer
++        );
++        assert_eq!(
++            classify(&mtp, &pins, Some(&UDCMode::Developer), false),
++            UDCMode::MTP
++        );
+     }
+ }
+-- 
+2.55.0
+

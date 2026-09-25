@@ -1,7 +1,7 @@
 From b2ee6b23ad50a2ab2eab158ea722cd3efa8d9f6c Mon Sep 17 00:00:00 2001
 From: Sam Day <me@samcday.com>
 Date: Fri, 25 Sep 2026 17:27:17 +1000
-Subject: [PATCH 1/6] configuration: merge field-wise, search /run, read once
+Subject: [PATCH 01/11] configuration: merge field-wise, search /run, read once
 
 The configuration loader had three problems that matter as soon as more
 than one file is involved:

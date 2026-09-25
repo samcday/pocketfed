@@ -1,7 +1,7 @@
 From c0d063e622ca7afab24771289f2319148d1690fc Mon Sep 17 00:00:00 2001
 From: Sam Day <me@samcday.com>
 Date: Fri, 25 Sep 2026 18:28:35 +1000
-Subject: [PATCH 5/6] window, plan: add the planner and critical window for
+Subject: [PATCH 05/11] window, plan: add the planner and critical window for
  adopted gadgets
 
 A gadget built by an initramfs to serve the root filesystem over

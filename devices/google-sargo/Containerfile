@@ -56,7 +56,7 @@ RUN --mount=type=cache,id=pocketfed-google-sargo-arm64-device-dnf,target=/var/ca
     lpac_nevra='lpac-2.3.0-1.2.pocketfed.fc46.aarch64'; \
     pdc_qmicli_version='1.36.0'; \
     q6voiced_nevra="$Q6VOICED_NEVRA"; \
-    usb_signaller_nevra='usb-signaller-0.4.2-1.1.pocketfed.fc46.aarch64'; \
+    usb_signaller_nevra='usb-signaller-0.4.2-1.2.pocketfed.fc46.aarch64'; \
     set -- $(rpm -qa \
         kernel \
         kernel-core \

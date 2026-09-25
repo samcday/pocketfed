@@ -1,0 +1,75 @@
+From c0ea42e3f7b2185b79fe71035f5931735c7faf55 Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 20:39:03 +1000
+Subject: [PATCH 07/11] dbus: handle each method call in a task of its own
+ again
+
+The interface was declared with spawn = false so that method calls could
+not interleave configfs changes. That also made every call wait for the
+one before it: mode_request rereads the role up to nine times, one
+second apart, while the role switch reports device role without a UDC,
+and set_mode and get_modes queued behind it for that long. It already
+released the daemon lock around the sleep, but the dispatcher itself
+was blocked.
+
+The tokio::sync::Mutex<Core> already serialises every gadget change:
+set_mode takes it, and so do the default mode at startup and the SIGTERM
+cleanup, which go through the same instance, and get_modes and
+mode_request only read under it. Drop spawn = false, so calls are handled
+in parallel tasks as upstream does, and switches still never interleave.
+Concurrent calls are not ordered, as before the series.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ CHANGELOG.md |  2 +-
+ src/dbus.rs  | 13 ++++++++-----
+ 2 files changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c038eab..730dff3 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+   directory tree. Configfs changes can be tested against a fake that follows the kernel's
+   rules.
+ - Mode switches run one at a time: D-Bus calls, the default mode at startup and the cleanup on
+-  SIGTERM share one lock, and D-Bus calls are no longer handled in parallel tasks.
++  SIGTERM share one lock.
+ - Configuration is read once at startup instead of on every use.
+ - The runtime uses two worker threads and at most four blocking threads.
+ - `libc` is a new dependency.
+diff --git a/src/dbus.rs b/src/dbus.rs
+index 4682e05..44c9b46 100644
+--- a/src/dbus.rs
++++ b/src/dbus.rs
+@@ -508,10 +508,13 @@ pub async fn create_usbmoded_connection(daemon: Arc<Daemon>) -> Result<Connectio
+ }
+ 
+ /*
+- * spawn = false: method calls are handled one after the other instead of in
+- * a task each, so they cannot interleave configfs changes.
++ * Every method call runs in a task of its own, so a call that waits, such
++ * as mode_request rereading the role, never holds up the others. Gadgets
++ * are only changed under the daemon lock, which set_mode shares with the
++ * default mode at startup and the SIGTERM cleanup: switches never
++ * interleave, but concurrent calls are not ordered.
+  */
+-#[interface(name = "com.meego.usb_moded", spawn = false)]
++#[interface(name = "com.meego.usb_moded")]
+ impl UsbModedDBus {
+     #[zbus(signal, name = "sig_usb_event_ind")]
+     pub async fn sig_usb_event_ind(emitter: &SignalEmitter<'_>, event: String) -> zbus::Result<()>;
+@@ -541,8 +544,8 @@ impl UsbModedDBus {
+             for _n in 1..10 {
+                 /*
+                  * Read under the lock, so never while a mode is being
+-                 * changed, but sleep without it: a mode switch or the
+-                 * SIGTERM cleanup must not wait for these retries.
++                 * changed, but sleep without it: a mode switch, get_modes
++                 * or the SIGTERM cleanup must not wait for these retries.
+                  */
+                 let core = self.daemon.core.lock().await;
+                 if let Ok(urs) = URS::load(sys, name) {
+-- 
+2.55.0
+

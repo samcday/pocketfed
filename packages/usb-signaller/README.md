@@ -12,17 +12,19 @@ and `sources.sha256` pins it. `0001` replaces net-tools `ifconfig` with
 `ip link set dev X down` in the developer and tethering helpers. Upstream
 status: prepared, not yet sent; Sam files it on Codeberg.
 
-PocketFed carries the declared-gadgets series as `Patch1001`-`Patch1006`, with
-release `1.1.pocketfed` and an explicit `%changelog` in place of the
-rpmautospec macros (the Mesa fork pattern). The patches are `git format-patch`
-of `samcday/usb-signaller` branch `claude/declared-gadgets` (`bf6d8d9`, on
-`v0.4.2`), draft PR
+PocketFed carries the declared-gadgets series as `Patch1001`-`Patch1011`
+(`1007`-`1011` are review fixes), with release `1.2.pocketfed` and an explicit
+`%changelog` in place of the rpmautospec macros (the Mesa fork pattern). The
+patches are `git format-patch` of `samcday/usb-signaller` branch
+`claude/declared-gadgets` (`064c7b0`, on `v0.4.2`), draft PR
 [samcday/usb-signaller#5](https://github.com/samcday/usb-signaller/pull/5);
 Sam files the Codeberg MR. Together they make usb-signaller:
 - merge TOML drop-ins field-wise and read `/run/usb-signaller/` as well, so an
   initramfs can declare its gadget (smoo's liveboot root) at runtime;
 - leave declared and foreign gadgets alone, adopt a declared gadget in place,
   and keep its pinned functions linked across mode switches;
+- refuse `host_mode` while a declared gadget with pins, or a foreign gadget
+  under `foreign_gadgets = "preserve"`, is bound;
 - serialise D-Bus mode switches and report failures to the caller;
 - test the planner, configuration and fake configfs unprivileged in `%check`.
 

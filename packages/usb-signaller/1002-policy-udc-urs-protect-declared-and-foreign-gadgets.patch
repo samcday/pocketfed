@@ -1,7 +1,7 @@
 From 068327c7bbc012a9689d48debf27f3660273678e Mon Sep 17 00:00:00 2001
 From: Sam Day <me@samcday.com>
 Date: Fri, 25 Sep 2026 17:31:41 +1000
-Subject: [PATCH 2/6] policy, udc, urs: protect declared and foreign gadgets
+Subject: [PATCH 02/11] policy, udc, urs: protect declared and foreign gadgets
 
 usb-signaller disables and removes whatever gadget holds the UDC when it
 switches modes, when it falls back to charging_only on SIGTERM and when

@@ -26,7 +26,7 @@ RUN --mount=type=cache,id=pocketfed-google-crosshatch-arm64-device-dnf,target=/v
     set -eux; \
     kernel_nevra="$KERNEL_NEVRA"; \
     blob_wrangler_nevra="$BLOB_WRANGLER_NEVRA"; \
-    usb_signaller_nevra='usb-signaller-0.4.2-1.1.pocketfed.fc46.aarch64'; \
+    usb_signaller_nevra='usb-signaller-0.4.2-1.2.pocketfed.fc46.aarch64'; \
     set -- $(rpm -qa \
         kernel \
         kernel-core \

@@ -1,0 +1,89 @@
+From 4a8d12b98f2337de341680759110f867faf56cab Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 20:42:43 +1000
+Subject: [PATCH 10/11] udc: report the unknown mode of a gadget it does not
+ own as information
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+UDC::load reads a gadget's mode from the first function linked in its
+first configuration, and logged "❌ Cannot determine mode for gadget
+function ffs.smoo" for an initramfs gadget: twice at startup, from the
+role switch and the UDC pre-flight checks, before adoption classified
+the same gadget from all of its links. That is expected for a gadget
+usb-signaller did not create, not an error.
+
+For such a gadget the line is now an ℹ️ line that says why the mode is
+unknown. usb-signaller's own gadgets keep the error.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+---
+ src/udc.rs | 37 ++++++++++++++++++++++++++++---------
+ 1 file changed, 28 insertions(+), 9 deletions(-)
+
+diff --git a/src/udc.rs b/src/udc.rs
+index 38578ec..6126f73 100644
+--- a/src/udc.rs
++++ b/src/udc.rs
+@@ -16,7 +16,7 @@
+  * along with this program. If not, see <https://www.gnu.org/licenses/>.
+  */
+ 
+-use crate::configuration::Configuration;
++use crate::configuration::{Configuration, is_owned_gadget};
+ use crate::gadget::ConfigFsGadget;
+ use crate::gadget::discover_gadgets;
+ use crate::policy::check_replaceable;
+@@ -531,10 +531,17 @@ impl UDC {
+             .first()
+             .and_then(|config| config.functions.first())
+         else {
+-            eprintln!(
+-                "❌ Cannot determine mode for gadget {}: no linked function",
+-                gadget.name
+-            );
++            if is_owned_gadget(&gadget.name) {
++                eprintln!(
++                    "❌ Cannot determine mode for gadget {}: no linked function",
++                    gadget.name
++                );
++            } else {
++                println!(
++                    "ℹ️  Mode of gadget {} unknown: no linked function",
++                    gadget.name
++                );
++            }
+             return Ok(UDCMode::Unknown);
+         };
+ 
+@@ -573,10 +580,22 @@ impl UDC {
+             return Ok(UDCMode::MassStorage);
+         }
+ 
+-        eprintln!(
+-            "❌ Cannot determine mode for gadget function {}",
+-            function.name
+-        );
++        /*
++         * An error only for usb-signaller's own gadgets. A gadget someone
++         * else built, for example in an initramfs, may link any function
++         * first; adoption reads a declared gadget's mode from all its links.
++         */
++        if is_owned_gadget(&gadget.name) {
++            eprintln!(
++                "❌ Cannot determine mode for gadget function {}",
++                function.name
++            );
++        } else {
++            println!(
++                "ℹ️  Mode of gadget {} unknown: it is not usb-signaller's own and links {} first",
++                gadget.name, function.name
++            );
++        }
+         return Ok(UDCMode::Unknown);
+     }
+ 
+-- 
+2.55.0
+

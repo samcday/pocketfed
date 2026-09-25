@@ -1,7 +1,7 @@
 From 0f2793d2ffe544aa511d11db5129fff501ee44eb Mon Sep 17 00:00:00 2001
 From: Sam Day <me@samcday.com>
 Date: Fri, 25 Sep 2026 17:34:21 +1000
-Subject: [PATCH 3/6] dbus, udc: serialise mode switches and report failures
+Subject: [PATCH 03/11] dbus, udc: serialise mode switches and report failures
 
 zbus spawns a task per method call by default, and the default mode at
 startup and the charging_only cleanup on SIGTERM called the D-Bus

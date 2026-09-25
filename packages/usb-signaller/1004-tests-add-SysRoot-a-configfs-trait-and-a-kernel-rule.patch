@@ -1,7 +1,7 @@
 From f8c5d4dcf2bc8803ff169cfb299eac470f8ba809 Mon Sep 17 00:00:00 2001
 From: Sam Day <me@samcday.com>
 Date: Fri, 25 Sep 2026 17:42:02 +1000
-Subject: [PATCH 4/6] tests: add SysRoot, a configfs trait and a kernel-rule
+Subject: [PATCH 04/11] tests: add SysRoot, a configfs trait and a kernel-rule
  fake
 
 Every path to configfs, sysfs and procfs was a hard-coded constant (plus

@@ -4,7 +4,7 @@
 
 Name:           usb-signaller
 Version:        0.4.2
-Release:        1.1.pocketfed%{?dist}
+Release:        1.2.pocketfed%{?dist}
 Summary:        USB gadget mode daemon for mobile devices running mainline Linux
 
 # usb-signaller itself is GPL-3.0-or-later. The binary statically links Rust
@@ -27,7 +27,7 @@ Patch:          0001-distro-scripts-use-ip-instead-of-ifconfig.patch
 # early boot declared (smoo's liveboot root) in place instead of deleting it,
 # never removes a foreign gadget, and serialises mode switches. Exported with
 # git format-patch from samcday/usb-signaller claude/declared-gadgets
-# (bf6d8d9, on v0.4.2). Upstream status: draft PR
+# (064c7b0, on v0.4.2). Upstream status: draft PR
 # https://github.com/samcday/usb-signaller/pull/5; Sam files the Codeberg MR.
 # Drop each patch when a Dylan release contains it.
 Patch1001:      1001-configuration-merge-field-wise-search-run-read-once.patch
@@ -36,6 +36,14 @@ Patch1003:      1003-dbus-udc-serialise-mode-switches-and-report-failures.patch
 Patch1004:      1004-tests-add-SysRoot-a-configfs-trait-and-a-kernel-rule.patch
 Patch1005:      1005-window-plan-add-the-planner-and-critical-window.patch
 Patch1006:      1006-adopt-manage-declared-gadgets-in-place.patch
+# Review fixes on the same branch and PR, same upstream status: D-Bus calls in
+# their own tasks again, the recorded mode for pinned mode functions, host_mode
+# refused for preserved foreign gadgets, quieter logs for foreign gadgets.
+Patch1007:      1007-dbus-handle-each-method-call-in-a-task-of-its-own.patch
+Patch1008:      1008-plan-adopt-take-the-recorded-mode-when-pinned-links.patch
+Patch1009:      1009-policy-refuse-host_mode-while-a-preserved-foreign.patch
+Patch1010:      1010-udc-report-the-unknown-mode-of-a-gadget-it-does-not.patch
+Patch1011:      1011-dbus-print-VmRSS-next-to-VmLck-after-locking-memory.patch
 
 BuildRequires:  cargo-rpm-macros >= 24
 BuildRequires:  systemd-rpm-macros
@@ -130,6 +138,12 @@ install -dm 0755 %{buildroot}%{_sysconfdir}/usb-signaller/usb-signaller.toml.d
 %dir %{_sysconfdir}/usb-signaller/usb-signaller.toml.d
 
 %changelog
+* Fri Sep 25 2026 Sam Day <me@samcday.com> - 0.4.2-1.2.pocketfed
+- Carry the review fixes of samcday/usb-signaller#5: handle D-Bus calls in
+  their own tasks, take the recorded mode when pinned functions hide it,
+  refuse host_mode while a preserved foreign gadget is bound, log the unknown
+  mode of foreign gadgets as information, print VmRSS next to VmLck
+
 * Fri Sep 25 2026 Sam Day <me@samcday.com> - 0.4.2-1.1.pocketfed
 - Carry the declared-gadgets series (samcday/usb-signaller#5)
 
