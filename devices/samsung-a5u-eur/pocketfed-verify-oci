@@ -85,6 +85,9 @@ grep -Fq 'usr/lib/ostree/ostree-prepare-root' "$initramfs_listing" ||
     fail 'ostree-prepare-root is missing from initramfs'
 grep -Fq 'usr/lib/systemd/system/ostree-prepare-root.service' "$initramfs_listing" ||
     fail 'ostree-prepare-root.service is missing from initramfs'
+console_rule=usr/lib/udev/rules.d/90-pocketfed-serial-console.rules
+lsinitrd -f "$console_rule" "$module_dir/initramfs.img" | cmp -s - "/$console_rule" ||
+    fail 'initramfs lacks the serial console db_persist rule'
 
 lsinitrd -f usr/lib/dracut/hostonly-kernel-modules.txt \
     "$module_dir/initramfs.img" >"$host_modaliases" ||
