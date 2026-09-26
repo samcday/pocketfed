@@ -196,6 +196,12 @@ if rpm -q plymouth-theme-fedora-mobile >/dev/null 2>&1; then
 fi
 
 dracut_policy=/etc/dracut.conf.d/60-google-sargo.conf
+# The Fedora kernel builds neither downstream-only module; the final image must
+# carry the filtered policy so a later dracut run cannot request them.
+if [ "$(cat /usr/lib/pocketfed/kernel-variant 2>/dev/null || echo copr)" = "fedora" ] &&
+    grep -Eq 'qcom_pmic_typec_smb2|qcom_fg' "$dracut_policy"; then
+    fail 'Sargo fedora variant dracut policy still names qcom_pmic_typec_smb2 or qcom_fg'
+fi
 grep -Fxq 'hostonly="yes"' "$dracut_policy"
 grep -Fxq 'hostonly_mode="strict"' "$dracut_policy"
 grep -Fxq 'hostonly_cmdline="no"' "$dracut_policy"
@@ -218,9 +224,17 @@ printf '%s\n' "$initrd_contents" |
 
 # Validate the built archive, not just the source dracut configuration. Type-C
 # must be able to unsuspend charger input before the real root filesystem.
+# qcom_pmic_typec_smb2 is a PocketFed module the Fedora kernel does not build,
+# so the fedora variant checks only the upstream suppliers it retains.
 initrd_preload="$(lsinitrd -f etc/cmdline.d/20-force_drivers.conf "$1/initramfs.img")"
 previous_preload_line=0
-for driver in phy_qcom_qusb2 dwc3 dwc3_qcom_legacy qcom_smbx qcom_pmic_typec_smb2; do
+typec_preload="phy_qcom_qusb2 dwc3 dwc3_qcom_legacy qcom_smbx"
+if [ "$(cat /usr/lib/pocketfed/kernel-variant 2>/dev/null || echo copr)" = "copr" ]; then
+    typec_preload="$typec_preload qcom_pmic_typec_smb2"
+else
+    printf 'fedora variant: qcom_pmic_typec_smb2 is absent, skipping its preload check\n'
+fi
+for driver in $typec_preload; do
     module_pattern="$(printf '%s' "$driver" | sed 's/_/[-_]/g')"
     printf '%s\n' "$initrd_contents" |
         grep -Eq "/${module_pattern}[.]ko([.]|[[:space:]]|$)" ||

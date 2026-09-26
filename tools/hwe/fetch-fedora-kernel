@@ -1,0 +1,47 @@
+#!/bin/sh
+# Usage: fetch-fedora-kernel NVR DESTDIR PACKAGE...
+#
+# Download aarch64 packages of one Fedora kernel build (NVR without the arch,
+# e.g. 7.3.0-0.rc4.260924g62f4c998b297.41.fc46) into DESTDIR, and refuse any
+# file that is not signed by that release's Fedora key. Any other imported key
+# (a COPR's, say) is not good enough, even though rpm would accept it.
+#
+# The rawhide compose carries exactly one kernel NVR, so a pin stops being
+# downloadable from the repositories within a few days. Koji keeps the signed
+# copies under data/signed/<keyid>/; its plain packages/ path serves unsigned
+# build output and is never used.
+set -eu
+
+[ "$#" -ge 3 ] || { echo "usage: fetch-fedora-kernel NVR DESTDIR PACKAGE..." >&2; exit 2; }
+nvr=$1
+dest=$2
+shift 2
+kver="$nvr.aarch64"
+dist="${nvr##*.fc}"
+mkdir -p "$dest"
+
+fingerprint="$(rpm -q gpg-pubkey --qf '%{VERSION} %{SUMMARY}\n' |
+    awk -v key="<fedora-$dist-primary@fedoraproject.org>" 'index($0, key) { print $1; exit }')"
+if [ "${#fingerprint}" -ne 40 ]; then
+    echo "fetch-fedora-kernel: no Fedora $dist signing key in the rpm database" >&2
+    exit 1
+fi
+keyid="$(printf '%s' "$fingerprint" | cut -c33-40)"
+koji="https://kojipkgs.fedoraproject.org/packages/kernel/${nvr%%-*}/${nvr#*-}/data/signed/$keyid/aarch64"
+
+for pkg in "$@"; do
+    rpm="$dest/$pkg-$kver.rpm"
+    if [ ! -s "$rpm" ] &&
+        ! dnf download --refresh --destdir "$dest" "$pkg-$kver" >/dev/null 2>&1; then
+        echo "fetch-fedora-kernel: $pkg-$kver is not in the enabled repositories; fetching koji's signed copy" >&2
+        curl -fsSL -o "$rpm.part" "$koji/$pkg-$kver.rpm"
+        mv "$rpm.part" "$rpm"
+    fi
+    # rpm >= 6 names the full fingerprint, older rpm the short key ID.
+    if ! rpmkeys --checksig "$rpm" | grep -q 'digests signatures OK$' ||
+        ! rpmkeys -Kv "$rpm" | grep -Eq "signature, key (fingerprint: $fingerprint|ID $keyid): OK$"; then
+        echo "fetch-fedora-kernel: $rpm is not signed with the Fedora $dist key" >&2
+        rm -f "$rpm"
+        exit 1
+    fi
+done

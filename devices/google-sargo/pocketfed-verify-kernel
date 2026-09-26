@@ -6,15 +6,33 @@ fail() {
     exit 1
 }
 
+variant=unknown
+if [ -f /usr/lib/pocketfed/kernel-variant ]; then
+    variant="$(cat /usr/lib/pocketfed/kernel-variant)"
+fi
+
 set -- /usr/lib/modules/*
 [ "$#" -eq 1 ] || fail "expected one module directory, found $#"
 [ -d "$1" ] || fail "module directory is missing: $1"
 module_dir="$1"
 kver="${module_dir##*/}"
 
-case "$kver" in
-    7.1.2-0.pocketfed.sdm670.8.fc*.aarch64) ;;
-    *) fail "unexpected release: $kver" ;;
+case "$variant" in
+    copr)
+        case "$kver" in
+            7.1.2-0.pocketfed.sdm670.8.fc*.aarch64) ;;
+            *) fail "unexpected release: $kver" ;;
+        esac
+        ;;
+    fedora)
+        expected="$(cat /usr/lib/pocketfed/kernel-release 2>/dev/null || true)"
+        [ -n "$expected" ] || fail 'kernel-release is missing for the fedora variant'
+        [ "$kver" = "$expected" ] ||
+            fail "release $kver does not match pinned $expected"
+        ;;
+    *)
+        fail "unknown kernel variant: $variant"
+        ;;
 esac
 
 rpm_kver="$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core)" ||
@@ -31,6 +49,29 @@ vermagic="$(modinfo -F vermagic "$module")" ||
 uts_release="${vermagic%% *}"
 [ "$uts_release" = "$kver" ] ||
     fail "sdhci_msm vermagic $uts_release does not match module directory $kver"
+
+if [ "$variant" = "fedora" ]; then
+    # kernel-ark MR 4753 (rawhide since 7.3.0-0.rc4.*.40): the SDM670 pinctrl
+    # and interconnect drivers are built in and the Sargo panel is a module.
+    for builtin in pinctrl-sdm670 qnoc-sdm670; do
+        grep -Eq "/$builtin[.]ko\$" "$module_dir/modules.builtin" ||
+            fail "$builtin is not built into the Fedora kernel"
+    done
+    panel_module="$(find "$module_dir/kernel/drivers/gpu/drm/panel" \
+        -type f -name 'panel-samsung-s6e3fa7.ko*' -print -quit 2>/dev/null)"
+    [ -n "$panel_module" ] || fail 'panel-samsung-s6e3fa7 module is missing'
+    panel_vermagic="$(modinfo -F vermagic "$panel_module")" ||
+        fail "cannot read vermagic from $panel_module"
+    [ "${panel_vermagic%% *}" = "$kver" ] ||
+        fail "panel-samsung-s6e3fa7 vermagic ${panel_vermagic%% *} does not match module directory $kver"
+    # kernel-core ships an empty updates/ directory; nothing may live in it.
+    [ -z "$(find "$module_dir/updates" -type f -name '*.ko*' -print -quit 2>/dev/null)" ] ||
+        fail 'unexpected out-of-tree modules under updates/'
+
+    printf 'fedora variant: rmnet is not built by Fedora, skipping modem checks\n'
+    printf 'verified pocketfed fedora kernel release %s\n' "$kver"
+    exit 0
+fi
 
 rmnet_module="$(find "$module_dir/kernel/drivers/net/ethernet/qualcomm/rmnet" \
     -type f -name 'rmnet.ko*' -print -quit 2>/dev/null)"

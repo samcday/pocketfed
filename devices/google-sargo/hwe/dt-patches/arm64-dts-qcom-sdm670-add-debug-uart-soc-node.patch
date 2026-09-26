@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pablo=20Correa=20G=C3=B3mez?=
+ <pabloyoyoista@postmarketos.org>
+Date: Sat, 26 Sep 2026 18:41:33 +1000
+Subject: [PATCH] arm64: dts: qcom: sdm670: add debug uart soc node
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Values are taken from the other geni nodes
+
+Reviewed-by: Konrad Dybcio <konrad.dybcio@oss.qualcomm.com>
+Reviewed-by: Dmitry Baryshkov <dmitry.baryshkov@oss.qualcomm.com>
+Signed-off-by: Pablo Correa Gómez <pabloyoyoista@postmarketos.org>
+Signed-off-by: Sam Day <me@samcday.com>
+---
+ arch/arm64/boot/dts/qcom/sdm670.dtsi | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sdm670.dtsi b/arch/arm64/boot/dts/qcom/sdm670.dtsi
+index 09e9d5afa6f65..966ad40ea61df 100644
+--- a/arch/arm64/boot/dts/qcom/sdm670.dtsi
++++ b/arch/arm64/boot/dts/qcom/sdm670.dtsi
+@@ -1060,6 +1060,21 @@ i2c12: i2c@a90000 {
+ 				status = "disabled";
+ 			};
+ 
++			uart12: serial@a90000 {
++				compatible = "qcom,geni-debug-uart";
++				reg = <0 0x00a90000 0 0x4000>;
++				clock-names = "se";
++				clocks = <&gcc GCC_QUPV3_WRAP1_S4_CLK>;
++				pinctrl-names = "default";
++				pinctrl-0 = <&qup_uart12_default>;
++				interrupts = <GIC_SPI 357 IRQ_TYPE_LEVEL_HIGH>;
++				power-domains = <&rpmhpd SDM670_CX>;
++				interconnects = <&aggre2_noc MASTER_BLSP_2 0 &config_noc SLAVE_BLSP_2 0>,
++						<&gladiator_noc MASTER_AMPSS_M0 0 &config_noc SLAVE_BLSP_2 0>;
++				interconnect-names = "qup-core", "qup-config";
++				status = "disabled";
++			};
++
+ 			i2c13: i2c@a94000 {
+ 				compatible = "qcom,geni-i2c";
+ 				reg = <0 0x00a94000 0 0x4000>;

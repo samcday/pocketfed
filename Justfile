@@ -10,6 +10,8 @@ base_erofs := env("PF_BASE_EROFS", base_output / "rootfs.ero")
 base_oci_dir := env("PF_BASE_OCI_DIR", base_output / "pocketfed-base.oci")
 
 tag := env("PF_TAG", "rawhide")
+kernel := env("PF_KERNEL", "copr")
+fedora_kernel := env("PF_FEDORA_KERNEL", "7.3.0-0.rc4.260924g62f4c998b297.41.fc46")
 owner := env("PF_OWNER", "samcday")
 base_image := env("PF_BASE_IMAGE", "ghcr.io/" + owner + "/pocketfed-base:" + tag)
 oci_output := env("PF_OCI_OUTPUT", "oci:" + base_oci_dir + ":" + tag)
@@ -17,8 +19,11 @@ oci_output := env("PF_OCI_OUTPUT", "oci:" + base_oci_dir + ":" + tag)
 base := env("PF_DEVICE_BASE", "ghcr.io/" + owner + "/pocketfed-phosh:" + tag)
 device := env("PF_DEVICE", "")
 image := env("PF_DEVICE_IMAGE", "")
-device_image := if image == "" { "ghcr.io/" + owner + "/pocketfed-phosh-" + device + ":" + tag } else { image }
-device_target := "ghcr.io/" + owner + "/pocketfed-phosh-" + device + ":" + tag
+# Images built on Fedora's own kernel (PF_KERNEL=fedora) are published and
+# updated separately, as pocketfed-phosh-<device>-vanilla.
+device_variant := if kernel == "fedora" { "-vanilla" } else { "" }
+device_image := if image == "" { "ghcr.io/" + owner + "/pocketfed-phosh-" + device + device_variant + ":" + tag } else { image }
+device_target := "ghcr.io/" + owner + "/pocketfed-phosh-" + device + device_variant + ":" + tag
 desktop_base := env("PF_DESKTOP_BASE", base_image)
 desktop := env("PF_DESKTOP", "")
 desktop_image := env("PF_DESKTOP_IMAGE", "")
@@ -132,6 +137,10 @@ device:
         echo "device= is required" >&2
         exit 1
     fi
+    if [[ "{{kernel}}" != "copr" && "$device" != "google-sargo" ]]; then
+        echo "PF_KERNEL={{kernel}} is only supported for google-sargo" >&2
+        exit 1
+    fi
     if [[ "$device" != "samsung-a5u-eur" ]]; then
         git submodule update --init --recursive --depth 1 -- vendor/abl-exorcist
     fi
@@ -145,6 +154,8 @@ device:
         --jobs=1 \
         --arch arm64 \
         --build-arg "BASE_IMAGE=$base" \
+        --build-arg "KERNEL={{kernel}}" \
+        --build-arg "FEDORA_KERNEL={{fedora_kernel}}" \
         -f "$containerfile" \
         -t "$image" \
         .
@@ -270,6 +281,9 @@ vars:
     @printf 'base_erofs=%s\n' "{{base_erofs}}"
     @printf 'base_oci_dir=%s\n' "{{base_oci_dir}}"
     @printf 'base_image=%s\n' "{{base_image}}"
+    @printf 'kernel=%s\n' "{{kernel}}"
+    @printf 'fedora_kernel=%s\n' "{{fedora_kernel}}"
+    @printf 'device_image=%s\n' "{{device_image}}"
     @printf 'owner=%s\n' "{{owner}}"
     @printf 'desktop=%s\n' "{{desktop}}"
     @printf 'desktop_base=%s\n' "{{desktop_base}}"

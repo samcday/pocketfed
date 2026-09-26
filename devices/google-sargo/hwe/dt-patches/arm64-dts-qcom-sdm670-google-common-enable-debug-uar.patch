@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pablo=20Correa=20G=C3=B3mez?=
+ <pabloyoyoista@postmarketos.org>
+Date: Sat, 26 Sep 2026 18:41:34 +1000
+Subject: [PATCH] arm64: dts: qcom: sdm670-google-common: enable debug uart
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This has been tested on the Pixel 3a with USB Cereal board
+
+Signed-off-by: Pablo Correa Gómez <pabloyoyoista@postmarketos.org>
+[sam: drop the board-level tx/rx pinconf and stale Depends link]
+Assisted-by: LLM
+Signed-off-by: Sam Day <me@samcday.com>
+---
+ arch/arm64/boot/dts/qcom/sdm670-google-common.dtsi | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sdm670-google-common.dtsi b/arch/arm64/boot/dts/qcom/sdm670-google-common.dtsi
+index b4854801a5f5e..79d66fd2d6e41 100644
+--- a/arch/arm64/boot/dts/qcom/sdm670-google-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sdm670-google-common.dtsi
+@@ -26,7 +26,9 @@
+ /delete-node/ &gpu_mem;
+ 
+ / {
+-	aliases { };
++	aliases {
++		serial0 = &uart12;
++	};
+ 
+ 	battery: battery {
+ 		compatible = "simple-battery";
+@@ -693,6 +695,10 @@ ts-switch-pins {
+ 	};
+ };
+ 
++&uart12 {
++	status = "okay";
++};
++
+ &usb_1_hsphy {
+ 	vdd-supply = <&vreg_l1b_0p925>;
+ 	vdda-pll-supply = <&vreg_l10a_1p8>;
