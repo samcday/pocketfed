@@ -1,0 +1,61 @@
+From 8cf0bc49cb349c999db1c5ddcca54e0ec1f366be Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Wed, 23 Sep 2026 16:25:28 +1000
+Subject: [PATCH] freedreno/a3xx: flush HLSQ before indirect constant loads
+
+On A306 (FD307), a draw whose constant update contains an indirect
+(SS_INDIRECT) CP_LOAD_STATE of ST_CONSTANTS into the fragment state
+block, following a direct upload to the same block and an earlier
+indirect vertex-stage upload, hangs the GPU when another draw precedes
+it in the same submit.  The CP ME stays busy on its register interface
+while RBBM reports HLSQ, PC, VFD and VPC busy, until hangcheck
+recovery.  GTK4's renderer hits this with its rounded-clip shaders, and
+SuperTuxKart's benchmark can reset the SoC.
+
+A CP_EVENT_WRITE HLSQ_FLUSH (or a CP_WAIT_FOR_IDLE) immediately before
+the indirect load avoids it.  fd3_emit_state() already emits HLSQ_FLUSH
+before all constant uploads, and adding one between the vertex and the
+fragment uploads does not help either.  The kernel emits HLSQ_FLUSH at
+the end of every submit so that nothing is pending for indirect loads,
+which is why FD_MESA_DEBUG=flush hid the problem.
+
+Emit HLSQ_FLUSH before every indirect constant load.  Flushing only
+before fragment-stage loads fixes the reduced GTK4 trace but not
+SuperTuxKart.  The loads stay indirect and rendering is unchanged
+(bit-identical frames on the tested trace).
+
+Tested on a DB410c (A306) with a Fedora 7.3-rc3 kernel carrying three
+msm recovery/PM fixes and a Mesa 26.2.2 backport of this change: the
+reduced GTK4 trace, the full trace in sysmem and GMEM mode, a GTK4
+animation probe, GNOME Settings and supertuxkart --benchmark.
+
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/issues/12634
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/gallium/drivers/freedreno/a3xx/fd3_emit.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/src/gallium/drivers/freedreno/a3xx/fd3_emit.c b/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+index 69a5368..84b01e7 100644
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+@@ -72,6 +72,15 @@ fd3_emit_const_bo(struct fd_ringbuffer *ring,
+ 
+    emit_const_asserts(v, regid, sizedwords);
+ 
++   /* On a306, an indirect constant load that follows other constant loads
++    * in the same state update can hang unless HLSQ's lazy state updates are
++    * flushed first.  The kernel flushes them at the end of each submit for
++    * the same reason ("nothing pending for indirect loads"), so do it before
++    * every indirect load.
++    */
++   OUT_PKT3(ring, CP_EVENT_WRITE, 1);
++   OUT_RING(ring, HLSQ_FLUSH);
++
+    OUT_PKT3(ring, CP_LOAD_STATE, 2);
+    OUT_RING(ring, CP_LOAD_STATE_0_DST_OFF(dst_off) |
+                      CP_LOAD_STATE_0_STATE_SRC(SS_INDIRECT) |
+-- 
+2.55.0
+

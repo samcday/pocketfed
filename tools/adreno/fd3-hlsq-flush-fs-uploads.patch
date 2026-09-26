@@ -1,0 +1,18 @@
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+@@ -739,8 +739,14 @@
+ 
+    if (!emit->skip_consts) {
+       ir3_emit_vs_consts(vp, ring, ctx, emit->info, emit->indirect, emit->draw);
+-      if (!emit->binning_pass)
++      if (!emit->binning_pass) {
++         /* Flush the HLSQ state updates queued by the vertex stage uploads
++          * before loading fragment constants. (pocketfed#80, mesa#12634)
++          */
++         OUT_PKT3(ring, CP_EVENT_WRITE, 1);
++         OUT_RING(ring, HLSQ_FLUSH);
+          ir3_emit_fs_consts(fp, ring, ctx);
++      }
+    }
+ 
+    if (dirty & (FD_DIRTY_BLEND | FD_DIRTY_FRAMEBUFFER)) {

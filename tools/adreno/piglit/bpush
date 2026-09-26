@@ -1,0 +1,8 @@
+#!/bin/bash
+# bpush HOST_SRC GUEST_DST : quiet the kernel console, transfer, restore
+W=/var/home/sam/tmp/a306-piglit-20260924
+$W/tools/b 'dmesg -n 1' >/dev/null
+python3 $W/tools/uart-push.py --fifo $W/uart.fifo --log $W/logs/uart.log --src "$1" --dst "$2"
+rc=$?
+$W/tools/b 'dmesg -n 4' >/dev/null
+exit $rc

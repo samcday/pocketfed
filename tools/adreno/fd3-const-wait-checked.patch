@@ -1,0 +1,52 @@
+--- a/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
++++ b/src/gallium/drivers/freedreno/a3xx/fd3_emit.c
+@@ -9,6 +9,7 @@
+ #include "pipe/p_state.h"
+ #include "util/format/u_format.h"
+ #include "util/u_helpers.h"
++#include "util/log.h"
+ #include "util/u_memory.h"
+ #include "util/u_string.h"
+ #include "util/u_viewport.h"
+@@ -71,6 +72,18 @@
+    assert(num_unit % 2 == 0);
+ 
+    emit_const_asserts(v, regid, sizedwords);
++
++   /* Diagnostic only: retain the wait-only control's successful path and
++    * packets, but make preparation failure an explicit failed trial. The
++    * companion DRM change propagates errors from existing fence waits.
++    * A zero return may still mean that the source was already idle.
++    */
++   int prep_ret = fd_bo_cpu_prep(bo, NULL, FD_BO_PREP_READ);
++   if (prep_ret) {
++      mesa_loge("FD3WAIT_CHECK prep failed ret=%d stage=%u offset=%u dwords=%u",
++                prep_ret, v->type, offset, sizedwords);
++      abort();
++   }
+ 
+    OUT_PKT3(ring, CP_LOAD_STATE, 2);
+    OUT_RING(ring, CP_LOAD_STATE_0_DST_OFF(dst_off) |
+--- a/src/freedreno/drm/freedreno_bo.c
++++ b/src/freedreno/drm/freedreno_bo.c
+@@ -726,10 +726,19 @@
+       fences[i] = fd_fence_ref_locked(bo->fences[i]);
+    simple_mtx_unlock(&fence_lock);
+ 
++   /* Diagnostic companion to the checked a3xx wait-only arm. Preserve all
++    * existing waits and release every temporary reference, including after
++    * an error; propagate the first failure rather than silently returning 0.
++    */
++   int wait_ret = 0;
+    for (unsigned i = 0; i < nr; i++) {
+-      fd_fence_wait(fences[i]);
++      int ret = fd_fence_wait(fences[i]);
++      if (ret && !wait_ret)
++         wait_ret = ret;
+       fd_fence_del(fences[i]);
+    }
++   if (wait_ret)
++      return wait_ret;
+ 
+    /* expire completed fences */
+    fd_bo_state(bo);

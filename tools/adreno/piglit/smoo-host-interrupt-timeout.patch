@@ -1,0 +1,11 @@
+--- a/apps/smoo-host-cli/src/main.rs	2026-09-17 16:30:51.837681358 +1000
++++ b/apps/smoo-host-cli/src/main.rs	2026-09-24 19:16:04.620937940 +1000
+@@ -191,7 +191,7 @@
+ ) -> Result<SessionEnd> {
+     let mut attempts = 0usize;
+     let mut delay = DISCOVERY_DELAY_INITIAL;
+-    let transfer_timeout = Duration::from_millis(args.timeout_ms.min(200));
++    let transfer_timeout = Duration::from_millis(args.timeout_ms.min(30_000));
+     let (transport, mut control) = loop {
+         match RusbTransport::open_matching(
+             args.vendor_id,

@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Generate shader_tests that make ir3 emit MGEN.B (nir bfm) with uniform
+operands and write the raw 32-bit result into the framebuffer as four
+unorm8 bytes (little-endian).  Expected values follow NIR's bfm semantics,
+  ((1u << (bits & 31)) - 1u) << (offset & 31),
+so every failing probe's "Observed" line is the hardware's actual value.
+  mask:  (1u << bits) - 1u              -> bfm(bits, 0)   [nir_opt_algebraic]
+  shift: ((1u << bits) - 1u) << offset  -> bfm(bits, offset) if folded
+"""
+import sys, os
+out = sys.argv[1] if len(sys.argv) > 1 else '.'
+def enc(v):
+    return ' '.join('%.6f' % (((v >> (8*i)) & 0xff) / 255.0) for i in range(4))
+def nir_bfm(bits, off):
+    return ((((1 << (bits & 31)) - 1) & 0xffffffff) << (off & 31)) & 0xffffffff
+HEAD = """[require]
+GLSL >= 1.30
+GL_MESA_shader_integer_functions
+
+[vertex shader passthrough]
+
+[fragment shader]
+#extension GL_MESA_shader_integer_functions : enable
+out vec4 color;
+uniform uint bits;
+%s
+void main()
+{
+	uint v = %s;
+	color = vec4(float(v & 0xffu), float((v >> 8u) & 0xffu),
+	             float((v >> 16u) & 0xffu), float((v >> 24u) & 0xffu)) / 255.0;
+}
+
+[test]
+tolerance 0.002 0.002 0.002 0.002
+
+"""
+bits_cases = [0, 1, 4, 7, 8, 15, 16, 24, 31, 32, 33, 40, 63, 64, 65, 96, 127, 128, 255, 256, 1023, 0x7fffffff, 0xffffffff]
+def write(name, expr, cases, uses_offset=True):
+    with open(os.path.join(out, name), 'w') as f:
+        f.write(HEAD % ('uniform uint offset;' if uses_offset else '', expr))
+        for i, (b, o) in enumerate(cases):
+            # case i draws a 4 px column at x = 4*i (window is 250 px wide)
+            x0 = -1.0 + 8.0 * i / 250.0
+            f.write('# case %d: bits=%d offset=%d -> nir 0x%08x\n' % (i, b, o, nir_bfm(b, o)))
+            f.write('uniform uint bits %d\n' % b)
+            if uses_offset:
+                f.write('uniform uint offset %d\n' % o)
+            f.write('draw rect %.4f -1 0.032 2\nprobe rgba %d 1 %s\n\n' % (x0, 4 * i + 1, enc(nir_bfm(b, o))))
+write('bfm-mask.shader_test', '(1u << bits) - 1u', [(b, 0) for b in bits_cases], uses_offset=False)
+write('bfm-shift.shader_test', '((1u << bits) - 1u) << offset',
+      [(4,0),(4,16),(4,28),(4,29),(4,31),(4,32),(4,33),(4,36),(0,0),(0,16),(0,31),(0,32),
+       (32,0),(32,4),(33,4),(31,1),(31,2),(16,16),(16,17),(16,20),(1,31),(1,32),(33,33),(255,255),(64,64)])
+# plain shift for reference: does the a3xx shl mask its count to 5 bits?
+with open(os.path.join(out, 'shl-ref.shader_test'), 'w') as f:
+    f.write(HEAD % ('', '1u << bits'))
+    for i, b in enumerate(bits_cases):
+        v = (1 << (b & 31)) & 0xffffffff
+        x0 = -1.0 + 8.0 * i / 250.0
+        f.write('# case %d: bits=%d -> nir 0x%08x\nuniform uint bits %d\ndraw rect %.4f -1 0.032 2\nprobe rgba %d 1 %s\n\n' % (i, b, v, b, x0, 4 * i + 1, enc(v)))
+print('wrote', os.listdir(out))

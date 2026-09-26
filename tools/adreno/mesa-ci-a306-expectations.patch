@@ -1,0 +1,121 @@
+From bf5c94b02c17691485495f17b89057fa0f0b5721 Mon Sep 17 00:00:00 2001
+From: Sam Day <me+claude@samcday.com>
+Date: Thu, 24 Sep 2026 21:38:00 +1000
+Subject: [PATCH 1/2] PLACEHOLDER (Sam to rewrite): freedreno/ci: a306: unskip
+ tests fixed by the HLSQ flush
+
+Evidence: pocketfed tools/adreno/hardware-20260923.md, section
+"Piglit soak of !44653" (B26-B33).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/freedreno/ci/freedreno-a306-fails.txt |  5 +++++
+ src/freedreno/ci/freedreno-a306-skips.txt | 12 ------------
+ src/freedreno/ci/gitlab-ci.yml            |  6 +++---
+ 3 files changed, 8 insertions(+), 15 deletions(-)
+
+diff --git a/src/freedreno/ci/freedreno-a306-fails.txt b/src/freedreno/ci/freedreno-a306-fails.txt
+index cc4574b598a..420ac45d27b 100644
+--- a/src/freedreno/ci/freedreno-a306-fails.txt
++++ b/src/freedreno/ci/freedreno-a306-fails.txt
+@@ -745,3 +745,8 @@ spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_xyuv,Fail
+ spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_y410,Fail
+ spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_yuv420,Fail
+ spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_yvu420,Fail
++
++# Were skipped for hangchecks; they fail without hanging once HLSQ is flushed
++# before indirect const loads.
++spec@!opengl es 3.0@gles-3.0-transform-feedback-uniform-buffer-object,Fail
++spec@arb_point_sprite@arb_point_sprite-interactions 1.0,Fail
+diff --git a/src/freedreno/ci/freedreno-a306-skips.txt b/src/freedreno/ci/freedreno-a306-skips.txt
+index 138a4317f30..6ddc1fda711 100644
+--- a/src/freedreno/ci/freedreno-a306-skips.txt
++++ b/src/freedreno/ci/freedreno-a306-skips.txt
+@@ -46,18 +46,6 @@ spec@!opengl 1.0@gl-1.0-beginend-coverage
+ tex-miplevel-selection
+ spec@arb_direct_state_access@transformfeedback-bufferrange
+ spec@arb_direct_state_access@transformfeedback-bufferbase
+-spec@arb_uniform_buffer_object@rendering-array
+-spec@arb_uniform_buffer_object@rendering-array-offset
+-spec@arb_point_sprite@arb_point_sprite-interactions
+-gles-3.0-transform-feedback-uniform-buffer-object
+-
+-spec@!opengl 1.1@gl-1.1-drawarrays-vertex-count 100000 varray gl_lines
+-spec@!opengl 1.1@gl-1.1-drawarrays-vertex-count 100000 vbo gl_lines
+-spec@ext_framebuffer_object@fbo-stencil-gl_stencil_index8-clear
+-spec@arb_framebuffer_srgb@arb_framebuffer_srgb-srgb_conformance
+-spec@arb_framebuffer_srgb@blit renderbuffer linear
+-spec@arb_framebuffer_srgb@blit texture srgb
+-spec@!opengl 1.1@dlist-fdo3129-01
+ 
+ # Unsupported legacy gl features
+ .*edgeflag.*
+diff --git a/src/freedreno/ci/gitlab-ci.yml b/src/freedreno/ci/gitlab-ci.yml
+index 3203bf8e908..4e12080b6ec 100644
+--- a/src/freedreno/ci/gitlab-ci.yml
++++ b/src/freedreno/ci/gitlab-ci.yml
+@@ -33,9 +33,9 @@ a306-piglit:
+     DEQP_SUITE: freedreno-a306-piglit
+     HWCI_START_WESTON: 1
+ 
+-# Something happened and now this hangchecks and doesn't recover.  Unkown when
+-# it started.
+-.a306-piglit-gl:
++# msm.num_hw_submissions=1 is kept from when this job was disabled; quick_gl
++# also completed on a DB410c without it.
++a306-piglit-gl:
+   extends:
+     - .lava-arm64-test-gl
+     - .lava-dragonboard-410c:arm64
+-- 
+2.55.0
+
+
+From 96a9d97260fb1bfd119d783ff5e91dea89a8bda7 Mon Sep 17 00:00:00 2001
+From: Sam Day <me+claude@samcday.com>
+Date: Thu, 24 Sep 2026 21:38:11 +1000
+Subject: [PATCH 2/2] PLACEHOLDER (Sam to rewrite): freedreno/ci: a306: record
+ failures and flakes seen on current main
+
+Pre-existing on aa1139b2e13 (not caused by !44653); needed for the a306
+piglit jobs to pass on a DB410c. Optional; see the pocketfed ledger.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/freedreno/ci/freedreno-a306-fails.txt  | 7 +++++++
+ src/freedreno/ci/freedreno-a306-flakes.txt | 7 +++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/src/freedreno/ci/freedreno-a306-fails.txt b/src/freedreno/ci/freedreno-a306-fails.txt
+index 420ac45d27b..17a5e23d1f4 100644
+--- a/src/freedreno/ci/freedreno-a306-fails.txt
++++ b/src/freedreno/ci/freedreno-a306-fails.txt
+@@ -750,3 +750,10 @@ spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_yvu420,Fail
+ # before indirect const loads.
+ spec@!opengl es 3.0@gles-3.0-transform-feedback-uniform-buffer-object,Fail
+ spec@arb_point_sprite@arb_point_sprite-interactions 1.0,Fail
++
++# Seen with and without !44653 on a DB410c (aa1139b2e13, piglit 81f9eac8).
++spec@!opengl 1.0@rasterpos,Crash
++spec@mesa_shader_integer_functions@execution@built-in-functions@fs-bitfieldextract,Fail
++spec@mesa_shader_integer_functions@execution@built-in-functions@fs-bitfieldinsert,Fail
++spec@mesa_shader_integer_functions@execution@built-in-functions@vs-bitfieldextract,Fail
++spec@mesa_shader_integer_functions@execution@built-in-functions@vs-bitfieldinsert,Fail
+diff --git a/src/freedreno/ci/freedreno-a306-flakes.txt b/src/freedreno/ci/freedreno-a306-flakes.txt
+index 868a4c11425..dc83d708ca7 100644
+--- a/src/freedreno/ci/freedreno-a306-flakes.txt
++++ b/src/freedreno/ci/freedreno-a306-flakes.txt
+@@ -57,3 +57,10 @@ spec@!opengl 2.0@tex3d-npot
+ spec@arb_vertex_buffer_object@vbo-subdata-many drawarrays
+ spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_nv21
+ 
++# Flaky with and without !44653 on a DB410c
++spec@arb_vertex_buffer_object@vbo-subdata-many drawrangeelements
++spec@ext_packed_float@fbo-colormask-formats
++
++# Hangchecked once and passed on retry, quick_gl with msm.num_hw_submissions=1
++spec@ext_transform_feedback@order arrays triangles
++spec@ext_transform_feedback@order elements lines
+-- 
+2.55.0
+

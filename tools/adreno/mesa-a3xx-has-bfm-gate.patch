@@ -1,0 +1,70 @@
+From 32d69a37311f58a057092dc174e1869706df599f Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 25 Sep 2026 11:16:57 +1000
+Subject: [PATCH] PLACEHOLDER: ir3: don't use MGEN.B for nir_op_bfm on a3xx
+
+23007dcb077 ("ir3: Add support for nir_op_bfm (ir3's MGEN)") set
+has_bfm for every generation. On A306 (FD307) MGEN.B does not write
+the mask at all: a sweep of 48 bits/offset combinations through
+`((1u << bits) - 1u) << offset` (which nir_opt_algebraic turns into
+bfm and ir3 into `mgen.b`) returned 0 for every case whose expected
+mask is nonzero, and the first draw returned stale register contents
+(0x3f7fe1a7). Only the cases whose mask is 0 anyway matched.
+
+That makes the four piglit
+spec@mesa_shader_integer_functions@execution@built-in-functions
+{fs,vs}-bitfield{Extract,Insert} tests fail, and fs-bitfieldInsert
+hangs the GPU: the only branch that depends on the mask was compiled
+as uniform, and with per-fibre garbage it diverges without
+reconverging. Writing a constant into the destination before the
+mgen.b, or adding (jp) to the branch target, both make the hang go
+away (the results stay wrong). Reverting 23007dcb077 fixes all four
+tests. Mesa's a306 nightly piglit jobs have shown the same failures
+and hangcheck since 2026-09-23.
+
+a5xx, a6xx and a7xx pass the same tests with MGEN.B in CI, so only
+a3xx is gated. a4xx has no CI and was not tested; its 2021
+expectation files list none of the bitcount/bitfieldReverse failures
+that a306 has for the related cat2 bit ops, so it is left as it was.
+
+With this change on A306: the 60 mesa_shader_integer_functions tests
+give 56 Pass + 4 ExpectedFail with no hangcheck, and the full
+quick_shader profile differs from the pre-23007dcb077 baseline only in
+those four tests going from Fail to Pass. FD420/FD530/FD630 codegen
+for the affected shaders is byte-identical before and after.
+
+Fixes: 23007dcb077 ("ir3: Add support for nir_op_bfm (ir3's MGEN).")
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ src/freedreno/ir3/ir3_compiler.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/src/freedreno/ir3/ir3_compiler.c b/src/freedreno/ir3/ir3_compiler.c
+index 5bb326fbb52..8d12b550ae7 100644
+--- a/src/freedreno/ir3/ir3_compiler.c
++++ b/src/freedreno/ir3/ir3_compiler.c
+@@ -158,7 +158,6 @@ static const nir_shader_compiler_options ir3_base_options = {
+    .lower_pack_split = true,
+    .lower_pack_64_4x16 = true,
+    .lower_to_scalar = true,
+-   .has_bfm = true,
+    .has_find_msb_rev = true,
+    .has_imul24 = true,
+    .has_umul24 = true,
+@@ -384,6 +383,12 @@ ir3_compiler_create(struct fd_device *dev, const struct fd_dev_id *dev_id,
+    /* Set up nir shader compiler options, using device-specific overrides of our base settings. */
+    compiler->nir_options = ir3_base_options;
+    compiler->nir_options.has_iadd3 = dev_info->props.has_sad;
++   /* MGEN.B doesn't produce usable results on a3xx (A306: wrong
++    * bitfieldInsert/bitfieldExtract results, and a GPU hang when a branch
++    * depends on them), so keep bfm open-coded there.  a5xx and later are
++    * known to be fine; a4xx is untested.
++    */
++   compiler->nir_options.has_bfm = compiler->gen >= 4;
+ 
+    if (compiler->gen >= 6) {
+       compiler->nir_options.force_indirect_unrolling = nir_var_all,
+-- 
+2.55.0
+
