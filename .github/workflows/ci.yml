@@ -249,6 +249,12 @@ jobs:
       - name: Verify base utilities
         run: sudo chroot base/mkosi.output/pocketfed-base_rawhide /usr/bin/bash < base/test-utilities
 
+      - name: Verify base hardware database
+        run: |
+          root=base/mkosi.output/pocketfed-base_rawhide
+          sudo unshare --mount --pid --fork --mount-proc="$root/proc" \
+            chroot "$root" /usr/bin/bash < base/test-hwdb
+
       - name: Pack base OCI artifact
         if: github.event_name != 'push'
         run: |
@@ -398,6 +404,11 @@ jobs:
         run: |
           sudo podman run --rm --interactive --pull=never --arch arm64 \
             "$PF_CI_PHOSH_IMAGE" /usr/bin/bash < base/test-utilities
+
+      - name: Verify Phosh hardware database
+        run: |
+          sudo podman run --rm --interactive --pull=never --arch arm64 \
+            "$PF_CI_PHOSH_IMAGE" /usr/bin/bash < base/test-hwdb
 
       - name: Verify noninteractive firstboot and provisioning credentials
         run: |
@@ -612,6 +623,11 @@ jobs:
         run: |
           sudo podman run --rm --interactive --pull=never --arch arm64 \
             "$PF_CI_DEVICE_IMAGE" /usr/bin/bash < base/test-utilities
+
+      - name: Verify Device hardware database
+        run: |
+          sudo podman run --rm --interactive --pull=never --arch arm64 \
+            "$PF_CI_DEVICE_IMAGE" /usr/bin/bash < base/test-hwdb
 
       - name: Verify Device OCI
         run: >-

@@ -102,6 +102,9 @@ RUN --mount=type=cache,id=pocketfed-oneplus-fajita-arm64-device-dnf,target=/var/
     test "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel)" = "$kernel_nevra"; \
     /usr/libexec/pocketfed-verify-kernel; \
     find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
+    # Keep the hwdb in /usr only; see phosh/Containerfile.
+    systemd-hwdb update --usr --strict; \
+    rm -f /etc/udev/hwdb.bin; \
     systemctl enable \
         blob-wrangler.service \
         clatd.service \
