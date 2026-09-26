@@ -1,0 +1,132 @@
+From 04ee70d74ca8854d60a2b2adf2ce3999dd60a3c6 Mon Sep 17 00:00:00 2001
+From: PLACEHOLDER AUTHOR <placeholder@invalid>
+Date: Sat, 26 Sep 2026 09:35:31 +1000
+Subject: [PATCH] drm/msm: Use kvzalloc() for the submit and bound
+ nr_bos/nr_cmds
+
+[PLACEHOLDER commit message, facts only; Sam to rewrite before sending]
+
+submit_create() allocates the submit struct together with its bos[] and
+cmd[] tables in a single kzalloc(). On arm64 that is 352 + 32 * nr_bos +
+40 * nr_cmds bytes; the bos[] entry grew from 24 to 32 bytes with commit
+111fdd2198e6 ("drm/msm: drm_gpuvm conversion").
+
+Userspace can legitimately put tens of thousands of BOs in one submit.
+Mesa's freedreno lets a submit grow past 32767 BOs before it flushes,
+and piglit's vbo-subdata-many produces submits of about 32.9K BOs. That
+is a little over 1 MiB, i.e. an order-9 (2 MiB) physically contiguous
+allocation. On a small, fragmented system (a 1 GiB DragonBoard 410c
+running piglit in Mesa CI) it fails intermittently, and since commit
+6c15808d9b76 ("drm/msm/gem: Demote allocations to __GFP_NOWARN") it
+fails silently: SUBMIT just returns -ENOMEM.
+
+Nothing needs the submit to be physically contiguous, so allocate it
+with kvzalloc(). The last reference is always dropped in process
+context (the SUBMIT ioctl, the retire worker, or the drm_sched free_job
+work), so kvfree() is safe.
+
+With kvzalloc() the allocation is no longer implicitly capped at
+KMALLOC_MAX_SIZE (roughly 128K bos with 4K pages), so add explicit
+limits and reject larger submits with -EINVAL, as etnaviv (commit
+e3d26528e083 ("drm/etnaviv: relax submit size limits")) and amdgpu
+(commit 688b87d39e0a ("drm/amdgpu: Limit BO list entry count to prevent
+resource exhaustion")) do with 128K limits.
+
+Link: PLACEHOLDER (Mesa CI a306 job log showing the -ENOMEM)
+Assisted-by: LLM
+Signed-off-by: PLACEHOLDER
+---
+Notes (below the --- line, not part of the commit; drop before sending):
+- Compile-tested only: arm64 defconfig, W=1, GCC 16.2.1, msm_gem_submit.o,
+  0 warnings, against Sam's tree HEAD dbf86758d20dd (no msm/slab/drm_exec
+  diff vs v7.3-rc4) and v7.1.2 (whose msm
+  files are byte-identical to v7.1-mesa-3b43).  Not run-tested.
+- Size formula verified from the Fedora 7.3.0-0.rc3 aarch64 msm.ko
+  disassembly of submit_create(): add #0x160 (sizeof(*submit) = 352),
+  ubfiz ... #5 (32 B per bos[] entry), umaddl with #0x28 (40 B per cmd),
+  gfp 0x2dc0 (GFP_KERNEL | __GFP_NOWARN | __GFP_ZERO) -> __kmalloc_noprof.
+- 352 + 32 * 32914 + 40 = 1053640 B > 1 MiB -> order 9.  With the pre-6.17
+  24 B entry it would have been roughly 790 KB -> order 8.
+- No Fixes: tag.  Candidates considered: 7198e6b03155 ("drm/msm: add a3xx
+  gpu support") introduced the single combined kmalloc in 2013;
+  111fdd2198e6 (v6.17) grew the bos[] entry 24 -> 32 B.  Neither is clearly
+  "the bug".  Cc: stable is Sam's call.
+- Could be split into two patches (limits first, then kvzalloc) if a
+  reviewer prefers; the limits must not land after the kvzalloc change.
+- MAX_SUBMIT_CMDS == SZ_128K is deliberately loose (old implicit ceiling
+  was ~104K cmds at nr_bos = 0).  A much tighter bound is arguable (every
+  CMD_BUF/CTX_RESTORE_BUF cmd emits >= 3 dwords into a 32 KiB ring), but
+  IB_TARGET_BUF cmds emit nothing, so a ring-derived bound needs Rob's
+  input.
+- Base: v7.3-rc4 (93f51579e7df); msm_gem_submit.c blob 5862db05297a,
+  identical in /var/home/sam/src/linux HEAD dbf86758d20dd.
+
+ drivers/gpu/drm/msm/msm_gem_submit.c | 21 +++++++++++++++++----
+ 1 file changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/msm_gem_submit.c b/drivers/gpu/drm/msm/msm_gem_submit.c
+index 5862db05297a..a8b203a4ce4f 100644
+--- a/drivers/gpu/drm/msm/msm_gem_submit.c
++++ b/drivers/gpu/drm/msm/msm_gem_submit.c
+@@ -29,6 +29,15 @@
+  * Cmdstream submission:
+  */
+ 
++/*
++ * Upper bounds on the size of a single submit, to limit how much kernel
++ * memory userspace can make us allocate.  Before the submit struct was
++ * allocated with kvzalloc(), its size was implicitly capped by
++ * KMALLOC_MAX_SIZE, which with 4K pages works out to roughly 128K bos.
++ */
++#define MAX_SUBMIT_BOS	SZ_128K
++#define MAX_SUBMIT_CMDS	SZ_128K
++
+ static struct msm_gem_submit *submit_create(struct drm_device *dev,
+ 		struct msm_gpu *gpu, struct drm_gpuvm *vm,
+ 		struct msm_gpu_submitqueue *queue, uint32_t nr_bos,
+@@ -42,14 +51,14 @@ static struct msm_gem_submit *submit_create(struct drm_device *dev,
+ 	sz = size_add(struct_size(submit, bos, nr_bos),
+ 		      array_size(sizeof(submit->cmd[0]), nr_cmds));
+ 
+-	submit = kzalloc(sz, GFP_KERNEL | __GFP_NOWARN);
++	submit = kvzalloc(sz, GFP_KERNEL | __GFP_NOWARN);
+ 	if (!submit)
+ 		return ERR_PTR(-ENOMEM);
+ 
+ 	submit->hw_fence = msm_fence_alloc();
+ 	if (IS_ERR(submit->hw_fence)) {
+ 		ret = PTR_ERR(submit->hw_fence);
+-		kfree(submit);
++		kvfree(submit);
+ 		return ERR_PTR(ret);
+ 	}
+ 
+@@ -57,7 +66,7 @@ static struct msm_gem_submit *submit_create(struct drm_device *dev,
+ 				 drm_client_id);
+ 	if (ret) {
+ 		kfree(submit->hw_fence);
+-		kfree(submit);
++		kvfree(submit);
+ 		return ERR_PTR(ret);
+ 	}
+ 
+@@ -121,7 +130,7 @@ void __msm_gem_submit_destroy(struct kref *kref)
+ 	for (i = 0; i < submit->nr_cmds; i++)
+ 		kfree(submit->cmd[i].relocs);
+ 
+-	kfree(submit);
++	kvfree(submit);
+ }
+ 
+ static int submit_lookup_objects(struct msm_gem_submit *submit,
+@@ -589,6 +598,10 @@ int msm_ioctl_gem_submit(struct drm_device *dev, void *data,
+ 			return -EINVAL;
+ 	}
+ 
++	if (args->nr_bos > MAX_SUBMIT_BOS || args->nr_cmds > MAX_SUBMIT_CMDS)
++		return UERR(EINVAL, dev, "too many bos/cmds: %u/%u",
++			    args->nr_bos, args->nr_cmds);
++
+ 	queue = msm_submitqueue_get(ctx, args->queueid);
+ 	if (!queue)
+ 		return -ENOENT;
