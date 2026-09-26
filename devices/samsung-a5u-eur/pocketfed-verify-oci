@@ -42,6 +42,10 @@ bootupd_preset=$(
 
 /usr/libexec/pocketfed-verify-kernel
 
+# An unbound MPSS node keeps GCC and rpmpd from reaching sync_state().
+! modprobe -c | grep -Fxq 'blacklist qcom_q6v5_mss' ||
+    fail 'qcom_q6v5_mss autoload is blacklisted'
+
 set -- /usr/lib/modules/*
 [ "$#" -eq 1 ] || fail "expected one module directory, found $#"
 module_dir=$1

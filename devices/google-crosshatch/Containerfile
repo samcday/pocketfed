@@ -142,6 +142,7 @@ RUN set -eu; \
 # checks cannot perturb or rebuild an otherwise identical boot image.
 FROM device-root-base AS device-root
 COPY devices/google-crosshatch/80-pocketfed-google-crosshatch.preset /usr/lib/systemd/system-preset/
+COPY devices/google-crosshatch/glink-quarantine-modprobe.conf /usr/lib/modprobe.d/60-pocketfed-crosshatch-glink-quarantine.conf
 COPY --chmod=0755 base/mkosi.extra/usr/libexec/pocketfed-blob-wrangler-modprobe /usr/libexec/
 COPY --chmod=0755 devices/google-crosshatch/pocketfed-crosshatch-blob-wrangler /usr/libexec/
 COPY devices/google-crosshatch/blob-wrangler.service.d/10-pocketfed-crosshatch-slot-fallback.conf /usr/lib/systemd/system/blob-wrangler.service.d/
