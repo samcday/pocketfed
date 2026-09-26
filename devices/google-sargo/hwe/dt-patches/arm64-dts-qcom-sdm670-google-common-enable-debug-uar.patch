@@ -1,47 +1,17 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Pablo=20Correa=20G=C3=B3mez?=
  <pabloyoyoista@postmarketos.org>
-Date: Mon, 1 Jun 2026 18:55:38 +0200
+Date: Sat, 26 Sep 2026 18:41:34 +1000
 Subject: [PATCH] arm64: dts: qcom: sdm670-google-common: enable debug uart
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-Enable the debug UART on QUP12 (gpio51/gpio52, routed to the USB-C SBU
-pins) and make it serial0, so that the existing stdout-path
-"serial0:115200n8" uses it.
-
-No board-level pin configuration is needed on top of the SoC default
-(2 mA, bias disabled on TX and RX), which is also what the vendor
-kernel uses: its sdm670-pinctrl.dtsi qupv3_se12_2uart_active state sets
-drive-strength = <2> and bias-disable on both pins (the sleep state
-switches them to GPIO with a pull-down), and the Pixel 3a board DT only
-sets status = "ok" on qupv3_se12_2uart without overriding its pins.
-Earlier revisions of this patch carried an RX pull-up, matching
-sdm845-google-common.dtsi, which has no counterpart downstream.
-
-Tested on the Pixel 3a (sargo) on v7.3-rc4 with an FT232R-based USB-C
-SBU debug adapter at 115200 8N1, booting with the SoC default (4 boots)
-and with the RX pull-up added back (3 boots). Reading the TLMM
-registers back confirmed which bias was active (gpio52 CTL 0x4 without
-the pull-up, 0x7 with it). Both behaved the same on every boot: the
-console came up, commands typed on the host were echoed back exactly,
-an md5sum of a 200-character string typed on the host matched, 200
-lines printed by the phone arrived byte-exact (in the 6 boots where
-that test ran), SysRq via BREAK worked, and dmesg and the tty counters
-(read in 6 of the 7 boots) showed no framing, parity or overrun errors.
-In every configuration, including a pull-down, the UART received a
-single 0xFF early in boot before the host sent anything, so that byte
-is unrelated to the RX bias. All of this was with the adapter attached;
-with the adapter's TXD tri-stated the RX line still read high (held by
-the adapter) and no bytes arrived in 8 s. An RX pin left floating with
-no cable attached was not tested.
-
-Pablo originally tested this on the Pixel 3a with a USB-Cereal board.
+This has been tested on the Pixel 3a with USB Cereal board
 
 Signed-off-by: Pablo Correa Gómez <pabloyoyoista@postmarketos.org>
-[sam: drop the board-level RX pull-up after retesting on sargo, as
- requested in the v4 review]
+[sam: drop the board-level tx/rx pinconf and stale Depends link]
+Assisted-by: LLM
 Signed-off-by: Sam Day <me@samcday.com>
 ---
  arch/arm64/boot/dts/qcom/sdm670-google-common.dtsi | 8 +++++++-

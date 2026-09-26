@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Pablo=20Correa=20G=C3=B3mez?=
  <pabloyoyoista@postmarketos.org>
-Date: Mon, 1 Jun 2026 18:55:37 +0200
+Date: Sat, 26 Sep 2026 18:41:33 +1000
 Subject: [PATCH] arm64: dts: qcom: sdm670: add debug uart soc node
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

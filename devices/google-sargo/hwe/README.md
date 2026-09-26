@@ -20,7 +20,9 @@ The design this grows into is pocketfed issue #76; the tracker is #64.
   and `DRM_PANEL_SAMSUNG_S6E3FA7` as a module.
 - **Devicetree patches**, in upstream form, listed in
   `dt-patches/series`. Today that is v5 of the SDM670 debug-UART series
-  (`serial0` on uart12), which Fedora's `sdm670-google-sargo.dtb` lacks.
+  (`serial0` on uart12), which Fedora's `sdm670-google-sargo.dtb` lacks;
+  posted 2026-09-26, the files are the lore copies
+  (<https://lore.kernel.org/r/20260926-pabloyoyoista-debug-uart-on-rdacayan-next-v5-0-db74ff64a7e7@samcday.com>).
 
 The dracut policy drops `qcom_pmic_typec_smb2` and `qcom_fg`, which exist only
 in the downstream kernel. Fedora does not build `rmnet`, so the modem is out of

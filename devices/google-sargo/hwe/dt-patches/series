@@ -4,8 +4,9 @@
 # reports a patch that has landed upstream so it can be dropped here.
 
 # "Add support and enable the debug UART in the Pixel 3a and Pixel 3a XL",
-# v5 (Pablo Correa Gómez), prepared 2026-09-25 against v7.3-rc4, not yet
-# posted. Replace with the lore copy once it is sent.
+# v5 (Pablo Correa Gómez, resent by Sam Day), posted 2026-09-26 against
+# v7.3-rc4; these are the lore copies:
+# https://lore.kernel.org/r/20260926-pabloyoyoista-debug-uart-on-rdacayan-next-v5-0-db74ff64a7e7@samcday.com
 arm64-dts-qcom-sdm670-add-default-uart-pinctrl-nodes.patch
 arm64-dts-qcom-sdm670-add-debug-uart-soc-node.patch
 arm64-dts-qcom-sdm670-google-common-enable-debug-uar.patch
