@@ -67,6 +67,7 @@ Justfile pin.
 | 2026-09-17 | `.32` | 3 kmods + UART overlay (kboop) | greeter, touch dead (probe order, kboop only) |
 | 2026-09-18 | `.34` | 3 kmods + UART overlay (image) | greeter with touch, `login:` at 78 s |
 | 2026-09-25 | `.41` | UART overlay only | greeter with touch, `login:` at 72 s, no failed units |
+| 2026-09-26 | `.41` | v5 debug-UART DTS patches (`-vanilla` image) | console on `ttyMSM0` from 3.6 s, `login:` at 69 s, no failed units, RX echo, msm and rmi4 up |
 
 ABL on test-sargo rejects its `dtbo` partition (`Not valid dtbo found, use only
 SoC dtb`), so vendor-overlay interaction is untested against a valid dtbo. The
