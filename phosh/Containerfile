@@ -78,6 +78,11 @@ COPY phosh/pocketfed-first-boot /usr/libexec/
 COPY phosh/90_pocketfed-first-boot.gschema.override /usr/share/glib-2.0/schemas/
 COPY phosh/50-pocketfed-first-boot.conf /usr/lib/systemd/system/phrog.service.d/
 
+# feedbackd's role loopback sinks exist without a sound card, and WirePlumber
+# then corks every role stream, so clients that wait for their stream to run
+# hang. A lowest-priority null sink keeps them running until a card appears.
+COPY phosh/90-pocketfed-dummy-output.conf /usr/share/pipewire/pipewire.conf.d/
+
 # Fedora's phosh PAM service currently authenticates with pam_unix directly.
 # Delegate to authselect's stack so the lock screen also accepts homed users.
 COPY phosh/pam.d/phosh /etc/pam.d/phosh
@@ -87,6 +92,9 @@ RUN set -eux; \
     glib-compile-schemas --strict /usr/share/glib-2.0/schemas; \
     systemd-tmpfiles --create /usr/lib/tmpfiles.d/pocketfed-phrog-tmpfiles.conf; \
     test -f /usr/lib64/libcanberra-0.30/libcanberra-pulse.so; \
+    test -s /usr/share/wireplumber/wireplumber.conf.d/media-role-nodes.conf; \
+    pw-config -n pipewire.conf paths | \
+        grep -Fq /usr/share/pipewire/pipewire.conf.d/90-pocketfed-dummy-output.conf; \
     test -d /var/lib/greetd/.config/dconf; \
     test "$(stat -c '%U:%G:%a' /var/lib/greetd/.config/dconf)" = greetd:greetd:700; \
     authselect enable-feature with-systemd-homed; \

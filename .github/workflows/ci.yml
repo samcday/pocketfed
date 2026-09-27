@@ -454,6 +454,11 @@ jobs:
           sudo podman run --rm --interactive --pull=never --arch arm64 \
             "$PF_CI_PHOSH_IMAGE" /usr/bin/bash < phosh/test-packaged-auth
 
+      - name: Verify fallback audio sink
+        run: |
+          sudo podman run --rm --interactive --pull=never --arch arm64 \
+            "$PF_CI_PHOSH_IMAGE" /usr/bin/bash < phosh/test-fallback-audio-sink
+
       - name: Inspect Phosh OCI
         run: sudo skopeo inspect "containers-storage:$PF_CI_PHOSH_IMAGE"
 
@@ -625,6 +630,11 @@ jobs:
         run: |
           sudo podman run --rm --interactive --pull=never --arch arm64 \
             "$PF_CI_DEVICE_IMAGE" /usr/bin/bash < phosh/test-packaged-auth
+
+      - name: Verify fallback audio sink in device
+        run: |
+          sudo podman run --rm --interactive --pull=never --arch arm64 \
+            "$PF_CI_DEVICE_IMAGE" /usr/bin/bash < phosh/test-fallback-audio-sink
 
       - name: Push Device OCI to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
