@@ -41,6 +41,8 @@ for required in rpm_proc mmc_core mmc_block sdhci sdhci_pltfm sdhci_msm; do
     grep -Fxq "$required" "$selected_file" ||
         fail "mandatory eMMC driver does not resolve: $required"
 done
+grep -Fxq rtc_pm8xxx "$selected_file" ||
+    fail 'mandatory PMIC RTC driver does not resolve: rtc_pm8xxx'
 
 duplicate=$(
     sort "$selected_file" | uniq -d | sed -n '1p'

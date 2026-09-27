@@ -23,6 +23,12 @@ pinctrl-msm8916
 qcom-spmi-pmic
 pinctrl-spmi-gpio
 pinctrl-spmi-mpp
+# CONFIG_RTC_HCTOSYS copies rtc0 into the system clock when it registers, and
+# the PM8916 RTC is a read-only counter of seconds since the PMIC lost power.
+# Loaded from the real root it rewinds the booted clock to 1970 after final-root
+# PID 1 applied the systemd clock epoch; loaded in the initrd, host PID 1 moves
+# the clock forward to the epoch again after switch-root.
+rtc-pm8xxx
 qcom_smd-regulator
 qcom_spmi-regulator
 nvmem_qfprom

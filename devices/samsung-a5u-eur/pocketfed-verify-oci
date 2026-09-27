@@ -130,6 +130,11 @@ verify_initramfs_module() {
 for module in mmc_core mmc_block sdhci sdhci-pltfm sdhci-msm; do
     verify_initramfs_module "$module"
 done
+# The PMIC RTC must register before switch-root so CONFIG_RTC_HCTOSYS cannot
+# rewind the clock after final-root PID 1 applied the clock epoch. A built-in
+# driver satisfies that without a module in the initramfs.
+grep -Fxq kernel/drivers/rtc/rtc-pm8xxx.ko "$module_dir/modules.builtin" ||
+    verify_initramfs_module rtc-pm8xxx
 
 : >"$expected_selected"
 : >"$expected_missing"
@@ -158,6 +163,8 @@ for required in mmc_core mmc_block sdhci sdhci_pltfm sdhci_msm; do
     grep -Fxq "$required" "$selected_file" ||
         fail "mandatory eMMC driver was not selected: $required"
 done
+grep -Fxq rtc_pm8xxx "$selected_file" ||
+    fail 'mandatory PMIC RTC driver was not selected: rtc_pm8xxx'
 while IFS= read -r driver; do
     grep -Fxq "rd.driver.pre=$driver" "$force_drivers" ||
         fail "$driver is not forced in initramfs"
