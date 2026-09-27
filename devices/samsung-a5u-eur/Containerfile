@@ -58,6 +58,9 @@ RUN --mount=type=cache,id=pocketfed-samsung-a5u-eur-arm64-device-dnf,target=/var
     test -s /usr/lib/bootupd/updates/EFI.json; \
     rm -rf /usr/lib/ostree-boot/loader; \
     find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
+    # Keep the hwdb in /usr only; see phosh/Containerfile.
+    systemd-hwdb update --usr --strict; \
+    rm -f /etc/udev/hwdb.bin; \
     systemctl disable qbootctl.service; \
     systemctl enable bootloader-update.service; \
     qbootctl_state=$(systemctl is-enabled qbootctl.service || :); \
