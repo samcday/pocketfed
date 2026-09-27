@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Run inside the built image (or feed to bash in its chroot/container).
+#
+# An /etc/udev/hwdb.bin shadows the image's /usr copy and, like any
+# /etc/udev/hwdb.d entry, makes systemd-hwdb-update.service rebuild it on the
+# first boot of every deployment, delaying systemd-udevd. Each package layer
+# must instead leave one hwdb in /usr that covers every installed hwdb.d file.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+fail() {
+    printf 'PocketFed hwdb verification failed: %s\n' "$*" >&2
+    exit 1
+}
+
+[ ! -e /etc/udev/hwdb.bin ] ||
+    fail '/etc/udev/hwdb.bin is present; run systemd-hwdb update --usr and remove it'
+[ -z "$(find /etc/udev/hwdb.d -mindepth 1 -print -quit 2>/dev/null)" ] ||
+    fail '/etc/udev/hwdb.d is not empty'
+[ -s /usr/lib/udev/hwdb.bin ] || fail '/usr/lib/udev/hwdb.bin is missing'
+
+work=$(mktemp -d /tmp/pocketfed-hwdb.XXXXXX)
+trap 'rm -rf -- "$work"' EXIT
+mkdir -p "$work/usr/lib/udev"
+cp -a /usr/lib/udev/hwdb.d "$work/usr/lib/udev/"
+# systemd-hwdb needs /proc to write its database.
+systemd-hwdb --root="$work" update --usr --strict ||
+    fail 'cannot rebuild the hwdb from /usr/lib/udev/hwdb.d'
+
+# Skip the signature and generator version header: mkosi builds the base copy
+# with its tools tree's systemd-hwdb rather than the image's.
+cmp -i 16 "$work/usr/lib/udev/hwdb.bin" /usr/lib/udev/hwdb.bin ||
+    fail '/usr/lib/udev/hwdb.bin does not match /usr/lib/udev/hwdb.d; run systemd-hwdb update --usr'
+
+echo 'PocketFed hwdb verified'

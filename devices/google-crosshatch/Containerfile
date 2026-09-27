@@ -93,6 +93,9 @@ RUN --mount=type=cache,id=pocketfed-google-crosshatch-arm64-device-dnf,target=/v
     test "$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel)" = "$kernel_nevra"; \
     /usr/libexec/pocketfed-verify-kernel; \
     find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
+    # Keep the hwdb in /usr only; see phosh/Containerfile.
+    systemd-hwdb update --usr --strict; \
+    rm -f /etc/udev/hwdb.bin; \
     systemctl enable \
         blob-wrangler.service \
         clatd.service \
@@ -142,6 +145,7 @@ RUN set -eu; \
 # checks cannot perturb or rebuild an otherwise identical boot image.
 FROM device-root-base AS device-root
 COPY devices/google-crosshatch/80-pocketfed-google-crosshatch.preset /usr/lib/systemd/system-preset/
+COPY devices/google-crosshatch/glink-quarantine-modprobe.conf /usr/lib/modprobe.d/60-pocketfed-crosshatch-glink-quarantine.conf
 COPY --chmod=0755 base/mkosi.extra/usr/libexec/pocketfed-blob-wrangler-modprobe /usr/libexec/
 COPY --chmod=0755 devices/google-crosshatch/pocketfed-crosshatch-blob-wrangler /usr/libexec/
 COPY devices/google-crosshatch/blob-wrangler.service.d/10-pocketfed-crosshatch-slot-fallback.conf /usr/lib/systemd/system/blob-wrangler.service.d/

@@ -55,6 +55,8 @@ grep -Fq 'venus_core' /usr/libexec/pocketfed-blob-wrangler-modprobe ||
 grep -Fq 'dependency %s is command-line blacklisted' \
     /usr/libexec/pocketfed-blob-wrangler-modprobe ||
     fail 'post-extraction module loading does not honor the kernel blacklist'
+modprobe -c | grep -Fxq 'blacklist qcom_q6v5_mss' ||
+    fail 'MPSS is not deferred behind the GLINK quarantine'
 
 grep -Fxq 'USB_SIGNALLER_AUTO_MODE=developer_mode' \
     /usr/lib/pocketfed/usb-signaller-crosshatch.conf

@@ -71,7 +71,13 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
     test "$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' phosh-first-boot)" = "$firstboot_version"; \
     test -x /usr/libexec/flatpak-portal; \
     grep -Fxq 'ExecStart=/usr/libexec/flatpak-portal' \
-        /usr/lib/systemd/user/flatpak-portal.service
+        /usr/lib/systemd/user/flatpak-portal.service; \
+    # systemd-udev's hwdb.d file trigger rebuilds the hwdb into /etc, where it
+    # shadows the image's /usr copy and makes systemd-hwdb-update.service
+    # rebuild it on each deployment's first boot, delaying systemd-udevd.
+    # Keep one current copy in /usr, as mkosi does for the base image.
+    systemd-hwdb update --usr --strict; \
+    rm -f /etc/udev/hwdb.bin
 
 COPY phosh/pocketfed-phrog-tmpfiles.conf /usr/lib/tmpfiles.d/
 COPY phosh/pocketfed-first-boot /usr/libexec/

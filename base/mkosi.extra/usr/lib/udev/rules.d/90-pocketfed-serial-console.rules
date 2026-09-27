@@ -1,0 +1,12 @@
+# Keep the kernel's serial console known to systemd across switch-root.
+#
+# initrd-udevadm-cleanup-db drops every udev record without db_persist, so the
+# host system only sees dev-ttyMSM0.device again once its own udevd replays the
+# coldplug event. On first boots that udevd waits for systemd-hwdb-update, and
+# a slow event under soc@0 blocks the replay of the whole subtree, so the
+# generated serial-getty@ttyMSM0.service could miss Fedora's 45 s device
+# timeout and never start. Persisting the record keeps the device plugged from
+# the initrd onwards, as dracut already does for device-mapper nodes.
+ACTION=="remove", GOTO="pocketfed_serial_console_end"
+SUBSYSTEM=="tty", ATTR{console}=="Y", OPTIONS+="db_persist"
+LABEL="pocketfed_serial_console_end"
