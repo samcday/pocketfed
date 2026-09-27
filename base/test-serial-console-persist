@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+repo_root="$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)"
+rule_path=/usr/lib/udev/rules.d/90-pocketfed-serial-console.rules
+rule="$repo_root/base/mkosi.extra$rule_path"
+dracut_conf="$repo_root/base/mkosi.extra/etc/dracut.conf.d/50-pocketfed-serial-console.conf"
+
+# The rule only helps if the initrd's udevd applies it before
+# initrd-udevadm-cleanup-db runs, so it must be installed into every initramfs.
+grep -Fxq 'SUBSYSTEM=="tty", ATTR{console}=="Y", OPTIONS+="db_persist"' "$rule"
+grep -Fxq "install_items+=\" $rule_path \"" "$dracut_conf"
+
+if command -v udevadm >/dev/null 2>&1
+then
+    udevadm verify --no-summary "$rule"
+fi
+
+printf '%s\n' 'PocketFed serial console persistence policy tests passed'
