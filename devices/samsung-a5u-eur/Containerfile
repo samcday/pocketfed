@@ -59,10 +59,11 @@ RUN --mount=type=cache,id=pocketfed-samsung-a5u-eur-arm64-device-dnf,target=/var
     rm -rf /usr/lib/ostree-boot/loader; \
     find /boot -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; \
     systemctl disable qbootctl.service; \
-    systemctl enable bootloader-update.service; \
+    systemctl enable bootloader-update.service systemd-timesyncd.service; \
     qbootctl_state=$(systemctl is-enabled qbootctl.service || :); \
     test "$qbootctl_state" = disabled; \
-    test "$(systemctl is-enabled bootloader-update.service)" = enabled
+    test "$(systemctl is-enabled bootloader-update.service)" = enabled; \
+    test "$(systemctl is-enabled systemd-timesyncd.service)" = enabled
 
 FROM device-root-base AS initrd
 RUN set -eu; \
