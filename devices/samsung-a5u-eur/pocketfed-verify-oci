@@ -39,6 +39,14 @@ bootupd_preset=$(
 )
 [ "$bootupd_preset" = enabled ] ||
     fail "bootloader updater first-boot preset is not enabled: ${bootupd_preset:-missing}"
+[ "$(systemctl is-enabled systemd-timesyncd.service)" = enabled ] ||
+    fail 'systemd-timesyncd.service is not enabled'
+timesyncd_preset=$(
+    systemctl list-unit-files systemd-timesyncd.service --no-legend --no-pager |
+        awk 'NR == 1 { print $3 }'
+)
+[ "$timesyncd_preset" = enabled ] ||
+    fail "systemd-timesyncd first-boot preset is not enabled: ${timesyncd_preset:-missing}"
 
 /usr/libexec/pocketfed-verify-kernel
 
