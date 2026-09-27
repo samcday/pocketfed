@@ -1,0 +1,311 @@
+# Evidence: fallback audio sink (A5 STK hang), 2026-09-27/28
+
+Host: sam-desktop, Fedora 45 x86_64, pipewire-1.6.9-1.fc45, wireplumber-0.5.17-1.fc45, openal-soft-1.24.2-10.fc45 (same upstream versions as the rawhide fc46 image). Isolated lab: private XDG dirs, no session bus, WirePlumber hardware monitors disabled, feedbackd media-role-nodes.conf copied in, OpenAL probe = alcOpenDevice(NULL)+alcCreateContext (what SuperTuxKart 1.5 does).
+
+## Lab runs (~/tmp/a5-audio-20260927/scratchpad/wireplumber/lab/runs)
+
+- s1-loopbacks-nofallback: PROBE open ok=True t=0.00s err=0 PROBE device=b'OpenAL Soft' PROBE alcCreateContext start probe exit=137
+- s2-noloopbacks-nofallback: PROBE open ok=False t=0.00s err=40964 probe exit=2
+- s3-loopbacks-wplua: PROBE open ok=True t=0.00s err=0 PROBE device=b'OpenAL Soft' PROBE alcCreateContext start probe exit=137
+- s5-loopbacks-static-late: PROBE open ok=True t=0.00s err=0 PROBE device=b'OpenAL Soft' PROBE alcCreateContext start PROBE alcCreateContext ok=True t=0.01s err=0 PROBE holding context for 12.0s PROBE exit probe exit=0
+- s7-loopbacks-pwmodule: PROBE open ok=True t=0.00s err=0 PROBE device=b'OpenAL Soft' PROBE alcCreateContext start probe exit=137
+- s8-loopbacks-nofallback-late: PROBE open ok=True t=0.00s err=0 PROBE device=b'OpenAL Soft' PROBE alcCreateContext start probe exit=137
+- pr-loopbacks-static-late: PROBE open ok=True t=0.00s err=0 PROBE device=b'OpenAL Soft' PROBE alcCreateContext start PROBE alcCreateContext ok=True t=0.01s err=0 PROBE holding context for 12.0s PROBE exit probe exit=0
+
+## Sink topology, PR file, before and after the late sink (pr-loopbacks-static-late)
+
+```
+ ├─ Sinks:
+ │  *   29. Dummy Output (no audio hardware)    [vol: 1.00]
+ │
+ ├─ Sources:
+ ├─ Sinks:
+ │
+ ├─ Sources:
+ ├─ Sinks:
+ │      29. Dummy Output (no audio hardware)    [vol: 1.00]
+ │  *  119. Fake HW speaker                     [vol: 1.00]
+ │
+ ├─ Sources:
+ ├─ Sinks:
+ │
+ ├─ Sources:
+```
+
+## A5 stack that started this (a5-uart.log, coredumpctl, 2026-09-27)
+
+```
+2476:[15:24:39]                 #6  0x0000ffff84e7a498 alcCreateContext (libopenal.so.1 + 0x5a498)
+2477-[15:24:39]                 #7  0x0000aaaae22eb6c4 _Z8initRestv (supertuxkart + 0x2db6c4)
+2478-[15:24:39]                 #8  0x0000aaaae206d138 main (supertuxkart + 0x5d138)
+2479-[15:24:39]                 #9  0x0000ffff83b16f5c __libc_start_call_main (libc.so.6 + 0x26f5c)
+2480-[15:24:39]                 #10 0x0000ffff83b1709c __libc_start_main@@GLIBC_2.34 (libc.so.6 + 0x2709c)
+2481-[15:24:39]                 #11 0x0000aaaae20b0830 _start (supertuxkart + 0xa0830)
+2482-[15:24:39]
+2483-[15:24:39] __A5DONE_534f1da64b58
+2484-[15:24:39] ]3008;end=cdbddc01-2a1f-4a14-bd8b-7aff2b671250;exit=success\]3008;start=865debdd-f053-40a1-8ec3-fb345c5f53e5;type=shell;machineid=fc36ba6ea11e46e9ae1f665ba3803471;user=root;hostname=pocketfed-initrd;bootid=7d02a3a0-e13e-4601-9703-929ff6ff6d2a;pid=984;cwd=/root\a5# mkdir -p /var/lib/a5-test/bin && echo DEST-READY; printf '%s_%s\n' __A5DONE 8778ecc24343
+2485-[15:25:09] ]3008;start=2cf7d71f-ff16-4dc0-b7b7-3682b402d794;type=command;machineid=fc36ba6ea11e46e9ae1f665ba3803471;user=root;hostname=pocketfed-initrd;bootid=7d02a3a0-e13e-4601-9703-929ff6ff6d2a;pid=984;cwd=/root\DEST-READY
+2486-[15:25:09] __A5DONE_8778ecc24343
+2487-[15:25:09] ]3008;end=2cf7d71f-ff16-4dc0-b7b7-3682b402d794;exit=success\]3008;start=865debdd-f053-40a1-8ec3-fb345c5f53e5;type=shell;machineid=fc36ba6ea11e46e9ae1f665ba3803471;user=root;hostname=pocketfed-initrd;bootid=7d02a3a0-e13e-4601-9703-929ff6ff6d2a;pid=984;cwd=/root\a5# set +o history; base64 -d > /var/lib/a5-test/bin/.a5-common.sh.tmp <<'A5B64EOF'
+2488-[15:25:10] IyBhNS1jb21tb24uc2g6IGhlbHBlcnMgc291cmNlZCBieSB0aGUgYTVpbnQgVUFSVCB2YWxpZGF0
+```
+
+## Decision memo (98-agent workflow, 30 claims x 3 refuters; 12 refuted and corrected)
+
+# A5 audio and the SuperTuxKart hang: decision memo (#110 image, 2026-09-27)
+
+Scope: Samsung A5 (`samsung,a5u-eur`), flashed image int-20260927. That image is the TEST-ONLY a5int STK layer on top of the #110 device image (claude/a5-integration f9b05d04), running kernel 7.3.0-0.rc2.28.msm8916 and Mesa 26.2.3-1.3.pocketfed. Nothing below was run on the phone. Tags: **[V]** means verified from source, RPMs, the image rpmdb or a host lab. **[I]** means inferred. **[U]** means unknown. "Lab" means an isolated x86_64 host replica running the same upstream PipeWire 1.6.9, WirePlumber 0.5.17, openal-soft 1.24.2-10 and feedbackd 0.8.9-4 (fc45 builds, the same NVRs as rawhide).
+
+`$S` = `/tmp/claude-1000/-var-home-sam-src-pocketfed--claude-worktrees-exciting-cohen-dd1626/7945cb6c-8cd3-43c4-b856-4d4057d4caaa/scratchpad`
+
+## TL;DR
+
+- The working hypothesis ("no PipeWire sink at all") is **wrong**. feedbackd's `/usr/share/wireplumber/wireplumber.conf.d/media-role-nodes.conf` always creates six role-loopback `Audio/Sink` nodes. With no hardware sink behind them, WirePlumber 0.5.17 chain-links the loopbacks into the Alerts loopback, which has the `cork` action. STK's `Game` stream link to Multimedia is then corked, the stream never starts, and openal-soft 1.24.2 waits forever with no timeout. The lab reproduced the A5 stack exactly (lab s1/s10). On the A5 itself this is [I].
+- There is no hardware sink because the only sound card on the A5 DT is QDSP6-on-modem. On #110 the modem is never started: blob-wrangler has no A5 config, so it fails, and `rmtfs` `Requires=` it. The modem firmware isn't present either. The kernel side (config, modules, packaging) is complete.
+- Proposed fixes:
+  - Immediate: ship a static low-priority null sink in `pipewire.conf.d` (lab-verified).
+  - Defence in depth: patch openal-soft.
+  - Real audio: blob-wrangler#19, an A5 UCM overlay and an S16LE rule.
+  - Upstream: bugs in openal-soft (2), WirePlumber (2) and callaudiod.
+- The callaudiod segfault is almost certainly the known NULL deref at cad-pulse.c:409. It is harmless for STK but has the same root cause (no card).
+
+---
+
+## 1. Audio state of the A5 on #110
+
+### Kernel and DT
+- [V] The shipped DTB `qcom/msm8916-samsung-a5u-eur.dtb` (from the kernel-core .28 RPM) has one sound node, `sound@7702000`, with compatible `qcom,msm8916-qdsp6-sndcard` and model `samsung-a2015`. `&lpass` is set to `status = "reserved"`. A rebuild from linux-ark-28 decompiles identically. Sources: msm8916-modem-qdsp6.dtsi:13-165 and msm8916-samsung-a2015-common.dtsi:390-414.
+- [V] Driver: snd-soc-apq8016-sbc (sound/soc/qcom/apq8016_sbc.c:331). It sets `components = "qdsp6"` (apq8016_sbc.c:255-261).
+- [V] Every CPU DAI (q6asmdai, q6afedai, q6voicedai) and the platform (q6routing) are APR children under the mpss smd-edge "hexagon" (msm8916.dtsi:2024-2099). msm8916 has no separate ADSP; the only remoteprocs are mpss@4080000 and wcnss.
+- [V] The SMD edge is registered only in `smd_subdev_start` on remoteproc start (drivers/remoteproc/qcom_common.c:329-335). `qcom_q6v5_mss` sets `auto_boot = false` (qcom_q6v5_mss.c:2100). `REMOTEPROC_CDEV` is off, so only a userspace write of "start" to `/sys/class/remoteproc/*/state` boots it.
+- [V] The mpss node has no `firmware-name`. On start the driver requests `mba.mbn` first, then, once the MBA is up, `modem.mdt` (squashed, or split `modem.bNN`). References: qcom_q6v5_mss.c:2085-2111, 2530-2531.
+- [I] The card stays at `-EPROBE_DEFER` for the whole boot (sound/soc/qcom/common.c:265-270, soc-core.c:3437-3440). There is no `/proc/asound/cards` or `devices_deferred` capture from the device.
+- [V] The DTB has no `__symbols__` node. No overlay, whether label-based or path-based, can retarget it, because `&lpass` has no phandle.
+
+### Modules
+- [V] Every module for both the QDSP6 route and the LPASS-direct route is `=m` in config-28. They ship in kernel-modules (ASoC qcom, qdsp6, codecs) or kernel-modules-core (snd core, apr, pdr, qrtr, rpmsg/smd, q6v5_mss, rmtfs_mem, bam_dmux). None are in -extra or -internal. devices/samsung-a5u-eur/Containerfile:37-50 installs all of them. depmod resolves every audio dependency chain. Lists are in `$S/kernel-dt/rpms/*.list`.
+- [V] PR #106 removes only `blacklist qcom_q6v5_mss`, so MPSS binds (for sync_state). It starts nothing.
+- [V] Nothing audio-related appears in the A5 force-drivers list, dracut policy, preset or any blacklist.
+
+### Modem start and firmware
+- [V] `rmtfs.service` (Fedora rmtfs-1.3-1.fc46) runs `rmtfs -r -P -s` and is the only starter shipped in the image. `rmtfs-dir.service` also passes `-s` but is disabled by preset. The PocketFed drop-in `base/mkosi.extra/usr/lib/systemd/system/rmtfs.service.d/blob-wrangler.conf` adds `Requires=` and `After=blob-wrangler.service`.
+- [V] The image ships blob-wrangler v0.0.2 (`…main.0.gda5a49a.fc46`, confirmed in the image rpmdb). With no `configs/samsung,a5u-eur.toml` and no `qcom,msm8916.toml`, it exits 1 with `NotFound: "Unable to detect device!"` (blob-wrangler src/main.rs:88-110,158-166). rmtfs then fails with result `dependency`.
+- [V] Device log: `4080000.remoteproc` stays `state=offline firmware=mba.mbn` at every check, including after the STK hang (`/var/home/sam/tmp/a5-integration-20260927/uart/a5-uart.log:1291,1498,4002`). No request_firmware failure is logged, because no start was ever attempted.
+- [V] Nothing in the image provides `mba.mbn` or `modem.mdt` at those names. qcom-firmware only carries `qcom/apq8016/{mba,modem}.mbn.xz`, which are DB410c-signed. [U] Whether those would authenticate on the Samsung-fused A5: almost certainly not.
+
+### UCM
+- [V] If the card registered, driver, shortname and longname would all be `samsung-a2015` (no DMI, per a5-uart.log:482) and components would be `qdsp6`.
+- [V] Fedora alsa-ucm-1.2.16.1-2.fc45 is byte-identical to upstream. Its `ucm.conf` has `V2Name ""` and `V2Module ""`, so it probes only `conf.d/samsung-a2015/{<LongName>,samsung-a2015}.conf`. That file does not exist in Fedora or in upstream master 18d142f3.
+- [V] The only A5 UCM in existence is msm8916-mainline/alsa-ucm-conf `ucm2/samsung-a2015/`. pmOS pins it at 3deea2860ab680c3e790442dbdf578fef152e639, and the files are unchanged at fork HEAD 282c50f3. It uses the legacy `ucm2/<driver>/` layout and `<…>`-includes `platforms/msm8916/*` and `codecs/msm8916-wcd/*` from the ucm2 root. Neither directory is in Fedora.
+- [V] Without UCM, q6routing sessions stay unrouted: `q6routing_stream_open` returns "Routing not setup" (q6routing.c:405,1175).
+- On #110 UCM does not matter anyway [I], because no card exists.
+
+### PipeWire and userspace
+- [V] The image ships stock Fedora pipewire 1.6.9-1.fc46 (plus -alsa, -pulseaudio and -utils), wireplumber 0.5.17-1.fc46, openal-soft 1.24.2-10.fc46, callaudiod 0.1.99-4.fc45 and feedbackd 0.8.9-4.fc45. The rpm digests match.
+- [V] There is no PocketFed audio configuration for the A5: no UCM, no PipeWire or WirePlumber drop-ins, no q6voiced. `/etc/pipewire` does not exist.
+- [V] feedbackd owns `/usr/share/wireplumber/wireplumber.conf.d/media-role-nodes.conf`. It sets `policy.linking.role-based.loopbacks = required` and creates six loopback sinks: Multimedia (priority 10, mix), Notification, Phone, Alarm, Ringtone and Alert (priority 100, lower-priority action `cork`). These are virtual `Audio/Sink` nodes and exist whether or not any hardware is present.
+- [V] With the loopbacks present, neither pipewire-pulse's `module-always-sink` / `module-fallback-sink` nor WirePlumber's shipped (and unloaded) `fallback-sink.lua` provides a dummy sink. Both count the loopbacks as real sinks. auto_null is created briefly at daemon start and removed about 120 ms later (lab s3/s7, refuter reruns).
+- [V] openal-soft came from the base layer, pulled in by `gstreamer1-plugins-bad-free` (base/mkosi.conf:59). The STK layer added no openal-soft or SDL packages. The transaction for the flashed image is in `build-int-20260927.out:355-381`.
+- [U] The A5's runtime graph (`wpctl status`, `pw-dump`) has not been captured.
+
+## 2. Why STK hangs, and why `--no-sound` works
+
+The mechanism below was reproduced in the lab, including the gdb stack (`$S/wireplumber/lab/runs/s10-a5replica-gdb/out/gdb-bt.txt`). On the A5 it is [I].
+
+1. STK MusicManager calls `alcOpenDevice(NULL)` and then `alcCreateContext` (`$S/openal/stk-music_manager.cpp:58-80`).
+2. OpenAL's PipeWire backend initialises because audio nodes (the loopbacks) exist (openal pipewire.cpp:1269-1311, 2213-2224). It opens the default sink, `input.loopback.sink.role.multimedia`. The stream has `media.role=Game`, `node.autoconnect=true`, and `target.object` set to that sink's serial (pipewire.cpp:1673-1706).
+3. With no hardware sink, WirePlumber links loopback outputs into other loopback sinks. Loopback sinks count as devices and default candidates, and `canLink` rejects only same-link-group targets (linking-utils.lua:249-326, find-best-target.lua:44-103). One Alert link (priority 100, cork) becomes the priority media-role link. `rescan-media-role-links.lua:141-193` then corks the Game→Multimedia role link (priority 10), which is never activated (link-target.lua:126-153).
+4. The unlinked stream's adapter keeps `SPA_NODE_FLAG_NEED_CONFIGURE`. PipeWire assigns it to the Dummy-Driver but `ensure_state` refuses RUNNING (pipewire context.c:985-994).
+5. `PipeWirePlayback::start()` waits with no timeout for `pw_stream_get_state()==STREAMING` and throws only on `ERROR` (pipewire.cpp:1746-1754, via `MainloopUniqueLock::wait` 473-478). Result: `alcCreateContext → UpdateDeviceParams → PipeWirePlayback::start → loop_wait → pthread_cond_wait`, which matches a5-uart.log:2470-2481.
+6. A second, independent OpenAL bug: even when WirePlumber does send an error (e.g. `no target node available`, prepare-link.lua:97-120), pw_stream ≥ 0.3.39 (commit 1f5396fe) only emits `state_changed(ERROR)` and leaves the stored state at PAUSED (stream.c:1241-1252). OpenAL's callback discards its arguments (pipewire.cpp:1465-1466), so its ERROR branch can never fire for session-manager errors.
+7. A sink that appears later does not rescue the stream. `prepare-link.lua:49-61` removes role links without calling `clearPriorityMediaRoleLink`, whose only caller is rescan.lua:86. The stale Alert priority link therefore keeps corking the stream (lab s8). A refuter verified that adding the clear call unblocks the stream.
+
+**`--no-sound`**: MusicManager only touches OpenAL inside `if (UserConfigParams::m_enable_sound)` (`$S/openal/stk-music_manager.cpp:48-49`), and SFXManager is gated the same way (`$S/openal/stk-sfx_manager.cpp:93-94`). No device or context is ever opened, so the wait is never reached. [I] That `--no-sound` sets `m_enable_sound=false` was not checked in STK's CLI parser. It is the only consistent reading.
+
+## 3. Fix layers, ranked
+
+### (a) Immediate no-hang guarantee
+
+1. **Static dummy sink (pocketfed draft PR, image-wide).**
+   - Add `base/mkosi.extra/usr/share/pipewire/pipewire.conf.d/90-pocketfed-dummy-output.conf`. A lab-tested copy is at `$S/wireplumber/proposed/usr/share/pipewire/pipewire.conf.d/90-pocketfed-dummy-output.conf`. It defines a `support.null-audio-sink` adapter with `node.name "pocketfed-dummy-output"`, `node.description "Dummy Output (no audio hardware)"`, `media.class Audio/Sink`, and `priority.session = 1`.
+   - `priority.session > 0` is required; without it the chain-links and corks persist. `node.virtual` is irrelevant.
+   - Result (lab s5 and two refuter reruns): the dummy exists before WirePlumber and becomes the default, beating the loopbacks' 0. Loopback outputs link to it, so there are no chain links and no corks. `alcCreateContext` returns in about 0.01 s. ALSA sinks (priority.session about 104-1109, alsa.lua:268-290) still win when present, and everything relinks.
+   - Not yet tested: loading from `/usr/share/pipewire/pipewire.conf.d` (the lab used `$XDG_CONFIG_HOME`), and behaviour on the A5 itself.
+   - Add a `pocketfed-verify-oci` check that the file exists. On devices with audio (Sargo), add a device test asserting `@DEFAULT_AUDIO_SINK@` is not `pocketfed-dummy-output`.
+   - This fixes the whole class for every raw pw_stream client, not just OpenAL. It is why this ranks above the OpenAL patch.
+   - Rejected alternatives:
+     - Enable WirePlumber's `fallback-sink.lua` or `module-fallback-sink`: suppressed by the loopbacks (lab s3/s7).
+     - A virtual-aware Lua variant: fires about 1 s too late, and the stream still ends up corked (lab s4).
+     - Rely on WirePlumber errors: OpenAL cannot see them (see §2 step 6).
+2. **openal-soft interim fork (samcday/pocketfed COPR, `packages/openal-soft`).** Follow the mesa pattern: a Fedora vendor commit plus a patch commit, with an explicit retirement plan.
+   - Patches: `$S/openal/patches/0001-pipewire-Don-t-miss-stream-errors-reported-by-the-se.patch` latches ERROR from the callback and treats UNCONNECTED as failure. `0002-pipewire-Don-t-wait-indefinitely-for-streams-to-conn.patch` gives connect a 5 s timeout and start a 3 s timeout, after which it continues and the stream starts once something links it.
+   - Both apply to the Fedora SRPM and build warning-free. They are tested on x86_64 only; no aarch64 build or device test yet.
+   - This is defence in depth. With (1) in place it is optional. Needs Sam's go before any COPR publish.
+3. **Session workaround until then:** `supertuxkart --no-sound`, or `ALSOFT_DRIVERS=null` (silent, never hangs). `ALSOFT_DRIVERS=-pipewire,` needs the trailing comma, because without it every backend is disabled.
+   - With `-pipewire,`, the pulse path does not hang forever. libpulse times out the CREATE_PLAYBACK_STREAM reply after 30 s, then `alcOpenDevice` returns NULL and STK continues silently (host-measured 30.0 s).
+   - The ALSA path via pipewire-alsa does hang, in `snd_pcm_pipewire_prepare` (pcm_pipewire.c:588-589).
+   - [U] On the F45 host, OpenAL cannot dlopen libpulse because of a stale `dlerror` from libsystemd (dynload.cpp:26-33). Whether rawhide aarch64 has the same problem is unknown.
+
+### (b) Real audio enablement
+
+In dependency order:
+
+1. **Modem up (samcday/blob-wrangler#19, then the blob-wrangler-nightly COPR, then the A5 image).**
+   - #19 adds `configs/samsung,a5u-eur.toml` plus `keep_extension`. At boot it copies `mba.mbn` and a squashed `modem.mdt` from the phone's own `modem` partition into `/usr/lib/firmware/updates`, which is a symlink to `/var/lib/firmware-updates`. No blobs ship in the image.
+   - blob-wrangler then succeeds, rmtfs `-s` starts MPSS, APR comes up, and the card `samsung-a2015` registers.
+   - This needs the #19 binary, not just the config. rmtfs `-P` needs partlabels `modemst1`/`modemst2`/`fsg`/`fsc`; these exist per the pmOS A5 partition table [V from a secondary source], but on this device they are [U]. `-r` never writes EFS.
+   - #110 deliberately excludes #19. **Everything in (b) depends on it**, except the LPASS route below.
+2. **A5 UCM overlay (pocketfed, `devices/samsung-a5u-eur/audio/`, following the Sargo pattern).**
+   - `README.md`: provenance of the fork at 3deea286, archive sha256 `c78a50fe…`, BSD-3-Clause, and the deltas.
+   - `root/usr/share/alsa/ucm2/…`:
+     - `samsung-a2015/{samsung-a2015.conf,HiFi.conf}`, or namespaced as `Samsung/a2015/` with absolute `File` paths in Sargo style.
+     - `conf.d/samsung-a2015/samsung-a2015.conf` as a symlink to the entry file. It is required; alsa-lib resolves the relative `HiFi.conf` next to the symlink target (parser.c:3441-3480).
+     - `platforms/msm8916/{qdsp6.conf,qdsp6-components.conf}` and `codecs/msm8916-wcd/{Earpiece,Headphones,PrimaryMic,SecondaryMic,HeadsetMic}.conf` at the ucm2 root. Alternatively, namespace them and rewrite the `<…>` includes.
+   - `root/usr/share/licenses/pocketfed-samsung-a5u-eur-audio/LICENSE`.
+   - `root/usr/share/wireplumber/wireplumber.conf.d/90-pocketfed-samsung-a5u-eur-s16.conf`: force `audio.format=S16LE` on `node.name ~ alsa_output.platform-7702000.*`. This mirrors pmOS `msm8916-s16le.conf`; the backend fixup forces S16_LE 48 kHz (apq8016_sbc.c:240-251).
+   - `Containerfile`: `COPY devices/samsung-a5u-eur/audio/root/ /` after all dnf transactions.
+   - Tests: `pocketfed-verify-oci` checks (symlink readlink, `SectionUseCase "HiFi"`, WirePlumber drop-in), plus a `test-pocketfed-a5-audio` with SHA-256 pins, added to `.github/workflows/ci.yml` like Sargo's :94-95.
+   - [U] Mixer control names against the 7.3 kernel need `alsaucm -c samsung-a2015 dump text` once the card exists. The PCM numbering (0 = WCD playback, 1 = capture, 2 = TFA9895 speaker, 4 = CS-Voice) is [I] from DT order.
+   - The UCM can be landed ahead of #19; it is inert without the card.
+3. **Calls (later, needs the modem):**
+   - An A5 `samcday-pocketfed.repo` whose `includepkgs` includes q6voiced. phosh's repo excludes it (phosh/samcday-pocketfed.repo:12).
+   - A pinned q6voiced, plus `/usr/share/q6voiced/q6voiced.conf` (`q6voice_card=0`, `q6voice_device=4`), plus `enable q6voiced.service` in `80-pocketfed-samsung-a5u-eur.preset`.
+   - UIM selection ordered after rmtfs and before ModemManager.
+   - The Samsung udev rule `ID_MM_QMI_FACILITY_LOCK_QUERY_REDUCED=1`.
+   - The fork UCM has no VoiceCall verb, so call audio relies on q6voiced plus the HiFi CS-Voice mixers.
+4. **Firmware-free alternative (low rank): LPASS-direct DT.** This is an ARK kernel branch patch, then COPR, then a `KERNEL_NEVRA` pin bump.
+   - DT changes: `&lpass` okay, `&sound` compatible `qcom,apq8016-sbc-sndcard`, and MI2S PRIMARY/TERTIARY/QUATERNARY links. A sketch compiles against the .28 tree (`$S/kernel-dt/lpass-direct/msm8916-samsung-a5u-eur-lpass.dts`). No driver on this path loads firmware; tfa989x bypasses the CoolFlux DSP (tfa989x.c:268-285).
+   - Costs:
+     - It conflicts with QDSP6 voice once the modem is up.
+     - TZ access to LPASS on the A5 is [U].
+     - A patched DTB breaks the byte-for-byte check in `pocketfed-verify-kernel:53-54`.
+     - pmOS's equivalent (the legacy-lk2nd `lk2nd-rproc.c` fixup) has been dead since the lk2nd 19.0 bump on 2024-10-26 (MR 5691).
+   - Not recommended unless you want A5 audio without #19.
+5. **Hardening (blob-wrangler repo or pocketfed):** a missing device config currently cascades into rmtfs failing with `dependency`. Options are to exit 0 with a warning, or to assert in the A5 verify-oci that a config exists. See the open question in §6.
+
+### (c) Upstream reports and patches (Sam files, per upstream-first)
+
+- **openal-soft (kcat/openal-soft).** File a new issue, separate from #1318, which is about init waits and where kcat resisted timeouts.
+  - Submit 0001 first as a pure bug fix. Cite PipeWire 1f5396fe and the WirePlumber repro (`$S/openal/harness/run2.sh`).
+  - Submit 0002 separately (bounded waits that continue after the timeout).
+  - Master 3fa40675c6 still has the bug. Porting to it touches pipewire.cpp:568-578, 1541-1543, 1805-1813, 1840-1848, 2036-2037, 2222-2229 and 2249-2256, and the error field has to be `mutable` because the callback is const.
+- **WirePlumber (two bugs).**
+  1. Role-based loopback outputs should never target other `policy.role-based.target` sinks. Chain-linking into Alert corks everything when there is no hardware sink.
+  2. `linking/prepare-link.lua:49-61` should call `lutils.clearPriorityMediaRoleLink` before `link:remove()`, since a stale priority link corks later role links forever. This is verified as a one-line fix in a refuter lab and is unchanged on master. The lab reproducers under `$S/wireplumber/lab/` are ready to attach.
+- **feedbackd (optional).** `media-role-nodes.conf` turns "no hardware" into "silent hang" for pw_stream clients. The WirePlumber fixes are the real fix, but a note on the feedbackd issue tracker is worth it.
+- **callaudiod (Fedora dist-git PR on src.fedoraproject.org/rpms/callaudiod, citing BZ 2457892).**
+  - Backport upstream fe87a92 (MR !29: guards at :386/:409).
+  - Also guard `:957`. Open MR !30 still dereferences `active_port` in the `if` when `target_port` is non-NULL.
+  - Optionally skip card-less sinks and sources when `card_id < 0`.
+  - Carry it in the COPR only if the noise matters before Fedora picks it up.
+- **Fedora openal-soft bug** with the same patches, for Fedora Mobility users.
+
+## 4. The callaudiod crash
+
+**Likely cause [V code / I on device]:**
+- The mechanism is a NULL `info->active_port` dereference at `src/cad-pulse.c:409` in `init_sink_info`, in Fedora callaudiod-0.1.99-4.fc45 (plain upstream, no patches).
+- It fires when a **SINK NEW** event arrives for a sink with no card, no ports, and a `device.class` that is absent or "sound" (the gate is at :305-307), while callaudiod has found no suitable card (`card_id == -1`) and has not yet adopted a sink.
+- The comparison at `:308` of `uint32 info->card` against `int card_id` makes `PA_INVALID_INDEX == -1`, so such a sink gets adopted.
+- Sinks present at startup are never examined; only newly announced ones are.
+- Host lab repro: 2/2 by the reader, 3/3 by a refuter.
+
+**Strongest candidate trigger on the A5 [I]:** feedbackd's loopback sinks (card-less and portless) appearing *after* callaudiod subscribes. A refuter crashed it 5/5 when WirePlumber and callaudiod start together and 3/3 when WirePlumber starts 3 s later. It did not crash when WirePlumber was up first (0/3) or with the loopbacks disabled (0/4). callaudiod is D-Bus-activated (not a unit) from the phrog greeter and from the Phosh session: phosh 0.57.0 src/shell.c:1460 calls `cui_init(TRUE)`, which calls `call_audio_init`, which calls `StartServiceByName`. The resulting transient unit is `dbus-:1.N-org.mobian_project.CallAudio@M.service`. A cold-session race with WirePlumber is therefore plausible. Other candidates are a WirePlumber or pipewire restart, or a manual `pactl load-module` while debugging STK.
+
+It does **not** cause the STK hang. The dummy sink from §3(a)1 would **not** stop this crash, because the loopbacks still arrive as NEW events. Only the callaudiod patch or a card existing does. Do not mask callaudiod: phosh, libphosh and calls hard-require `libcallaudio-0.1.so.0`, which lives in the callaudiod package.
+
+**Evidence checklist (read-only):**
+- `coredumpctl list --no-pager callaudiod`, then `coredumpctl info --no-pager <PID>`. Expect:
+  - Signal 11, package `callaudiod-0.1.99-4.fc45`, build-id `5f4c41ef84e3618ad72b80ea0bfedd389c040ac2`.
+  - Frame #0 `init_sink_info (callaudiod + 0x7184)`, which is line 409 (`ldr x0,[x0]`).
+  - `+0x7250` would mean line 386; `set_output_port +0x6e2c` would mean line 957; SIGABRT would point to the `g_error` at :729-731.
+  - Record the UID (greeter vs Sam) and the `@M` activation count.
+- Timeline: `journalctl -b -o short-precise --no-pager | grep -E 'CallAudio|callaudio|systemd-coredump|wireplumber|pipewire'`. Look for `No suitable card found` (cad-pulse.c:458), then the loopback or WirePlumber start, then `status=11/SEGV`.
+- Optional offline backtrace: `coredumpctl dump <PID> -o ~/callaudiod-<PID>.core`, copied to the workstation. The aarch64 binary and debuginfo are in `$S/callaudiod/bin` and `$S/callaudiod/dbg`. Expect `info->name` to be a `input.loopback.sink.role.*` or `auto_null`, `card=4294967295`, `n_ports=0`, `active_port=0x0`.
+
+## 5. Read-only phone inspection checklist (ordered by value)
+
+Run as Sam in the Phosh session unless marked root. None of this changes state, except that the `pactl`/`wpctl` calls connect as clients (pipewire-pulse is already socket-activated by phosh).
+
+1. **Confirm there is no hardware card and why** (validates §1):
+   ```
+   cat /proc/asound/cards; ls -l /dev/snd/
+   sudo grep -i sound /sys/kernel/debug/devices_deferred      # expect 7702000.sound
+   grep . /sys/class/remoteproc/*/{name,state,firmware}        # expect mpss offline, mba.mbn
+   systemctl status --no-pager blob-wrangler rmtfs; journalctl -b --no-pager -u blob-wrangler -u rmtfs
+   ls -la /usr/lib/firmware/updates /var/lib/firmware-updates 2>&1
+   ```
+2. **Confirm the sink topology** (validates §2's precondition):
+   ```
+   rpm -q openal-soft pipewire wireplumber feedbackd callaudiod blob-wrangler supertuxkart
+   ls /usr/share/wireplumber/wireplumber.conf.d/ /usr/share/pipewire/*.conf.d/ 2>/dev/null
+   wpctl status
+   pw-dump | jq -r '.[] | select(.info.props["media.class"]=="Audio/Sink") | [.id, .info.props["node.name"], (.info.props["priority.session"]//0)] | @tsv'
+   pw-link -l                                                   # expect loopback outputs -> input.loopback.sink.role.alert
+   pactl info | grep -i 'default sink'; pactl list short sinks
+   ```
+   Expected: six `input.loopback.sink.role.*` sinks, no `alsa_output.*`, no `auto_null`, and Multimedia as the default.
+3. **Existing coredumps:**
+   ```
+   coredumpctl list --no-pager; coredumpctl info --no-pager supertuxkart; coredumpctl info --no-pager callaudiod
+   ```
+   See the callaudiod expectations in §4.
+4. **WirePlumber and session logs for this boot:**
+   ```
+   systemctl --user status --no-pager pipewire pipewire-pulse wireplumber
+   journalctl --user -b --no-pager -o short-precise -u pipewire -u pipewire-pulse -u wireplumber
+   ```
+   `action(cork)` is only printed at debug level, so its absence at the default level proves nothing.
+5. **Optional live repro (Sam starts STK, which is not strictly read-only):** `ALSOFT_LOGLEVEL=3 supertuxkart 2>&1 | tee ~/stk-openal.log`. Expect the log to show the chosen sink as `input.loopback.sink.role.multimedia`. While it hangs, from SSH:
+   ```
+   pw-dump > ~/a5-pw-dump-hang.json
+   pw-link -l
+   pw-dump | jq '.[] | select(.info.props["application.process.binary"]=="supertuxkart") | {id, state: .info.state, props: .info.props | {"target.object","media.role","node.driver-id"}}'
+   ```
+   Expect the STK node suspended, with no links, and `media.role=Game`.
+6. **Modem prerequisites for #19** (partitions only, nothing mounted):
+   ```
+   ls -l /dev/disk/by-partlabel/ | grep -Ei 'modem|apnhlos|modemst|fsg|fsc|efs|persist'
+   ```
+7. **Hostname oddity (out of scope):** `hostnamectl; cat /etc/hostname`. The running system reported `pocketfed-initrd` (a5-uart.log:1161). The likely source is devices/samsung-a5u-eur/Containerfile:73 writing it in the initrd build stage.
+
+## 6. Open questions for Sam
+
+1. Should blob-wrangler#19 go into the A5 train now, or stay a separate PR track? Real audio (and Wi-Fi/Venus) is gated on it. It reads firmware from the phone's own `modem` partition at boot, and rmtfs `-r` never writes EFS.
+2. Should the dummy sink go image-wide in `base/` (my recommendation; it also covers any device before its card probes) or A5-only? It is also a question whether Sargo already hits the same cork trap for streams started before the ADSP card appears. That is untested; worth a check on test-sargo.
+3. Carry the openal-soft COPR fork, or rely on the dummy sink plus upstream? COPR publish needs your go.
+4. UCM layout: fork paths at the ucm2 root (`platforms/msm8916`, `codecs/msm8916-wcd`; minimal diff, collision risk if Fedora later ships them), or namespaced under `Samsung/a2015/` with rewritten includes (Sargo style)?
+5. Is the LPASS-direct DT worth anything to you, or is it dead given the QDSP6 voice path and pmOS abandoning it?
+6. blob-wrangler with no config: keep the hard failure (a loud signal) or soften it, given that it silently takes out rmtfs and so audio?
+7. Upstream filing order and scope: openal-soft (0001 then 0002), WirePlumber (chain-link, stale priority link), callaudiod dist-git PR, feedbackd note. Anything you'd rather not file?
+8. That boot: did you `pactl load-module`, restart pipewire or WirePlumber, or otherwise poke audio while debugging STK? This decides the callaudiod trigger.
+
+## Refuted reader claims and what changed
+
+| Reader claim | Correction (from refuters) | Effect on the picture |
+|---|---|---|
+| kernel-dt: card defers forever *because* `auto_boot=false` | `auto_boot` only blocks kernel autostart. rmtfs `-s` (or any root sysfs write) would start the modem. On #110 the start never happens (blob-wrangler fails, rmtfs dependency-fails), and it would fail anyway for lack of `mba.mbn`/`modem.mdt` | The fix is firmware plus blob-wrangler, not the kernel |
+| kernel-dt: "the kernel requests mba.mbn and modem.mdt" (stated as happening) | On #110 nothing is ever requested; no request_firmware error is logged. Loading is sequential (MBA first, then `modem.mdt`). #19 copies blobs from the phone's partition at boot and does not ship them. `/var/lib/firmware-updates` is absent in the flashed image | Missing firmware is a second blocker behind blob-wrangler |
+| image-userspace: openal pre-existed (cited `stk-trial-build2.log`) | Same substance; the correct log for the flashed image is `build-int-20260927.out:355-381` (the old log was the .26 trial) | Citation only |
+| image-userspace: "nothing in the image guarantees a sink" | **Wrong.** feedbackd's `media-role-nodes.conf` guarantees six virtual loopback sinks, and they suppress auto_null | Overturns the "no sink" hypothesis; the hang is a WirePlumber policy trap, not a missing sink |
+| pmos: "rmtfs -s is the only thing that starts it" | Any root write to the remoteproc `state` does it; rmtfs is only the only *shipped* starter | Minor |
+| pmos: files "must be installed under conf.d/samsung-a2015/" | Only the entry point must be in conf.d, and it can be a symlink. HiFi.conf plus the `platforms/msm8916` and `codecs/msm8916-wcd` includes must sit at the ucm2 root (or the includes must be rewritten) | Shapes the overlay layout in §3(b)2 |
+| pmos: no-modem mode dropped 2025-09-25 (MR 7075) | It stopped working 2024-10-26 when lk2nd went from 0.16.0 to 19.0 (MR 5691); MR 7075 only removed dead packages | No maintained firmware-free precedent anywhere |
+| openal: "PipeWire won't start an unlinked stream" | The block is `NEED_CONFIGURE`, not the missing link. With `stream.dont-remix=true`, an unlinked stream runs on the Dummy-Driver and OpenAL returns | More precise mechanism, not a practical workaround |
+| openal: the visible sink was "likely auto_null" | It was the Multimedia role loopback; auto_null is suppressed | Points the diagnosis at WirePlumber role linking |
+| openal: the pulse backend would hang in `alcOpenDevice` | libpulse's 30 s reply timeout means a ~30 s stall, then NULL, then STK runs silently | `ALSOFT_DRIVERS=-pipewire,` is a usable (slow) workaround, if libpulse dlopens on rawhide ([U]) |
+| wireplumber: without the loopbacks OpenAL "fails" | Without the loopbacks it opens auto_null and succeeds. The precondition that the A5 has no ALSA sink is still [I] | Pins the hang on feedbackd loopbacks combined with no hardware sink |
+| callaudiod: crashes "whenever" a card-less, portless sink appears | Only for `device.class` absent or "sound" (:305-307), and only while no sink is adopted yet | Loopback sinks qualify (refuter repro), which gives the concrete A5 trigger |
+
+Surviving-with-dissent notes:
+- One refuter disputed "UCM never matches" (moot, since there is no card on #110).
+- One disputed "trigger unknown" for callaudiod, and supplied the loopback-race trigger used in §4.
+- One refined the static dummy-sink mechanism: OpenAL first links directly to the dummy, is then moved to Multimedia, and `priority.session>0` is load-bearing.
+
+## Key artifacts
+- `$S/wireplumber/proposed/usr/share/pipewire/pipewire.conf.d/90-pocketfed-dummy-output.conf`
+- `$S/openal/patches/000{1,2}-*.patch`, `$S/openal/harness/{run.sh,run2.sh,late-wp.sh}`
+- `$S/wireplumber/lab/runs/{s1-loopbacks-nofallback,s5-loopbacks-static-late,s8-loopbacks-nofallback-late,s10-a5replica-gdb}/`
+- `$S/image-userspace/msm8916-ucm-fork/`, `$S/pmos/alsa-ucm-conf-3deea2860ab680c3e790442dbdf578fef152e639/ucm2`
+- `$S/image-userspace/pmos-soc-msm8916-{q6voiced.conf,wireplumber-msm8916-s16le.conf}`
+- `$S/kernel-dt/lpass-direct/msm8916-samsung-a5u-eur-lpass.dts`
+- `$S/callaudiod/repro/repro.sh`, `$S/callaudiod/{bin,dbg}/`
