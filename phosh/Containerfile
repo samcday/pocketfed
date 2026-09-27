@@ -12,11 +12,13 @@ COPY phosh/samcday-pocketfed.repo /etc/yum.repos.d/
 # carries it; packaging and regression checks live in packages/flatpak/.
 # Phosh must also carry the rejected-PIN retry fix from packages/phosh/;
 # install matching libphosh so consumers use the same authentication code.
+# Phoc carries the touch-up lifetime fix from packages/phoc/ until Fedora does.
 RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=locked \
     set -eux; \
     flatpak_version='1.19.0-3.1.pocketfed.fc46'; \
     phosh_version='0.57.0-1.1.pocketfed.fc46'; \
     firstboot_version='0.1.1-1.4.pocketfed.fc46'; \
+    phoc_version='0.57.0-2.1.pocketfed.fc46'; \
     dnf install -y \
         --allow-vendor-change \
         --refresh \
@@ -28,7 +30,8 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
         "flatpak-session-helper-$flatpak_version" \
         "phosh-$phosh_version" \
         "libphosh-$phosh_version" \
-        "phosh-first-boot-$firstboot_version"; \
+        "phosh-first-boot-$firstboot_version" \
+        "phoc-$phoc_version"; \
     dnf install -y --setopt=install_weak_deps=False --setopt=keepcache=True \
         calls \
         chatty \
@@ -69,6 +72,8 @@ RUN --mount=type=cache,id=pocketfed-phosh-arm64-dnf,target=/var/cache,sharing=lo
     done; \
     test "$(rpm -q --whatprovides phosh-pam-retry-fix --qf '%{NAME}\n')" = phosh; \
     test "$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' phosh-first-boot)" = "$firstboot_version"; \
+    test "$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' phoc)" = "$phoc_version"; \
+    test "$(rpm -q --whatprovides phoc-touch-up-lifetime-fix --qf '%{NAME}\n')" = phoc; \
     test -x /usr/libexec/flatpak-portal; \
     grep -Fxq 'ExecStart=/usr/libexec/flatpak-portal' \
         /usr/lib/systemd/user/flatpak-portal.service
