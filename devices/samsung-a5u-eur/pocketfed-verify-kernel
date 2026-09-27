@@ -20,7 +20,7 @@ verify_module() {
         fail "$description vermagic $uts_release does not match $kver"
 }
 
-expected_kver=7.3.0-0.rc2.26.msm8916.fc46.aarch64
+expected_kver=7.3.0-0.rc2.29.msm8916.fc46.aarch64
 expected_signing_key=77c4ba824252345c
 
 set -- /usr/lib/modules/*
@@ -71,6 +71,10 @@ do
     grep -Fxq "$setting" "$module_dir/config" || fail "$setting is not enabled"
 done
 grep -Eq '^CONFIG_EXT4_FS=(y|m)$' "$module_dir/config" || fail 'ext4 support is disabled'
+# The PM8916 RTC counts from the last PMIC power loss and cannot be set or
+# offset; if rtc-pm8xxx set the system clock it would rewind it to 1970.
+grep -Fxq '# CONFIG_RTC_HCTOSYS is not set' "$module_dir/config" ||
+    fail 'CONFIG_RTC_HCTOSYS is enabled; rtc-pm8xxx would set the clock from the PM8916 counter'
 
 verify_module 'MMC core' 'mmc_core.ko*'
 verify_module 'MMC block' 'mmc_block.ko*'
