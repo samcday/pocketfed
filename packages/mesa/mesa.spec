@@ -81,7 +81,7 @@
 Name:           mesa
 Summary:        Mesa graphics libraries
 Version:        26.2.3
-Release:        1.2.pocketfed%{?dist}
+Release:        1.3.pocketfed%{?dist}
 License:        MIT AND BSD-3-Clause AND SGI-B-2.0
 URL:            https://mesa3d.org
 
@@ -117,6 +117,10 @@ Source15:       https://crates.io/api/v1/crates/rustc-hash/%{rustc_hash_ver}/dow
 # https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44653
 # https://github.com/samcday/pocketfed/issues/80
 Patch:          0001-freedreno-a3xx-flush-HLSQ-before-indirect-const-load.patch
+
+# freedreno/a3xx: disable batch reordering (GTK4 content drops out on
+# alternating frames on A306). PocketFed-only workaround, not upstream.
+Patch:          0002-freedreno-a3xx-disable-batch-reordering.patch
 
 BuildRequires:  meson >= 1.3.0
 BuildRequires:  gcc
@@ -748,6 +752,9 @@ ln -s libGLX_mesa.so.0 %{buildroot}%{_libdir}/libGLX_system.so.0
 %endif
 
 %changelog
+* Fri Sep 25 2026 Sam Day <me@samcday.com> - 26.2.3-1.3.pocketfed
+- Disable freedreno batch reordering on Adreno a3xx (GTK4 flicker on A306)
+
 * Wed Sep 23 2026 Sam Day <me@samcday.com> - 26.2.3-1.2.pocketfed
 - Carry the a3xx fix exactly as submitted in Mesa MR !44653
 
