@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Run inside the completed desktop or device image.
+set -euo pipefail
+
+conf=/usr/share/pipewire/pipewire.conf.d/90-pocketfed-dummy-output.conf
+rpm -q pipewire pipewire-utils wireplumber feedbackd
+test -s "$conf"
+# The loopback config this sink exists for; if feedbackd stops shipping it the
+# fallback sink still does no harm, but the reason recorded above changes.
+test -s /usr/share/wireplumber/wireplumber.conf.d/media-role-nodes.conf
+# pw-config merges the drop-in exactly as the daemon will, keeping the
+# source formatting, so match on keys rather than exact spacing.
+objects=$(pw-config -n pipewire.conf list context.objects)
+grep -Eq '^[[:space:]]*node\.name[[:space:]]*=[[:space:]]*"pocketfed-dummy-output"' <<<"$objects"
+grep -Eq '^[[:space:]]*factory\.name[[:space:]]*=[[:space:]]*support\.null-audio-sink' <<<"$objects"
+grep -Eq '^[[:space:]]*media\.class[[:space:]]*=[[:space:]]*"Audio/Sink"' <<<"$objects"
+grep -Eq '^[[:space:]]*priority\.session[[:space:]]*=[[:space:]]*1$' <<<"$objects"
+pw-config -n pipewire.conf paths | grep -Fq "$conf"
+printf 'PocketFed fallback audio sink present in the merged PipeWire config\n'
