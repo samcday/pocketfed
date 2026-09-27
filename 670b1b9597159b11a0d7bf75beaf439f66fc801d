@@ -1,0 +1,92 @@
+phoc touch-up use-after-free on sam-sargo (PocketFed PR #30 evidence)
+
+Device: sam-sargo (Pixel 3a, google-sargo), PocketFed Phosh image,
+kernel 7.1.2-0.pocketfed.sdm670.12.fc46, phoc-0.57.0-2.fc46
+(build-id e4d109660d2576305e2f27517e66a71000f0d929), wlroots-0.20.2-2.fc45
+(build-id 5e90acf2556851dd00f811807174ee9f72420087), glibc build-id
+410a87409bfe656d69876c5ab004e06a5f3cbe4f.
+
+Two on-device occurrences, identical crashing stack (coredumpctl info, read-only):
+  2026-09-18 16:44:41 AEST  PID 50149  SIGSEGV
+  2026-09-28 07:57:25 AEST  PID 7618   SIGSEGV SEGV_MAPERR, boot cbca358c56784cd580008d954c0a962c
+    #0 wlr_subsurface_try_from_wlr_surface (libwlroots-0.20.so + 0xa7824)
+    #1 wlr_surface_get_root_surface        (libwlroots-0.20.so + 0x8ad04)
+    #2 handle_touch_up                     (phoc + 0x4e0b0)
+    #3/#4 wl_signal_emit_mutable, #5 handle_libinput_readable
+  07:57 user action: top panel open, caffeinate quick-setting tapped, panel
+  swiped closed -> freeze (systemd-coredump writing the core, 07:57:25-29.58)
+  -> session 3 torn down -> greeter.
+
+1) Symbolization (debuginfod.fedoraproject.org, eu-addr2line -f -i, 0.57.0-2 debuginfo)
+  0x4e0ac/0x4e0b0 -> should_ignore_touch_grab cursor.c:366:30
+                  <- send_touch_up cursor.c:544
+                  <- phoc_cursor_handle_touch_up cursor.c:1633
+                  <- handle_touch_up seat.c:241
+  Fedora 805.diff touches only tests/, so v0.57.0 line numbers are the shipped ones.
+
+2) gdb on the 07:57 core (core kept local only; it holds live-session memory)
+  #0 wlr_subsurface_try_from_wlr_surface (surface=0x9a8590a6a331b224) wlr_subcompositor.c:297
+  $_siginfo si_addr = 0x9a8590a6a331b4dc = surface + 0x2b8 (&wlr_surface->role)
+  p/x tcache_key     = 0x9a8590a6a331b224  == point->surface
+    wlr_touch_point.surface is at offset 8, glibc's tcache 'key' slot: the point
+    had been freed into tcache before the handler read it.
+  *event = {touch_id = 0}; seat->touch_id = -1;
+  seat->touch_state.touch_points empty (prev == next == head 0xaaaae0b78330).
+  PhocCursorPrivate: drag_surface "phosh top-panel", DRAG_MODE_HANDLE,
+  drag_handle 404, folded -708 / unfolded 0, state ANIMATING, anim_dir IN,
+  anim_start 0 -> anim_end -708, anim_duration 300000, anim_t 0, margin.top 0.
+
+  Reading: no drag was ever accepted (accept_drag writes
+  layer_surface->current.margin.top directly; margin.top 0 / anim_start 0),
+  including during the UPDATE that gesture.c emits on TOUCH_END before
+  remove_point. anim_t == 0 means no frame since the slide started, so the
+  slide began in this dispatch. A full-length IN slide with margin 0 comes from
+  on_swipe -> phoc_draggable_layer_surface_fling() == TRUE -> send_touch_cancel
+  -> wlr_seat_touch_notify_cancel -> touch_point_destroy -> free(point), inside
+  TOUCH_END dispatch. phoc_cursor_handle_touch_up had fetched point before
+  dispatch (cursor.c:1603) and dereferenced it at 1633.
+  Trigger (inference): last updated point in the handle region plus
+  |vy| >= 1500 px/s without an accepted drag. A <16 px flick is one candidate;
+  a sideways-rejected drag followed by a fling is another. The core cannot
+  tell them apart.
+
+3) Fix as built: PLT call order in handle_touch_up (aarch64)
+  Fedora 0.57.0-2:           wlr_seat_touch_get_point@0x4dfa4, handle_gestures@0x4e004,
+                             g_hash_table_remove@0x4e01c, ..., wlr_surface_get_root_surface@0x4e0ac
+  COPR 0.57.0-2.1.pocketfed: handle_gestures@0x4dff0, g_hash_table_remove@0x4e008,
+                             wlr_seat_touch_get_point@0x4e030, ...
+  COPR RPM phoc-0.57.0-2.1.pocketfed.fc46.aarch64.rpm sha256
+    b6d50a67f1c68ca2ffff75fb42489446cceba01ea2b0614eaa6a920acf8d4910,
+    /usr/bin/phoc sha256 0c892b84be3168c40870f7881f1ee65a3607597e205b1ebe9b2a7b9a17cc3ea8
+    (sam-sargo's current Fedora binary: 8aea42044b895007285a8ded2b23ad0acd27338892239011c5e013aadd477985).
+  COPR builds: 10955752 overall "failed" (x86_64 chroot failed, aarch64 succeeded);
+    x86_64 from 10955960 (succeeded). Package source_type upload, auto_rebuild off.
+
+4) SRPM inputs vs this commit (2026-09-28, workstation)
+  cmp: packages/phoc/{phoc.spec,805.diff,phoc-0.57.0-touch-up-lifetime.patch}
+    identical to the SRPM in COPR fedora-rawhide-aarch64 Packages/p/
+    phoc-0.57.0-2.1.pocketfed.fc46.src.rpm and to e2c7a468 (old PR #30 head);
+    Source0/Source1 tarballs identical too.
+  sources.sha256 and Fedora's SHA512 sources both verify the spectool downloads.
+  rpmspec -q --srpm: phoc-0.57.0-2.1.pocketfed.fc46; rpmspec -P parses;
+    Provides includes phoc-touch-up-lifetime-fix = 1.
+  rpmlint phoc.spec: 0 errors, 0 warnings.
+  patch -p1 --dry-run on v0.57.0 + 805.diff: touch-up patch applies clean
+    (src/cursor.c, tests/meson.build, tests/test-cursor.c).
+  Fedora dist-git rawhide HEAD 5cc17f1c3a62dbbe55323152d6865d08799a9e71 (= 0.57.0-2);
+    koji rawhide phoc-0.57.0-2.fc46, wlroots-0.20.2-2.fc45.
+  COPR fedora-rawhide-aarch64 primary.xml lists phoc-0.57.0-2.1.pocketfed.fc46.aarch64.
+
+5) Upstream
+  phoc a9e2c3db05072ae253123e4d6e3a676710d8d35f "cursor: Check touch point
+  right before use" (MR !812, merged 2026-09-15, closes #408), first in
+  v0.58_alpha1 (2026-09-21); no 0.57.x branch. a9e2c3db alone and all of !812
+  apply clean on v0.57.0 (--dry-run). 0.58_alpha1 uses
+  text_input->events.show_input_panel, absent from wlroots 0.20.2's
+  wlr_text_input_v3.h (inferred from headers, not test-built).
+
+6) Audit of other stale-point uses in v0.57.0: touch_motion looks up after
+  dispatch; touch_down holds no wlr_touch_point; on_drag_update looks up then
+  cancels without reuse; seat.c clear_focus and drag-icon.c do not free
+  points; after the moved lookup, submit_pending_view_state_change and
+  do_passthrough are pointer/view-only. None found.
