@@ -1,0 +1,262 @@
+diff --git a/tests/test-xwayland.c b/tests/test-xwayland.c
+index 537b3b176ec5dc452770057e8b88a339c4ed2f75..b08684cca4560657127114c00e78380d49eda4db 100644
+--- a/tests/test-xwayland.c
++++ b/tests/test-xwayland.c
+@@ -12,7 +12,6 @@
+ 
+ #include "testlib.h"
+ 
+-
+ typedef struct  {
+   xcb_connection_t      *conn;
+   PhocTestClientGlobals *globals;
+@@ -45,7 +44,12 @@ on_xcb_fd (int fd, GIOCondition condition, gpointer user_data)
+   if ((event->response_type & 0x7f) == XCB_MAP_NOTIFY) {
+     g_test_message ("Xcb Window mapped, taking screenshot");
+     cdata->mapped = TRUE;
+-    usleep (20 * 1000);
++
++    while (!cdata->globals->foreign_toplevels &&
++           wl_display_dispatch (cdata->globals->display) != -1) {
++    }
++    g_assert_nonnull (cdata->globals->foreign_toplevels);
++
+     phoc_assert_screenshot (cdata->globals, "test-xwayland-simple-1.png");
+     g_test_message ("Unmapping window");
+     xcb_unmap_window (cdata->conn, cdata->window);
+@@ -53,7 +57,6 @@ on_xcb_fd (int fd, GIOCondition condition, gpointer user_data)
+   } else if ((event->response_type & 0x7f) == XCB_UNMAP_NOTIFY) {
+     g_test_message ("Xcb Window unmapped, taking screenshot");
+     cdata->unmapped = TRUE;
+-    usleep (20 * 1000);
+     phoc_assert_screenshot (cdata->globals, "empty.png");
+     g_main_loop_quit (cdata->loop);
+   }
+@@ -167,7 +170,7 @@ test_xwayland_simple (void)
+     .xwayland       = TRUE,
+   };
+ 
+-  phoc_test_client_run (3, &iface, GINT_TO_POINTER (FALSE));
++  phoc_test_client_run (TEST_PHOC_CLIENT_TIMEOUT, &iface, GINT_TO_POINTER (FALSE));
+ }
+ 
+ int
+diff --git a/tests/testlib.c b/tests/testlib.c
+index 042ab286f97ce48adee84825c74e3c714a6f669c..734a715c5832c925932d7ba87f5762c431d24d15 100644
+--- a/tests/testlib.c
++++ b/tests/testlib.c
+@@ -15,6 +15,8 @@
+ #include <errno.h>
+ #include <sys/mman.h>
+ 
++#define SCREENSHOT_MATCH_TIMEOUT (5 * G_TIME_SPAN_SECOND)
++
+ struct task_data {
+   PhocTestClientFunc   func;
+   PhocTestOutputConfig output_config;
+@@ -154,6 +156,38 @@ static const struct wl_buffer_listener buffer_listener = {
+ };
+ 
+ 
++static void
++surface_frame_handle_done (void *data, struct wl_callback *callback, uint32_t time)
++{
++  gboolean *done = data;
++
++  *done = TRUE;
++  wl_callback_destroy (callback);
++}
++
++
++static const struct wl_callback_listener surface_frame_listener = {
++  .done = surface_frame_handle_done,
++};
++
++
++static void
++surface_commit_and_wait_for_frame (PhocTestClientGlobals *globals, struct wl_surface *surface)
++{
++  struct wl_callback *callback;
++  gboolean done = FALSE;
++
++  callback = wl_surface_frame (surface);
++  g_assert_nonnull (callback);
++  wl_callback_add_listener (callback, &surface_frame_listener, &done);
++  wl_surface_commit (surface);
++
++  while (!done && wl_display_dispatch (globals->display) != -1) {
++  }
++  g_assert_true (done);
++}
++
++
+ static void
+ output_handle_geometry (void *data, struct wl_output *wl_output,
+                         int32_t x, int32_t y, int32_t physical_width, int32_t physical_height,
+@@ -787,8 +821,10 @@ phoc_test_buffer_save (PhocTestBuffer *buffer, const char *filename)
+ 
+ G_DEFINE_AUTOPTR_CLEANUP_FUNC (cairo_surface_t, cairo_surface_destroy)
+ 
+-gboolean
+-phoc_test_buffer_matches_screenshot (PhocTestBuffer *buffer, const char *filename)
++static gboolean
++buffer_matches_screenshot (PhocTestBuffer *buffer,
++                           const char     *filename,
++                           gboolean        report_mismatches)
+ {
+   const char *msg;
+   g_autoptr (cairo_surface_t) surface = cairo_image_surface_create_from_png (filename);
+@@ -835,7 +871,8 @@ phoc_test_buffer_matches_screenshot (PhocTestBuffer *buffer, const char *filenam
+   if (buffer->height != cairo_image_surface_get_height (surface) ||
+       buffer->width != cairo_image_surface_get_width (surface) ||
+       buffer->stride != cairo_image_surface_get_stride (surface)) {
+-    g_test_message ("Metadata mismatch for %s", filename);
++    if (report_mismatches)
++      g_test_message ("Metadata mismatch for %s", filename);
+     return FALSE;
+   }
+ 
+@@ -846,13 +883,77 @@ phoc_test_buffer_matches_screenshot (PhocTestBuffer *buffer, const char *filenam
+   ret = TRUE;
+   for (int i = 0; i < buffer->height * buffer->stride / 4; i++) {
+     if ((l[i] & mask) != (r[i] & mask)) {
+-      g_test_message ("Mismatch: %d: 0x%x 0x%x for %s", i, l[i], r[i], filename);
++      if (report_mismatches)
++        g_test_message ("Mismatch: %d: 0x%x 0x%x for %s", i, l[i], r[i], filename);
+       ret = FALSE;
+     }
+   }
+   return ret;
+ }
+ 
++
++gboolean
++phoc_test_buffer_matches_screenshot (PhocTestBuffer *buffer, const char *filename)
++{
++  return buffer_matches_screenshot (buffer, filename, TRUE);
++}
++
++
++/**
++ * phoc_test_client_assert_screenshot:
++ * @globals: The client globals
++ * @screenshot: The expected screenshot filename
++ * @file: The source file containing the assertion
++ * @line: The source line containing the assertion
++ * @func: The function containing the assertion
++ *
++ * Capture output frames until one matches @screenshot or the timeout expires.
++ * This avoids asserting against a frame queued before the state change under
++ * test. On failure, save the final frame and report the assertion's call site.
++ */
++void
++phoc_test_client_assert_screenshot (PhocTestClientGlobals *globals,
++                                    const char            *screenshot,
++                                    const char            *file,
++                                    int                    line,
++                                    const char            *func)
++{
++  const gint64 deadline = g_get_monotonic_time () + SCREENSHOT_MATCH_TIMEOUT;
++  g_autofree char *filename = NULL;
++  PhocTestBuffer *buffer;
++  guint attempts = 0;
++
++  filename = g_test_build_filename (G_TEST_DIST, "screenshots", screenshot, NULL);
++  g_test_message ("Snapshotting %s", screenshot);
++
++  do {
++    buffer = phoc_test_client_capture_output (globals, &globals->output);
++    attempts++;
++
++    if (buffer_matches_screenshot (buffer, filename, FALSE)) {
++      if (attempts > 1)
++        g_test_message ("Screenshot matched after %u attempts", attempts);
++      phoc_test_buffer_free (buffer);
++      return;
++    }
++
++    if (g_get_monotonic_time () < deadline) {
++      phoc_test_buffer_free (buffer);
++      continue;
++    }
++
++    /* Log the final mismatch and preserve it for debugging. */
++    phoc_test_buffer_matches_screenshot (buffer, filename);
++
++    g_autofree char *name = _phoc_test_screenshot_name (line, func, 0);
++    g_autofree char *msg =
++      g_strdup_printf ("Output content in '%s' does not match \"%s\"", name, screenshot);
++
++    phoc_test_buffer_save (buffer, name);
++    g_assertion_message (G_LOG_DOMAIN, file, line, func, msg);
++  } while (TRUE);
++}
++
+ void
+ phoc_test_buffer_free (PhocTestBuffer *buffer)
+ {
+@@ -993,9 +1094,7 @@ phoc_test_xdg_toplevel_new_with_buffer (PhocTestClientGlobals *globals,
+ 
+   wl_surface_attach (xs->wl_surface, xs->buffer.wl_buffer, 0, 0);
+   wl_surface_damage (xs->wl_surface, 0, 0, xs->width, xs->height);
+-  wl_surface_commit (xs->wl_surface);
+-  wl_display_dispatch (globals->display);
+-  wl_display_roundtrip (globals->display);
++  surface_commit_and_wait_for_frame (globals, xs->wl_surface);
+ 
+   if (title) {
+     xs->foreign_toplevel = phoc_test_client_get_foreign_toplevel_handle (globals, title);
+@@ -1058,9 +1157,7 @@ phoc_test_xdg_update_buffer (PhocTestClientGlobals      *globals,
+ 
+   wl_surface_attach (xs->wl_surface, buffer.wl_buffer, 0, 0);
+   wl_surface_damage (xs->wl_surface, 0, 0, xs->width, xs->height);
+-  wl_surface_commit (xs->wl_surface);
+-  wl_display_dispatch (globals->display);
+-  wl_display_roundtrip (globals->display);
++  surface_commit_and_wait_for_frame (globals, xs->wl_surface);
+ 
+   phoc_test_buffer_free (&xs->buffer);
+   xs->buffer = buffer;
+diff --git a/tests/testlib.h b/tests/testlib.h
+index 4343fcdab95a1d14fa920bb0f170816b97048b15..f9090d4db55f21437a5e16a78ac9ea8d50563789 100644
+--- a/tests/testlib.h
++++ b/tests/testlib.h
+@@ -165,6 +165,11 @@ gboolean phoc_test_buffer_equal (PhocTestBuffer *buf1, PhocTestBuffer *buf2);
+ gboolean phoc_test_buffer_save (PhocTestBuffer *buffer, const char *filename);
+ gboolean phoc_test_buffer_matches_screenshot (PhocTestBuffer *buffer, const char *filename);
+ void     phoc_test_buffer_free (PhocTestBuffer *buffer);
++void     phoc_test_client_assert_screenshot (PhocTestClientGlobals *globals,
++                                             const char            *screenshot,
++                                             const char            *file,
++                                             int                    line,
++                                             const char            *func);
+ 
+ #define _phoc_test_screenshot_name(l, f, n) \
+   (g_strdup_printf ("phoc-test-screenshot-%d-%s_%d.png", l, f, n))
+@@ -172,23 +177,10 @@ void     phoc_test_buffer_free (PhocTestBuffer *buffer);
+ /*
+  * phoc_assert_screenshot:
+  * @g: The client global object
+- * @f: The screenshot to compare the current output to
++ * @f: The screenshot to wait for and compare the output to
+  */
+-#define phoc_assert_screenshot(g, f) G_STMT_START {                                         \
+-    PhocTestClientGlobals *__g = (g);                                                       \
+-    char *__f = g_test_build_filename (G_TEST_DIST, "screenshots", f, NULL);                \
+-    PhocTestBuffer *__s = phoc_test_client_capture_output (__g, &__g->output);              \
+-    g_test_message ("Snapshotting %s", f);                                                  \
+-    if (phoc_test_buffer_matches_screenshot (__s, __f)); else {                             \
+-      g_autofree char *__name = _phoc_test_screenshot_name (__LINE__, G_STRFUNC, 0);        \
+-      g_autofree char *__msg =                                                              \
+-        g_strdup_printf ("Output content in '%s' does not match " #f, __name);              \
+-      phoc_test_buffer_save (&__g->output.screenshot.buffer, __name);                       \
+-      g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, __msg);             \
+-    }                                                                                       \
+-    phoc_test_buffer_free (__s);                                                            \
+-    g_free (__f);                                                                           \
+-} G_STMT_END
++#define phoc_assert_screenshot(g, f) \
++  phoc_test_client_assert_screenshot ((g), (f), __FILE__, __LINE__, G_STRFUNC)
+ 
+ /**
+  * phoc_test_assert_buffer_equal:
