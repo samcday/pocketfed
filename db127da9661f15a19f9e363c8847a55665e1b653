@@ -1,0 +1,122 @@
+# Enchilada/Fajita bring-up assessment — 2026-09-28
+
+Repository: https://github.com/samcday/pocketfed
+Audited commit: db127da9661f15a19f9e363c8847a55665e1b653 (main).
+Scope: read-only assessment and a deferred tracking issue. No image was built,
+no tests were executed locally, and no phone was accessed in this assessment.
+The working tree was clean. Device availability supplied by the owner: local
+Fajita (OnePlus 6T); Enchilada (OnePlus 6) testing must be done by a peer.
+
+## Repository observations and reproducible reads
+
+Commands: `git rev-parse HEAD`; `git status --porcelain=v1`;
+`rg --files devices tools`; reads of README.md, devices/oneplus-fajita/*,
+builder/bootc-to-fastboot, builder/flash-fastboot, base/test-aboot-deploy,
+.github/workflows/ci.yml and tools/liveboot/{README.md,Cargo.toml,src/main.rs}.
+
+- README.md:139–220 records a past Fajita graphical-session boot and an
+  experimental installation. This is historical documentation, not a fresh
+  hardware result for the audited revision.
+- devices/oneplus-fajita/Containerfile:4 pins
+  kernel-7.2.0-0.rc1.16.fc45.aarch64. The image carries kernel, DTB, modules,
+  generated initramfs, SDM845 ABLX shim, USB developer-link services and strict
+  kernel/boot-image/OCI verifiers. There is no devices/oneplus-enchilada target
+  or Enchilada entry in the device CI matrix.
+- Fajita's boot image uses Android v2, 4096-byte pages, kernel offset 0x8000,
+  ramdisk 0x01000000, second 0x00f00000, tags 0x100 and DTB 0x05000000.
+  Its verifier checks placement, payload and DTB identity. These are evidence
+  for the existing Fajita recipe, not validated Enchilada geometry.
+- devices/oneplus-fajita/aboot.cfg disables activation with
+  POCKETFED_SLOT_SWITCH=disabled. builder/bootc-to-fastboot:864 and
+  builder/flash-fastboot:93 special-case Fajita. The helper preserves the
+  current slot; it does not currently verify the device's board identity.
+  README documents the complete-firmware/UFS boot-LUN slot-switch hazard and
+  the pre-guard installation bootstrap limitation. Enchilada needs an explicit
+  conservative policy when added; ordinary installed updates remain unresolved.
+
+## Dependency evidence (source/config, not installed RPM acceptance)
+
+`git -C ../blob-wrangler show 3166dbe:configs/oneplus,enchilada.toml`
+succeeds at the source commit pinned by the image's blob-wrangler package.
+The configuration includes physical vendor/modem/bluetooth/dsp/persist sources,
+sensor data, and >=7.0 paths qcom/sdm845/OnePlus/enchilada and
+qca/OnePlus/enchilada. The new image should verify the packaged configuration,
+and a device trial must verify the retained firmware actually matches it.
+
+The retained shared SDM845 Linux checkout is at
+1bbf860113b28099dbd1995844046df6ef42da87. Reads of
+arch/arm64/boot/dts/qcom/sdm845-oneplus-{enchilada,fajita}.dts and
+redhat/configs/kernel-aarch64-fedora.config establish:
+
+- Both boards include sdm845-oneplus-common.dtsi.
+- Enchilada selects Samsung SOFEF00 and framebuffer height 2280, MAX98927
+  speaker hardware, and its own battery/audio description. Fajita selects
+  S6E3FC2X01 and height 2340, with a different speaker amplifier.
+- Configuration lines 2290, 7185, 7196 and 8683 respectively contain
+  CONFIG_DRM_PANEL_SAMSUNG_SOFEF00=m, CONFIG_RMI4_CORE=m,
+  CONFIG_RMI4_I2C=m and CONFIG_SND_SOC_MAX98927=m.
+
+This supports reusing the SDM845 foundation. It does not establish that the
+current pinned RPM contains all expected Enchilada artifacts, or that either
+device's subsystems have passed hardware acceptance. No kernel or
+blob-wrangler changes were made; their commits are referenced as dependencies.
+
+## Liveboot correction to the September 13 assessment
+
+The previous Python/kboop/EROFS `just liveboot-*` plan is obsolete at the audited
+commit. Current tools/liveboot is Rust pocketfed-liveboot, delegating assembly,
+boot and USB root serving to fastboop. It consumes raw ext4, matching kernel/DTB
+and a separately prepared smoo-aware dracut initrd; guest writes use RAM COW.
+Only Sargo ABLX and DB410c U-Boot profiles are supplied. OnePlus needs an
+appropriate profile, SDM845 shim and coherent initrd. Input extraction remains
+separate work; reuse #74 rather than designing another harness.
+
+Fastboop is pinned to 1e6d64b3c375d46f2029122902f4564d36f5498b.
+`git -C ../fastboop show <pin>:devprofiles.d/oneplus-enchilada.yaml` and the
+equivalent Fajita read show distinct DTB names but identical probes:
+product=sdm845, partition-type:op2=raw, VID/PID 18d1:d00d. These predicates
+cannot distinguish the boards. Explicit board/profile selection is required;
+the generic profiles do not prove the supplied-initrd ABLX recipe works.
+
+Current liveboot README: exact fastboot serial is selected, but runtime smoo
+discovery at the pin matches interfaces rather than serials. Only one available
+smoo target should be connected until the existing runtime selection fix is
+adopted and validated (see #93). Hosting must continue through guest shutdown.
+USB-root cannot validate cable loss, USB role changes or controller resets.
+Reconnects, GPU stability and enforcing SELinux are not accepted by current
+liveboot documentation; require distinct results or explicitly label gaps.
+
+## CI observations
+
+Read using `gh run list --repo samcday/pocketfed --branch main` and
+`gh run view <id> --repo samcday/pocketfed --json url,headSha,jobs`.
+
+- Run 36117541687 (2026-09-25), audited commit db127da9: Fajita device OCI job
+  succeeded, as did the base and Phosh jobs. The workflow overall failed in
+  Build image builder / Test Sargo explicit Type-C host request. Therefore do
+  not claim the entire current installation-artifact pipeline is green.
+  https://github.com/samcday/pocketfed/actions/runs/36117541687
+- Run 35920920348 (2026-09-23), commit
+  75edad6e799b7f9485bcbbe61324c154760e1832: workflow succeeded; Fajita OCI
+  verification and push to GHCR both succeeded.
+  https://github.com/samcday/pocketfed/actions/runs/35920920348
+- The earlier assessment on September 13 verified run 34678220812 at
+  0b7da477c70fefd30247b0ed8e8aa2be55ade4e4 and inspected the then-current
+  Fajita rawhide digest
+  sha256:f74f09f1824cc7721beab8757b04739f290c04ed56041e7e0d6a384c8caf2589.
+  That digest is historical, not rechecked as current on September 28.
+
+## Conclusions and next measurement
+
+Source evidence suggests a bounded device-image integration effort for a first
+Enchilada peer trial. This is an inference, not a build result or delivery-date
+commitment. Verify the packaged DTB/drivers first, derive the target and boot
+checks, preserve the slot policy, and establish a repeatable local Fajita trial.
+Only the peer's Enchilada can accept the Enchilada boot/display path. Record
+subsystem results individually; a graphical boot is not daily-driver support.
+
+No dedicated Enchilada/Fajita tracker was found among all 26 repository issues
+returned by `gh issue list --state all --limit 200 --json number,title,state,url,body`.
+Related work is #74 (liveboot), #93 (browser previews), #47 (first boot) and
+#46 (carrier profiles). Browser/CDN delivery, safe update activation and full
+peripheral enablement should not expand the first peer-image milestone.
