@@ -1,0 +1,92 @@
+# Sargo fingerprint parked handoff — 2026-09-28
+
+Subject: samcday/pocketfed 15d4fe2d8dca65cda11e2ae47f9a2fa2c894b4c7, PR62's published regression/acceptance snapshot. This note consolidates historical results and a September 28 read-only recovery/current-state audit. It does not claim a new device test.
+
+## Agreed behavior and preserved result
+
+The completed September 13 goal was Settings enrollment and normal Phosh lockscreen unlock, with PIN once after reboot, then fingerprints. Preserve encrypted homed, normal PIN fallback, account checks and existing enrollments. Phrog fingerprint login and fingerprint-only cold-home decryption were explicitly removed from scope. Failed/ambiguous provisioning must not be repeated merely because a later session is unfamiliar with the history.
+
+Historical .12 acceptance: additional Settings enrollments, roughly a dozen dialog reopens with match/nonmatch feedback, a normal reboot retaining enrollment metadata and socket activation, then approximately six mixed multiple-finger Phosh unlock/rejection/PIN/Settings cycles confirmed by the user. Installed noncapture testing separately passed 50 ordinary fprintd Claim/Release cycles, ten firmware/service lifetimes and 50 explicit stops in 58.35 seconds. The same-boot SSH/UART evidence showed responsiveness and no recurrence of recorded stall signatures. This is finite acceptance, not a current device inventory or proof of indefinite reliability.
+
+Detailed kernel comparison, source/build identity and sanitized outcome evidence live in samcday/linux refs/notes/evidence on 3ad4e5eac8aa16c1e6dcf291fdec4fb906f803d0. The replacement series assessment is attached there to e61cabbf29baba52d6cb63b5054e017e79731e0b (PR14). Read both before extrapolating the old hardware result to the new base.
+
+## Final accepted package/source versions
+
+- kernel: 7.1.2-0.pocketfed.sdm670.12.fc46.aarch64, COPR10980882.
+- libfprint: 1.94.100-1.6.pocketfed.fc46; includes empty-database handling and identification finalization, not just the original driver patch.
+- qsee-supplicant / Sargo listener: 0.1.1-1.4.pocketfed.fc46.
+- pocketfed-fpc-auth: 0.1.0-0.4.pocketfed.fc46, including per-boot Keymaster startup.
+- Settings: 51~rc.1-1.2.fingerprint.fc46, including missing-GDM-schema visibility and asynchronous VerifyStop-before-EnrollStart ordering fixes.
+- Phosh: 0.57.0-1.5.fingerprint.fc46, with separate cancellable scan/PAM worker while preserving the ordinary PIN policy.
+- fprintd: 1.94.5-6.fc45 (stock service/API; no new daemon implementation).
+- SELinux package's final broker-domain additions are the .2 policy generation.
+
+Some accepted later userspace versions were locally built RPMs, beyond their earlier published COPR versions. A successful earlier COPR build must not be substituted for the final source/version when packaging this later. The old custom image is a historical acceptance artifact, not a normal main-image integration plan.
+
+## Source recovery: local Git snapshot, not loose scratch files
+
+The original working-tree directories were cleared from current main. They survive in this local PocketFed Git ref:
+
+    refs/heads/wip/shared-checkout-20260917
+    0f08890d3e1b89948706414d63ce656eb235fefc
+
+The September 28 audit found that ref locally and no remote-tracking copy. It is intentionally a broad shared-checkout snapshot containing unrelated work and historical metadata. DO NOT publish the whole branch/commit. Keep the local ref; extract only reviewed runtime sources/tests/packaging into focused PRs when work resumes. This evidence note publishes an index, not that private snapshot.
+
+Useful paths in that commit:
+
+- packages/fpc-qsee/: FPC and Gatekeeper codecs, QSEE transport, sensor userspace ABI, synthetic tests and probe packaging.
+- packages/libfprint/: final four-patch series, fprintd drop-in, spec and tests.
+- packages/qsee-supplicant/: loader/readiness patches, Sargo secure-storage listener, service template and tests.
+- packages/fpc-auth/: broker/store/backend, startup protocol/helper, service units, synthetic tests and packaging.
+- packages/fpc-selinux/: device/socket policy, broker domain, policy checks and packaging.
+- packages/fingerprint-desktop/: worker/client/PAM/socket, Phosh integration and both Settings patches/tests. Exclude historical Phrog candidates from the agreed product scope.
+- packages/kernel-fingerprint/: original kernel series, .11 wipe/.12 pool fix and fixtures; newer public kernel series is preferred for continued development.
+- devices/google-sargo/fingerprint-trial/: firmware-preparation source/tests and device service configuration mixed with old build, recovery and experiment machinery. Select deliberately; do not import this entire directory.
+
+Read-only recovery examples from a checkout holding the local ref:
+
+    git show 0f08890d3e1b89948706414d63ce656eb235fefc:packages/libfprint/README.md
+    git ls-tree -r --name-only 0f08890d3e1b89948706414d63ce656eb235fefc -- packages/fpc-auth
+
+For offline recovery, export selected paths to a new scratch directory with git archive; inspect every file before any future publication. Do not restore into an unrelated shared checkout or overwrite another task's work.
+
+The seven package directories contain 217 files/about 1.78 MB; the trial directory contains 374 files/about 1.98 MB. Many README status paragraphs predate final acceptance and still say pending/not installed. Treat those as history, not evidence that working code is absent.
+
+September 28 source-to-build-manifest checks read Git objects, computed SHA256 and compared the recorded input hashes (no builds/device access):
+
+- packages/fpc-auth/startup-build.json: 23 source/package inputs matched; README differs.
+- packages/libfprint/finalization-rpm-build.json: all six retained patch/drop-in/spec inputs matched; downloaded archive was not re-read as source.
+- packages/qsee-supplicant/sargo-rpmb-build.json: all 18 recorded source inputs matched.
+- packages/fingerprint-desktop/gnome-second-enroll-build.json: final patch, spec and regression runner matched. Historical update-settings.py differs and is deployment tooling, not the runtime fix.
+- packages/fpc-selinux/broker/package-build.json: all eight recorded inputs matched.
+
+The original kernel checkout still has files but its .git refers to a deleted temporary common repository. It is NOT a functioning worktree; recover history from public retained branches/PR14 instead. Its core.c still hashes to 4dd57140a62c8e476940d6bd8c6ad17f71d59969f6282a53bdff3eb17a9b7bf0. The separately retained pool-review worktree is clean at this note's subject commit. A worktree directory named fingerprint-bitrot-prevention now holds unrelated Ignition work; its name is not a source locator.
+
+## Local evidence index and interpretation
+
+out/fingerprint-pool-fix-20260913/ contains:
+
+- final-physical-acceptance.json; final-device-snapshot.json; enrollment-persistence.json; reboot-acceptance-status.json;
+- installed-claim-lifetimes/result.json; installed-lifetimes-uart-verification.json;
+- final-uart-error-audit.json; uart-release.json;
+- release.json; source-transition.json; completion.json;
+- source/drivers/tee/qseecom/core.c and corresponding baseline/ source;
+- current-handoff.md, which is authoritative for September 13 only, not current PRs/device state.
+
+These local records include private metadata. Do not publish them wholesale. Raw UART, authentication journals, credentials, templates and privately inspected proprietary binaries are excluded from these notes. No credential/template stores were read in this parking pass.
+
+Final artifact checks reconfirmed that installed test data contains 50 cycles with returncode0, ten lifetimes each listing five stopped services, passed=true, capture_started=false and credential_operations=false, and that the temporary override was removed. Final user acceptance is a separate explicit physical report, not inferred from the synthetic or Claim/Release tests.
+
+Minor known follow-ups: Phosh's bad-fingerprint message is too brief; transient worker units retain exit1 on authentication failure or client disconnect, including a possible disconnect race after successful PAM. Eleven retained workers had normal exit1, no timeout/signal/restart, and the journal included successful home acquisitions. Do not classify all those units as bad-finger attempts, silently clear them, or mistake them for the previous kernel stall.
+
+Device/UART ownership was released after final acceptance. Later Premouth work took ownership. Today no device state or transport ownership was probed; old identifiers, recovery availability and deployment state are not current authorization to take a device from another task.
+
+## Current public continuation and bounded next work
+
+- https://github.com/samcday/linux/pull/14 is OPEN at e61cabbf29baba52d6cb63b5054e017e79731e0b; it supersedes closed/unmerged PR3. It contains the full kernel series without Fedora packaging. Its newer base has no runtime acceptance yet. Track its sign-off, binding, ioctl/UAPI, documentation and series-review work there.
+- https://github.com/samcday/pocketfed/pull/62 remains OPEN at this subject. All eight CI jobs passed. The actionable review finding remains: test-invoke-pool.py uses assert for outcome checks, so python -O/PYTHONOPTIMIZE removes them and can falsely report success. Fix and test explicit checks before using this runner for fresh validation; old ordinary-mode results are not a new optimized-mode pass.
+- https://github.com/samcday/pocketfed/pull/102 is OPEN at 3f5d7b6299e076eff39ddc728e804d37967b4ef6. Its official Fedora .41 lane reports greeter/touch/UART on test-sargo and now needs zero external modules for that baseline. It is not fingerprint or full daily-phone acceptance, and is not merged into main.
+- Current HWE uses matching DTS recompilation, requiring byte identity with Fedora's supplied DTB before applying DTS patches. The September 14 immediate-DTBO proposal is superseded as an implementation starting point.
+- General architecture remains in PocketFed issues64/76; device acceptance/history remains sam-sargo issue11. A dedicated parked fingerprint issue separates this feature's kernel/userspace/SCM work.
+
+Resume by pinning then-current PR14, HWE and exact Fedora kernel-devel/config/exports; audit the actual SCM dependency set and choose an upstream interface/refactor or explicit residual core patch. Carry board changes through the current HWE machinery. Extract/review/package final userspace source and required local service/policy configuration, with explicit first-time setup versus state-preserving upgrades. Run hardware acceptance on the new base only when the user resumes this work. No further provisioning/recovery, phone boot, package build, merge or feature implementation was performed as part of parking it.
