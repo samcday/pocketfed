@@ -1,0 +1,379 @@
+# PocketFed multi-SIM research closeout — 28 September 2026
+
+Evidence attached to `3336decfb620884b50b633c725c77786716a4042` in `samcday/pocketfed`, the unmerged research tip of PR #63. Tracking issue: https://github.com/samcday/pocketfed/issues/58 . The user requested the research remain in the issue rather than landing the documentation PR. This note preserves the complete original PR research and fresh public-source evidence; it does not create a new implementation or hardware acceptance claim.
+
+Prepared 2026-09-28T00:31:22.641276+00:00 from a Linux development host. Local checkout at inspection: `db127da9661f15a19f9e363c8847a55665e1b653`; only notes metadata and the existing issue/PR are changed by closeout. No candidate kernel/build/device was used in this refresh. No calls, SMS, SIM writes, profile changes or upstream messages were performed. Earlier device observations are historical; no raw handset diagnostics or personal identifiers are published here.
+
+## Closeout conclusions
+
+The wider world has changed since 14 September: new open libqmi !476 (NAS dual-standby preferences), libqmi !478 (UIM Subscription OK) and MM !1504 (initial primary-GW application selection/publishing). MM !1504 depends on !478; !476 is separate. These are concrete public experiment branches, not an integrated per-subscription desktop stack or demonstrated Sargo DSDS. No inspected source attributes them to Guido/NLnet. A new Settings APN-dialog repair (!3505) and newly discovered earlier profile-reuse proposal (!3487) also merit tracking.
+
+The grant page remains sparse; Calls #747 is unchanged; the inspected Guido backend branches and Chatty/IMS source revisions have not supplied the missing full implementation. Preserve upstream coordination and staged single-active → dual-standby → application-policy acceptance in #58. No claim is made about unpublished work.
+
+## Parent-agent public-page verification
+
+Live unauthenticated Python urllib GETs on 28 September 2026:
+
+- https://nlnet.nl/project/Linux-MultiSIM/ — 2026-09-28T00:26:59.172666+00:00 — HTTP 200.
+- https://ev.phosh.mobi/blog/ — 2026-09-28T00:27:00.819604+00:00 — HTTP 200.
+- https://phosh.mobi/posts/ — 2026-09-28T00:27:01.647347+00:00 — HTTP 200.
+
+The NLnet page still lists March 2026 and the original scope but no detailed milestone schedule or branch. The Phosh news index still ends with August development news published September 1; the association index ends with September 8 MiniDebconf coverage. Only these public indexes were checked for new announcements; an unchanged index is not a complete project-progress audit.
+
+A broader web search additionally found older, previously unrecorded prior art: public developer posts on September 11 describe an experimental Pixel 9a ModemManager plugin exposing slots as separate modem instances and a Phosh dual-SIM indicator. The author explicitly reports only one active slot and NetworkManager coordination difficulties. Verified at the originating chaos.social public account/status API, not only a search snippet:
+
+- https://chaos.social/@sd/117254738324371809 — 2026-09-11T22:21:58.816Z, modem-instance experiment.
+- https://chaos.social/@sd/117254813834493416 — 2026-09-11T22:41:10.865Z, indicator/switching demonstration.
+
+These posts predate the prior survey; they are newly discovered prior art, not a new post-September-14 DSDS implementation. No code branch from those posts was audited or trialed, and no funding attribution is established.
+
+## Validation of the closeout
+
+The proposed issue rewrite was independently checked against the backend findings, dependency direction and attribution. It retains the original outcome, Settings correction, upstream coordination points, application/IMS identity risks, milestones and related issue boundaries. Research methods/endpoints and limitations follow. Source and metadata inspection only; no test suite or hardware acceptance applies. The existing PR review contained no actionable findings; the PR is closed for scope/placement, not because code was rejected.
+
+## Archived research document, 14 September 2026
+
+The following is the exact `phosh/multi-sim-upstream.md` content at the note's target commit, retained as a historical snapshot. Its September 14 negative branch-search findings must be read with the September 28 refresh below.
+
+# Reusing upstream multi-SIM work
+
+Research for [PocketFed #58](https://github.com/samcday/pocketfed/issues/58),
+14 September 2026. This note tracks upstream reuse and coordination; it does not
+propose an independent PocketFed telephony architecture or establish DSDS support.
+
+## Funded effort and public progress
+
+[NLnet's Dual SIM for Mobile Linux](https://nlnet.nl/project/Linux-MultiSIM/)
+lists a March 2026 start and explicitly covers modem support, Phosh, GNOME Calls
+and Settings, including subscription choice for calls, messages and data.
+
+The [Commons Fund FAQ](https://nlnet.nl/commonsfund/faq/) explains that grants are
+paid after agreed milestones are achieved. The detailed plan is established in
+the project's agreement, as described in the
+[applicant guide](https://nlnet.nl/commonsfund/guideforapplicants/); the public
+award page is not a progress dashboard.
+The start date alone does not establish elapsed engineering effort, completed
+milestones or the project's specific delivery deadline.
+
+There is public evidence of ongoing design work beyond the award page. Phosh's
+[30 July mobile-data article](https://ev.phosh.mobi/blog/mobile-data-use/) links
+the NLnet dual-SIM project and credits a Sam Hewitt mockup to ongoing multi-SIM
+work. It separately describes mobile-data-usage monitoring by Gotam as work
+funded by the Phosh association. Do not conflate that monitoring service with
+the NLnet modem/subscription implementation.
+
+[Calls #747, Multi-SIM Calling](https://gitlab.gnome.org/GNOME/calls/-/work_items/747)
+was opened by Sam Hewitt on 6 July 2026. It proposes incoming-call line labels,
+a dial-pad line selector, and a chooser when dialing from contacts or recents.
+Its [design commit](https://gitlab.gnome.org/Teams/Design/app-mockups/-/commit/d851823f854434e328d656b87df5139ea1c040b6)
+is also dated 6 July. The issue and association article strongly suggest a shared
+design effort; the public material does not establish whether this issue is a particular
+contractual grant deliverable.
+
+## Reusable code and design
+
+| Item | State at inspection | Relevance |
+| --- | --- | --- |
+| [GNOME Settings !2867](https://gitlab.gnome.org/GNOME/gnome-control-center/-/merge_requests/2867) | Primary-SIM-slot selector merged 9 February 2026; proposal began October 2024. Present in the 50.0 release and current main. | Audit the existing selector before writing a new one. Selecting one active slot is distinct from simultaneous standby and independent voice/SMS/data defaults. |
+| [Calls #747](https://gitlab.gnome.org/GNOME/calls/-/work_items/747) | July 2026 design issue; no linked implementation MR in the inspected metadata. | Use its interaction design when testing future upstream subscription support. |
+| [Calls !505](https://gitlab.gnome.org/GNOME/calls/-/merge_requests/505) | Older draft work to store and reuse call-origin identities; source branch `store-origin-ids` in `devrtz/calls`. | Relevant history/re-dial design precedent, dating from 2022. It is not a current integrated multi-SIM stack. |
+| [libqmi !434](https://gitlab.freedesktop.org/mobile-broadband/libqmi/-/merge_requests/434) | WDS/QoS subscription and mux binding, merged October 2025. | Already-landed IMS/data-session plumbing; not a complete multi-SIM modem implementation. |
+| [libqmi !459](https://gitlab.freedesktop.org/mobile-broadband/libqmi/-/merge_requests/459) | IMSA Get Bind, merged May 2026. | Diagnostic support for reading subscription binding; not evidence of dual standby. |
+
+The Settings merge corrects a gap in the initial survey for #58: enumerating one
+WWAN page per modem does not imply the page has no physical-slot selector. Both
+the modem list and controls inside each modem page need inspection.
+
+The [50.0 device-page source](https://gitlab.gnome.org/GNOME/gnome-control-center/-/blob/50.0/panels/wwan/cc-wwan-device-page.c)
+contains the slot-selection row; the backend uses MM's `SimSlots` and
+`SetPrimarySimSlot`, including handling the modem's disappearance/reappearance.
+The MR's nine-commit series ends at
+`9627d5b3dc4b54d3f89ab40b3dd6a540bea043b0`.
+This is release code to inspect, not a new branch requiring a wholesale stack
+upgrade. Its actual presentation and switching behaviour in PocketFed still
+need a coordinated check.
+
+The old Calls branch is directly obtainable as
+[`devrtz/calls:store-origin-ids`](https://gitlab.gnome.org/devrtz/calls/-/tree/store-origin-ids),
+tip `71b6c6f933e8d3b950467c2bf505f75af0771112` (19 April 2022).
+It uses modem IMEI as an origin identity, which cannot distinguish two
+subscriptions on the same modem, changes the Calls database schema and mentions
+GOM patch dependencies. Treat it as design/source history rather than a
+drop-in trial of the present grant effort.
+
+## Public WIP search, 14 September 2026
+
+No identifiable current Guido/NLnet DSDS implementation branch was found in the
+following bounded public search:
+
+- All 31 advertised heads in
+  [Guido's MM fork](https://gitlab.freedesktop.org/agx/ModemManager/-/branches)
+  and all 19 in his
+  [libqmi fork](https://gitlab.freedesktop.org/agx/libqmi/-/branches), plus his
+  upstream MRs. The recent changes found concern cell broadcast or maintenance.
+- Upstream MM/libqmi branch inventories and relevant SIM/subscription MRs;
+  public MM forks belonging to `dahopem`, `devrtz`, `lynxis` and `dos`.
+- Paginated branch inventories for `guidog/calls`, `guidog/phosh`,
+  `devrtz/calls`, `devrtz/phosh`, upstream Calls and Phosh; relevant searches in
+  Guido's `gnome-control-center2` fork. Current Calls open MRs did not expose a
+  multi-SIM implementation, and #747 had zero notes and no linked MR.
+- Full Phosh monthly development reports from January through August 2026.
+  None identified a multi-SIM implementation branch; the association's separate
+  July article provides the positive design-work evidence above.
+
+Public visibility has limits: some FDO issue-note endpoints returned 401 and
+Guido's alternate cgit index returned 503. This is not evidence that no work is
+in progress, nor an audit of private grant deliverables. The original MM
+[`dual-sim` MR !330](https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/merge_requests/330)
+is from 2020 and explicitly implemented single standby; it is not the 2026
+initiative's missing branch.
+
+The existing ModemManager discussions remain useful coordination points:
+
+- [#761](https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/issues/761):
+  dual-SIM support for QMI modems and primary/secondary provisioning.
+- [#649](https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/issues/649):
+  integrating Qualcomm UIM slot/application configuration into the backend.
+- [#1083](https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/issues/1083):
+  which layer should own automatic slot-selection policy.
+
+An existing QMI slot switch, two SIM objects or multiple bearer interfaces does
+not establish simultaneous reachability. Future trials must retain subscription
+identity through registration, calls, SMS, data and IMS, and distinguish current
+firmware configuration from maximum hardware capability.
+
+## Coordination before implementation
+
+The first useful upstream questions are:
+
+1. Which public branches or pending series should downstream testers build?
+2. Which modem hardware and firmware combinations are currently targeted?
+3. Is a subscription API already agreed, and which components are ready for
+   independent testing?
+4. Would a Sargo physical-SIM/eSIM test case, reproducible QMI observations or
+   Fedora packaging help the current milestones?
+
+PocketFed can contribute device characterization, isolated package trials,
+per-carrier connection-profile validation and lifecycle acceptance while using
+the upstream design. Coordinate ownership before developing a parallel selector
+or public subscription API. Do not treat absence of a discoverable public branch
+as proof that no implementation exists.
+
+No upstream issue/comment/contact message, device mutation or hardware trial is
+part of this research. Device-specific evidence remains in #58; raw diagnostics
+and personal handset metadata are excluded from this documentation change.
+
+---
+
+# Multi-SIM backend refresh — 2026-09-28
+
+## Scope and result
+
+Read-only public-primary-source refresh for samcday/pocketfed#58 and the September 14 research, performed on September 28, 2026. No hardware access, builds, upstream messages, or repository mutations. The researched software is upstream ModemManager/libqmi; branch heads below identify the inspected revisions. Hardware results quoted below are the authors' reports, not independent PocketFed validation.
+
+**The backend landscape changed.** Three public, unmerged EpicLPer patches appeared September 24–26: libqmi !476 (NAS dual-standby control), libqmi !478 (UIM Subscription OK), and ModemManager !1504 (initial primary subscription bootstrap). They are concrete reusable experiments to track. None establishes working Sargo DSDS, a shared desktop subscription API, or per-call/per-message routing. No inspected source identifies them as Guido's NLnet work.
+
+## New reusable work
+
+- [libqmi !476](https://gitlab.freedesktop.org/mobile-broadband/libqmi/-/merge_requests/476), opened 2026-09-24T15:20:53.014Z, last updated 2026-09-24T15:26:35.926Z, open. Source [EpicLPer/libqmi, nas-dual-standby-preference](https://gitlab.freedesktop.org/EpicLPer/libqmi/-/tree/nas-dual-standby-preference), head `b34da8c6d7e0a4541da7935c8998a422ee44277f`; API/message commit `6c03630060590114a8739e1d7bb0d31f89d63904`. Two commits based on upstream `b7913df8b49330956f0337dcc6255f63751fdda1`. Inspected diff adds NAS Set Dual Standby Preference (0x004B), Get (0x005C), indication (0x0047), enums, and qmicli get/set commands. Fields include standby/priority, default data/voice subscriptions, and active-subscriptions mask. This is lower-level modem control, not GNOME preference policy. Author reports Lumia 950 XL/MSM8994 kernel 7.2 bring-up: setting a single primary active bit restored cell camping; generated request encoding checked. That is not a demonstrated two-line standby/calling result. CI pipeline [1753251](https://gitlab.freedesktop.org/EpicLPer/libqmi/-/pipelines/1753251) succeeds. MR has zero user notes.
+- [libqmi !478](https://gitlab.freedesktop.org/mobile-broadband/libqmi/-/merge_requests/478), opened 2026-09-26T07:54:36.059Z, updated 2026-09-26T07:54:51.106Z, open. Source [EpicLPer/libqmi, uim-subscription-ok](https://gitlab.freedesktop.org/EpicLPer/libqmi/-/tree/uim-subscription-ok), head `97ff0b1738ce594595cb4503375b290958af9f2b`. Adds UIM Subscription OK (0x0040), allowing the host to release a subscription halted by modem configuration. Author reports card application reaching ready on Lumia 950 XL. CI [1754570](https://gitlab.freedesktop.org/EpicLPer/libqmi/-/pipelines/1754570) succeeds; zero user notes.
+- [ModemManager !1504](https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/merge_requests/1504), opened 2026-09-26T07:56:45.683Z, updated 2026-09-26T08:09:03.836Z, open. Source [EpicLPer/ModemManager, select-sim-application](https://gitlab.freedesktop.org/EpicLPer/ModemManager/-/tree/select-sim-application), head `5860ed80d98f64a560e7670c9011b6240483dce5`; first commit `cbbfad49bf8224d8dc71f2124da14fc22a236c77`. Based on upstream `338ecc06f294d57edea003b866080aacb4055917`. Inspected diff chooses the first present USIM for primary-GW provisioning when none is bound, then handles halted subscription publishing. It leaves an existing primary-GW binding alone and does not implement secondary provisioning or a persisted user preference. Author reports MM loading the SIM on Lumia 950 XL with its separate vendor helper disabled. It explicitly addresses MM #649 and depends on **libqmi !478**, not !476; !476 and !478 are separate sibling branches from the same upstream base. The MR notes its libqmi version requirement still needs updating once the API is released. CI [1754572](https://gitlab.freedesktop.org/EpicLPer/ModemManager/-/pipelines/1754572) fails. Public job metadata shows failures including build-debug, build-release, and build-qmi-qrtr-no-mbim; build-asan and several no-QMI variants pass. The build-debug trace endpoint returned HTTP 401, so the exact failure cause was not established. One user note exists, but notes are inaccessible anonymously.
+
+All three source branch names and exact head SHAs were separately verified through the GitLab repository-branches API; they are obtainable public branches, not just issue ideas. The new APIs use 1.40 annotations; that is not evidence libqmi 1.40 has been released.
+
+## Unchanged / bounded negative findings
+
+- Guido's `agx/ModemManager` still has 31 public branches, none identifiable as DSDS. Latest commit by date remains `cbm-pad`, `b59e0acb08d62d0efe33e2b41457ebcfd297ebb4`, 2026-03-24T20:53:23-05:00. `agx/libqmi` still has 19 public branches; latest is `doc-cleanups`, `9b119cd7d948469328bc647e82579ea4faaa5f26`, 2025-12-09T11:49:57-06:00. These counts/latest hashes match the September 14 snapshot. All 16 Guido-authored upstream MM MRs and five libqmi MRs remain merged older maintenance/cellbroadcast work; no new/open Guido backend MR was found.
+- MM #761 (QMI dual-SIM support) remains open, metadata updated 2025-08-04T15:05:34.782Z. Related-MR endpoint returns old merged !568 (QMI voice calls), not a new DSDS implementation. MM #649 remains open, metadata updated 2026-03-26T10:30:00.202Z, **but its related-MR endpoint now returns !1504**. Issue updated_at alone would have missed that change. MM #1083 (automatic slot-selection policy) remains open, updated 2026-07-30T01:57:54.662Z, no user notes or related MRs.
+- Upstream MM has 16 public branches, current main `338ecc06f294d57edea003b866080aacb4055917` (September 22). The since-September-14 mainline commits concern QMI/MBIM proxy shutdown, MBIM SLAAC cancellation, and configurable modem timeouts; none implements DSDS. libqmi has 16 public branches and unchanged August 16 main `b7913df8b49330956f0337dcc6255f63751fdda1`.
+- Latest tags remain MM `1.25.95-dev` (`61e2f69d489eceb51c0ac21c2989c18c3f00f734`, November 2025) / stable 1.24.2, and libqmi 1.38.0 (`e3d79ed3f7fdc6a7fa8b374860b1c23a8f172812`, January 2026). No new tagged multi-SIM release surfaced. GitLab releases endpoint is sparse (MM none, libqmi one), so tags were checked separately.
+
+## Practical conclusion for PocketFed #58
+
+Track !476 for future read-only NAS state inspection and controlled Qualcomm experiments. Track !1504 + !478 as potential upstream replacement for some initial provisioning script duties, while retaining the distinction between first-card fallback and PocketFed's selected-card policy. Review/port only when resuming the hardware work; no reason to ship these automatically during session closeout. None changes the prior recommendation to align the full subscription architecture with Guido instead of building a competing desktop model.
+
+## Method and limitations
+
+Fetched public GitLab REST v4 JSON with Python urllib; requested up to 100 results per page, inspected 20 upstream MM and five libqmi MRs updated since 2026-09-14T00:00:00Z, complete returned Guido branches/MR sets, target issue objects and related-MR endpoints, diffs/commits/source branches for the three new patches, latest tags/releases, mainline commits since cutoff, and CI metadata. JSON endpoint result counts stayed below requested page size. This is a bounded public repository audit, not a claim about unpublished work or every possible fork.
+
+Anonymous issue/MR notes and the failed-job trace return 401. No logged-in browser, private data, or auth workaround was used. Author-reported hardware validation was not reproduced. No Sargo hardware was touched. Public metadata and patch scope were independently inspected; radio behavior remains author-reported.
+
+## Retrieval record
+
+The following primary endpoints were fetched during this pass. Raw public JSON was kept temporarily under /tmp; this note preserves the useful metadata and analysis without uploading full descriptions/logs.
+
+- `agx-mm-branches` — `2026-09-28T00:26:20.583558+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/agx%2FModemManager/repository/branches?per_page=100
+- `agx-qmi-branches` — `2026-09-28T00:26:20.583940+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/agx%2Flibqmi/repository/branches?per_page=100
+- `upstream-mm-branches` — `2026-09-28T00:26:20.584296+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/repository/branches?per_page=100
+- `upstream-qmi-branches` — `2026-09-28T00:26:20.584599+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/repository/branches?per_page=100
+- `agx-user` — `2026-09-28T00:26:20.585235+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/users?username=agx
+- `mm-761` — `2026-09-28T00:26:22.219795+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/issues/761
+- `mm-649` — `2026-09-28T00:26:22.629525+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/issues/649
+- `mm-1083` — `2026-09-28T00:26:22.928199+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/issues/1083
+- `mm-recent-mrs` — `2026-09-28T00:26:22.944594+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/merge_requests?updated_after=2026-09-14T00%3A00%3A00Z&scope=all&per_page=100&order_by=updated_at&sort=desc
+- `qmi-recent-mrs` — `2026-09-28T00:26:23.010413+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/merge_requests?updated_after=2026-09-14T00%3A00%3A00Z&scope=all&per_page=100&order_by=updated_at&sort=desc
+- `mm-tags` — `2026-09-28T00:26:24.184971+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/repository/tags?per_page=10&order_by=updated&sort=desc
+- `qmi-tags` — `2026-09-28T00:26:24.603253+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/repository/tags?per_page=10&order_by=updated&sort=desc
+- `mm-releases` — `2026-09-28T00:26:24.907561+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/releases?per_page=5
+- `qmi-releases` — `2026-09-28T00:26:25.573361+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/releases?per_page=5
+- `mm-agx-mrs` — `2026-09-28T00:27:05.077939+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/merge_requests?author_id=1856&scope=all&per_page=100&order_by=updated_at&sort=desc
+- `qmi-agx-mrs` — `2026-09-28T00:27:05.078392+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/merge_requests?author_id=1856&scope=all&per_page=100&order_by=updated_at&sort=desc
+- `qmi-476` — `2026-09-28T00:27:05.078725+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/merge_requests/476
+- `qmi-476/commits` — `2026-09-28T00:27:05.079068+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/merge_requests/476/commits?per_page=100
+- `qmi-476/diffs` — `2026-09-28T00:27:05.079904+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/merge_requests/476/diffs?per_page=100
+- `qmi-476/notes` — `2026-09-28T00:27:06.982390+00:00` — HTTP HTTP Error 401: : https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/merge_requests/476/notes?per_page=100
+- `qmi-478` — `2026-09-28T00:27:07.211953+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/merge_requests/478
+- `qmi-478/commits` — `2026-09-28T00:27:07.321229+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/merge_requests/478/commits?per_page=100
+- `qmi-478/diffs` — `2026-09-28T00:27:07.405196+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/merge_requests/478/diffs?per_page=100
+- `qmi-478/notes` — `2026-09-28T00:27:07.936850+00:00` — HTTP HTTP Error 401: : https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2Flibqmi/merge_requests/478/notes?per_page=100
+- `mm-1504` — `2026-09-28T00:27:08.834133+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/merge_requests/1504
+- `mm-1504/commits` — `2026-09-28T00:27:09.225923+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/merge_requests/1504/commits?per_page=100
+- `mm-1504/diffs` — `2026-09-28T00:27:09.287739+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/merge_requests/1504/diffs?per_page=100
+- `mm-1504/notes` — `2026-09-28T00:27:09.329594+00:00` — HTTP HTTP Error 401: : https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/merge_requests/1504/notes?per_page=100
+- `mm-761/related_merge_requests` — `2026-09-28T00:27:09.787886+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/issues/761/related_merge_requests?per_page=100
+- `mm-761/notes` — `2026-09-28T00:27:10.851742+00:00` — HTTP HTTP Error 401: : https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/issues/761/notes?per_page=100
+- `mm-649/related_merge_requests` — `2026-09-28T00:27:11.168665+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/issues/649/related_merge_requests?per_page=100
+- `mm-649/notes` — `2026-09-28T00:27:11.197295+00:00` — HTTP HTTP Error 401: : https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/issues/649/notes?per_page=100
+- `mm-1083/related_merge_requests` — `2026-09-28T00:27:11.589214+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/issues/1083/related_merge_requests?per_page=100
+- `mm-1083/notes` — `2026-09-28T00:27:12.036383+00:00` — HTTP HTTP Error 401: : https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/issues/1083/notes?per_page=100
+- `qmi-source-project` — `2026-09-28T00:28:01.839109+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/28218
+- `mm-source-project` — `2026-09-28T00:28:01.839502+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/28251
+- `qmi-476-branch` — `2026-09-28T00:28:01.839866+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/28218/repository/branches/nas-dual-standby-preference
+- `qmi-478-branch` — `2026-09-28T00:28:01.840143+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/28218/repository/branches/uim-subscription-ok
+- `mm-1504-branch` — `2026-09-28T00:28:01.840845+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/28251/repository/branches/select-sim-application
+- `mm-1504-jobs` — `2026-09-28T00:28:03.212172+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/28251/pipelines/1754572/jobs?per_page=100
+- `mm-recent-commits` — `2026-09-28T00:28:03.213181+00:00` — HTTP 200: https://gitlab.freedesktop.org/api/v4/projects/mobile-broadband%2FModemManager/repository/commits?since=2026-09-14T00%3A00%3A00Z&per_page=100
+- Failed build trace: `https://gitlab.freedesktop.org/api/v4/projects/28251/jobs/111232689/trace` returned HTTP 401 on 2026-09-28; exact compiler failure unavailable.
+
+---
+
+# Multi-SIM UI upstream refresh — 2026-09-28
+
+Public-source research for samcday/pocketfed issue #58, refreshing the 2026-09-14 survey. Queried from a local Linux research host with Python 3 urllib/JSON/XML and web browsing on 2026-09-28, approximately 00:26–00:29 UTC. No device, kernel, build, installed software or upstream repository was modified. These findings describe public upstream state, not a tested PocketFed build.
+
+## Conclusions
+
+- No identifiable new integrated multi-SIM/DSDS implementation branch or MR was found in the bounded UI sources below. This is not evidence that unpublished work stopped.
+- Calls #747 is unchanged: open, last updated 2026-07-06T15:30:09.096Z, zero user notes and zero linked MRs. Its referenced design remains d851823f854434e328d656b87df5139ea1c040b6.
+- Existing single-active SIM-slot selection remains in GNOME Settings 51.0 and current main. It still calls ModemManager SetPrimarySimSlot, not a new simultaneous-subscription/defaults model.
+- There ARE adjacent developments worth tracking: Settings !3505 (opened September 25) addresses an APN-editing regression in GNOME 51. Settings !3487 is a newly discovered September 12 proposal, updated September 27 but with the original commit, relevant to NetworkManager profiles without gsm.sim-id. Neither is a new NLnet multi-SIM implementation.
+
+## Method and bounded coverage
+
+Anonymous live GitLab v4 API calls, with all available pages followed via X-Next-Page:
+
+- `GET https://gitlab.gnome.org/api/v4/projects/<URL-encoded-path>/repository/branches?per_page=100`
+- `GET .../merge_requests?scope=all&updated_after=2026-09-14T00:00:00Z&per_page=100`
+- `GET .../repository/commits?since=2026-09-14T00:00:00Z&per_page=100`
+
+Reviewed branch names/tip metadata, recent MR titles/descriptions and recent default-branch commits. Branch-tip dates are commit dates, not a complete push-history audit. Results are bounded to these known upstream/fork projects:
+
+| Project | Public branch heads enumerated | MRs updated since cutoff | Default-branch commits since cutoff |
+|---|---:|---:|---:|
+| GNOME/calls | 13 | 3 | 7 |
+| World/Phosh/phosh | 15 | 13 | 15 |
+| guidog/calls | 318 (4 pages) | 0 | 0 |
+| devrtz/calls | 73 | 0 | 0 |
+| guidog/phosh | 300 (3 pages) | 0 | 0 |
+| devrtz/phosh | 34 | 0 | 0 |
+| GNOME/gnome-control-center | 287 (3 pages) | 40 | 48 |
+| guidog/gnome-control-center2 | 278 (3 pages) | 0 | 0 |
+| World/Phosh/phosh-mobile-settings | 4 | 2 | 0 |
+
+Additional exact object and file queries are recorded below. All these project/list queries succeeded. The notes endpoint for Settings !3487 returned HTTP 401; MR metadata, description and patch remained readable. `https://ev.phosh.mobi/feed/` returned HTTP 404; its live HTML news index was read successfully instead. No conclusions are drawn from these two unavailable endpoints.
+
+## Calls and Phosh
+
+- [Calls #747](https://gitlab.gnome.org/GNOME/calls/-/work_items/747), queried through `/api/v4/projects/GNOME%2Fcalls/issues/747`: open; created and updated `2026-07-06T15:30:09.096Z`; `user_notes_count=0`, `merge_requests_count=0`. References [design commit d851823f](https://gitlab.gnome.org/Teams/Design/app-mockups/-/commit/d851823f854434e328d656b87df5139ea1c040b6). No implementation added to that issue.
+- [Calls !505](https://gitlab.gnome.org/GNOME/calls/-/merge_requests/505): draft/open; last updated `2022-06-23T09:28:16.987Z`; source `devrtz/calls:store-origin-ids`; SHA `71b6c6f933e8d3b950467c2bf505f75af0771112` unchanged. Description still explicitly uses modem IMEI/VoIP UUID origin IDs, changes the record database and depends on GOM patches. Still historical prior art, not a current subscription-identity implementation.
+- Calls main at `f11c37c98d112e4bba209ace4630279170a91f31` (2026-09-27). Recent changes are translations and SIP/media-playback fixes (!823/!824). [!808](https://gitlab.gnome.org/GNOME/calls/-/merge_requests/808), NetworkManager network-watch port, was updated September 18; it is an older network-watch MR, not a new multi-SIM implementation.
+- Phosh main at `93be99e18b7d89f700aa27f205097ec4e55913ea` (2026-09-27). Recent commits/MRs concern screenshots, app folders, ticket-box/tray plugins, settings schema, compositor animations, browser default and translations; none identifies a multi-SIM implementation.
+- Guido's Settings fork retains `wwan` at `986b0de6a62136e91290155308fed9c512c7ab56` and `wwan-apn-dialog` at `a12169ab6599f8d7f1c717de5225fa7e2b390bc4`, both August 10. These are no-SIM layout/APN-dialog conversion work, not new DSDS branches.
+
+Source branch inventories: [Calls](https://gitlab.gnome.org/GNOME/calls/-/branches), [Phosh](https://gitlab.gnome.org/World/Phosh/phosh/-/branches), [Guido Calls](https://gitlab.gnome.org/guidog/calls/-/branches), [devrtz Calls](https://gitlab.gnome.org/devrtz/calls/-/branches), [Guido Phosh](https://gitlab.gnome.org/guidog/phosh/-/branches), [devrtz Phosh](https://gitlab.gnome.org/devrtz/phosh/-/branches), [Guido Settings](https://gitlab.gnome.org/guidog/gnome-control-center2/-/branches).
+
+## Settings: existing selector plus adjacent fixes
+
+GNOME Settings main was `fd935f66c772ac34734a6ab13a49887bc97952d6` (2026-09-27). `GET .../repository/commits?path=panels/wwan&since=2026-09-14T00:00:00Z&per_page=100` returned `[]`: no default-branch WWAN commits since cutoff.
+
+Live raw-file inspection confirmed:
+
+- [51.0 cc-wwan-device.c](https://gitlab.gnome.org/GNOME/gnome-control-center/-/blob/51.0/panels/wwan/cc-wwan-device.c) contains `mm_modem_set_primary_sim_slot_sync`, `mm_modem_get_primary_sim_slot` and `mm_modem_list_sim_slots_sync`.
+- [main cc-wwan-device-page.c](https://gitlab.gnome.org/GNOME/gnome-control-center/-/blob/fd935f66c772ac34734a6ab13a49887bc97952d6/panels/wwan/cc-wwan-device-page.c) connects SIM combo-row selection to `cc_wwan_device_set_primary_sim_slot`.
+
+Two useful issue-tracker additions:
+
+1. [!3505: Restore the APN dialog header bar](https://gitlab.gnome.org/GNOME/gnome-control-center/-/merge_requests/3505), William Floyd, opened `2026-09-25T17:17:56.562Z`, last updated `2026-09-25T17:17:59.801Z`, open/unmerged, source `wwan-apn-dialog-headerbar`, SHA `705d1711cc054f12d66c822d06aa4d961c071d45`. Addresses [#3829](https://gitlab.gnome.org/GNOME/gnome-control-center/-/work_items/3829), reporting GNOME Settings 51.0 on postmarketOS edge/Phosh 0.57: Back/Add/Save absent after AdwDialog conversion. Patch uses AdwToolbarView/AdwHeaderBar and fixes closing semantics. This is a genuinely new report/proposal since the previous survey. It is relevant to future APN/profile acceptance tests, but not evidence PocketFed's current build was tested or is affected.
+2. [!3487: Reuse active connection without a SIM ID](https://gitlab.gnome.org/GNOME/gnome-control-center/-/merge_requests/3487), Daniel Nylander, opened `2026-09-12T09:18:57.291Z`, last updated `2026-09-27T06:34:31.572Z`, open/unmerged, zero user notes, source `fix-wwan-unspecified-sim`, SHA `2ba8ac349613f82ae505bdc30ad14c87dbbd147a`. Commit still authored/committed September 12; the updated timestamp does not establish fresh code. Addresses [#3795](https://gitlab.gnome.org/GNOME/gnome-control-center/-/work_items/3795), filed August 22 against Settings 50.4, where connections without gsm.sim-id show defaults and editing can lose the connection. Inspected patch selects the active connection from the available-connection list when no SIM-ID match exists, preserving NMRemoteConnection and profile values. Newly noticed prior art relevant to issue #58's unbound-profile concern, not a newly created fix since September 14. No testing performed.
+
+## News
+
+- Live [Phosh RSS](https://phosh.mobi/index.xml) still starts with [August development news](https://phosh.mobi/posts/development-news-2026-08/), published `Tue, 01 Sep 2026 08:47:53 +0200`; newest listed Phosh release remains 0.57.0 (August 19).
+- Live [Phosh association news index](https://ev.phosh.mobi/blog/) still starts with Mini Debconf Winterthur, September 8. No newer post in that index as of this retrieval. The July mobile-data article remains the existing public connection to ongoing multi-SIM design work.
+
+## Interpretation
+
+The previous recommendation holds: follow/cooperate with upstream multi-SIM work and use PocketFed for integration/acceptance tests, rather than inventing a competing subscription API. Add the two Settings references to the tracking issue and distinguish them from the funded multi-SIM implementation. The accurate result is "no new public multi-SIM implementation found in the checked sources; two adjacent Settings items to track," not "nothing anywhere changed."
+
+---
+
+# Multi-SIM adjacent upstream refresh — 28 September 2026
+
+Scope: read-only public-source check for changes since 14 September 2026 in Chatty SMS line selection, 81voltd IMS subscription/connection ownership, and OpenIMSd qcom-baseband-profile-manager. No device commands, builds, SIM changes, messages, calls, or upstream communications were performed. This records source state, not hardware acceptance.
+
+## Method / reproducible endpoints
+
+Read GitLab's unauthenticated v4 APIs with Python urllib/json. For each project below, fetched project metadata, the latest ten default-branch commits, all open merge requests (`state=opened&per_page=100`), all project branches (`per_page=100`), and the five latest tags. Returned branch and MR lists were shorter than one page.
+
+- Chatty base: https://gitlab.gnome.org/api/v4/projects/World%2FChatty (project 29248)
+- 81voltd base: https://gitlab.postmarketos.org/api/v4/projects/modem%2F81voltd (project 287)
+- Profile manager base: https://gitlab.postmarketos.org/api/v4/projects/modem%2Fopenimsd%2Fqcom-baseband-profile-manager (project 941)
+- Append `/repository/commits?per_page=10`, `/merge_requests?state=opened&per_page=100`, `/repository/branches?per_page=100`, `/repository/tags?per_page=5` to repeat the respective checks.
+- Chatty source readback: https://gitlab.gnome.org/api/v4/projects/29248/repository/files/src%2Fmm%2Fchatty-mm-account.c/raw?ref=d193ec5309119c00217e63e373351d9486a2d57b
+- Chatty issue delta: https://gitlab.gnome.org/api/v4/projects/29248/issues?updated_after=2026-09-14T00%3A00%3A00Z&per_page=100 — returned an empty array.
+
+## Results
+
+### Chatty
+
+Default branch remains `d193ec5309119c00217e63e373351d9486a2d57b`, committed 6 September 2026 (`ci: Use current build jobs`), exactly the commit inspected in the original #58 source audit. All ten published project branch tips predate 14 September. Eleven open MRs were inspected; no SIM/subscription selector implementation is advertised, and none was updated since the prior survey. Latest tag is still v0.8.9, commit `8fcf8387917bf9d25a005c9e6b506026e77a4876` (28 February 2026).
+
+The pinned source still contains this SMS send-path selection at line 1650:
+
+```c
+device = g_list_model_get_item (G_LIST_MODEL (self->device_list), 0);
+```
+
+Conclusion: the previously identified explicit SMS subscription-selection gap has not been superseded in the inspected upstream main, tags, or open MRs. This is not proof no developer fork/private work exists.
+
+Source: https://gitlab.gnome.org/World/Chatty/-/blob/d193ec5309119c00217e63e373351d9486a2d57b/src/mm/chatty-mm-account.c#L1650
+
+### 81voltd
+
+Default branch remains `a7794dd6c8ac216a97dc5a931edab2dfc46eca2a`, committed 1 June 2026 (`README.md: describe how to enable debug logs`), exactly the original source-audit commit. Zero open MRs. Three public project heads: `main`; `rdacayan/imsd-specification` at `2ffc84e134a6ccfc1a4fde619747a7b6eb5e40a2` (12 November 2025); and `rdacayan/robustness` at `61a8ac5ca7fbd7d6d069a80a6d46df472192abec` (28 October 2025). Latest tag remains v1.2.0, `7c0cd9442d71b55260c9917c89ebc4bd20e283a8` (29 April 2026).
+
+Conclusion: no newer default-branch code, release, or open upstream MR found that resolves the prior source-derived subscription/IMS connection lookup concern. The unchanged commit identity preserves the original source finding; it is not a reproduced dual-SIM failure.
+
+Sources: https://gitlab.postmarketos.org/modem/81voltd/-/commit/a7794dd6c8ac216a97dc5a931edab2dfc46eca2a and https://gitlab.postmarketos.org/modem/81voltd/-/merge_requests?state=opened
+
+### OpenIMSd qcom-baseband-profile-manager
+
+Default branch remains `e5cc292dc95d3745341db67387d5fd0ff0e8c9e7`, committed 29 April 2026 (`add CI to build qcom-pbm as package`), exactly the #46 audit commit. Zero open MRs. Only other project branch is `wip` at `b02fc59397d0a07da35edff718a74be8dd4a268b`, also 29 April 2026. Latest tag remains v0.1.2, `ae3f14a33e4526c26c4db1fde98aebcc5b693e19` (26 January 2026).
+
+Conclusion: no newly published implementation in this inspected project changes the prior early-stage, no-dual-SIM profile-manager assessment. Carrier-profile management and IMS bearer creation remain separate integration concerns.
+
+Source: https://gitlab.postmarketos.org/modem/openimsd/qcom-baseband-profile-manager/-/commit/e5cc292dc95d3745341db67387d5fd0ff0e8c9e7
+
+### Existing PocketFed issues
+
+Fresh GitHub connector reads show #46 open, last updated 10 September 2026; #54 open, last updated 13 September 2026; #55 open, last updated 11 September 2026. No newer tracking change was present. Keep these as existing adjacent owners; do not create duplicate issues.
+
+- https://github.com/samcday/pocketfed/issues/46 — carrier-profile/catalogue management
+- https://github.com/samcday/pocketfed/issues/54 — eSIM UI provisioning/profile lifecycle
+- https://github.com/samcday/pocketfed/issues/55 — activation QR input
+
+## Limits
+
+Successful initial GitLab repository/API reads supplied the branch/commit/MR/tag evidence above. A subsequent attempt to inspect postmarketOS issue deltas, list all OpenIMSd group projects, and re-read 81voltd source received anti-bot HTML instead of JSON/source; those responses were not treated as data. https://www.openimsd.com/ returned HTTP 403. Chatty source and issue-delta reads succeeded. We did not inventory every contributor fork or contact maintainers. Therefore the supported statement is “no relevant new work found in these public upstream surfaces,” not “nothing changed anywhere.”
+
+---
