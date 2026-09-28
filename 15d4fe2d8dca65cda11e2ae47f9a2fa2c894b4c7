@@ -23,6 +23,15 @@ Detailed kernel comparison, source/build identity and sanitized outcome evidence
 
 Some accepted later userspace versions were locally built RPMs, beyond their earlier published COPR versions. A successful earlier COPR build must not be substituted for the final source/version when packaging this later. The old custom image is a historical acceptance artifact, not a normal main-image integration plan.
 
+## Runtime contracts to preserve
+
+- The enrollment broker owns a random native service credential independent of the user's PIN. It obtains a genuine challenge-bound Gatekeeper hardware authentication token that the FPC trusted application verifies. This authorizes enrollment; it does not implement fingerprint-only encrypted-home unlock.
+- Initial provisioning is explicit and once-only, using an application-reserved native Gatekeeper UID range. The trusted application does not reserve that range or provide a safe existence query. Missing/stale restored files do not prove unused secure state. Do not delete provisioning intents or repeat historical recovery to make setup pass.
+- Firmware preparation is device-local and hash-verified for FPC/cmnlib64. Readiness-bound FS/GPFS/RPMB listeners and loaders precede per-boot Keymaster HMAC startup, then fprintd/broker availability. FPC must be loaded before that startup; the Keymaster backend attaches to resident keymaster64. Firmware binaries do not belong in package source.
+- Packaged sources alone do not recreate the accepted configuration: local lifetime/startup/RPMB/firmware drop-ins were retained. Resolve those deliberately into current packaging. Replace old minimum-.11-version checks with a real interface/capability contract when using official Fedora HWE.
+- Identification finalization restores firmware scanning state. Preserve cancellation winning over a match, gallery-bound match checks, and clearing of userspace shared buffers and kernel invoke staging when extracting modules or changing transport.
+- libfprint uses a separate native FPC database namespace, never Android stores. Empty-database initialization is explicit and refuses a nonempty QSEE listener namespace. First-device setup and state-preserving upgrades require separate validation; do not initialize an enrolled installation as empty.
+
 ## Source recovery: local Git snapshot, not loose scratch files
 
 The original working-tree directories were cleared from current main. They survive in this local PocketFed Git ref:
@@ -54,7 +63,7 @@ The seven package directories contain 217 files/about 1.78 MB; the trial directo
 
 September 28 source-to-build-manifest checks read Git objects, computed SHA256 and compared the recorded input hashes (no builds/device access):
 
-- packages/fpc-auth/startup-build.json: 23 source/package inputs matched; README differs.
+- packages/fpc-auth/ordering-build.json: 23 source/package inputs matched; README differs.
 - packages/libfprint/finalization-rpm-build.json: all six retained patch/drop-in/spec inputs matched; downloaded archive was not re-read as source.
 - packages/qsee-supplicant/sargo-rpmb-build.json: all 18 recorded source inputs matched.
 - packages/fingerprint-desktop/gnome-second-enroll-build.json: final patch, spec and regression runner matched. Historical update-settings.py differs and is deployment tooling, not the runtime fix.
