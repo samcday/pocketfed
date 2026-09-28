@@ -1,0 +1,58 @@
+ModemManager release upgrade: build evidence, 12 September 2026
+Archived on 28 September 2026. These are historical results, not a fresh check
+of upstream releases, COPR configuration or installed hardware.
+
+Repository/commit: samcday/pocketfed
+342f7e66fca9f1ef7431e91c1a12f86907588eb8 (merged PR #56).
+https://github.com/samcday/pocketfed/pull/56
+
+What changed:
+- ModemManager 1.25.95-1.pocketfed, source tag 1.25.95-dev, commit
+  61e2f69d489eceb51c0ac21c2989c18c3f00f734. This was the latest upstream tag
+  verified on September 12, not a claim about September 28.
+- libqmi 1.38.0-1.1.pocketfed, source tag 1.38.0, commit
+  e3d79ed3f7fdc6a7fa8b374860b1c23a8f172812, satisfying MM >=1.37.95.
+- Retained MM netlink correction and existing libqmi GIR/PDC corrections;
+  upstreamed MM bearer fix removed from downstream patch stack while retaining
+  its production regression. Existing private PDC helper was unchanged.
+- Sargo/crosshatch/fajita image transactions explicitly include the new MM/glib
+  and libqmi/utils versions. libqmi API docs use gi-docgen.
+
+What ran and what passed:
+- COPR libqmi build10978224 and MM build10978225, each on Rawhide aarch64,
+  Rawhide x86_64 and Fedora45 aarch64:
+  https://copr.fedorainfracloud.org/coprs/build/10978224
+  https://copr.fedorainfracloud.org/coprs/build/10978225
+- Each libqmi target: 7/7 Meson targets plus three GIR byte-array field checks.
+  Each MM target: 35/35 Meson targets plus 9/9 production bearer regressions.
+- Downloaded all12 runtime RPMs (MM/MM-glib/libqmi/libqmi-utils across3targets),
+  recorded SHA256 and checked signatures in an isolated temporary RPM database.
+  Expected signer: F247F3B726A312E90D74BB76E220B1E0AE59FCB5.
+- PR CI34669205402 and merged-main CI34670105061 both passed all8jobs,
+  including81voltd81fixture cases and device image builds.
+  https://github.com/samcday/pocketfed/actions/runs/34669205402
+  https://github.com/samcday/pocketfed/actions/runs/34670105061
+- Raw Sargo image manifest/config hashes and exact CI checkout/push logs were
+  compared. Public main image sha-342f7e66fca9 has manifest
+  sha256:1ed851cd01ac9db11ab8f0cbc3e14f6eb5d149bd68c5dbc1456a5b482a81cd22.
+- COPR source recipes were checked after merge: SCM main, package subdirectory,
+  make_srpm, auto-rebuild false. No claim that these settings are unchanged today.
+
+Reproduction/provenance:
+Packaging, source-fetch helpers, tests, pinned source hashes and build.json
+records are in packages/ModemManager and packages/libqmi at this commit.
+Source archive SHA256:
+  MM 9ff6a5328550abfb39811c2848290d31ee14212e4b2f9303bcc6f67101badc80
+  libqmi 742cd353a7b6f64285c444cf33242176c70c4d711b877bec15e1f4ed3e064f1a
+SRPM SHA256:
+  MM c86733434874374302ff7ee32eda7304d8e5131051280b4442d82be8bdbf16e0
+  libqmi b1496e6e5be318f5ce9b78345c3d612a97a6eed9bd4db03791c34fd8afd322cb
+The preserved local build-results.json contains per-target logs/RPM checksums;
+CI logs remain linked above. Initial missing-gi-docgen libqmi build10978215 and
+cancelled dependent MM10978217 are superseded by the successful builds above.
+
+Limit: passing package/image tests does not establish LTE resume latency,
+sleeping incoming reachability or GNSS fixes. The device investigation is parked
+by the owner as of September28. Device evidence stays in the access-controlled
+samcday/sam-sargo evidence notes indexed from issue36, with the GNSS boundary in
+issue38; no subscriber/device raw logs are included in this public note.
