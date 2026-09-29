@@ -1,0 +1,77 @@
+Subject: [PATCH] tee: qseecom: reuse the device pool for invoke staging
+
+Sargo fingerprint initialization can complete successfully but be followed
+by a stalled firmware-loader shutdown and watchdog reset. A disposable
+comparison reproduces this with per-invoke coherent pools and completes
+with the existing device-owned TZ pool.
+
+Allocate invoke staging from that pool so its coherent backing mappings
+remain available between commands. Preserve the allocation size, copies,
+address validation, secure calls and complete buffer clearing. Each
+command still releases its own chunk; user-mapped memory remains separate.
+
+The comparison narrows the failure to this allocation/lifetime change;
+it does not establish the precise underlying platform fault.
+
+---
+
+diff --git a/drivers/tee/qseecom/core.c b/drivers/tee/qseecom/core.c
+--- a/drivers/tee/qseecom/core.c
++++ b/drivers/tee/qseecom/core.c
+@@ -863,11 +863,7 @@
+ 	}
+ 
+ 	{
+-		struct qcom_tzmem_pool_config bc = {
+-			.policy = QCOM_TZMEM_POLICY_STATIC,
+-		};
+-		struct qcom_tzmem_pool *bp;
+-		size_t need, off;
++		size_t need, off, staging_size;
+ 		void *b;
+ 		unsigned int k;
+ 
+@@ -895,20 +891,19 @@
+ 		if (need < req_size || need > QSEECOM_TEE_MAX_XFER)
+ 			return -EINVAL;
+ 
+-		bc.initial_size = PAGE_ALIGN(need) + PAGE_SIZE;
+-		bc.max_size = bc.initial_size;
+-
+-		bp = qcom_tzmem_pool_new(&bc);
+-		if (IS_ERR(bp))
+-			return PTR_ERR(bp);
+-
+-		b = qcom_tzmem_alloc(bp, bc.initial_size, GFP_KERNEL);
+-		if (!b) {
+-			qcom_tzmem_pool_free(bp);
++		staging_size = PAGE_ALIGN(need) + PAGE_SIZE;
++
++		/*
++		 * Keep coherent backing mappings alive between invocations.
++		 * The device-owned TZ pool is kernel-only; individual staging
++		 * chunks are still cleared and released after each command.
++		 */
++		b = qcom_tzmem_alloc(ctxdata->qtee->mempool, staging_size,
++				     GFP_KERNEL);
++		if (!b)
+ 			return -ENOMEM;
+-		}
+-
+-		memset(b, 0, bc.initial_size);
++
++		memset(b, 0, staging_size);
+ 		memcpy(b, req, req_size);
+ 
+ 		/* Copy each patched buffer in and repoint the request at it. */
+@@ -983,9 +978,8 @@
+ 
+ out_free:
+ 		/* Clear credentials and other sensitive application data. */
+-		memzero_explicit(b, bc.initial_size);
++		memzero_explicit(b, staging_size);
+ 		qcom_tzmem_free(b);
+-		qcom_tzmem_pool_free(bp);
+ 
+ 		if (ret)
+ 			return ret;
