@@ -1,0 +1,23 @@
+# Building block for a complete fingerprint trial image, not a deployable release.
+# Use the freshest coordinated immutable base. Include the four inspected eSIM
+# overlay RPMs and fingerprint userspace in the outer candidate recipe.
+ARG BASE_IMAGE
+ARG DT_TOOLS_IMAGE
+FROM scratch AS kernel-inputs
+COPY kernel-rpms /inputs
+
+# Reuse the verified dtc 1.8.1-6 build-only stage by immutable image ID.
+# No package resolution or repository access occurs during this trial build.
+FROM ${DT_TOOLS_IMAGE} AS dt-tools
+
+FROM ${BASE_IMAGE}
+LABEL io.pocketfed.fingerprint-trial.kernel-copr-build=10973843
+COPY --chmod=0755 install-kernel.sh /tmp/install-fingerprint-kernel
+COPY replace-template-dtb.py /tmp/replace-template-dtb.py
+RUN --mount=from=kernel-inputs,source=/inputs,target=/run/fingerprint-kernel,ro \
+    --mount=from=dt-tools,source=/out,target=/run/fingerprint-tools,ro \
+    PATH=/run/fingerprint-tools:$PATH LD_LIBRARY_PATH=/run/fingerprint-tools \
+    /tmp/install-fingerprint-kernel && \
+    rm /tmp/install-fingerprint-kernel /tmp/replace-template-dtb.py
+# The outer image build must verify all payloads independently and run
+# pocketfed-verify-oci and bootc container lint after userspace is installed.

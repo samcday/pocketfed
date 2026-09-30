@@ -1,0 +1,14 @@
+{
+  "image_id": "83cc5287c9ae65449e51d5f45c5e495ddca48dba45416e4f1f85d49afe6535a0",
+  "date": "2026-09-11",
+  "environment": "disposable local ARM64 image container, no networking or device mounts",
+  "commands": [
+    "/usr/libexec/phosh --version",
+    "gnome-control-center --version",
+    "ldd -r /usr/lib64/libfprint-2.so.2"
+  ],
+  "exit_status": 0,
+  "missing_libraries": false,
+  "undefined_symbols": false,
+  "scope": "dynamic loading only; no Wayland, PAM or biometric operation"
+}

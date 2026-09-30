@@ -1,0 +1,18 @@
+{
+  "architecture": "aarch64",
+  "container": "localhost/pocketfed-fingerprint-build:20260911",
+  "base_commit": "430e24e538ba137b6edcfe2e1b3b8cc29c66fa6a",
+  "scope": "Hardware-free broker and libfprint API tests; no live sensor or valid enrollment exercised",
+  "tests": [
+    {
+      "name": "fpcqsee - libfprint:fpc-auth-client",
+      "result": "OK",
+      "returncode": 0
+    },
+    {
+      "name": "fpcqsee - libfprint:fpc-driver",
+      "result": "OK",
+      "returncode": 0
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "boot_id": "cbfa1a02-40ae-4f6b-9d57-2c4637634745",
+  "sessions": {
+    "status": 0,
+    "lines": [
+      " 2 1000 sam  seat0 3014 user          tty1 no -",
+      " 3 1000 sam  -     3440 manager       -    no -",
+      " 4 1000 sam  -     5734 user          -    no -",
+      "56    0 root -     9279 user          -    no -",
+      "57    0 root -     9286 manager-early -    no -"
+    ]
+  },
+  "fingerprint_services": {
+    "status": 0,
+    "lines": [
+      "Id=fprintd.service",
+      "ActiveState=active",
+      "MainPID=8017",
+      "Result=success",
+      "NRestarts=0",
+      "ExecMainStatus=0",
+      "",
+      "Id=pocketfed-fpc-auth.service",
+      "ActiveState=active",
+      "MainPID=9133",
+      "Result=success",
+      "NRestarts=0",
+      "ExecMainStatus=0",
+      "",
+      "Id=qsee-supplicant.service",
+      "ActiveState=active",
+      "MainPID=6940",
+      "Result=success",
+      "NRestarts=0",
+      "ExecMainStatus=0"
+    ]
+  },
+  "fingerprint_events": {
+    "status": 0,
+    "lines": [
+      "[ 1104.205513] sam-sargo systemd[1]: Starting pocketfed-fpc-auth.service - Native fingerprint enrollment token broker...",
+      "[ 1104.340723] sam-sargo systemd[1]: Started pocketfed-fpc-auth.service - Native fingerprint enrollment token broker."
+    ]
+  },
+  "settings_events": {
+    "status": 0,
+    "lines": [
+      "[ 1113.235520] sam-sargo gnome-control-center[7966]: Device marked enroll as completed, but progress is at 0.09",
+      "[ 1131.789219] sam-sargo gnome-control-center[7966]: Duplicate call to gdk_frame_timings_presented() with different values: presentation time is 83.568ms off from expected",
+      "[ 1139.784801] sam-sargo gnome-control-center[7966]: Enrollment on device Pixel 3a FPC QSEE fingerprint sensor failed: GDBus.Error:net.reactivated.Fprint.Error.AlreadyInUse: Verification already in progress"
+    ]
+  },
+  "crashes": {
+    "status": 1,
+    "lines": []
+  },
+  "recent_status": {
+    "status": 0,
+    "lines": [
+      "[ 1124.159500] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyFingerSelected ('right-index-finger',)",
+      "[ 1124.179556] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <true>}, @as [])",
+      "[ 1125.137544] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <false>, 'finger-present': <true>}, @as [])",
+      "[ 1125.300234] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-no-match', true)",
+      "[ 1125.300234] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-present': <false>}, @as [])",
+      "[ 1125.390199] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyFingerSelected ('right-index-finger',)",
+      "[ 1125.432473] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <true>}, @as [])",
+      "[ 1125.822937] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <false>, 'finger-present': <true>}, @as [])",
+      "[ 1125.962923] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-match', true)",
+      "[ 1125.963338] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-present': <false>}, @as [])",
+      "[ 1126.044064] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyFingerSelected ('right-index-finger',)",
+      "[ 1126.082877] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <true>}, @as [])",
+      "[ 1126.840679] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <false>, 'finger-present': <true>}, @as [])",
+      "[ 1127.004226] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-match', true)",
+      "[ 1127.004226] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-present': <false>}, @as [])",
+      "[ 1127.075472] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyFingerSelected ('right-index-finger',)",
+      "[ 1127.113335] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <true>}, @as [])",
+      "[ 1127.849491] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <false>, 'finger-present': <true>}, @as [])",
+      "[ 1128.007476] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-match', true)",
+      "[ 1128.007476] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-present': <false>}, @as [])",
+      "[ 1128.085297] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyFingerSelected ('right-index-finger',)",
+      "[ 1128.117253] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <true>}, @as [])",
+      "[ 1128.386093] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <false>, 'finger-present': <true>}, @as [])",
+      "[ 1128.523904] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-no-match', true)",
+      "[ 1128.523904] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-present': <false>}, @as [])",
+      "[ 1128.598285] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyFingerSelected ('right-index-finger',)",
+      "[ 1128.627792] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <true>}, @as [])",
+      "[ 1128.945072] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <false>, 'finger-present': <true>}, @as [])",
+      "[ 1129.098438] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-no-match', true)",
+      "[ 1129.098902] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-present': <false>}, @as [])",
+      "[ 1129.179504] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyFingerSelected ('right-index-finger',)",
+      "[ 1129.213887] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <true>}, @as [])",
+      "[ 1132.140078] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-needed': <false>, 'finger-present': <true>}, @as [])",
+      "[ 1139.739929] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: org.freedesktop.DBus.Properties.PropertiesChanged ('net.reactivated.Fprint.Device', {'finger-present': <false>}, @as [])",
+      "[ 1139.786900] sam-sargo gdbus[8972]: /net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-no-match', true)"
+    ]
+  },
+  "user_clarification": "Returned to the Users page; Settings and the desktop session did not exit.",
+  "source_finding": "GNOME 51.rc.1 enroll_finger calls asynchronous stop_identification immediately followed by EnrollStart; the pending verification can still own the device."
+}

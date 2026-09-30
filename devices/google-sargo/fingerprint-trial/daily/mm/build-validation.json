@@ -1,0 +1,181 @@
+{
+  "status": "image build, independent comparison, enforcing lab native verification, locked daily staging and regular-file boot preview passed",
+  "image": "sha256:094ad9568428bb5351e0ab9d3c03c59ec71db60ed0d79b68ac7f53325d27f861",
+  "kernel_stage": "sha256:19bdb8d526460c22c84d1bc95d1d50ad318386295b9469105a2e2fca07a547a2",
+  "policy_base": {
+    "status": "offline compile and query tests passed; not loaded or runtime-tested",
+    "base_policy_sha256": "10fcd6ab76e143768f677af371805f22c64419af119e9382427a5b1a08f5b197",
+    "base_policy_version": 35,
+    "candidate_sources": {
+      "pocketfed_fpc.te": "6b8ab07d0c6ee9e8c9db04b3661f2b014c09757b449a24dc3695f3610eac4051",
+      "pocketfed_fpc.fc": "66cf7e9f96c7a203bcc0c95d33bf2cb1ca7b0116fda5ee380c6ea7b577219d6e"
+    },
+    "module_pp_sha256": "994cebfad06b908e82bf0ac14fc6d44676204909eb41e0a8e86f920813ecbdef",
+    "merged_policy_sha256": "6f59063fa7abe16dcd3df3903c2071f8cd1903918171482c6b3f86a86d50f7ff",
+    "merged_policy_origin": "external module-store rebuild",
+    "grants": {
+      "pocketfed_fpc_device_t": {
+        "permissions": [
+          "getattr",
+          "ioctl",
+          "open",
+          "read",
+          "write"
+        ],
+        "ioctl_low16": [
+          "0x4600",
+          "0x4601",
+          "0x4602"
+        ]
+      },
+      "pocketfed_fpc_tee_device_t": {
+        "permissions": [
+          "getattr",
+          "ioctl",
+          "open",
+          "read",
+          "write"
+        ],
+        "ioctl_low16": [
+          "0xa400",
+          "0xa401",
+          "0xa402",
+          "0xa403",
+          "0xa405"
+        ]
+      },
+      "pocketfed_fpc_auth_state_t": {
+        "fprintd_file_permissions_all_branches": [
+          "map"
+        ],
+        "credential_data_access_denied": true
+      },
+      "pocketfed_fpc_auth_run_t": {
+        "fprintd_socket_permissions": [
+          "getattr",
+          "write"
+        ],
+        "existing_init_peer_permission_preserved": true,
+        "activation_peer_runtime": "requires supplementary broker-domain policy"
+      }
+    },
+    "positive_contexts": {
+      "/dev/fpc1020": "system_u:object_r:pocketfed_fpc_device_t:s0",
+      "/dev/tee0": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee1": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee2": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee3": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee4": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee5": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee6": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee7": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee8": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee9": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee10": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee11": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee12": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee13": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee14": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/dev/tee15": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/var/lib/pocketfed-fpc-auth": "system_u:object_r:pocketfed_fpc_auth_state_t:s0",
+      "/var/lib/pocketfed-fpc-auth/.lock": "system_u:object_r:pocketfed_fpc_auth_state_t:s0",
+      "/var/lib/pocketfed-fpc-auth/uid-1000.intent": "system_u:object_r:pocketfed_fpc_auth_state_t:s0",
+      "/var/lib/pocketfed-fpc-auth/uid-1000.credential": "system_u:object_r:pocketfed_fpc_auth_state_t:s0",
+      "/run/pocketfed-fpc-auth": "system_u:object_r:pocketfed_fpc_auth_run_t:s0",
+      "/run/pocketfed-fpc-auth/token.sock": "system_u:object_r:pocketfed_fpc_auth_run_t:s0"
+    },
+    "negative_contexts_unchanged": [
+      "/dev/teepriv0",
+      "/dev/teepriv15",
+      "/dev/tee16",
+      "/dev/tee99",
+      "/dev/tee00",
+      "/dev/tee01",
+      "/dev/tee",
+      "/dev/fpc10200",
+      "/dev/fpc1020/child",
+      "/run/pocketfed-fpc-auth/other.sock",
+      "/var/lib/pocketfed-fpc-auth-other/uid-1000.credential",
+      "/usr/bin/pocketfed-fpc-auth"
+    ],
+    "tests": [
+      "module compile/package",
+      "exact complete module declaration/rule/filecon contract",
+      "image binary to CIL and merged binary compile",
+      "exact added types/attributes",
+      "exact fprintd permissions and ioctl sets including disabled branches",
+      "existing udev relabel and QSEE service access preserved",
+      "generic device and runtime-object rules unchanged",
+      "service transitions unchanged",
+      "fprintd private credential access denied including conditional branches",
+      "broker socket inode access and unchanged existing init_t peer permissions",
+      "fprintd remains confined",
+      "exact positive/negative path and inode-class labels"
+    ],
+    "limits": "queries do not establish source neverallow results, kernel policy loading, udev labels or actual hardware access; external module-store build provenance is recorded separately",
+    "audit_inputs": {
+      "packages/fpc-qsee/sensor.c": "33e1877dc88044b5a8dea58e965301ea6441b765fd4ef637e1c1a3abe519c66c",
+      "packages/fpc-qsee/qsee-transport.c": "6c381c0ba09cb86f73709488d531d49873855c333f97b4d39db04c71935cc16c",
+      "packages/fpc-qsee/fpc1020.h": "ee8cd308d9587ee9fc63d81a5b91a6755511efb972f6f9c78a32a5352b2213d0"
+    },
+    "validation_harness_sha256": "d8cb625fc5ce23fa76ac3191997cb0049970ee1f1a60d8c05679131a067dc1e1"
+  },
+  "broker_policy": {
+    "status": "offline compile and boundaries passed; hardware acceptance pending",
+    "base_policy_sha256": "6f59063fa7abe16dcd3df3903c2071f8cd1903918171482c6b3f86a86d50f7ff",
+    "policy_sha256": "0293c1aac00619c3640347ec8091a386eddb7eaac4ba9d45858a5284cf2fa29c",
+    "module_sha256": "1c9703327b4a4ea0ef06a710a8ff457f15294c34ace0506845ec499142d4f143",
+    "sources": {
+      "pocketfed_fpc_broker.te": "bc31b6884d9bc5a582fbf2fec14cc06019385315c1566dcdedb4adcddf289346",
+      "pocketfed_fpc_broker.fc": "6c46092f5bce9130f4489db533d76f3b0a7aea33b6b7fadc09c1831ff73b0b3b",
+      "prepare-policy.py": "3ef623edb83f2362a523552cd17a893ae6442dfced7c90420c7db2c1db0f8209"
+    },
+    "existing_policy_preserved_outside_new_types": true,
+    "broker_domain_attributes": [
+      "domain"
+    ],
+    "fprintd_still_confined": true,
+    "fprintd_credential_access_denied": true,
+    "generic_service_peer_access_unchanged": true,
+    "public_tee_ioctls": [
+      "0xa400",
+      "0xa401",
+      "0xa402",
+      "0xa403",
+      "0xa405"
+    ],
+    "negative_checks": [
+      "private/generic TEE and RPMB devices",
+      "sensor access",
+      "generic filesystem writes",
+      "subprocess execution",
+      "network socket creation",
+      "unrelated executable/path labels"
+    ],
+    "host_policy_loaded": false
+  },
+  "link_check": "GNOME Settings, /usr/libexec/phosh, broker and PAM worker resolve all dynamic symbols; GNOME --version reports 51.rc.1",
+  "gnome_tests": "not executed: Fedora spec has no %check and RPM cleanup removed build metadata before post-build test attempt",
+  "image_lint": {
+    "passed": 10,
+    "skipped": 1,
+    "warnings": [
+      "composefs disabled",
+      "runtime-directory contents",
+      "DNF log files",
+      "var entries without tmpfiles declarations"
+    ]
+  },
+  "logs": {
+    "kernel-build.log": "a64d0a16695f6752ec6ff1b15a0efb03654435ed8178087be3556e3ff57d48cd",
+    "image-build.log": "329e902410e8bc469d2c6547f4748db42eca68636b46c8b9a2703d9ae3c384d8",
+    "gcc-rpmbuild.log": "a99168c4174b860cf0cbefeeaecf3654bb44f1a32b35bfe4b4e1362e6b391806",
+    "gcc-tests.log": "3ffc92ddc5e3fd094aa65bacfa257cd6556e8480a77a99174a6236b559d70f59",
+    "link-check.log": "8a66c706fb6bfacdf673dfee70114d9bdb80e309e73caed5554bc8c8caa95a8f",
+    "link-check-v2.log": "6420740d8f7d7f9c749967708cef451953add48f1cfd20868656fe1487048d96"
+  },
+  "candidate_lab_boot": "../../lab/mm-native-auth-result-20260912.json",
+  "staged_checksum": "d639fe55e1cf11b2756f367fef1dad99ab7e2705c19b0b72f73e80c265d16b89",
+  "daily_rebooted": false,
+  "daily_credential_recovery_retried": false
+}

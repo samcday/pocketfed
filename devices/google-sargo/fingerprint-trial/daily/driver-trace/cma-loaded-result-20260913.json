@@ -1,0 +1,22 @@
+{
+  "boot_id": "958f6ac0-f6a3-4b7e-815d-875c2a9a948d",
+  "serial": "994AY18RSD",
+  "heap": "/dev/dma_heap/default_cma_region",
+  "planned_allocations": 1000,
+  "bytes_per_allocation": 8192,
+  "completed": 1000,
+  "tee_calls_by_allocator": false,
+  "sensor_opened": false,
+  "kernel_tracing": false,
+  "coherent_mapping_tested": false,
+  "firmware_loads": true,
+  "sensor_commands_issued": false,
+  "loaded_units": [
+    "qsee-supplicant.service",
+    "qsee-shared-loader@cmnlib64.service",
+    "qsee-app-loader@fpctzappfingerprint.service"
+  ],
+  "clean_shutdown": true,
+  "elapsed_seconds": 7.368828989000008,
+  "passed": true
+}

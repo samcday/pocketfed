@@ -1,0 +1,10 @@
+{
+  "copr_build": 10973752,
+  "rpm_sha256": "7c0f69491f79e6706a4195fa77de3c576e882a76d324512c001c99c03e2988e9",
+  "pam_path": "/etc/pam.d/phosh",
+  "pam_bytes": 252,
+  "pam_sha256": "695d627f3d54bf6010b001bef211792f536437c34b01d60833862c4a9509d5b6",
+  "matches_reviewed_source": true,
+  "rpm_signature_evidence": "/tmp/sargo-fingerprint-image/phosh-1.5-signatures.txt",
+  "device_authentication_tested": false
+}

@@ -1,0 +1,118 @@
+{
+  "status": "offline compile and query tests passed; not loaded or runtime-tested",
+  "base_policy_sha256": "ca98dfcea858d4974bdaa1e10e54e1d70264a28c0fb79c03e339565360384973",
+  "base_policy_version": 35,
+  "candidate_sources": {
+    "pocketfed_fpc.te": "14b98b0fc22f676f0039a7e574ea0a94174bf236f1e56a10548f73240dde0dad",
+    "pocketfed_fpc.fc": "66cf7e9f96c7a203bcc0c95d33bf2cb1ca7b0116fda5ee380c6ea7b577219d6e"
+  },
+  "module_pp_sha256": "994cebfad06b908e82bf0ac14fc6d44676204909eb41e0a8e86f920813ecbdef",
+  "merged_policy_sha256": "2a6013d4c22133f1ea730df92bcf4c739b5ac49e43682007cce59ac39f99913a",
+  "merged_policy_origin": "external module-store rebuild",
+  "grants": {
+    "pocketfed_fpc_device_t": {
+      "permissions": [
+        "getattr",
+        "ioctl",
+        "open",
+        "read",
+        "write"
+      ],
+      "ioctl_low16": [
+        "0x4600",
+        "0x4601",
+        "0x4602"
+      ]
+    },
+    "pocketfed_fpc_tee_device_t": {
+      "permissions": [
+        "getattr",
+        "ioctl",
+        "open",
+        "read",
+        "write"
+      ],
+      "ioctl_low16": [
+        "0xa400",
+        "0xa401",
+        "0xa402",
+        "0xa403",
+        "0xa405"
+      ]
+    },
+    "pocketfed_fpc_auth_state_t": {
+      "fprintd_file_permissions_all_branches": [
+        "map"
+      ],
+      "credential_data_access_denied": true
+    },
+    "pocketfed_fpc_auth_run_t": {
+      "fprintd_socket_permissions": [
+        "getattr",
+        "write"
+      ],
+      "activation_peer": "init_t",
+      "peer_permissions_unchanged": true
+    }
+  },
+  "positive_contexts": {
+    "/dev/fpc1020": "system_u:object_r:pocketfed_fpc_device_t:s0",
+    "/dev/tee0": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee1": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee2": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee3": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee4": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee5": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee6": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee7": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee8": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee9": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee10": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee11": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee12": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee13": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee14": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee15": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/var/lib/pocketfed-fpc-auth": "system_u:object_r:pocketfed_fpc_auth_state_t:s0",
+    "/var/lib/pocketfed-fpc-auth/.lock": "system_u:object_r:pocketfed_fpc_auth_state_t:s0",
+    "/var/lib/pocketfed-fpc-auth/uid-1000.intent": "system_u:object_r:pocketfed_fpc_auth_state_t:s0",
+    "/var/lib/pocketfed-fpc-auth/uid-1000.credential": "system_u:object_r:pocketfed_fpc_auth_state_t:s0",
+    "/run/pocketfed-fpc-auth": "system_u:object_r:pocketfed_fpc_auth_run_t:s0",
+    "/run/pocketfed-fpc-auth/token.sock": "system_u:object_r:pocketfed_fpc_auth_run_t:s0"
+  },
+  "negative_contexts_unchanged": [
+    "/dev/teepriv0",
+    "/dev/teepriv15",
+    "/dev/tee16",
+    "/dev/tee99",
+    "/dev/tee00",
+    "/dev/tee01",
+    "/dev/tee",
+    "/dev/fpc10200",
+    "/dev/fpc1020/child",
+    "/run/pocketfed-fpc-auth/other.sock",
+    "/var/lib/pocketfed-fpc-auth-other/uid-1000.credential",
+    "/usr/bin/pocketfed-fpc-auth"
+  ],
+  "tests": [
+    "module compile/package",
+    "exact complete module declaration/rule/filecon contract",
+    "image binary to CIL and merged binary compile",
+    "exact added types/attributes",
+    "exact fprintd permissions and ioctl sets including disabled branches",
+    "existing udev relabel and QSEE service access preserved",
+    "generic device and runtime-object rules unchanged",
+    "service transitions unchanged",
+    "fprintd private credential access denied including conditional branches",
+    "broker socket access and unchanged PID1 activation peer permissions",
+    "fprintd remains confined",
+    "exact positive/negative path and inode-class labels"
+  ],
+  "limits": "queries do not establish source neverallow results, kernel policy loading, udev labels or actual hardware access; external module-store build provenance is recorded separately",
+  "audit_inputs": {
+    "packages/fpc-qsee/sensor.c": "33e1877dc88044b5a8dea58e965301ea6441b765fd4ef637e1c1a3abe519c66c",
+    "packages/fpc-qsee/qsee-transport.c": "6c381c0ba09cb86f73709488d531d49873855c333f97b4d39db04c71935cc16c",
+    "packages/fpc-qsee/fpc1020.h": "ee8cd308d9587ee9fc63d81a5b91a6755511efb972f6f9c78a32a5352b2213d0"
+  },
+  "validation_harness_sha256": "5ae2bc78dc8f6fcfe4ed076e8834005fc0ce00ea9cf173f7b51c153c28306114"
+}

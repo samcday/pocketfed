@@ -1,0 +1,85 @@
+{
+  "date": "2026-09-11",
+  "status": "ARM64 COPR succeeded; all downloaded RPM signatures verified",
+  "srpm": {
+    "path": "/tmp/fpc-auth-backend-srpm/SRPMS/pocketfed-fpc-auth-0.1.0-0.2.pocketfed.fc46.src.rpm",
+    "bytes": 56345,
+    "sha256": "3d1e357701922000958cdc65d9954e23e318668180ca994b188ee0c753c3d9da"
+  },
+  "source_sha256": {
+    "auth-broker.c": "d0723d4faad022e01fe47e826bc9b166716ac3b299e0491021322d90647ee5f4",
+    "auth-store.c": "99f34c30b530907a0fdc747524a77c9473ea349f6aa23f944eb85179cf463759",
+    "auth-store.h": "c458b5c7bd174879dcc846494b0bfcace6a128236b8596b4fcd92d4d966e1a3a",
+    "test-auth-store.c": "e5f5d9385f5b6f3c2321b839e05192b63441d82c3812cf3cd2117e0b5684deb7",
+    "Makefile": "af87310e02ca4b0669fbdac7a7a623adff6b9437a379749baec3fb70257e9118",
+    "auth-backend.c": "261616e353f07d58299bc7f1ba7664614591fc4ea19328ab145ef11b4972d7fa",
+    "auth-backend.h": "ef430c2d834057dc982262e8d082f66f46cbe9cf1b1345ddc5d2e4b8b0f3124a",
+    "test-auth-backend.c": "d413068d8d272ba21ef707cd69d598921f1dfbd003c2c445988453608f07f98e",
+    "pocketfed-fpc-provision@.service": "b512974bbffba761e5b1f2a49519badcb820b6841a3ba23ac910613414b0e6d3",
+    "pocketfed-fpc-auth.socket": "86c119a57bd60e873ec1caaf9b56377d042ba0396713cb3d46be3a83af28fe55",
+    "pocketfed-fpc-auth.service": "ad5e1f156d4764896ea6e3b9007368d2659d8a0b2d9b93ee6e1ebd696ad192fe",
+    "COPYING": "5df07007198989c622f5d41de8d703e7bef3d0e79d62e24332ee739a452af62a",
+    "README.md": "2d84295088abe01d282303a15d56f58dcf74f445672bdf9290558ed13acac9a4",
+    "auth-broker.h": "696121bf8306c74e83c92bab166b1dc4610c6764f4903fb3ddc226f754e73ab7",
+    "gatekeeper-protocol.c": "050aa3b46016588b3b0884651057f200391dec3bf8ab3a8d49f42b2074ccf69f",
+    "gatekeeper-protocol.h": "ecad7859725b90a0c91cec09fa4fb115c13f11ee3aab1df59c34c50e653c12cf",
+    "qsee-transport.c": "6c381c0ba09cb86f73709488d531d49873855c333f97b4d39db04c71935cc16c",
+    "qsee-transport.h": "37d95818ea237019e9415e737b1f300a606b683728c010354ba69610bd048366",
+    "pocketfed-fpc-auth.spec": "00f1b658a6060f6d00bedbff229c38566a9eafc35bff9dcbe10b6675f1ec5b72"
+  },
+  "validation": {
+    "host": "broker/store integration and real userspace TEE adapter tests passed",
+    "arm64": "both suites and production --help passed with -O2 -flto -fsanitize=undefined -fsanitize-undefined-trap-on-error in a networkless container",
+    "boundaries": "synthetic credentials and TEE ioctl replies; no hardware or real HAT issuance",
+    "unit_condition": "ConditionKernelVersion parsed and evaluated; signed RPM units subsequently passed systemd-analyze verify in a disposable ARM64 image",
+    "signed_rpm_unit_and_link_checks": {
+      "image_id": "83cc5287c9ae65449e51d5f45c5e495ddca48dba45416e4f1f85d49afe6535a0",
+      "units": [
+        "pocketfed-fpc-auth.service",
+        "pocketfed-fpc-auth.socket",
+        "pocketfed-fpc-provision@1000.service"
+      ],
+      "systemd_analyze_verify": "passed",
+      "production_help": "passed",
+      "ldd_relocations": "no missing libraries or undefined symbols",
+      "environment": "disposable local ARM64 container; no services started"
+    }
+  },
+  "device_changed": false,
+  "image_updated": true,
+  "copr": {
+    "build_id": 10973881,
+    "url": "https://copr.fedorainfracloud.org/coprs/build/10973881",
+    "project": "samcday/pocketfed:custom:fingerprint-trial",
+    "chroot": "fedora-rawhide-aarch64",
+    "state": "succeeded"
+  },
+  "rpms": [
+    {
+      "filename": "pocketfed-fpc-auth-0.1.0-0.2.pocketfed.fc46.aarch64.rpm",
+      "bytes": 36811,
+      "sha256": "4e6d9c43c9a087fcf63ab733acc9c766f8dbdee106120181b69f80db1367ec87",
+      "signature_verification": "/tmp/fpc-auth-backend-rpms/fedora-rawhide-aarch64/pocketfed-fpc-auth-0.1.0-0.2.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "pocketfed-fpc-auth-0.1.0-0.2.pocketfed.fc46.src.rpm",
+      "bytes": 55896,
+      "sha256": "a075df8d9809e45fa8cf20a1f2f9ebd4d3b4bbf2ad9581de01cac4bd98437759",
+      "signature_verification": "/tmp/fpc-auth-backend-rpms/fedora-rawhide-aarch64/pocketfed-fpc-auth-0.1.0-0.2.pocketfed.fc46.src.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "pocketfed-fpc-auth-debuginfo-0.1.0-0.2.pocketfed.fc46.aarch64.rpm",
+      "bytes": 48132,
+      "sha256": "44915304727e88aca5773ed600b9f94e351b352f6da824f9b5302425f446c29c",
+      "signature_verification": "/tmp/fpc-auth-backend-rpms/fedora-rawhide-aarch64/pocketfed-fpc-auth-debuginfo-0.1.0-0.2.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "pocketfed-fpc-auth-debugsource-0.1.0-0.2.pocketfed.fc46.aarch64.rpm",
+      "bytes": 21524,
+      "sha256": "8529fcdc0341eb2221e85b467a35e641e1246ddcd1dc59293d62b84fb54ec16f",
+      "signature_verification": "/tmp/fpc-auth-backend-rpms/fedora-rawhide-aarch64/pocketfed-fpc-auth-debugsource-0.1.0-0.2.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    }
+  ],
+  "image_id": "671197f9f3bf539fc4e1fd138843a8739df3958cabcacd0e5f9ca6a3baaa9996",
+  "image_evidence": "devices/google-sargo/fingerprint-trial/image/validation/v3-result.json"
+}

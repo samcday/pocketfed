@@ -1,0 +1,71 @@
+{
+  "status": "prepared from exact .11 config/symbols; not installed or executed",
+  "kernel": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+  "config_sha256": "0c69cf4d8c7d434bf3e4aff02669d4befcf681d866e786c71f6b0b031905a631",
+  "System_map_sha256": "50ee86231c4dba1aeb70f7aa6c0bc3b7fbdbfd6329afbdf648921371f3dd4048",
+  "available_config": [
+    "CONFIG_KPROBES=y",
+    "CONFIG_KPROBE_EVENTS=y",
+    "CONFIG_FTRACE=y",
+    "CONFIG_FUNCTION_TRACER=y",
+    "CONFIG_DYNAMIC_FTRACE=y"
+  ],
+  "available_symbols": [
+    "qcom_scm_qseecom_app_send",
+    "__scm_smc_call",
+    "__scm_smc_do_quirk"
+  ],
+  "intended_events": [
+    "p:pocketfed_fpc/qcom_scm_qseecom_app_send_enter qcom_scm_qseecom_app_send",
+    "p:pocketfed_fpc/scm_smc_call_enter __scm_smc_call",
+    "p:pocketfed_fpc/scm_smc_do_quirk_enter __scm_smc_do_quirk",
+    "r:pocketfed_fpc/qcom_scm_qseecom_app_send_exit qcom_scm_qseecom_app_send status=$retval:s32",
+    "r:pocketfed_fpc/scm_smc_call_exit __scm_smc_call status=$retval:s32",
+    "r:pocketfed_fpc/scm_smc_do_quirk_exit __scm_smc_do_quirk"
+  ],
+  "reason": "app_send follows kernel staging allocation/copy; scm_call follows QSEE serialization; quirk is inside the SCM execution path. Entry/return ordering separates the last userspace ioctl marker into narrower kernel boundaries.",
+  "scope": "Dedicated trace instance, filter to current fprintd threads with thread inheritance before Claim; no argument buffers, registers or memory fetches. Forward trace_pipe to UART before another no-capture attempt.",
+  "gates": [
+    "Recover daily phone and restore scan pause before opening sensor",
+    "Verify live kernel, tracefs availability, probe symbols and absence of name collisions",
+    "Confirm fprintd mapped traced library and no other user client holds sensor",
+    "Confirm trace events reach UART before a sensor invocation"
+  ],
+  "limitations": [
+    "Kprobe availability in config is not proof that a particular symbol can be probed live.",
+    "Tracing changes timing and cannot itself establish a fix.",
+    "The void quirk helper has no return-value fetch; no SMC registers or payloads are collected.",
+    "Do not clear global tracing or another task trace instance."
+  ],
+  "live_availability_check": {
+    "boot_id": "0ac24861-f5de-4f09-8128-fd24c2f80070",
+    "kernel": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "tracefs_available": true,
+    "symbols_found": [
+      "__scm_smc_call",
+      "__scm_smc_do_quirk",
+      "qcom_scm_qseecom_app_send"
+    ],
+    "diagnostic_instance_exists": false,
+    "probes_installed": false,
+    "sensor_opened": false,
+    "evidence": "out/fingerprint-daily-recovery-20260912/live-verification.json"
+  },
+  "lab_trace_validation": {
+    "result": "Initialization and deep sleep returned across all three kernel boundaries on test-sargo",
+    "evidence": "../../lab/kernel-trace/live-result.json",
+    "durations_ms": [
+      245.278,
+      14.032
+    ],
+    "daily_failure_reproduced": false,
+    "cpu_placement": {
+      "init_entry": 5,
+      "init_return": 7,
+      "deep_sleep": 6,
+      "daily_stalled_worker": 1
+    },
+    "next_comparison": "Same initialization probe pinned to CPU1, in a separately coordinated test-sargo USB-root run; CPU causality is unproven",
+    "global_host_slot": "Returned to A5 after verified fastboot recovery"
+  }
+}

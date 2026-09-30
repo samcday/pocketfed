@@ -1,0 +1,382 @@
+{
+  "utc": "2026-09-10T23:37:32.827629+00:00",
+  "uname": {
+    "exit": 0,
+    "stdout": "7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\n",
+    "stderr": ""
+  },
+  "ostree_status": {
+    "transaction": null,
+    "deployments": [
+      {
+        "id": "pocketfed-ae313ebc772138e011a4a0a42b0f2d4247769433f4a1208b1824a062a78f7cfa.0",
+        "checksum": "ae313ebc772138e011a4a0a42b0f2d4247769433f4a1208b1824a062a78f7cfa",
+        "serial": 0,
+        "osname": "pocketfed",
+        "booted": true,
+        "staged": false,
+        "pinned": false,
+        "unlocked": "development",
+        "base-checksum": "e4d02dcb96e9c06f868b578aa96410f1a2de2551a5445efcfb02b7d42ca6670c",
+        "container-image-reference": "ostree-unverified-registry:ghcr.io/samcday/sam-sargo@sha256:b4864c59ae9679bc7feb87907c2e49a81abc97c48f47e70f32c080d356857505",
+        "container-image-reference-digest": "sha256:b4864c59ae9679bc7feb87907c2e49a81abc97c48f47e70f32c080d356857505",
+        "packages": [
+          "tailscale"
+        ],
+        "requested-packages": [
+          "tailscale"
+        ],
+        "requested-local-packages": [
+          "feedbackd-device-themes-0.8.9-1.fc46.noarch"
+        ],
+        "requested-local-fileoverride-packages": [],
+        "requested-base-local-replacements": [
+          "81voltd-1.2.0-1.1.pocketfed.fc46.aarch64",
+          "ModemManager-1.24.2-5.1.pocketfed.fc46.aarch64",
+          "ModemManager-glib-1.24.2-5.1.pocketfed.fc46.aarch64",
+          "gtk4-4.23.4-1.1.pocketfed.fc46.aarch64"
+        ],
+        "requested-base-removals": [],
+        "base-local-replacements": [],
+        "base-remote-replacements": {},
+        "base-removals": [],
+        "regenerate-initramfs": true,
+        "initramfs-args": [
+          "--hostonly",
+          "--hostonly-mode=strict",
+          "--no-hostonly-cmdline",
+          "--no-hostonly-default-device"
+        ],
+        "initramfs-etc": []
+      },
+      {
+        "id": "pocketfed-0707638198ae6b8261db4eca20aa2f6ab650999dc7df8c10fa12daeba2680961.0",
+        "checksum": "0707638198ae6b8261db4eca20aa2f6ab650999dc7df8c10fa12daeba2680961",
+        "serial": 0,
+        "osname": "pocketfed",
+        "booted": false,
+        "staged": false,
+        "pinned": false,
+        "unlocked": "none",
+        "base-checksum": "e4bc76e04d9b85131ab3fb73ac9737fab743e982b8ed99a9922eafb095928d03",
+        "container-image-reference": "ostree-unverified-registry:ghcr.io/samcday/sam-sargo:rawhide",
+        "container-image-reference-digest": "sha256:ecd26df3b5a335ce7b105c0679da20b208327cae4d415213c022539350cd9cc6",
+        "packages": [
+          "tailscale"
+        ],
+        "requested-packages": [
+          "tailscale"
+        ],
+        "requested-local-packages": [
+          "feedbackd-device-themes-0.8.9-1.fc46.noarch"
+        ],
+        "requested-local-fileoverride-packages": [],
+        "requested-base-local-replacements": [
+          "81voltd-1.2.0-1.1.pocketfed.fc46.aarch64",
+          "ModemManager-1.24.2-5.1.pocketfed.fc46.aarch64",
+          "ModemManager-glib-1.24.2-5.1.pocketfed.fc46.aarch64",
+          "gtk4-4.23.4-1.1.pocketfed.fc46.aarch64"
+        ],
+        "requested-base-removals": [],
+        "base-local-replacements": [],
+        "base-remote-replacements": {},
+        "base-removals": [],
+        "regenerate-initramfs": true,
+        "initramfs-args": [
+          "--hostonly",
+          "--hostonly-mode=strict",
+          "--no-hostonly-cmdline",
+          "--no-hostonly-default-device"
+        ],
+        "initramfs-etc": []
+      },
+      {
+        "id": "pocketfed-b2b5f35b40e911e50cc080d8c4d157cf892235fe2351036005d8d053d57ca78f.0",
+        "checksum": "b2b5f35b40e911e50cc080d8c4d157cf892235fe2351036005d8d053d57ca78f",
+        "serial": 0,
+        "osname": "pocketfed",
+        "booted": false,
+        "staged": false,
+        "pinned": true,
+        "unlocked": "none",
+        "base-checksum": "e3f38158a3df5c10e561e952ace67993490ff83e4d9a58e7fa97ac75638d67f5",
+        "container-image-reference": "ostree-unverified-registry:ghcr.io/samcday/sam-sargo:rawhide",
+        "container-image-reference-digest": "sha256:c452c625b0c71d7b5b08a0f7356f956c8640edc5fe11a81f1a868bf09626ce71",
+        "packages": [
+          "tailscale"
+        ],
+        "requested-packages": [
+          "tailscale"
+        ],
+        "requested-local-packages": [
+          "feedbackd-device-themes-0.8.9-1.fc46.noarch"
+        ],
+        "requested-local-fileoverride-packages": [],
+        "requested-base-local-replacements": [
+          "81voltd-1.2.0-1.1.pocketfed.fc46.aarch64",
+          "ModemManager-1.24.2-5.1.pocketfed.fc46.aarch64",
+          "ModemManager-glib-1.24.2-5.1.pocketfed.fc46.aarch64",
+          "gtk4-4.23.4-1.1.pocketfed.fc46.aarch64"
+        ],
+        "requested-base-removals": [],
+        "base-local-replacements": [],
+        "base-remote-replacements": {},
+        "base-removals": [],
+        "regenerate-initramfs": true,
+        "initramfs-args": [
+          "--hostonly",
+          "--hostonly-mode=strict",
+          "--no-hostonly-cmdline",
+          "--no-hostonly-default-device"
+        ],
+        "initramfs-etc": []
+      },
+      {
+        "id": "pocketfed-5ff2bf7e2065201e6e5fc1aa5e1f2fe23c693e0dfb7b7636fd2c928fe2339248.0",
+        "checksum": "5ff2bf7e2065201e6e5fc1aa5e1f2fe23c693e0dfb7b7636fd2c928fe2339248",
+        "serial": 0,
+        "osname": "pocketfed",
+        "booted": false,
+        "staged": false,
+        "pinned": true,
+        "unlocked": "none",
+        "base-checksum": "922a380d621b45feab5b453f334b9364eed60cc38f29ad6e2a78dc22e643263b",
+        "container-image-reference": "ostree-unverified-registry:ghcr.io/samcday/sam-sargo:rawhide",
+        "container-image-reference-digest": "sha256:2f66b81dc1bc344aab4d33d1249668fd90d4b0ea0dfd741616cdd19268665e1a",
+        "packages": [
+          "tailscale"
+        ],
+        "requested-packages": [
+          "tailscale"
+        ],
+        "requested-local-packages": [
+          "android-patricia-dictionaries-en-US-54-0.1.20260907git55e6d1c.fc46.noarch",
+          "feedbackd-device-themes-0.8.9-1.fc46.noarch",
+          "verbisage-0.1.0-1.1.pocketfed.fc46.aarch64"
+        ],
+        "requested-local-fileoverride-packages": [],
+        "requested-base-local-replacements": [
+          "81voltd-1.2.0-1.1.pocketfed.fc46.aarch64",
+          "ModemManager-1.24.2-5.1.pocketfed.fc46.aarch64",
+          "ModemManager-glib-1.24.2-5.1.pocketfed.fc46.aarch64",
+          "gtk4-4.23.4-1.1.pocketfed.fc46.aarch64",
+          "stevia-0.57.0-1.1.pocketfed.fc46.aarch64"
+        ],
+        "requested-base-removals": [],
+        "base-local-replacements": [
+          [
+            [
+              "stevia-0.57.0-1.1.pocketfed.fc46.aarch64",
+              "stevia",
+              0,
+              "0.57.0",
+              "1.1.pocketfed.fc46",
+              "aarch64"
+            ],
+            [
+              "stevia-0.57.0-1.fc46.aarch64",
+              "stevia",
+              0,
+              "0.57.0",
+              "1.fc46",
+              "aarch64"
+            ]
+          ]
+        ],
+        "base-remote-replacements": {},
+        "base-removals": [],
+        "regenerate-initramfs": true,
+        "initramfs-args": [
+          "--hostonly",
+          "--hostonly-mode=strict",
+          "--no-hostonly-cmdline",
+          "--no-hostonly-default-device"
+        ],
+        "initramfs-etc": []
+      },
+      {
+        "id": "pocketfed-16b4d13b8c308cb622dc1515adec4412df9c54cf82c7a7db262aa7e307a2411d.0",
+        "checksum": "16b4d13b8c308cb622dc1515adec4412df9c54cf82c7a7db262aa7e307a2411d",
+        "serial": 0,
+        "osname": "pocketfed",
+        "booted": false,
+        "staged": false,
+        "pinned": true,
+        "unlocked": "none",
+        "base-checksum": "80de48d367834913664c1d16db3e3807a9b54fe744783b510c3639bd753af9cd",
+        "container-image-reference": "ostree-unverified-registry:ghcr.io/samcday/sam-sargo:rawhide",
+        "container-image-reference-digest": "sha256:2fe86f3b5b8c83690ca604d9cb7c4768c673ac09c3f7ce16dd88fe58a8d220f1",
+        "packages": [
+          "tailscale"
+        ],
+        "requested-packages": [
+          "tailscale"
+        ],
+        "requested-local-packages": [
+          "feedbackd-device-themes-0.8.9-1.fc46.noarch"
+        ],
+        "requested-local-fileoverride-packages": [],
+        "requested-base-local-replacements": [
+          "81voltd-1.2.0-1.1.pocketfed.fc46.aarch64",
+          "ModemManager-1.24.2-5.1.pocketfed.fc46.aarch64",
+          "ModemManager-glib-1.24.2-5.1.pocketfed.fc46.aarch64",
+          "gtk4-4.23.4-1.1.pocketfed.fc46.aarch64"
+        ],
+        "requested-base-removals": [],
+        "base-local-replacements": [],
+        "base-remote-replacements": {},
+        "base-removals": [],
+        "regenerate-initramfs": true,
+        "initramfs-args": [
+          "--hostonly",
+          "--hostonly-mode=strict",
+          "--no-hostonly-cmdline",
+          "--no-hostonly-default-device"
+        ],
+        "initramfs-etc": []
+      }
+    ]
+  },
+  "admin_status": {
+    "exit": 0,
+    "stdout": "* pocketfed ae313ebc772138e011a4a0a42b0f2d4247769433f4a1208b1824a062a78f7cfa.0\n    Unlocked: development\n    origin: <unknown origin type>\n  pocketfed 0707638198ae6b8261db4eca20aa2f6ab650999dc7df8c10fa12daeba2680961.0 (rollback)\n    origin: <unknown origin type>\n  pocketfed b2b5f35b40e911e50cc080d8c4d157cf892235fe2351036005d8d053d57ca78f.0\n    Pinned: yes\n    origin: <unknown origin type>\n  pocketfed 5ff2bf7e2065201e6e5fc1aa5e1f2fe23c693e0dfb7b7636fd2c928fe2339248.0\n    Pinned: yes\n    origin: <unknown origin type>\n  pocketfed 16b4d13b8c308cb622dc1515adec4412df9c54cf82c7a7db262aa7e307a2411d.0\n    Pinned: yes\n    origin: <unknown origin type>\n",
+    "stderr": ""
+  },
+  "bootc_status": {
+    "exit": 0,
+    "stdout": {
+      "apiVersion": "org.containers.bootc/v1",
+      "kind": "BootcHost",
+      "metadata": {
+        "name": "host"
+      },
+      "spec": {
+        "bootOrder": "default",
+        "image": null
+      },
+      "status": {
+        "booted": {
+          "cachedUpdate": null,
+          "composefs": null,
+          "downloadOnly": false,
+          "image": null,
+          "incompatible": true,
+          "ostree": {
+            "checksum": "ae313ebc772138e011a4a0a42b0f2d4247769433f4a1208b1824a062a78f7cfa",
+            "deploySerial": 0,
+            "stateroot": "pocketfed"
+          },
+          "pinned": false,
+          "softRebootCapable": true,
+          "store": "ostreeContainer"
+        },
+        "otherDeployments": [
+          {
+            "cachedUpdate": null,
+            "composefs": null,
+            "downloadOnly": false,
+            "image": null,
+            "incompatible": true,
+            "ostree": {
+              "checksum": "b2b5f35b40e911e50cc080d8c4d157cf892235fe2351036005d8d053d57ca78f",
+              "deploySerial": 0,
+              "stateroot": "pocketfed"
+            },
+            "pinned": true,
+            "softRebootCapable": false,
+            "store": "ostreeContainer"
+          },
+          {
+            "cachedUpdate": null,
+            "composefs": null,
+            "downloadOnly": false,
+            "image": null,
+            "incompatible": true,
+            "ostree": {
+              "checksum": "5ff2bf7e2065201e6e5fc1aa5e1f2fe23c693e0dfb7b7636fd2c928fe2339248",
+              "deploySerial": 0,
+              "stateroot": "pocketfed"
+            },
+            "pinned": true,
+            "softRebootCapable": false,
+            "store": "ostreeContainer"
+          },
+          {
+            "cachedUpdate": null,
+            "composefs": null,
+            "downloadOnly": false,
+            "image": null,
+            "incompatible": true,
+            "ostree": {
+              "checksum": "16b4d13b8c308cb622dc1515adec4412df9c54cf82c7a7db262aa7e307a2411d",
+              "deploySerial": 0,
+              "stateroot": "pocketfed"
+            },
+            "pinned": true,
+            "softRebootCapable": false,
+            "store": "ostreeContainer"
+          }
+        ],
+        "readOnly": false,
+        "rollback": {
+          "cachedUpdate": null,
+          "composefs": null,
+          "downloadOnly": false,
+          "image": null,
+          "incompatible": true,
+          "ostree": {
+            "checksum": "0707638198ae6b8261db4eca20aa2f6ab650999dc7df8c10fa12daeba2680961",
+            "deploySerial": 0,
+            "stateroot": "pocketfed"
+          },
+          "pinned": false,
+          "softRebootCapable": false,
+          "store": "ostreeContainer"
+        },
+        "rollbackQueued": false,
+        "staged": null,
+        "type": null,
+        "usrOverlay": {
+          "accessMode": "readWrite",
+          "persistence": "transient"
+        }
+      }
+    },
+    "stderr": ""
+  },
+  "kernel_packages": {
+    "exit": 0,
+    "stdout": "kernel-core\t7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\nkernel-modules-core\t7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\nkernel-modules\t7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\nkernel\t7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\n",
+    "stderr": ""
+  },
+  "boot_mount": {
+    "exit": 0,
+    "stdout": "{\n   \"filesystems\": [\n      {\n         \"target\": \"/boot\",\n         \"source\": \"/dev/mmcblk0p72[/boot]\",\n         \"fstype\": \"ext4\",\n         \"options\": \"ro,relatime,seclabel\"\n      }\n   ]\n}\n",
+    "stderr": ""
+  },
+  "slot": {
+    "exit": 0,
+    "stdout": "_b\n",
+    "stderr": ""
+  },
+  "cmdline": "androidboot.bootdevice=7c4000.sdhci androidboot.baseband=sdm androidboot.keymaster=1 androidboot.force_normal_boot=1 androidboot.serialno=994AY18RSD androidboot.slot_suffix=_b androidboot.slot_retry_count=0 androidboot.slot_successful=yes androidboot.hardware.platform=sdm670 androidboot.hardware=sargo androidboot.revision=MP1.0 androidboot.bootloader=b4s4-0.4-8048689 androidboot.hardware.sku=G020F androidboot.hardware.radio.subtype=1 androidboot.hardware.dsds=0 androidboot.secure_boot=PRODUCTION androidboot.cdt_hwid=0x05042801 androidboot.hardware.majorid=0x04 androidboot.dtb_idx=0 androidboot.bootreason=reboot,longkey,power,pm0 androidboot.hardware.ddr=4GB,Hynix,LPDDR4X androidboot.ddr_info=Hynix androidboot.ddr_size=4GB androidboot.hardware.emmc=64GB,SKHynix androidboot.cid=00000000 androidboot.boottime=0BLE:504,1BLL:62,1BLE:445,2BLL:125,2BLE:2560,SW:10024,KL:0,KD:0,ODT:0,AVB:326,AFTL:0 androidboot.ramdump=disabled androidboot.blockchain=disabled androidboot.hardware.pcbcfg=SPPR androidboot.hardware.devcfg=S4RW androidboot.vbmeta.device=PARTUUID=3d07604d-bfa6-4a59-acc6-408ce6abf078 androidboot.vbmeta.avb_version=1.1 androidboot.vbmeta.device_state=unlocked androidboot.vbmeta.hash_alg=sha256 androidboot.vbmeta.size=4160 androidboot.vbmeta.digest=4d4ee7790367a25a451e83590d88e4572235c0a595f85366d98126e52bdf7841 androidboot.veritymode=enforcing androidboot.verifiedbootstate=orange androidboot.aftlstate=8 init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.1/pocketfed/cdb039d31fb2a142ca6e8693ed0af90310461ce2dc849bf0a4203778a9b8f681/0\n",
+  "osrelease": "NAME=\"Fedora Linux\"\nVERSION=\"46 (Rawhide Prerelease)\"\nRELEASE_TYPE=development\nID=fedora\nVERSION_ID=46\nVERSION_CODENAME=\"\"\nPRETTY_NAME=\"Fedora Linux 46 (Rawhide Prerelease)\"\nANSI_COLOR=\"0;38;2;60;110;180\"\nLOGO=fedora-logo-icon\nCPE_NAME=\"cpe:/o:fedoraproject:fedora:46\"\nDEFAULT_HOSTNAME=\"fedora\"\nHOME_URL=\"https://fedoraproject.org/\"\nDOCUMENTATION_URL=\"https://docs.fedoraproject.org/en-US/fedora/rawhide/\"\nSUPPORT_URL=\"https://ask.fedoraproject.org/\"\nBUG_REPORT_URL=\"https://bugzilla.redhat.com/\"\nREDHAT_BUGZILLA_PRODUCT=\"Fedora\"\nREDHAT_BUGZILLA_PRODUCT_VERSION=rawhide\nREDHAT_SUPPORT_PRODUCT=\"Fedora\"\nREDHAT_SUPPORT_PRODUCT_VERSION=rawhide\nSUPPORT_END=2028-05-24\nIMAGE_ID=\"pocketfed-base\"\nIMAGE_VERSION=\"rawhide\"\n",
+  "module_directories": [
+    "/usr/lib/modules/7.1.2-0.pocketfed.sdm670.8.fc46.aarch64"
+  ],
+  "root_links": {
+    "/ostree/root.b": "/sysroot/ostree/deploy/pocketfed/deploy/ae313ebc772138e011a4a0a42b0f2d4247769433f4a1208b1824a062a78f7cfa.0",
+    "/ostree/root.a": "/sysroot/ostree/deploy/pocketfed/deploy/0707638198ae6b8261db4eca20aa2f6ab650999dc7df8c10fa12daeba2680961.0"
+  },
+  "bls": {
+    "/boot/loader/entries/ostree-5.conf": "title Fedora Linux 46 (Rawhide Prerelease) (ostree:0)\nversion 5\noptions root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.1/pocketfed/cdb039d31fb2a142ca6e8693ed0af90310461ce2dc849bf0a4203778a9b8f681/0\nlinux /boot/ostree/pocketfed-cdb039d31fb2a142ca6e8693ed0af90310461ce2dc849bf0a4203778a9b8f681/vmlinuz-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\ninitrd /boot/ostree/pocketfed-cdb039d31fb2a142ca6e8693ed0af90310461ce2dc849bf0a4203778a9b8f681/initramfs-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64.img\nabootcfg /ostree/deploy/pocketfed/deploy/ae313ebc772138e011a4a0a42b0f2d4247769433f4a1208b1824a062a78f7cfa.0/usr/lib/ostree-boot/aboot.cfg\naboot /ostree/pocketfed-cdb039d31fb2a142ca6e8693ed0af90310461ce2dc849bf0a4203778a9b8f681/aboot-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64.img\nfdtdir /boot/ostree/pocketfed-cdb039d31fb2a142ca6e8693ed0af90310461ce2dc849bf0a4203778a9b8f681/dtb\n",
+    "/boot/loader/entries/ostree-3.conf": "title Fedora Linux 46 (Rawhide Prerelease) (ostree:2)\nversion 3\noptions root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.1/pocketfed/272188ebac6b4ce983228d2f67439e53287c8194e65f863691487b767165f952/0\nlinux /boot/ostree/pocketfed-272188ebac6b4ce983228d2f67439e53287c8194e65f863691487b767165f952/vmlinuz-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\ninitrd /boot/ostree/pocketfed-272188ebac6b4ce983228d2f67439e53287c8194e65f863691487b767165f952/initramfs-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64.img\nabootcfg /ostree/deploy/pocketfed/deploy/b2b5f35b40e911e50cc080d8c4d157cf892235fe2351036005d8d053d57ca78f.0/usr/lib/ostree-boot/aboot.cfg\naboot /ostree/pocketfed-272188ebac6b4ce983228d2f67439e53287c8194e65f863691487b767165f952/aboot-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64.img\nfdtdir /boot/ostree/pocketfed-272188ebac6b4ce983228d2f67439e53287c8194e65f863691487b767165f952/dtb\n",
+    "/boot/loader/entries/ostree-1.conf": "title Fedora Linux 46 (Rawhide Prerelease) (ostree:4)\nversion 1\noptions root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.1/pocketfed/f08a539da3c85b9ea3b8f94b9779fc464f522823511f8fbb259990c025b705ab/0\nlinux /boot/ostree/pocketfed-f08a539da3c85b9ea3b8f94b9779fc464f522823511f8fbb259990c025b705ab/vmlinuz-7.1.2-0.pocketfed.sdm670.6.fc46.aarch64\ninitrd /boot/ostree/pocketfed-f08a539da3c85b9ea3b8f94b9779fc464f522823511f8fbb259990c025b705ab/initramfs-7.1.2-0.pocketfed.sdm670.6.fc46.aarch64.img\nabootcfg /ostree/deploy/pocketfed/deploy/16b4d13b8c308cb622dc1515adec4412df9c54cf82c7a7db262aa7e307a2411d.0/usr/lib/ostree-boot/aboot.cfg\nfdtdir /boot/ostree/pocketfed-f08a539da3c85b9ea3b8f94b9779fc464f522823511f8fbb259990c025b705ab/dtb\naboot /ostree/pocketfed-f08a539da3c85b9ea3b8f94b9779fc464f522823511f8fbb259990c025b705ab/aboot-7.1.2-0.pocketfed.sdm670.6.fc46.aarch64.img\n",
+    "/boot/loader/entries/ostree-2.conf": "title Fedora Linux 46 (Rawhide Prerelease) (ostree:3)\nversion 2\noptions root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.1/pocketfed/e50cb2773684bffe43b70d9cce2413f1b6dac757beca35cf7274730989e81d07/0\nlinux /boot/ostree/pocketfed-e50cb2773684bffe43b70d9cce2413f1b6dac757beca35cf7274730989e81d07/vmlinuz-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\ninitrd /boot/ostree/pocketfed-e50cb2773684bffe43b70d9cce2413f1b6dac757beca35cf7274730989e81d07/initramfs-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64.img\nabootcfg /ostree/deploy/pocketfed/deploy/5ff2bf7e2065201e6e5fc1aa5e1f2fe23c693e0dfb7b7636fd2c928fe2339248.0/usr/lib/ostree-boot/aboot.cfg\naboot /ostree/pocketfed-e50cb2773684bffe43b70d9cce2413f1b6dac757beca35cf7274730989e81d07/aboot-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64.img\nfdtdir /boot/ostree/pocketfed-e50cb2773684bffe43b70d9cce2413f1b6dac757beca35cf7274730989e81d07/dtb\n",
+    "/boot/loader/entries/ostree-4.conf": "title Fedora Linux 46 (Rawhide Prerelease) (ostree:1)\nversion 4\noptions root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.1/pocketfed/386d6e500e16ef4dcdeb9846181219acb59ec0bc0e4175b9bbf0b5fcd270b7f1/0\nlinux /boot/ostree/pocketfed-386d6e500e16ef4dcdeb9846181219acb59ec0bc0e4175b9bbf0b5fcd270b7f1/vmlinuz-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\ninitrd /boot/ostree/pocketfed-386d6e500e16ef4dcdeb9846181219acb59ec0bc0e4175b9bbf0b5fcd270b7f1/initramfs-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64.img\nabootcfg /ostree/deploy/pocketfed/deploy/0707638198ae6b8261db4eca20aa2f6ab650999dc7df8c10fa12daeba2680961.0/usr/lib/ostree-boot/aboot.cfg\nfdtdir /boot/ostree/pocketfed-386d6e500e16ef4dcdeb9846181219acb59ec0bc0e4175b9bbf0b5fcd270b7f1/dtb\naboot /ostree/pocketfed-386d6e500e16ef4dcdeb9846181219acb59ec0bc0e4175b9bbf0b5fcd270b7f1/aboot-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64.img\n"
+  },
+  "raw_capture": {
+    "path": "/tmp/sargo-fingerprint-device-baseline-full-20260911.json",
+    "sha256": "9e340ef0bad7d2370cd959554ee503c85a5fa95a962e247c2cf2d258822c6ac4"
+  }
+}

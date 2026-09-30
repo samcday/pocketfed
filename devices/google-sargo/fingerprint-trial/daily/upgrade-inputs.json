@@ -1,0 +1,46 @@
+{
+  "base_image_id": "sha256:29e0cb65295162732906be1d0acb3915484ab229f4cb4f22a85657527ad48fdc",
+  "base_policy_sha256": "2a6013d4c22133f1ea730df92bcf4c739b5ac49e43682007cce59ac39f99913a",
+  "base_contexts_sha256": "93cdc186b6eedc237ae175c27c07b7a45e0041b0687fab3622b28783b3355fd4",
+  "input_files": {
+    "file_contexts": "073d757c02a52d9b19d2129cbff2bbf58527019db16562bc39bea0901f5a86c4",
+    "policy.35": "da1c3527aca1668594c767e610c4e98ec07c97c40d2feafa73c0d3d6fff57174",
+    "rpms/libfprint-1.94.100-1.6.pocketfed.fc46.aarch64.rpm": "e1f98e1737c32cc1e2838ef29ec1662a6a1a6c4a194becb864db8441fb78fc40",
+    "rpms/libfprint-fpc-qsee-1.94.100-1.6.pocketfed.fc46.aarch64.rpm": "4c8bd8b921b1c41cf9b3efd75f5e5274f7911956ec4b0c7d13398c32761bae10",
+    "rpms/pocketfed-fpc-auth-0.1.0-0.4.pocketfed.fc46.aarch64.rpm": "4f773f450ad567360a10df3d2afcbad0a255a2cdc34dc090f79f89911a2c7c03",
+    "rpms/pocketfed-fpc-selinux-0.1.0-0.2.pocketfed.fc46.noarch.rpm": "c3bc9c6ebf6c10322e5fa664bf5505a6b72348de745abbbbf7becb76d6b41bff",
+    "rpms/qsee-supplicant-0.1.1-1.4.pocketfed.fc46.aarch64.rpm": "95c1458aa0da99ee18b5aab1b53d59b45e24b724411844d87b0261d3e38134e9",
+    "rpms/qsee-supplicant-sargo-rpmb-0.1.1-1.4.pocketfed.fc46.aarch64.rpm": "eab77fe984fa4ca19b452dca419ff18947da2874885c45bb51b070d872c3c3d0"
+  },
+  "package_artifacts": [
+    {
+      "path": "/tmp/sargo-rpmb-package-rpm-20260912/RPMS/aarch64/qsee-supplicant-0.1.1-1.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "95c1458aa0da99ee18b5aab1b53d59b45e24b724411844d87b0261d3e38134e9",
+      "bytes": 33010
+    },
+    {
+      "path": "/tmp/sargo-rpmb-package-rpm-20260912/RPMS/aarch64/qsee-supplicant-sargo-rpmb-0.1.1-1.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "eab77fe984fa4ca19b452dca419ff18947da2874885c45bb51b070d872c3c3d0",
+      "bytes": 28734
+    },
+    {
+      "path": "/tmp/sargo-fpc-auth-order-rpmbuild-20260911/RPMS/aarch64/pocketfed-fpc-auth-0.1.0-0.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "4f773f450ad567360a10df3d2afcbad0a255a2cdc34dc090f79f89911a2c7c03"
+    },
+    {
+      "path": "/tmp/sargo-libfprint-finalization-rpm-20260912/RPMS/aarch64/libfprint-1.94.100-1.6.pocketfed.fc46.aarch64.rpm",
+      "sha256": "e1f98e1737c32cc1e2838ef29ec1662a6a1a6c4a194becb864db8441fb78fc40",
+      "bytes": 389829
+    },
+    {
+      "path": "/tmp/sargo-libfprint-finalization-rpm-20260912/RPMS/aarch64/libfprint-fpc-qsee-1.94.100-1.6.pocketfed.fc46.aarch64.rpm",
+      "sha256": "4c8bd8b921b1c41cf9b3efd75f5e5274f7911956ec4b0c7d13398c32761bae10",
+      "bytes": 12646
+    },
+    {
+      "path": "/tmp/sargo-fpc-broker-policy-rpm-exec-20260912/RPMS/noarch/pocketfed-fpc-selinux-0.1.0-0.2.pocketfed.fc46.noarch.rpm",
+      "sha256": "c3bc9c6ebf6c10322e5fa664bf5505a6b72348de745abbbbf7becb76d6b41bff",
+      "bytes": 12343
+    }
+  ]
+}

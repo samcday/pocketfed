@@ -1,0 +1,32 @@
+#%PAM-1.0
+# Staged candidate based on greetd-0.10.3-10.fc46. Not automatically installed.
+# Fingerprint success skips ONLY the following password auth substack.
+# No device/no enrollment/rejection/timeout follows the existing PIN route.
+auth       [success=1 default=ignore] pam_fprintd.so max-tries=3 timeout=15
+auth       substack    system-auth
+-auth      optional    pam_gnome_keyring.so
+-auth      optional    pam_kwallet5.so
+-auth      optional    pam_kwallet.so
+-auth      optional    pam_oo7.so
+auth       include     postlogin
+
+account    required    pam_sepermit.so
+account    required    pam_nologin.so
+# Cold LUKS home activation still needs the PIN; greetd can relay this prompt.
+# Do not ignore homed failures or continue to a session with an unusable home.
+account    [success=ok user_unknown=ignore default=die] pam_systemd_home.so
+account    include     system-auth
+
+password   include     system-auth
+
+session    required    pam_selinux.so close
+session    required    pam_loginuid.so
+session    required    pam_selinux.so open
+session    optional    pam_keyinit.so force revoke
+session    required    pam_namespace.so
+session    include     system-auth
+-session   optional    pam_gnome_keyring.so auto_start
+-session   optional    pam_kwallet5.so auto_start
+-session   optional    pam_kwallet.so auto_start
+-session   optional    pam_oo7.so auto_start
+session    include     postlogin

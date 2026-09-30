@@ -1,0 +1,87 @@
+COMMAND: rpm-ostree rebase --help
+Usage:
+  rpm-ostree rebase [OPTION…] REFSPEC [REVISION]
+
+Switch to a different tree
+
+Help Options:
+  -h, --help                      Show help options
+
+Application Options:
+  --stateroot=STATEROOT           Operate on provided STATEROOT
+  -b, --branch=BRANCH             Rebase to branch BRANCH; use --remote to change remote as well
+  -m, --remote=REMOTE             Rebase to current branch name using REMOTE; may also be combined with --branch
+  -r, --reboot                    Initiate a reboot after operation is complete
+  --skip-purge                    Keep previous refspec after rebase
+  -C, --cache-only                Do not download latest ostree and RPM data
+  --download-only                 Just download latest ostree and RPM data, don't deploy
+  --custom-origin-description     Human-readable description of custom origin
+  --custom-origin-url             Machine-readable description of custom origin
+  --experimental                  Enable experimental features
+  --disallow-downgrade            Forbid deployment of chronologically older trees
+  --lock-finalization             Prevent automatic deployment finalization on shutdown
+  --bypass-driver                 Force a rebase even if an updates driver is registered
+  --sysroot=SYSROOT               Use system root SYSROOT (default: /)
+  --peer                          Force a peer-to-peer connection instead of using the system message bus
+  --install=PKG                   Overlay additional package
+  --uninstall=PKG                 Remove overlayed additional package
+  --version                       Print version information and exit
+  -q, --quiet                     Avoid printing most informational messages
+
+
+
+EXIT: 0
+COMMAND: rpm-ostree rollback --help
+Usage:
+  rpm-ostree rollback [OPTION…]
+
+Revert to the previously booted tree
+
+Help Options:
+  -h, --help            Show help options
+
+Application Options:
+  -r, --reboot          Initiate a reboot after operation is complete
+  --sysroot=SYSROOT     Use system root SYSROOT (default: /)
+  --peer                Force a peer-to-peer connection instead of using the system message bus
+  --version             Print version information and exit
+  -q, --quiet           Avoid printing most informational messages
+
+
+
+EXIT: 0
+COMMAND: ostree admin pin --help
+Usage:
+  ostree admin pin [OPTION…] INDEX
+
+Change the "pinning" state of a deployment, INDEX can be >= 0 or one of booted, pending or rollback strings
+
+Help Options:
+  -h, --help         Show help options
+
+Application Options:
+  --sysroot=PATH     Create a new OSTree sysroot at PATH
+  -u, --unpin        Unset pin
+  -v, --verbose      Print debug information during command processing
+  --version          Print version information and exit
+
+
+
+EXIT: 0
+COMMAND: ostree admin set-default --help
+Usage:
+  ostree admin set-default [OPTION…] INDEX
+
+Make deployment INDEX the default
+
+Help Options:
+  -h, --help         Show help options
+
+Application Options:
+  --sysroot=PATH     Create a new OSTree sysroot at PATH
+  -v, --verbose      Print debug information during command processing
+  --version          Print version information and exit
+
+
+
+EXIT: 0

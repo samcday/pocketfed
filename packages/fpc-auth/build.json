@@ -1,0 +1,83 @@
+{
+  "package": "pocketfed-fpc-auth",
+  "version": "0.1.0",
+  "release": "0.1.pocketfed.fc46",
+  "state": "preparatory; Keymaster backend unimplemented and returns -EOPNOTSUPP",
+  "units": "static; no Install activation; PrivateDevices=yes",
+  "ta_commands_performed": false,
+  "device_changes_performed": false,
+  "copr_submitted": false,
+  "source_snapshot": "/tmp/fpc-auth-srpm-20260911-reviewed/source-sha256.json",
+  "source_sha256": {
+    "auth-broker.c": "7f6b6413bfb0913c7bc759b39a5a141ae7e4f6e00734d9939cae22e964464358",
+    "auth-store.c": "99f34c30b530907a0fdc747524a77c9473ea349f6aa23f944eb85179cf463759",
+    "auth-store.h": "c458b5c7bd174879dcc846494b0bfcace6a128236b8596b4fcd92d4d966e1a3a",
+    "test-auth-store.c": "e0e990f025d4405432ff043087d4716b5c810bf433a091f015e05a36d95df0fa",
+    "Makefile": "fe98674cbccbebff065fb14412fa183fb753b4fab8928c8ede5cfd6eac99caa2",
+    "pocketfed-fpc-auth.socket": "6d2153f1e5b1fcee81920aadef48a8567eec7b04e3c0e1c39668a2e41296ca84",
+    "pocketfed-fpc-auth.service": "fe2b1dd8723a26c71803a2bdcce251d7ddf1f94aeb27591830ea711e2b7b5a36",
+    "COPYING": "5df07007198989c622f5d41de8d703e7bef3d0e79d62e24332ee739a452af62a",
+    "README.md": "8f8b2c2126fba6af93ccb1d607ec4602ae69b4e7112aecc52bad41f24f2b03bb",
+    "auth-broker.h": "696121bf8306c74e83c92bab166b1dc4610c6764f4903fb3ddc226f754e73ab7",
+    "gatekeeper-protocol.c": "d4e9fba73d2d4fb8f50ded51d717534af853a851934804794367a5278a400114",
+    "gatekeeper-protocol.h": "7ac7965711b9434274e9b3eb917bc838666d4b9cadee4def5fecb07696f18ac7",
+    "pocketfed-fpc-auth.spec": "f384e1b7f849a95876ac53092805bc71a26140c60956456d44cca2d10f6d52d6"
+  },
+  "artifacts": [
+    {
+      "path": "/tmp/fpc-auth-srpm-20260911-reviewed/RPMS/x86_64/pocketfed-fpc-auth-0.1.0-0.1.pocketfed.fc46.x86_64.rpm",
+      "sha256": "74b79c388e55ad5b3e4d5b46470350ae026298d69303a1e66e2b5f2dc5a4244a",
+      "size": 31287
+    },
+    {
+      "path": "/tmp/fpc-auth-srpm-20260911-reviewed/RPMS/x86_64/pocketfed-fpc-auth-debuginfo-0.1.0-0.1.pocketfed.fc46.x86_64.rpm",
+      "sha256": "8f36b75f551dca76a0bc47d00026c900aae613ad0f839c0e1379cda165baf688",
+      "size": 33609
+    },
+    {
+      "path": "/tmp/fpc-auth-srpm-20260911-reviewed/RPMS/x86_64/pocketfed-fpc-auth-debugsource-0.1.0-0.1.pocketfed.fc46.x86_64.rpm",
+      "sha256": "cb086b52bc7370cd6c7943880632c39af50a80ad9cfa409c7f7a4542e4f679f9",
+      "size": 17279
+    },
+    {
+      "path": "/tmp/fpc-auth-srpm-20260911-reviewed/SRPMS/pocketfed-fpc-auth-0.1.0-0.1.pocketfed.fc46.src.rpm",
+      "sha256": "574e0794c855843ec07e8faa1a595e51326678ffa801a5ff572bf037f9e87676",
+      "size": 45320
+    }
+  ],
+  "validation": {
+    "native_tests": "PASS: validation/native-tests.txt",
+    "real_uid_zero_peer_in_user_namespace": "PASS: validation/root-peer-tests.txt",
+    "ubsan_trap": "PASS: validation/ubsan-tests.txt",
+    "asan": "Unavailable: host sanitizer runtime libraries absent; no ASan result claimed",
+    "systemd_units": "PASS: validation/units.txt",
+    "local_native_rpm_build_and_package_check": "PASS: validation/rpm-build.txt; x86_64 only",
+    "independent_review": {
+      "result": "PASS",
+      "report": "validation/daemon-integration.json",
+      "harness": "/tmp/review-fpc-auth-daemon.py",
+      "harness_sha256": "70092d947889daf6ededc907b223d25fb2cc8e124373fedb456195a15d3af2c5",
+      "production_no_test_overrides": true
+    },
+    "keymaster_image_assembly": "PASS: validation/keymaster-image-assembly.json; existing private ELF only, no load/residency decision",
+    "aarch64_container_tests": {
+      "result": "PASS",
+      "log": "validation/aarch64-tests.txt",
+      "image": "localhost/pocketfed-fingerprint-build:20260911",
+      "network": "none",
+      "read_only_sources": true,
+      "source_sha256": {
+        "auth-broker.c": "7f6b6413bfb0913c7bc759b39a5a141ae7e4f6e00734d9939cae22e964464358",
+        "auth-store.c": "99f34c30b530907a0fdc747524a77c9473ea349f6aa23f944eb85179cf463759",
+        "auth-store.h": "c458b5c7bd174879dcc846494b0bfcace6a128236b8596b4fcd92d4d966e1a3a",
+        "test-auth-store.c": "e0e990f025d4405432ff043087d4716b5c810bf433a091f015e05a36d95df0fa"
+      }
+    }
+  },
+  "remaining": [
+    "Verified Keymaster negotiation and transport cleanup",
+    "Read-only application discovery before deciding keymaster64 extraction/loader ordering",
+    "Credential namespace and recovery policy",
+    "Controlled hardware trial and end-to-end enrollment/authentication"
+  ]
+}

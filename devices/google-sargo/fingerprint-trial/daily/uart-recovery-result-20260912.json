@@ -1,0 +1,82 @@
+{
+  "credential_valid": true,
+  "original_secret_retained": true,
+  "prior_intent_backup_matches": true,
+  "credential_metadata": [
+    {
+      "name": "uid-1000.credential",
+      "bytes": 160,
+      "mode": "0o600"
+    },
+    {
+      "name": ".lock",
+      "bytes": 0,
+      "mode": "0o600"
+    },
+    {
+      "name": "uid-1000.storage-recovery-attempt",
+      "bytes": 136,
+      "mode": "0o600"
+    },
+    {
+      "name": "uid-1000.pre-uart-recovery.intent",
+      "bytes": 160,
+      "mode": "0o600"
+    },
+    {
+      "name": "uid-1000.pre-storage-recovery.intent",
+      "bytes": 160,
+      "mode": "0o600"
+    },
+    {
+      "name": "uid-1000.first-recovery-attempt",
+      "bytes": 132,
+      "mode": "0o600"
+    },
+    {
+      "name": "uid-1000.uart-recovery-attempt",
+      "bytes": 145,
+      "mode": "0o600"
+    }
+  ],
+  "boot_id": "cbfa1a02-40ae-4f6b-9d57-2c4637634745",
+  "pin_pam_sha256": "695d627f3d54bf6010b001bef211792f536437c34b01d60833862c4a9509d5b6",
+  "packages": [
+    "phosh-0.57.0-1.5.fingerprint.fc46.aarch64",
+    "gnome-control-center-51~rc.1-1.1.fingerprint.fc46.aarch64",
+    "pocketfed-fpc-auth-0.1.0-0.4.pocketfed.fc46.aarch64",
+    "phosh-fingerprint-auth-0.1.0-0.1.pocketfed.fc46.aarch64",
+    "libfprint-1.94.100-1.6.pocketfed.fc46.aarch64",
+    "libfprint-fpc-qsee-1.94.100-1.6.pocketfed.fc46.aarch64"
+  ],
+  "recovery_unit": [
+    "Result=success",
+    "NRestarts=0",
+    "ExecMainStatus=0"
+  ],
+  "status": "UART-observed daily native recovery passed",
+  "schema_version": 1,
+  "source_image": "sha256:094ad9568428bb5351e0ab9d3c03c59ec71db60ed0d79b68ac7f53325d27f861",
+  "deployment": "d639fe55e1cf11b2756f367fef1dad99ab7e2705c19b0b72f73e80c265d16b89",
+  "recovery_binary_sha256": "779042369dd69217ee6c08ce44397abd01869f96d5ed2a7674b8203f81c158a3",
+  "uart_identity_confirmed": {
+    "serial": "994AY18RSD",
+    "boot_id": "cbfa1a02-40ae-4f6b-9d57-2c4637634745",
+    "marker_seen": true
+  },
+  "secure_enrollment_transport": 0,
+  "secure_enrollment_status": 0,
+  "validated_handle_length": 58,
+  "commit_status": 0,
+  "final_status": 0,
+  "historical_interruption_cause": "unconfirmed; previous bootreason flag is not proof that recovery caused a watchdog reset",
+  "desktop_acceptance": "Still no enrolled fingers or enrollment signals after three consecutive goal turns waiting for the same physical enrollment step.",
+  "uart_capture": {
+    "sha256": "e81ec5557d2b2b4dad002bbdccc8003ba872d9aeea520d6c6575c619b10f422f",
+    "closed_cleanly": true,
+    "serial_port_released": true,
+    "forwarding_service_stopped": true
+  },
+  "pending_user_step": "Tap Fingerprint Authentication in Settings Users and enroll left index finger; then perform the Phosh lockscreen touch test.",
+  "passive_status_monitor": "pocketfed-fpc-device-signals-20260912.service remains active, recording only fingerprint device signals in the journal."
+}

@@ -1,0 +1,124 @@
+--- a/libfprint/drivers/fpcqsee/fpc-qsee.c
++++ b/libfprint/drivers/fpcqsee/fpc-qsee.c
+@@ -383,12 +383,18 @@
+   gboolean enrolling = work->operation == OP_ENROLL, ok = FALSE;
+   gint64 deadline = g_get_monotonic_time () + (enrolling ? 120 : 30) * G_TIME_SPAN_SECOND;
+   guint32 baseline = 0;
++  guint32 ids[FPC_MAX_TEMPLATES], count;
+   gint completed = 0;
++  if (!command_result (fpc_get_template_ids (&self->protocol, ids, &count),
++                        "Listing fingerprint templates", error)) goto out;
++  /* This is the TA's complete database, not the caller's gallery. The TA
++   * returns -208 when asked to identify with no templates. A verified empty
++   * database cannot contain a match, including during fprintd's first-enroll
++   * duplicate check. Enumeration errors still fail; no error becomes empty.
++   */
++  if (!enrolling && !count) { ok = TRUE; goto out; }
+   if (enrolling)
+     {
+-      guint32 ids[FPC_MAX_TEMPLATES], count;
+-      if (!command_result (fpc_get_template_ids (&self->protocol, ids, &count),
+-                            "Checking fingerprint capacity", error)) goto out;
+       if (count == FPC_MAX_TEMPLATES)
+         { g_set_error_literal (error, FP_DEVICE_ERROR, FP_DEVICE_ERROR_DATA_FULL,
+                                "Fingerprint database is full"); goto out; }
+@@ -642,7 +648,11 @@
+                   if (parse_print (device, g_ptr_array_index (gallery, i), &id) && id == result->finger)
+                     { match = g_ptr_array_index (gallery, i); break; }
+               }
+-            if (match) scan = new_print (self, result->finger);
++            /* Identify must report a recognized device print even outside
++             * the caller's gallery so fprintd can detect duplicate enrollment.
++             * This never turns an out-of-gallery print into an auth match. */
++            if (match || work->operation == OP_IDENTIFY)
++              scan = new_print (self, result->finger);
+           }
+         if (work->operation == OP_VERIFY)
+           {
+--- a/tests/fpc-driver.c
++++ b/tests/fpc-driver.c
+@@ -13,6 +13,9 @@
+   guint32 identify_id, decision;
+   gint identify_transport, identify_outer, identify_command, capture_status;
+   gboolean broker_missing, store_failure;
++  gboolean empty_database;
++  gint list_command;
++  guint identifies;
+   guint samples, begins, finishes, stores, calls, wakes, waits;
+   guint sensor_commands[64], sensor_count;
+   GCancellable *cancel_during_identify;
+@@ -84,6 +87,7 @@
+       switch (command)
+         {
+         case FPC_BIO_IDENTIFY:
++          s->identifies++;
+           if (s->cancel_during_identify) g_cancellable_cancel (s->cancel_during_identify);
+           *outer = s->identify_outer;
+           fpc_put_le32 (b + 8, s->identify_command);
+@@ -91,8 +95,9 @@
+           fpc_put_le32 (b + 28, s->decision);
+           return s->identify_transport;
+         case FPC_BIO_GET_TEMPLATE_IDS:
+-          fpc_put_le32 (b + 12, 1);
+-          fpc_put_le32 (b + 16, 42);
++          fpc_put_le32 (b + 8, s->list_command);
++          fpc_put_le32 (b + 12, s->empty_database ? 0 : 1);
++          fpc_put_le32 (b + 16, s->empty_database ? 0 : 42);
+           break;
+         case FPC_BIO_BEGIN_ENROL: s->begins++; break;
+         case FPC_BIO_ENROL:
+@@ -193,9 +198,17 @@
+   g_autoptr(GPtrArray) gallery = g_ptr_array_new_with_free_func (g_object_unref);
+   g_autoptr(GError) error = NULL;
+   FpPrint *matched = NULL, *scanned = NULL;
++  /* An empty caller gallery is not an empty hardware database. */
++  g_assert_true (fp_device_identify_sync (device, gallery, NULL, NULL, NULL, &matched, &scanned, &error));
++  g_assert_no_error (error); g_assert_null (matched); g_assert_nonnull (scanned);
++  g_assert_cmpuint (state.identifies, ==, 1);
++  g_clear_object (&scanned);
+   g_ptr_array_add (gallery, make_print (device, 1, 1, 43));
+   g_assert_true (fp_device_identify_sync (device, gallery, NULL, NULL, NULL, &matched, &scanned, &error));
+-  g_assert_no_error (error); g_assert_null (matched); g_assert_null (scanned);
++  g_assert_no_error (error); g_assert_null (matched); g_assert_nonnull (scanned);
++  g_autoptr(FpPrint) recognized = make_print (device, 1, 1, 42);
++  g_assert_true (fp_print_equal (scanned, recognized));
++  g_clear_object (&scanned);
+   g_ptr_array_add (gallery, make_print (device, 1, 1, 42));
+   g_assert_true (fp_device_identify_sync (device, gallery, NULL, NULL, NULL, &matched, &scanned, &error));
+   g_assert_no_error (error); g_assert_true (matched == g_ptr_array_index (gallery, 1));
+@@ -205,6 +218,27 @@
+ }
+ 
+ static void
++empty_database (void)
++{
++  memset (&state, 0, sizeof state);
++  state.empty_database = TRUE; state.identify_command = -208;
++  FpDevice *device = new_device ();
++  g_autoptr(GPtrArray) gallery = g_ptr_array_new_with_free_func (g_object_unref);
++  g_autoptr(GError) error = NULL;
++  FpPrint *matched = NULL, *scanned = NULL;
++  g_assert_true (fp_device_identify_sync (device, gallery, NULL, NULL, NULL, &matched, &scanned, &error));
++  g_assert_no_error (error); g_assert_null (matched); g_assert_null (scanned);
++  g_assert_cmpuint (state.identifies, ==, 0);
++  g_assert_cmpuint (state.waits, ==, 0);
++  state.list_command = -208;
++  g_assert_false (fp_device_identify_sync (device, gallery, NULL, NULL, NULL, &matched, &scanned, &error));
++  g_assert_error (error, FP_DEVICE_ERROR, FP_DEVICE_ERROR_GENERAL);
++  g_assert_cmpuint (state.identifies, ==, 0);
++  g_assert_null (matched); g_assert_null (scanned);
++  close_device (device);
++}
++
++static void
+ enrollment_failures (void)
+ {
+   memset (&state, 0, sizeof state);
+@@ -253,6 +287,7 @@
+   g_test_init (&argc, &argv, NULL);
+   g_test_add_func ("/fpc-driver/verify-capture-order-and-rejection", verify_gallery);
+   g_test_add_func ("/fpc-driver/identify-gallery-bound", identify_gallery);
++  g_test_add_func ("/fpc-driver/empty-device-database-and-enumeration-error", empty_database);
+   g_test_add_func ("/fpc-driver/enroll-needs-broker-and-persistence", enrollment_failures);
+   g_test_add_func ("/fpc-driver/cancellation-wins-match-race", cancel_match_race);
+   return g_test_run ();

@@ -1,0 +1,30 @@
+{
+  "scope": "Synthetic production-function fixture; no hardware, DMA, concurrency or full-kernel validation",
+  "source_sha256": "10027da4fb40fe08fe8f5482c5201d881ea4c54e0e7b299f0a710464e9070bbe",
+  "production_body_sha256": "27f579d30a5e3e195ebe8b6e162099cbb0d2383476919c80f28c4ccc1087bfdc",
+  "fixture_sha256": "0bf31d91e38c9dca9ec6bfc914101c331e052883cdbf05d2b2e49953dfe87c9d",
+  "runner_sha256": "eab851320a3048a9323cf47d983001a616f39b74b9f251090060e2daf1a3d5eb",
+  "compiler": "gcc (GCC) 16.2.1 20260819 (Red Hat 16.2.1-2)",
+  "architecture": "aarch64",
+  "flags": "-O2 -flto -Wall -Wextra -Werror -fsanitize=undefined -fsanitize-undefined-trap-on-error",
+  "expected_unwiped_baseline": true,
+  "passed": true,
+  "runs": [
+    {
+      "variant": "production",
+      "page_size": 4096,
+      "exit_status": 90,
+      "expected_exit_status": 90,
+      "stdout": "",
+      "stderr": "UNWIPED invoke staging at free"
+    },
+    {
+      "variant": "production",
+      "page_size": 65536,
+      "exit_status": 90,
+      "expected_exit_status": 90,
+      "stdout": "",
+      "stderr": "UNWIPED invoke staging at free"
+    }
+  ]
+}

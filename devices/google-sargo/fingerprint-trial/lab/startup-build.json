@@ -1,0 +1,88 @@
+{
+  "keymaster_rpm": "pocketfed-fpc-auth-0.1.0-0.3.pocketfed.fc46.aarch64",
+  "keymaster_helper_sha256": "4cff2ecf8139cbfacb608e378d9fe372b17f105c823742a96cc03fef184cb371",
+  "code": {
+    "guard-device.py": "2ee6490309dd37c4e03c9d84efa76177204e6137cbab8c941506afb44109fd21",
+    "trial-startup.py": "39ad42b0cd9a1f392959deb2475a14f5da1e7f2362807de0bf852d822e1adb6b",
+    "keymaster-startup": "4cff2ecf8139cbfacb608e378d9fe372b17f105c823742a96cc03fef184cb371",
+    "lab_report.py": "7c9b8b163c65a86c1a129f8ddd93351fdd2a8ab75ba80a8677f3d1fa09a401df",
+    "stage-firmware.py": "58490e33af43b1d19280f097db1562401696c77dacd5ef3be5240e2877e2c0cf",
+    "firmware-manifest.json": "2fcd802c3c96c56ce4aa2ff2ed12513b02ed9ed3ead907486d1b43b08e72956b",
+    "inspect-device.py": "11c631f7acee275190bcaa9b9da7cb6105ddbf51ab2e1d226242d9ee4ccc4f44",
+    "rpmb-supplicant-ro": "a52b9fee11f477ae0d4aec189079fd97d4bdd332d9914e2e75c9854c5f26f41d",
+    "trial-read-only.py": "f05b20f13f9e73f340919013630c035e28f537bac17598cd4cdfdd552ae5e238"
+  },
+  "units": {
+    "pocketfed-fingerprint-lab-firmware.service": "95e3e5652682a3515aeb9f517257411847c3e174bf1f12849701b45a19e3fa76",
+    "pocketfed-fingerprint-lab-startup.service": "0904717f79d81af3af8cc3cb95a02f2e317d04c64bb0af77aff498ea4c3f76af",
+    "pocketfed-fingerprint-lab-probe.service": "4447c8233cc1f4a7ed32c887860f0987f89049c3dd3c19ea082b2a3fb9e204f8",
+    "pocketfed-fingerprint-lab-cmnlib.service": "83a7b5f0234d3d108329e1fe9cd0f9aaf0ae95b3372708ce1288eb39751c7e77",
+    "pocketfed-fingerprint-lab-rpmb.service": "9c9264bdc10b9b31a87470d44621eda12c733be296cfad54ecb0a0cdde59e8ab",
+    "pocketfed-fingerprint-lab-inspect.service": "7085abbd63728f3b540071250ec53079aefb1a2926283f2067dd52ac69520098",
+    "pocketfed-fingerprint-lab-readonly.service": "59d1acd98b1c43246f4df747a1ed68ad5a0fbdcdc07cb36626a7f34a6e5a772b",
+    "pocketfed-fingerprint-lab-fpc.service": "943f64fdf86d385c4f11ccba1afd7b714cbc8a695f070d63c0106c77079edafe",
+    "pocketfed-fingerprint-lab-keymaster.service": "74cadf7ac2dbaf438cf64a2ff3019ccb8bac7378775e37158cdd161afd933771"
+  },
+  "profile": {
+    "schema_version": 1,
+    "id": "google-sargo",
+    "display_name": "PocketFed Pixel 3a liveboot",
+    "devicetree_name": "qcom/sdm670-google-sargo",
+    "match": [
+      {
+        "fastboot": {
+          "vid": 6353,
+          "pid": 20192
+        }
+      }
+    ],
+    "probe": [
+      {
+        "fastboot.getvar": "product",
+        "equals": "sargo"
+      }
+    ],
+    "boot": {
+      "fastboot_boot": {
+        "android_bootimg": {
+          "header_version": 2,
+          "page_size": 4096,
+          "base": 0,
+          "kernel_offset": 32768,
+          "dtb_offset": 50331648,
+          "kernel": {
+            "encoding": "image.gz"
+          }
+        }
+      }
+    },
+    "ramdisk_offset": 67108864,
+    "dracut_config": "tools/liveboot/profiles/google-sargo-initrd.conf",
+    "cmdline": [
+      "console=ttyMSM0,115200n8",
+      "earlycon",
+      "init_on_alloc=0",
+      "sysrq_always_enabled=1",
+      "module_blacklist=rpmsg_wwan_ctrl",
+      "systemd.firstboot=off",
+      "systemd.wants=pocketfed-liveboot-check.service",
+      "systemd.wants=pocketfed-liveboot-labels.service",
+      "systemd.unit=multi-user.target",
+      "systemd.wants=pocketfed-fingerprint-lab-startup.service",
+      "systemd.show_status=false"
+    ],
+    "fixture_image": "ghcr.io/samcday/pocketfed-phosh-google-sargo@sha256:bfb17e069aef329113a41d3b42c348e5f866d40f72e8a4ff16d2ceb0ce4db881"
+  },
+  "live_status": "failed at final wrapped-key request; rebooted to fastboot and USB host stopped",
+  "overlay_builder_sha256": "ea193b251893b67f36177dd91c3795a38d464381990697124db7fc0027f7b677",
+  "run": "out/liveboot/runs/sargo-fingerprint-lab-startup-20260911",
+  "result": {
+    "handoff_seconds": 64.0928647518158,
+    "wrapped_key_status": -16773121,
+    "rpmb_callbacks_observed": false,
+    "credential_operations": false,
+    "fpc_loaded": false,
+    "reboot_acknowledged": true
+  },
+  "uart_sha256": "c210420742fbadf86fa4848cf721c0994a807d477260cfe217080de5dad20fa1"
+}

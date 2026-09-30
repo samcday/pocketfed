@@ -1,0 +1,89 @@
+{
+  "date": "2026-09-12",
+  "serial": "994AY18RSD",
+  "boot_id": "51d59842-0056-46a5-a417-532ef194ad54",
+  "library_sha256": "274ac3814562947589a31fc90e03e6c7d0974eee8bbb3b19cdbc58ff7fb8d937",
+  "test": "Claim existing sensor, then Release; no capture request",
+  "result": "Sensor initialization ioctl did not return; Claim timed out and a kernel cross-CPU stall followed",
+  "prior_helper_failure": "Python gi.repository unavailable; failed before activation and before attempt receipt. Replaced by compiled GLib client; original evidence retained.",
+  "last_returned_steps": [
+    "sensor device open",
+    "TEE session open",
+    "sensor reset"
+  ],
+  "first_unreturned_step": {
+    "protocol_target": 10,
+    "protocol_command": 0,
+    "name": "sensor initialization",
+    "tee_invoke_begin_monotonic_seconds": 4213.492102,
+    "thread_id": 8576,
+    "cpu": 1
+  },
+  "claim_timed_out_monotonic_seconds": 4258.486267,
+  "soft_lockup": {
+    "monotonic_seconds": 4264.034503,
+    "cpu": 7,
+    "task": "sshd-auth",
+    "pid": 8585,
+    "stack": [
+      "smp_call_function_many_cond",
+      "kick_all_cpus_sync",
+      "__text_poke",
+      "aarch64_insn_copy",
+      "bpf_arch_text_copy",
+      "bpf_jit_binary_pack_finalize",
+      "bpf_int_jit_compile",
+      "bpf_prepare_filter",
+      "seccomp_set_mode_filter"
+    ]
+  },
+  "automatic_backtrace_responses": [
+    0,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "cpu_1_backtrace_received": false,
+  "scope_limits": [
+    "No VerifyStart or EnrollStart was called; this reproduces a stall before capture/matching.",
+    "The marker precedes TEE_IOC_INVOKE. Kernel staging allocation and secure-world entry are not yet distinguished.",
+    "The CPU recorded immediately before ioctl is CPU1; migration inside the ioctl is not ruled out by that marker.",
+    "No claim that BPF is the initiating fault; the SSH seccomp JIT is waiting for cross-CPU synchronization after the sensor call stopped returning."
+  ],
+  "private_uart_snapshot": {
+    "source": "out/private/sargo-daily-freeze-20260912/replay-log/uart.log",
+    "start_offset": 895547,
+    "end_offset": 954968,
+    "sha256": "e3713a184860ff2c4aea472d501b32e25ec11b0854d40dc03661d65e11f70259",
+    "path": "out/private/sargo-daily-freeze-20260912/claim-only/uart-through-softlock.log"
+  },
+  "kernel_task_dump": {
+    "path": "out/private/sargo-daily-freeze-20260912/claim-only-tasks/uart.log",
+    "observed_bytes": 622601,
+    "observed_prefix_sha256": "9154839f4d92043fad3a9e410fd4577265200e9fc747935c3b83b54d5e9e6442",
+    "sysrq_ack_monotonic_seconds": 4357.385717,
+    "fingerprint_worker": {
+      "name": "pool-0",
+      "pid": 8576,
+      "tgid": 8561,
+      "state": "R (running)",
+      "stack": "No useful running-task stack; __switch_to then 0x0"
+    },
+    "scheduler_cpu_1_current_pid": 8576,
+    "capture_still_running": true
+  },
+  "automatic_phosh_scan_pause": "runtime mask still applies to this boot; expires on reboot",
+  "goal_complete": false,
+  "next_action": "User asked to force-reboot and log in with PIN; keep scan pause after reconnect, then distinguish kernel staging from SCM/secure execution before any further sensor attempt.",
+  "recovery_wait": {
+    "consecutive_goal_turns": 3,
+    "last_checks": "SSH timed out; daily serial 994AY18RSD is absent from fastboot; live UART still emits same-boot soft lockups through uptime 4788s",
+    "capture_session": 72997,
+    "capture_path": "out/private/sargo-daily-freeze-20260912/claim-only-tasks/uart.log",
+    "required_input": "Force-restart daily sam-sargo, then PIN login or report fastboot",
+    "prepared_followup": "kernel-boundary-plan.json",
+    "physical_recovery_question_pending": true
+  }
+}

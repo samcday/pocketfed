@@ -1,0 +1,6 @@
+/fpc-qsee-probe
+/test-protocol
+/test-transport
+/test-gatekeeper
+/test-sensor
+*.o

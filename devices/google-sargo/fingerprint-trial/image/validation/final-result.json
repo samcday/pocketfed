@@ -1,0 +1,77 @@
+{
+  "state": "local build and offline validation passed; no publish or device changes",
+  "base_image_id": "7abbae67bf384120c183f236b02909dc398f01ff929a565fc4b10865f0655b85",
+  "image_id": "83cc5287c9ae65449e51d5f45c5e495ddca48dba45416e4f1f85d49afe6535a0",
+  "architecture": "arm64",
+  "activation": "fprintd, Phosh fingerprint socket and QSEE supplicant masked; no broker or DB initialization",
+  "functional_limitations": {
+    "enrollment": "Not operational: genuine Keymaster/Gatekeeper authorization negotiation is incomplete and no broker is included.",
+    "selinux_policy_sha256": "ca98dfcea858d4974bdaa1e10e54e1d70264a28c0fb79c03e339565360384973",
+    "selinux": "Offline compiled-policy review predicts fprintd_t cannot open/read/write/getattr/ioctl the default device_t labels on /dev/fpc1020 and /dev/tee*. The systemd DeviceAllow entries do not grant SELinux access. Actual device/process labels and AVCs require a controlled runtime trial; no new policy is included.",
+    "metadata_scope": "Policy comparison covers file bytes and symlink targets, not a full ownership, mode, xattr or SELinux inode-label audit. Mutable-state comparison covers path, type and mode, not file contents or ownership.",
+    "hardware": "No sensor, secure-app, enrollment, verification, suspend/wakeup or trial boot has been exercised by this offline image validation."
+  },
+  "full_oci_and_bootc_lint": "passed in the successful final image build layer; bound build log included",
+  "initramfs_comparison": {
+    "same_module_paths_as_working_base": 107,
+    "same_dracut_modules_and_critical_config": true,
+    "critical_drivers": [
+      "cqhci",
+      "gcc_sdm845",
+      "gpio_keys",
+      "mmc_block",
+      "mmc_core",
+      "msm",
+      "panel_samsung_s6e3fa7",
+      "pinctrl_sdm670",
+      "qnoc_sdm670",
+      "rmi_core",
+      "rmi_i2c",
+      "sdhci",
+      "sdhci_msm",
+      "sdhci_pltfm"
+    ],
+    "dracut_warning_explanation": "The inherited strict config omits the generic drm dracut module and Plymouth, while explicitly including Sargo display drivers. Storage, display, input and rootfs support match the base."
+  },
+  "lint_comparison": {
+    "same_warning_categories_as_base": [
+      "baseimage-composefs",
+      "nonempty-run-tmp",
+      "var-log",
+      "var-tmpfiles"
+    ],
+    "new_mutable_paths": {
+      "/var/cache/tailscale": {
+        "mode": "0o600",
+        "type": "directory"
+      },
+      "/var/lib/fprint": {
+        "mode": "0o700",
+        "type": "directory"
+      },
+      "/var/lib/fprint/fpc-qsee": {
+        "mode": "0o700",
+        "type": "directory"
+      },
+      "/var/lib/tailscale": {
+        "mode": "0o600",
+        "type": "directory"
+      }
+    }
+  },
+  "verification_sources_sha256": {
+    "verify.sh": "59e4c940378483045c113e67839d01ae257ebab9faaee096a864a4332840249c",
+    "image-facts.py": "e554deac2868247222af83b43dc7cc14f26b28b0e4a09e31366db1eab53ec8d7",
+    "compare-facts.py": "aad1cabc7fe75eaff4274eb25dca677f8c50eb100babb350f9f10a41d9e5d440"
+  },
+  "evidence_sha256": {
+    "base-facts.json": "6fc9b672ff59fc208805815788fe7e624a381c1dfedeccf42760325d734c1aaf",
+    "base-lint.log": "19de3844d4eda2bfb3aeaf447f9d09f4446e1743e2d168e8008408055791a95d",
+    "build.log": "b6c53823207b05a1fd2d0b588c21a52c5c39b7e8eb3d1d3b47619be63a037e75",
+    "camera-image-facts.py": "0c58f91169c53445f434f265592ea6c4c93df6ebedbfc78825c6f7b861952a9f",
+    "candidate-facts.json": "cf2e2c8b91ca821ff0cf98825d92d5023e46911237d3c2f520c78c49dcfa8a3b",
+    "comparison.json": "add282fce24eacf842c15c8f77da305892155797aeab90e6185c558ee12e73e0",
+    "image-inspect.json": "43c1706480713a0e2120ebc798faf290466eb7a696a41d18d6895d62a0c89e2a",
+    "runtime-artifacts.json": "1c08a94904132b0f5042a3a2f65e22969ea76654dc00a22da5e379b37bd32a33"
+  }
+}

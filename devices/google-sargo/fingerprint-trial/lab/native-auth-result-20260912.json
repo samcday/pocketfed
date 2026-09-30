@@ -1,0 +1,184 @@
+{
+  "run_id": "sargo-fingerprint-lab-native-auth-20260912",
+  "serial": "99NAY1AZG1",
+  "linux_uid": 1234,
+  "enrollment": false,
+  "credential_export": false,
+  "steps": [
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-firmware.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "qsee-supplicant.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "qsee-shared-loader@cmnlib64.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "qsee-app-loader@fpctzappfingerprint.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-keymaster-startup.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fpc-native-auth-probe.service",
+      "status": 1,
+      "state": [
+        "ActiveState=failed",
+        "SubState=failed",
+        "Result=exit-code",
+        "NRestarts=0",
+        "ExecMainStatus=2"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fpc-native-auth-probe.service",
+      "status": 0,
+      "state": [
+        "ActiveState=failed",
+        "SubState=failed",
+        "Result=exit-code",
+        "NRestarts=0",
+        "ExecMainStatus=2"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-keymaster-startup.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-app-loader@fpctzappfingerprint.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-shared-loader@cmnlib64.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-supplicant.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    }
+  ],
+  "error": "start pocketfed-fpc-native-auth-probe.service failed: Job for pocketfed-fpc-native-auth-probe.service failed because the control process exited with error code.\nSee \"systemctl status pocketfed-fpc-native-auth-probe.service\" and \"journalctl -xeu pocketfed-fpc-native-auth-probe.service\" for details.",
+  "clean_shutdown": true,
+  "events": {
+    "pocketfed-fpc-native-auth-probe.service": [
+      "Starting pocketfed-fpc-native-auth-probe.service - One existing native lab credential verification; no enrollment...",
+      "pocketfed-fpc-native-auth-probe.service: Main process exited, code=exited, status=2/INVALIDARGUMENT",
+      "pocketfed-fpc-native-auth-probe.service: Failed with result 'exit-code'.",
+      "Failed to start pocketfed-fpc-native-auth-probe.service - One existing native lab credential verification; no enrollment."
+    ],
+    "qsee-supplicant.service": [
+      "Starting qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant...",
+      "event=rpmb_ready sectors_512=32768 reliable_frames=32 authenticated_writes=1",
+      "event=listener_registered transport=qseecom id=10 size=20480",
+      "event=listener_registered transport=qseecom id=28672 size=516096",
+      "event=listener_registered transport=qseecom id=8192 size=25600",
+      "Started qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant.",
+      "event=shutdown status=0 errno=0 stopping=1",
+      "Stopping qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant...",
+      "qsee-supplicant.service: Deactivated successfully.",
+      "Stopped qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant."
+    ],
+    "pocketfed-keymaster-startup.service": [
+      "Starting pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement...",
+      "wrapped_key transport=0 status=-24",
+      "get_hmac_parameters transport=0 status=0",
+      "compute_shared_hmac transport=0 status=0",
+      "sharing_check_length=32 participants=1",
+      "wrapped_key transport=0 status=0 codec_status=0 validated_blob_length=152",
+      "initialization_status=0",
+      "Finished pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement.",
+      "pocketfed-keymaster-startup.service: Deactivated successfully.",
+      "Stopped pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement."
+    ]
+  },
+  "interpretation": "Probe returned 2 before credential-store/backend stages; no native verification tested.",
+  "firmware_comparison": "Both Keymaster and TrustZone slots hash-identical to daily sam-sargo.",
+  "reset": {
+    "method": "explicit UART SysRq reboot",
+    "control_log": "/var/home/sam/src/pocketfed/out/private/sargo-native-auth-20260912/runs/sargo-fingerprint-lab-native-auth-20260912/control.log",
+    "exact_test_serial_seen_in_fastboot": true,
+    "usb_host_stopped_after_fastboot": true,
+    "host_exit_status": 0
+  }
+}

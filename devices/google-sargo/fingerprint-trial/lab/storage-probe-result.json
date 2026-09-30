@@ -1,0 +1,175 @@
+{
+  "enrollment": false,
+  "synthetic_invalid_verification": true,
+  "rpmb_writes": false,
+  "steps": [
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-firmware.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-rpmb.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1082",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-cmnlib.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1087",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-fpc.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1099",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-keymaster.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-probe.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-probe.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-keymaster.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-fpc.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-cmnlib.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-rpmb.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    }
+  ],
+  "result": "startup and clean shutdown passed",
+  "events": {
+    "firmware": [
+      "{\"result\": \"verified and available\", \"files\": 16, \"bundle_sha256\": \"f8dc6d231d0ba97f8ef94319aff1e716c1ddd6c3f416019bd62b31fb76f8a71f\", \"destination\": \"/var/lib/firmware-updates\"}"
+    ],
+    "rpmb": [
+      "event=rpmb_geometry sectors_512=32768 reliable_frames=32 writes=disabled",
+      "event=listener_registered transport=qseecom id=10 size=20480",
+      "event=listener_registered transport=qseecom id=28672 size=516096",
+      "event=listener_registered transport=qseecom id=8192 size=25600",
+      "event=rpmb_dispatch cmd=258 count=34 length=8704 offset=24 version=0 reliable=0 stage=read-length transfer_status=0 reply_status=-1",
+      "event=rpmb_callback cmd=258 detail=34 version_field=0 dispatch=0 reply_status=-1 writes=disabled",
+      "event=shutdown status=0 errno=0 stopping=1"
+    ],
+    "cmnlib": [
+      "event=shared_library_loaded app=cmnlib64 session=1",
+      "event=application_releasing app=cmnlib64 session=1"
+    ],
+    "keymaster": [
+      "wrapped_key transport=0 status=-24",
+      "get_hmac_parameters transport=0 status=0",
+      "compute_shared_hmac transport=0 status=0",
+      "sharing_check_length=32 participants=1",
+      "wrapped_key transport=0 status=0 codec_status=0 validated_blob_length=152",
+      "initialization_status=0"
+    ],
+    "fpc": [
+      "event=application_loaded app=fpctzappfingerprint session=1",
+      "event=application_releasing app=fpctzappfingerprint session=1"
+    ],
+    "probe": [
+      "lab_probe_backend=0",
+      "lab_probe_transport=0 secure_status=-30 synthetic_invalid_handle=true",
+      "lab_probe_result=0"
+    ]
+  }
+}

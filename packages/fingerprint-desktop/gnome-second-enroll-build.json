@@ -1,0 +1,31 @@
+{
+  "version": "51~rc.1-1.2.fingerprint.fc46",
+  "toolchain_image": "sha256:52042b9e154f017c0ecd0cede90f762e1ce08046f0448b281b86409048cf6e9d",
+  "network": "none",
+  "rpm_build_exit_status": 0,
+  "regression": {
+    "host": "passed",
+    "aarch64": "passed",
+    "negative_control": "Old EnrollStart ordering aborts at the delayed-VerifyStop assertion",
+    "full_gnome_test_suite": "not run"
+  },
+  "manifest": {
+    "files": {
+      "gnome-control-center-51~rc.1-1.2.fingerprint.fc46.aarch64.rpm": "707e028a23c0a9a6a38dc41f397b1a07862650e50546d20093714dcb4cbbf063",
+      "gnome-control-center-filesystem-51~rc.1-1.2.fingerprint.fc46.noarch.rpm": "bb0592aebdf41df71d281d9004a3a5f400343fbd04fbcbe912ef1e7427d97602"
+    },
+    "packages": {
+      "gnome-control-center": "gnome-control-center\t0:51~rc.1-1.2.fingerprint.fc46.aarch64",
+      "gnome-control-center-filesystem": "gnome-control-center-filesystem\t0:51~rc.1-1.2.fingerprint.fc46.noarch"
+    }
+  },
+  "source_files": {
+    "packages/fingerprint-desktop/0003-users-wait-for-verification-before-enrollment.patch": "aca93286a55d0017bc5eb44c7270ec11c9a4ae7e943fffca45fedc6054342cb5",
+    "packages/fingerprint-desktop/gnome-control-center.spec": "c050475882817993e0320841f60a9343bf6ae4188e88cb1eb7dff9118f388f73",
+    "packages/fingerprint-desktop/test-fingerprint-enrollment-order.py": "c80a16ad5b602c8e5e761843f5a2119fb447a1a8482fbe73ed70311a738b4cab",
+    "devices/google-sargo/fingerprint-trial/daily/mm/update-settings.py": "af89f0ea3d04232ed20ec6b9e1d008f9dbb221cc8d6163f52b28775f0cdfb5c4"
+  },
+  "build_log": "out/fingerprint-daily-mm-20260912/gcc-second-enroll-build.log",
+  "deployment": "Applied live successfully, then discarded by unexpected reboot before finalization. Old Settings returned; separate kernel freeze now being diagnosed.",
+  "deployment_result": "devices/google-sargo/fingerprint-trial/daily/mm/settings-live-update-result-20260912.json"
+}

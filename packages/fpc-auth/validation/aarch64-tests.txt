@@ -1,0 +1,27 @@
+Image: localhost/pocketfed-fingerprint-build:20260911
+Network: none; source mounts: read-only; source copies/build/state: disposable container /tmp
+WARNING: image platform (linux/arm64/v8) does not match the expected platform (linux/amd64)
+Container machine: aarch64
+Compiler target: aarch64-redhat-linux
+make: Entering directory '/tmp/fpc-auth'
+rm -rf build
+make: Leaving directory '/tmp/fpc-auth'
+make: Entering directory '/tmp/fpc-auth'
+mkdir -p build
+cc  -I../fpc-qsee -O2 -g -std=gnu11 -Wall -Wextra -Werror  -o build/pocketfed-fpc-auth auth-broker.c auth-store.c ../fpc-qsee/gatekeeper-protocol.c 
+cc  -DFPC_AUTH_TESTING -I../fpc-qsee -O2 -g -std=gnu11 -Wall -Wextra -Werror  -o build/test-auth-store test-auth-store.c auth-store.c ../fpc-qsee/gatekeeper-protocol.c -Wl,--wrap=fsync,--wrap=write,--wrap=unlinkat 
+./build/test-auth-store
+PASS durable round trip, UID mapping, exclusive lock and duplicate/incomplete refusal
+PASS directory/lock ownership, mode, symlink, hardlink, FIFO and length checks
+PASS credential metadata, every truncation, trailing byte, malformed header and zero SID rejection
+PASS all three commit sync failures, unlink failure, durable commit warning and retained ambiguous intents
+PASS root peer credentials, 20/73-byte wire protocol, zero-token failures and disabled backend
+PASS absolute socket deadline, slow sender, cancellation, truncation and disconnected writer
+./build/pocketfed-fpc-auth --help
+Usage: pocketfed-fpc-auth --serve
+       pocketfed-fpc-auth provision LINUX_UID
+Enrollment is disabled: Keymaster negotiation is not implemented.
+make: Leaving directory '/tmp/fpc-auth'
+PASS production binary is ELF64/AArch64 (e_machine=183)
+
+exit_status=0

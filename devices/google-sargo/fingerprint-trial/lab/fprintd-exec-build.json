@@ -1,0 +1,236 @@
+{
+  "serial": "99NAY1AZG1",
+  "linux_uid": 1234,
+  "gatekeeper_enrollment": false,
+  "readiness_timeout_seconds": null,
+  "maximum_authenticated_write_groups": 8,
+  "libfprint": {
+    "status": "ARM64 build and unit/FPC tests passed",
+    "candidate_release": "1.94.100-1.5.pocketfed",
+    "upstream_commit": "430e24e538ba137b6edcfe2e1b3b8cc29c66fa6a",
+    "build_image": "sha256:a11b75544e1e5f304d103fa4602068bc70e2ce2aa6d557a1eb8b7eab742f0dd3",
+    "library": {
+      "path": "/tmp/sargo-fingerprint-work/libfprint/build-all/libfprint/libfprint-2.so.2.0.0",
+      "sha256": "a4e1726d32335d758ee7205280985870266cb5af24915f915b128c44b58611e0"
+    },
+    "sources": {
+      "0001-fpcqsee-native-sargo-driver.patch": "0b264cc0b68c872e82805d19aa639bbf2067fe1c2150bc63b7ec715e80507a52",
+      "0002-goodixqsee-include-protocol-header.patch": "dfbee3f9561e422294f6005a2e1c87c6484e3fb124ca6adff6eb063d500d1a76",
+      "0003-fpcqsee-handle-empty-database-identification.patch": "0609d7007ed86e8ea855e7c525ae4a811d026e59b9b472b9e960e44eabba4fc5",
+      "libfprint.spec": "a6304345d265a3775442f3bc4626dd9a84797eca72112cff7a90882df3943150",
+      "90-fpc-qsee.conf": "c7a475b77dd740730b825259bc6731664d27a91f6b1c7b08e697b44340946c37"
+    },
+    "tests": [
+      {
+        "name": "fpcqsee - libfprint:fpc-auth-client",
+        "result": "OK",
+        "duration": 0.06228041648864746
+      },
+      {
+        "name": "fpcqsee - libfprint:fpc-driver",
+        "result": "OK",
+        "duration": 0.11297965049743652
+      },
+      {
+        "name": "unit-tests - libfprint:fpi-ssm",
+        "result": "OK",
+        "duration": 1.1029534339904785
+      },
+      {
+        "name": "unit-tests - libfprint:fpi-assembling",
+        "result": "OK",
+        "duration": 1.963071584701538
+      },
+      {
+        "name": "unit-tests - libfprint:fp-context",
+        "result": "OK",
+        "duration": 2.274806261062622
+      },
+      {
+        "name": "unit-tests - libfprint:fp-device",
+        "result": "OK",
+        "duration": 6.153395414352417
+      },
+      {
+        "name": "unit-tests - libfprint:fpi-device",
+        "result": "OK",
+        "duration": 8.009800672531128
+      }
+    ],
+    "driver_cases": [
+      "ok 1 /fpc-driver/verify-capture-order-and-rejection",
+      "ok 2 /fpc-driver/identify-gallery-bound",
+      "ok 3 /fpc-driver/empty-device-database-and-enumeration-error",
+      "ok 4 /fpc-driver/enroll-needs-broker-and-persistence",
+      "ok 5 /fpc-driver/cancellation-wins-match-race"
+    ],
+    "hardware_acceptance": false,
+    "runtime_link_check": {
+      "image": "sha256:671197f9f3bf539fc4e1fd138843a8739df3958cabcacd0e5f9ca6a3baaa9996",
+      "status": "all shared-library dependencies resolved",
+      "log_sha256": "5b394048aeeb3e6c5a64f2481d0cab1cbfc99c2c553c2779b643c18efebb778f"
+    }
+  },
+  "system_library_directory_mode": "0755",
+  "status": "Enrollment and same-finger match passed; different-finger phase returned a device error",
+  "run_id": "sargo-fingerprint-lab-fprintd-exec-20260912",
+  "source_sha256": {
+    "lab_fprintd_interactive.py": "baf851146e30eca9b0c1a9a0e27d483777034ec0f3cf9142a0c28aa4df1f6fe6",
+    "lab_fprintd_countdown.py": "dba093d890ea129ed6a3d4f975abd7d28dc0d1f28de921a9310beec4d317da85",
+    "lab_vault.py": "38c4607d903be9c63a1557c2289ea87bc58d7b94f8863af92bcafa4dc6529216",
+    "device_controls.py": "ae5f00bb869574f3e640604b87be9c64a7863f3fc56afb510c7d1de6e4fc3a01",
+    "lab_fprintd_empty.py": "fec79df28beaf9686c9508634cd2ce255c2cc1d20aa5b49505a728ba4dfa01b7",
+    "test-device-controls.py": "3b10b71f0afe8b8c3f6eadaf73f582de15ac0c80f7901e56e3d6c527b5557045",
+    "lab_report.py": "7c9b8b163c65a86c1a129f8ddd93351fdd2a8ab75ba80a8677f3d1fa09a401df",
+    "lab_fprintd_peer.py": "2f15af8fd69ebe7374de2e56224a965fd87da7a2698e81c204f23080d34a1fdf",
+    "test-interactive-controls.py": "1753ec601c038c9363c219139dc2663c2ad51f3722462ddab89088dc2e82b1db",
+    "lab_authorization.py": "d7dc8cd923a6db8e05674a1b7aaafdc25e33c6b4f2d6d132f36a6e1018e803cd",
+    "test-private-fingerprint-export.py": "f74c106cdf9ebde328017967f06aa567fda7347c300e212c58333f64dd018ae5",
+    "lab_fprintd_unmasked.py": "bc629ca06a7d527a2d60036aac0bc96c4e688b8dc1e1500e789376d1527e0c52",
+    "lab_fprintd.py": "cfca52db05463300b4d39c3fa68ce673bd913bf5c8cac71b028d4db63abcaefc",
+    "lab_fprintd_dependencies.py": "766b6afe32c6514263ddfc05400f0255e149954221893e208d47e0ca370495a6",
+    "lab_fprintd_buttons.py": "245c370d39da0c444f0ec669a56f055e73105666dfac1e3b5d4cc9151600705d",
+    "broker_readiness.py": "124dafc722b43e5d8880fd93413eafb5a9ea476bf996f13869e812d6488da36f",
+    "fprintd_interactive.py": "176369a8623ecf2aa73e4f57bf69b2f1b5344871ae6ea704342f858577798c0b",
+    "fprintd-preflight.py": "a057be4b483e8863af962eb31a415b6840b20f6b3002b41a39c625e1929cd12a",
+    "lab_fprintd_libdir.py": "aab3ec17b1cbdf04dc540fda6021d97a0888fd3b3777337d3dd5bf9b11328741",
+    "test-broker-readiness.py": "9ff428a20c41fb67fa21166499b22f41681bc9277208df1fa0d09d4b0a98d6b7",
+    "lab_fprintd_exec.py": "62ef2407961fe4e8c9fd3a21b8372d86160ab5235833eca4b456dfa5ebc053b7"
+  },
+  "controller_sha256": "d21cae6d30a879990c5fc43995e5487080fb0afe9d6caa4ebb7dffb27acbd808",
+  "receiver_sha256": "0451d17a11b3bbf737d571380c87168894854d9fadc5d6bac48d78efd958501e",
+  "receiver_sources": {
+    "run_id": "sargo-fingerprint-lab-fprintd-exec-20260912",
+    "change": "Only exact run identity changed; eight write groups and write-error latch retained",
+    "base": {
+      "run_id": "sargo-fingerprint-lab-authorization-20260911",
+      "change": "Exact run token only; same eight-group budget and write-error latch",
+      "base": {
+        "scope": "Only fixed test-sargo storage recovery; at most eight authenticated write groups; no key programming or retry after transport/device error",
+        "run_id": "sargo-fingerprint-lab-gatekeeper-storage-rw-20260911",
+        "base_receiver": {
+          "frozen_receiver_sha256": "8216145eb6d509839a8dddd188e8615754322c0af0556657a8b14b1f8355d5f3",
+          "change": "Replace fixed 504:0 check with named sysfs RPMB/card/device identity; read-only guards unchanged",
+          "files": {
+            "lab-device.h": "e73f96e08f8cd545cfebba650da09e5e966cd9704c0c9a2f4c2081e68939ded1",
+            "rpmb-mmc.c": "ce6036d731cf660d6129d3f7086c58c9ed60b6a3ee8d8a5bed4953f51a7a1405",
+            "rpmb-mmc.h": "02744188a8e55a4073b674a70540e0fd8042b933a94bc4d54f8778d0821e189b",
+            "rpmb-protocol.c": "f6032a2f7ed10db6cde734a0f2879843d9bf72131e2f18b2cf4b44d75ecac071",
+            "rpmb-protocol.h": "53665f643c14da8574cf0e5ebfab11d06abe83761fefcd0ad21c84525bff802d",
+            "rpmb-supplicant.c": "b4a145d76d5e5f3c9b866c3e90d484ee03e7041577d3f21b6019b7bc16ab8b27",
+            "test-lab-device.c": "a50a26d7751d45d89550ac8e3353bc9979c84ceb877075243c22c5b2e4c2b119",
+            "test-rpmb-mmc.c": "8691b28ccd0ab2b45b2cdb7480de6aa763dda3d68c422761fe2f838cf831f302",
+            "test-rpmb-protocol.c": "b56d8c02c25fe3c21b76427270108c46a5abfd9da82a091f0cea788fc47850ac",
+            "test-rpmb-supplicant.c": "859ec764861aab0900c012392fb7936418956e1f5fb9b290175821739704c567"
+          }
+        },
+        "files": {
+          "lab-device.h": "e73f96e08f8cd545cfebba650da09e5e966cd9704c0c9a2f4c2081e68939ded1",
+          "lab-writer.h": "31fb87a1de59501b9f75c49709a0ded40fd2a45bee711937c4ebd13a80293bd1",
+          "rpmb-mmc.c": "ce6036d731cf660d6129d3f7086c58c9ed60b6a3ee8d8a5bed4953f51a7a1405",
+          "rpmb-mmc.h": "02744188a8e55a4073b674a70540e0fd8042b933a94bc4d54f8778d0821e189b",
+          "rpmb-protocol.c": "f6032a2f7ed10db6cde734a0f2879843d9bf72131e2f18b2cf4b44d75ecac071",
+          "rpmb-protocol.h": "53665f643c14da8574cf0e5ebfab11d06abe83761fefcd0ad21c84525bff802d",
+          "rpmb-supplicant.c": "c3c4d307411eb7b9ad65ac7fbe2e67870ff35d6faff82027c02a07eeec804335",
+          "test-lab-device.c": "a50a26d7751d45d89550ac8e3353bc9979c84ceb877075243c22c5b2e4c2b119",
+          "test-lab-writer.c": "baaef29b433bdd1dfae59e2cf2e613df42b01ae4218244dc7e89f5a380ddcb74",
+          "test-rpmb-mmc.c": "8691b28ccd0ab2b45b2cdb7480de6aa763dda3d68c422761fe2f838cf831f302",
+          "test-rpmb-protocol.c": "b56d8c02c25fe3c21b76427270108c46a5abfd9da82a091f0cea788fc47850ac",
+          "test-rpmb-supplicant.c": "859ec764861aab0900c012392fb7936418956e1f5fb9b290175821739704c567",
+          "test-writer-supplicant.c": "e5304c880ecd5911ed32ea3192dbcf058e8f7281df0a5b5b1adb6d4f84ec243e"
+        }
+      },
+      "files": {
+        "lab-device.h": "e73f96e08f8cd545cfebba650da09e5e966cd9704c0c9a2f4c2081e68939ded1",
+        "lab-writer.h": "dfed847a2c20c6a9837f7bce6e725331e6d62b0c82032fc6868deaaa4e11fc8c",
+        "rpmb-mmc.c": "ce6036d731cf660d6129d3f7086c58c9ed60b6a3ee8d8a5bed4953f51a7a1405",
+        "rpmb-mmc.h": "02744188a8e55a4073b674a70540e0fd8042b933a94bc4d54f8778d0821e189b",
+        "rpmb-protocol.c": "f6032a2f7ed10db6cde734a0f2879843d9bf72131e2f18b2cf4b44d75ecac071",
+        "rpmb-protocol.h": "53665f643c14da8574cf0e5ebfab11d06abe83761fefcd0ad21c84525bff802d",
+        "rpmb-supplicant.c": "c3c4d307411eb7b9ad65ac7fbe2e67870ff35d6faff82027c02a07eeec804335",
+        "test-lab-device.c": "a50a26d7751d45d89550ac8e3353bc9979c84ceb877075243c22c5b2e4c2b119",
+        "test-lab-writer.c": "baaef29b433bdd1dfae59e2cf2e613df42b01ae4218244dc7e89f5a380ddcb74",
+        "test-rpmb-mmc.c": "8691b28ccd0ab2b45b2cdb7480de6aa763dda3d68c422761fe2f838cf831f302",
+        "test-rpmb-protocol.c": "b56d8c02c25fe3c21b76427270108c46a5abfd9da82a091f0cea788fc47850ac",
+        "test-rpmb-supplicant.c": "859ec764861aab0900c012392fb7936418956e1f5fb9b290175821739704c567",
+        "test-writer-supplicant.c": "e5304c880ecd5911ed32ea3192dbcf058e8f7281df0a5b5b1adb6d4f84ec243e"
+      }
+    },
+    "files": {
+      "test-writer-supplicant.c": "e5304c880ecd5911ed32ea3192dbcf058e8f7281df0a5b5b1adb6d4f84ec243e",
+      "test-lab-writer.c": "baaef29b433bdd1dfae59e2cf2e613df42b01ae4218244dc7e89f5a380ddcb74",
+      "lab-writer.h": "ea0c6009dae55726610617a8785b5e7711d9d8dbff96d76efbf6bd9caee5c08f",
+      "rpmb-supplicant.c": "c3c4d307411eb7b9ad65ac7fbe2e67870ff35d6faff82027c02a07eeec804335",
+      "test-lab-device.c": "a50a26d7751d45d89550ac8e3353bc9979c84ceb877075243c22c5b2e4c2b119",
+      "lab-device.h": "e73f96e08f8cd545cfebba650da09e5e966cd9704c0c9a2f4c2081e68939ded1",
+      "test-rpmb-supplicant.c": "859ec764861aab0900c012392fb7936418956e1f5fb9b290175821739704c567",
+      "test-rpmb-mmc.c": "8691b28ccd0ab2b45b2cdb7480de6aa763dda3d68c422761fe2f838cf831f302",
+      "test-rpmb-protocol.c": "b56d8c02c25fe3c21b76427270108c46a5abfd9da82a091f0cea788fc47850ac",
+      "rpmb-mmc.h": "02744188a8e55a4073b674a70540e0fd8042b933a94bc4d54f8778d0821e189b",
+      "rpmb-mmc.c": "ce6036d731cf660d6129d3f7086c58c9ed60b6a3ee8d8a5bed4953f51a7a1405",
+      "rpmb-protocol.h": "53665f643c14da8574cf0e5ebfab11d06abe83761fefcd0ad21c84525bff802d",
+      "rpmb-protocol.c": "f6032a2f7ed10db6cde734a0f2879843d9bf72131e2f18b2cf4b44d75ecac071"
+    }
+  },
+  "broker_policy": {
+    "status": "offline compile and boundaries passed; hardware acceptance pending",
+    "base_policy_sha256": "61a507b528b021177198aed1ea54b2233ee4cdb959b550bc3c3fef2e7be71077",
+    "policy_sha256": "7c1f0c2c2857badd6a8b2d6ed9b254b41e3a92729f2352dd3b0476a12304f0fc",
+    "module_sha256": "1c9703327b4a4ea0ef06a710a8ff457f15294c34ace0506845ec499142d4f143",
+    "sources": {
+      "pocketfed_fpc_broker.te": "bc31b6884d9bc5a582fbf2fec14cc06019385315c1566dcdedb4adcddf289346",
+      "pocketfed_fpc_broker.fc": "6c46092f5bce9130f4489db533d76f3b0a7aea33b6b7fadc09c1831ff73b0b3b",
+      "prepare-policy.py": "3ef623edb83f2362a523552cd17a893ae6442dfced7c90420c7db2c1db0f8209"
+    },
+    "existing_policy_preserved_outside_new_types": true,
+    "broker_domain_attributes": [
+      "domain"
+    ],
+    "fprintd_still_confined": true,
+    "fprintd_credential_access_denied": true,
+    "generic_service_peer_access_unchanged": true,
+    "public_tee_ioctls": [
+      "0xa400",
+      "0xa401",
+      "0xa402",
+      "0xa403",
+      "0xa405"
+    ],
+    "negative_checks": [
+      "private/generic TEE and RPMB devices",
+      "sensor access",
+      "generic filesystem writes",
+      "subprocess execution",
+      "network socket creation",
+      "unrelated executable/path labels"
+    ],
+    "host_policy_loaded": false,
+    "prepared_directory": "/tmp/sargo-fpc-broker-policy-20260912/candidate-exec",
+    "context_files": {
+      "file_contexts.bin": "59622b3e9ccacfba0f8411dcfaa51124110be82bbd127fa4aa3761222611f217",
+      "file_contexts": "073d757c02a52d9b19d2129cbff2bbf58527019db16562bc39bea0901f5a86c4",
+      "file_contexts.homedirs": "62e3b85df4253cfd9c117bc3fafdcf0b4d41013033e43ab8373be22c6b8b3470",
+      "file_contexts.local": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "file_contexts.subs": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "file_contexts.subs_dist": "208512ae62d82e07699c16863b7029101969c7af038db233b76e94b09310e709"
+    },
+    "source_trial": "sargo-fingerprint-lab-fprintd-peer-20260912"
+  },
+  "validation": [
+    "ARM64 bounded receiver build and four tests passed",
+    "Four readiness peer/protocol/deadline tests passed",
+    "Generated Python parses; broker preflight precedes interactive gates; lib64 mode 0755"
+  ],
+  "exported_broker_label": {
+    "result": "pass",
+    "path": "/usr/bin/pocketfed-fpc-auth",
+    "actual": "system_u:object_r:pocketfed_fpc_auth_exec_t:s0",
+    "expected": "system_u:object_r:pocketfed_fpc_auth_exec_t:s0",
+    "executable_sha256": "985a7c6631e48ad0e5b5857ad032f3bfe1e7af3bfd8893fcbe1e83df8ff1ccab",
+    "method": "Read EROFS label from selective fsck.erofs xattr syscall trace; host rejects device-only type with EINVAL",
+    "host_policy_modified": false,
+    "trace_sha256": "e5bcc3ac17852496492c22ef7336fca3dce2aebc208774898c07a64059cec723"
+  },
+  "waiting_checkpoint": "fprintd-exec-waiting.json",
+  "result_file": "fprintd-exec-result.json"
+}

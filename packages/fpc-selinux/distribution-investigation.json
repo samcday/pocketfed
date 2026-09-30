@@ -1,0 +1,88 @@
+{
+  "status": "normal offline module-store integration and exact preservation/access/context checks passed; no image or device activation",
+  "signed_fedora_rpm": {
+    "nevra": "selinux-policy-targeted-45.15-2.fc46.noarch",
+    "sha256": "d34ccb070d0d0ada1089078bc0363380ff17c0f753c447545be174994cdac8f3",
+    "signer_fingerprint": "D924B10D3E810DABDD8B56B596E7E91491211FCE",
+    "url": "https://kojipkgs.fedoraproject.org/packages/selinux-policy/45.15/2.fc46/data/signed/91211fce/noarch/selinux-policy-targeted-45.15-2.fc46.noarch.rpm"
+  },
+  "stock_neverallow_build": "passed",
+  "stock_plus_fingerprint_neverallow_build": "passed",
+  "stock_plus_all_image_package_modules_neverallow_build": {
+    "status": "failed before fingerprint module was added",
+    "assertion_failures": 13,
+    "cause": "existing container policy rules conflict with Fedora base neverallow assertions",
+    "distribution_configuration": "expand-check=0; initial stricter check used expand-check=1 only in isolated temporary config"
+  },
+  "reconstruction_modules_at_priority_200": [
+    "container",
+    "passt",
+    "passt-repair",
+    "pasta",
+    "pesto"
+  ],
+  "host_policy_changed": false,
+  "image_changed": false,
+  "device_changed": false,
+  "baseline_comparison": {
+    "image_policy_sha256": "ca98dfcea858d4974bdaa1e10e54e1d70264a28c0fb79c03e339565360384973",
+    "reconstructed_policy_sha256": "ca98dfcea858d4974bdaa1e10e54e1d70264a28c0fb79c03e339565360384973",
+    "decompiled_cil_sha256": "a83556da4721b1afcac13ba161d6e49c4c48a355b2cfd949812151588e78ec1a",
+    "decompiled_cil_byte_identical": true,
+    "image_boolean_restored_in_offline_store": {
+      "virt_use_nfs": true
+    },
+    "context_text_files": {
+      "file_contexts": {
+        "identical": true,
+        "sha256": "2032f42b11fa2783e9f395336c3b2eeab5b8c995d5f6dfd7427e01c062f94194"
+      },
+      "file_contexts.homedirs": {
+        "identical": true,
+        "sha256": "62e3b85df4253cfd9c117bc3fafdcf0b4d41013033e43ab8373be22c6b8b3470"
+      },
+      "file_contexts.local": {
+        "identical": true,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "file_contexts.subs": {
+        "identical": true,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "file_contexts.subs_dist": {
+        "identical": true,
+        "sha256": "208512ae62d82e07699c16863b7029101969c7af038db233b76e94b09310e709"
+      },
+      "media": {
+        "identical": true,
+        "sha256": "08062b1ce71faab6f7a21a62b6cb71a88b275e7f36fad087d29fd7e0f121d13d"
+      }
+    },
+    "context_text_file_count": 6
+  },
+  "additional_context_module_at_priority_400": "extra_varrun: preserves the existing /run/pasta.pid entry",
+  "shipped_but_not_added_from_package_files": [
+    "flatpak",
+    "pocketfed-smoo",
+    "greetd: distribution module already supplies its rules and canonical /run contexts"
+  ],
+  "home_context_preservation": "copied exact image file_contexts.homedirs into isolated active store and disabled its regeneration in temporary build config; prevents build-host /home realpath contamination",
+  "integrated_context_comparison": {
+    "existing_main_context_lines_retained": true,
+    "additional_main_context_lines": [
+      "/dev/fpc1020\t-c\tsystem_u:object_r:pocketfed_fpc_device_t:s0",
+      "/dev/tee([0-9]|1[0-5])\t-c\tsystem_u:object_r:pocketfed_fpc_tee_device_t:s0",
+      "/run/pocketfed-fpc-auth\t-d\tsystem_u:object_r:pocketfed_fpc_auth_run_t:s0",
+      "/run/pocketfed-fpc-auth/token\\.sock\t-s\tsystem_u:object_r:pocketfed_fpc_auth_run_t:s0",
+      "/var/lib/pocketfed-fpc-auth(/.*)?\tsystem_u:object_r:pocketfed_fpc_auth_state_t:s0"
+    ],
+    "other_text_files_byte_identical": 5
+  },
+  "integrated_policy_sha256": "2a6013d4c22133f1ea730df92bcf4c739b5ac49e43682007cce59ac39f99913a",
+  "integrated_neverallow_comparison": {
+    "baseline_and_candidate_diagnostics_identical": true,
+    "existing_failure_count": 13,
+    "normalized_diagnostics_sha256": "e848ef387dd1260a28fd7eae7b0e0a74a8f08a458b3fa6c05f3c63fe0bf1f915",
+    "new_fingerprint_assertion_failures": 0
+  }
+}

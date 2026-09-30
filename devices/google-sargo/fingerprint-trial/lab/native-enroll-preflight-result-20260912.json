@@ -1,0 +1,84 @@
+{
+  "run_id": "sargo-fingerprint-lab-native-enroll-20260912",
+  "serial": "99NAY1AZG1",
+  "linux_uid": 1000,
+  "gatekeeper_uid": "0x700003e8",
+  "gatekeeper_enrollment": true,
+  "fingerprint_enrollment": false,
+  "steps": [
+    {
+      "action": "stop",
+      "unit": "pocketfed-fpc-native-enroll-probe.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-keymaster-startup.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-app-loader@fpctzappfingerprint.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-shared-loader@cmnlib64.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-supplicant.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    }
+  ],
+  "error": "[Errno 2] No such file or directory: '/usr/libexec/sargo-fingerprint-lab/encrypt-record'",
+  "clean_shutdown": true,
+  "events": {
+    "pocketfed-fpc-native-enroll-probe.service": [],
+    "qsee-supplicant.service": [],
+    "pocketfed-keymaster-startup.service": []
+  },
+  "enrollment_started": false,
+  "recovery": {
+    "uart_reset_requested": true,
+    "fastboot_serial": "99NAY1AZG1",
+    "usb_host_stopped_after_fastboot": true,
+    "host_exit_status": 0
+  }
+}

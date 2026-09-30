@@ -1,0 +1,139 @@
+Subject: [PATCH] users: await verification stop before enrolling another finger
+
+The live match tester owns the device until VerifyStop completes. Queue the
+selected finger across that reply, including an already pending stop, and
+discard it on cancellation, dialog close, screen lock, or device loss.
+
+--- a/panels/system/users/cc-fingerprint-dialog.c
++++ b/panels/system/users/cc-fingerprint-dialog.c
+@@ -96,6 +96,7 @@
+     gulong device_finger_status_id;
+     GCancellable *cancellable;
+     GStrv enrolled_fingers;
++    char *pending_enroll_finger;
+     guint enroll_stages_passed;
+     gdouble enroll_progress;
+ 
+@@ -167,6 +168,8 @@
+ static void update_prints_store (CcFingerprintDialog *self);
+ static void maybe_start_identification (CcFingerprintDialog *self);
+ static void stop_identification (CcFingerprintDialog *self);
++static void start_pending_enrollment (CcFingerprintDialog *self);
++static gboolean cancel_pending_enrollment (CcFingerprintDialog *self);
+ 
+ CcFingerprintDialog *
+ cc_fingerprint_dialog_new (CcFingerprintManager *manager)
+@@ -523,6 +526,20 @@
+ 
+     remove_dialog_state (self, DIALOG_STATE_DEVICE_VERIFYING | DIALOG_STATE_DEVICE_VERIFY_STOPPING);
+ 
++    if (self->pending_enroll_finger) {
++        if (error) {
++            g_autofree char *message = NULL;
++
++            cancel_pending_enrollment (self);
++            message = g_strdup_printf (_("Failed to stop fingerprint identification: %s"),
++                                       dbus_error_to_human (self, error));
++            notify_error (self, message);
++        } else {
++            start_pending_enrollment (self);
++        }
++        return;
++    }
++
+     /* Resume identification if it is still appropriate (e.g. after a match). */
+     maybe_start_identification (self);
+ }
+@@ -958,6 +975,39 @@
+     return g_strdup (_("Repeatedly lift and place your finger on the reader to enroll your fingerprint"));
+ }
+ 
++static gboolean
++cancel_pending_enrollment (CcFingerprintDialog *self)
++{
++    if (!self->pending_enroll_finger)
++        return FALSE;
++
++    g_clear_pointer (&self->pending_enroll_finger, g_free);
++    remove_dialog_state (self, DIALOG_STATE_DEVICE_ENROLLING | DIALOG_STATE_DEVICE_ENROLL_STARTING);
++    return TRUE;
++}
++
++static void
++start_pending_enrollment (CcFingerprintDialog *self)
++{
++    g_autofree char *finger_id = NULL;
++
++    if (!self->pending_enroll_finger)
++        return;
++
++    if (!self->device || !(self->dialog_state & DIALOG_STATE_DEVICE_CLAIMED)
++        || g_cancellable_is_cancelled (self->cancellable)) {
++        cancel_pending_enrollment (self);
++        return;
++    }
++
++    if (self->dialog_state & (DIALOG_STATE_DEVICE_VERIFYING | DIALOG_STATE_DEVICE_VERIFY_STOPPING))
++        return;
++
++    finger_id = g_steal_pointer (&self->pending_enroll_finger);
++    cc_fprintd_device_call_enroll_start (self->device, finger_id, G_DBUS_CALL_FLAGS_NONE, -1, self->cancellable,
++                                         enroll_start_cb, self);
++}
++
+ static void
+ enroll_finger (CcFingerprintDialog *self, const char *finger_id)
+ {
+@@ -980,10 +1030,11 @@
+     gtk_progress_bar_set_fraction (self->progress_bar, 0);
+     adw_status_page_set_title (ADW_STATUS_PAGE (self->enrollment_view), enroll_message);
+ 
++    /* VerifyStop is asynchronous. Keep the selected finger until its reply,
++     * including when a stop was already pending from the live match tester. */
++    self->pending_enroll_finger = g_strdup (finger_id);
+     stop_identification (self);
+-
+-    cc_fprintd_device_call_enroll_start (self->device, finger_id, G_DBUS_CALL_FLAGS_NONE, -1, self->cancellable,
+-                                         enroll_start_cb, self);
++    start_pending_enrollment (self);
+ }
+ 
+ static void
+@@ -1097,6 +1148,8 @@
+ static void
+ abort_operations_and_close (CcFingerprintDialog *self)
+ {
++    cancel_pending_enrollment (self);
++
+     if (self->dialog_state & DIALOG_STATE_DEVICE_ENROLLING) {
+         g_debug ("Stopping enrollment due to screen lock");
+         cc_fprintd_device_call_enroll_stop_sync (self->device, G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL);
+@@ -1158,6 +1211,7 @@
+     name_owner = g_dbus_proxy_get_name_owner (G_DBUS_PROXY (device));
+ 
+     if (!name_owner) {
++        cancel_pending_enrollment (self);
+         if (self->dialog_state & DIALOG_STATE_DEVICE_CLAIMED) {
+             disconnect_device_signals (self);
+ 
+@@ -1383,6 +1437,11 @@
+ static void
+ cancel_button_clicked_cb (CcFingerprintDialog *self)
+ {
++    if (cancel_pending_enrollment (self)) {
++        gtk_stack_set_visible_child (self->stack, self->prints_manager);
++        return;
++    }
++
+     if (self->dialog_state & DIALOG_STATE_DEVICE_ENROLLING) {
+         g_cancellable_cancel (self->cancellable);
+         g_set_object (&self->cancellable, g_cancellable_new ());
+@@ -1406,6 +1465,8 @@
+ static void
+ on_dialog_closed_cb (CcFingerprintDialog *self)
+ {
++    cancel_pending_enrollment (self);
++
+     cc_fingerprint_manager_update_state (self->manager, NULL, NULL);
+ 
+     if (self->device && (self->dialog_state & DIALOG_STATE_DEVICE_CLAIMED)) {

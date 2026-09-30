@@ -1,0 +1,8 @@
+{
+  "status": "all exported OCI blobs verified and imported; base package inventory matches live except existing Tailscale layer",
+  "original_registry_manifest": "sha256:f99cc04bed61613a1704a71024421c8188a65b25ee084d2f47b650217621802d",
+  "exported_manifest": "sha256:f1e3034d6038a3c21daa085673c453e67c96a1667aaa40bffbe7ce8a7aecdd76",
+  "exported_image": "sha256:b5c4bd5293af3caf701193d9f40f8527dedb7e0d57d2fa21f1161c162837959c",
+  "layer_count": 117,
+  "package_records": 933
+}

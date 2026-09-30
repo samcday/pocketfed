@@ -1,0 +1,72 @@
+{
+  "image_id": "671197f9f3bf539fc4e1fd138843a8739df3958cabcacd0e5f9ca6a3baaa9996",
+  "file_context_lookup": [
+    {
+      "path": "/dev/fpc1020",
+      "mode": "chr_file",
+      "context": "system_u:object_r:pocketfed_fpc_device_t:s0"
+    },
+    {
+      "path": "/dev/tee0",
+      "mode": "chr_file",
+      "context": "system_u:object_r:pocketfed_fpc_tee_device_t:s0"
+    },
+    {
+      "path": "/dev/tee15",
+      "mode": "chr_file",
+      "context": "system_u:object_r:pocketfed_fpc_tee_device_t:s0"
+    },
+    {
+      "path": "/dev/teepriv0",
+      "mode": "chr_file",
+      "context": "system_u:object_r:device_t:s0"
+    },
+    {
+      "path": "/dev/tee16",
+      "mode": "chr_file",
+      "context": "system_u:object_r:device_t:s0"
+    },
+    {
+      "path": "/run/pocketfed-fpc-auth",
+      "mode": "dir",
+      "context": "system_u:object_r:pocketfed_fpc_auth_run_t:s0"
+    },
+    {
+      "path": "/run/pocketfed-fpc-auth/token.sock",
+      "mode": "sock_file",
+      "context": "system_u:object_r:pocketfed_fpc_auth_run_t:s0"
+    },
+    {
+      "path": "/var/lib/pocketfed-fpc-auth/uid-1000.credential",
+      "mode": "file",
+      "context": "system_u:object_r:pocketfed_fpc_auth_state_t:s0"
+    },
+    {
+      "path": "/usr/bin/pocketfed-fpc-auth",
+      "mode": "file",
+      "context": "system_u:object_r:bin_t:s0"
+    },
+    {
+      "path": "/usr/libexec/fprintd",
+      "mode": "file",
+      "context": "system_u:object_r:fprintd_exec_t:s0"
+    }
+  ],
+  "systemd_analyze_verify": {
+    "units": [
+      "fprintd.service",
+      "qsee-supplicant.service",
+      "phosh-fingerprint-auth.socket",
+      "phosh-fingerprint-auth@.service",
+      "pocketfed-fpc-auth.socket",
+      "pocketfed-fpc-auth.service",
+      "pocketfed-fpc-provision@1000.service",
+      "qsee-shared-loader@cmnlib64.service",
+      "qsee-app-loader@fpctzappfingerprint.service",
+      "pocketfed-fingerprint-firmware.service"
+    ],
+    "passed": true,
+    "output": ""
+  },
+  "scope": "disposable networkless ARM64 container; only container masks removed for dependency verification, no services or hardware operations started"
+}

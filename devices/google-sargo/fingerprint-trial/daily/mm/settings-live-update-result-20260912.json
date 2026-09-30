@@ -1,0 +1,61 @@
+{
+  "date": "2026-09-12",
+  "device": "sam-sargo",
+  "serial": "994AY18RSD",
+  "base": "d639fe55e1cf11b2756f367fef1dad99ab7e2705c19b0b72f73e80c265d16b89",
+  "target": "efa97ca47fa5962a46f9bfa5c8d50dada208cf299ef113c3e18b709f4a5bfe7a",
+  "boot_id": "cbfa1a02-40ae-4f6b-9d57-2c4637634745",
+  "status": "Applied live; awaiting physical second-finger acceptance",
+  "stage_exit_status": 0,
+  "apply_live_exit_status": 0,
+  "version": "51~rc.1-1.2.fingerprint.fc46",
+  "package_delta": [
+    "gnome-control-center",
+    "gnome-control-center-filesystem"
+  ],
+  "checks_passed": [
+    "Entire staged and live package inventory equals old inventory with only the two Settings versions replaced",
+    "Previous package requests and ten pins preserved; working deployment pinned too",
+    "PIN PAM, Phosh, broker, receiver and SELinux policy files unchanged",
+    "Same boot ID; no reboot",
+    "Next boot finalization unlocked after successful live validation"
+  ],
+  "settings_launch_unit": "pocketfed-fingerprint-settings-second-enroll-20260912.service",
+  "settings_launch_exit_status": 0,
+  "manifest": {
+    "files": {
+      "gnome-control-center-51~rc.1-1.2.fingerprint.fc46.aarch64.rpm": "707e028a23c0a9a6a38dc41f397b1a07862650e50546d20093714dcb4cbbf063",
+      "gnome-control-center-filesystem-51~rc.1-1.2.fingerprint.fc46.noarch.rpm": "bb0592aebdf41df71d281d9004a3a5f400343fbd04fbcbe912ef1e7427d97602"
+    },
+    "packages": {
+      "gnome-control-center": "gnome-control-center\t0:51~rc.1-1.2.fingerprint.fc46.aarch64",
+      "gnome-control-center-filesystem": "gnome-control-center-filesystem\t0:51~rc.1-1.2.fingerprint.fc46.noarch"
+    }
+  },
+  "followup_snapshot": "A later SSH metadata snapshot timed out connecting; no reboot cause or service failure inferred.",
+  "subsequent_reboot": {
+    "user_report": "System froze and rebooted right as USB was unplugged",
+    "cause": "unconfirmed",
+    "new_boot_id": "f4004f50-da2f-4d01-90ac-7fea406885dc",
+    "booted_deployment": "d639fe55e1cf11b2756f367fef1dad99ab7e2705c19b0b72f73e80c265d16b89",
+    "settings_version": "51~rc.1-1.1.fingerprint.fc46",
+    "staged_update_present": false,
+    "pstore_filenames": [],
+    "sockets_active": [
+      "pocketfed-fpc-auth.socket",
+      "phosh-fingerprint-auth.socket"
+    ],
+    "second_user_report": "Logged in with PIN, successfully enrolled second finger, did not unplug USB, device appeared frozen again",
+    "ssh_after_second_freeze": "Connection timed out",
+    "host_uart_after_second_freeze": "Sandboxed inventory was empty; it did not establish host adapter absence. After Sam confirmed the harness, the escalated host reader captured the freeze."
+  },
+  "current_status": "Kernel freeze captured by UART; initiating cause under investigation. First live Settings update was lost on reboot; second-finger enrollment subsequently succeeded on the old version.",
+  "restaging_attempt": {
+    "directory": "/var/tmp/sargo-fingerprint-mm-20260912/settings-fix-after-usb-reboot",
+    "cached_rpms_and_manifest_copied": true,
+    "updater_copy": "SSH connection timed out",
+    "stage_command": "SSH connection timed out before execution",
+    "new_package_transaction_started": false
+  },
+  "freeze_evidence": "../freeze-observation-20260912.json"
+}

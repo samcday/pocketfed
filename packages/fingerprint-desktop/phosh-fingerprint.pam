@@ -1,0 +1,7 @@
+#%PAM-1.0
+# Separate fingerprint-only transaction. The existing phosh PIN service is kept.
+auth       required    pam_fprintd.so max-tries=3 timeout=15
+# Require successful homed account/home access for homed users. Unlike the
+# authselect default, do not silently ignore a locked/inactive-home error.
+account    [success=done user_unknown=ignore default=die] pam_systemd_home.so
+account    include     system-auth

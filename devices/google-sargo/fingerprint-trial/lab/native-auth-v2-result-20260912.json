@@ -1,0 +1,213 @@
+{
+  "run_id": "sargo-fingerprint-lab-native-auth-v2-20260912",
+  "serial": "99NAY1AZG1",
+  "linux_uid": 1234,
+  "enrollment": false,
+  "credential_export": false,
+  "steps": [
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-firmware.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "qsee-supplicant.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "qsee-shared-loader@cmnlib64.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "qsee-app-loader@fpctzappfingerprint.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-keymaster-startup.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fpc-native-auth-probe.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fpc-native-auth-probe.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-keymaster-startup.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-app-loader@fpctzappfingerprint.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-shared-loader@cmnlib64.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-supplicant.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    }
+  ],
+  "credential_unchanged": true,
+  "result": "existing native lab credential verified through packaged service chain",
+  "clean_shutdown": true,
+  "events": {
+    "pocketfed-fpc-native-auth-probe.service": [
+      "Starting pocketfed-fpc-native-auth-probe.service - One existing native lab credential verification; no enrollment...",
+      "native_auth_stage=probe_started",
+      "native_auth_stage=backend_open_begin",
+      "native_auth_stage=backend_open_end status=0",
+      "native_auth_stage=verify_begin uid=1234",
+      "native_auth_stage=verify_end transport=0 secure_status=0",
+      "native_auth_stage=close_begin",
+      "native_auth_stage=finished status=0",
+      "pocketfed-fpc-native-auth-probe.service: Deactivated successfully.",
+      "Finished pocketfed-fpc-native-auth-probe.service - One existing native lab credential verification; no enrollment."
+    ],
+    "qsee-supplicant.service": [
+      "Starting qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant...",
+      "event=rpmb_ready sectors_512=32768 reliable_frames=32 authenticated_writes=1",
+      "event=listener_registered transport=qseecom id=10 size=20480",
+      "event=listener_registered transport=qseecom id=28672 size=516096",
+      "event=listener_registered transport=qseecom id=8192 size=25600",
+      "Started qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant.",
+      "Stopping qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant...",
+      "event=shutdown status=0 errno=0 stopping=1",
+      "qsee-supplicant.service: Deactivated successfully.",
+      "Stopped qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant."
+    ],
+    "pocketfed-keymaster-startup.service": [
+      "Starting pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement...",
+      "wrapped_key transport=0 status=-24",
+      "get_hmac_parameters transport=0 status=0",
+      "compute_shared_hmac transport=0 status=0",
+      "sharing_check_length=32 participants=1",
+      "wrapped_key transport=0 status=0 codec_status=0 validated_blob_length=152",
+      "initialization_status=0",
+      "Finished pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement.",
+      "pocketfed-keymaster-startup.service: Deactivated successfully.",
+      "Stopped pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement."
+    ]
+  },
+  "handoff": {
+    "schema_version": 1,
+    "run_id": "sargo-fingerprint-lab-native-auth-v2-20260912",
+    "result": "pass",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "root_fstype": "overlay",
+    "root_mode": "usb",
+    "resident": {},
+    "usb_policy_state": "masked",
+    "module_mount": "/dev/ublkb0[/usr/lib/modules/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64] erofs",
+    "selinux": "Enforcing",
+    "label_repair_state": "active",
+    "failed_units": [],
+    "checks": {
+      "run_id_present": true,
+      "disposable_root": true,
+      "matching_modules_present": true,
+      "root_transport_ready": true,
+      "slot_marking_disabled": true,
+      "usb_transport_policy": true,
+      "selinux_enforcing": true,
+      "writable_root_labels_restored": true
+    }
+  },
+  "recovery": {
+    "uart_reset_requested": true,
+    "fastboot_serial": "99NAY1AZG1",
+    "usb_host_stopped_after_fastboot": true,
+    "host_exit_status": 0
+  }
+}

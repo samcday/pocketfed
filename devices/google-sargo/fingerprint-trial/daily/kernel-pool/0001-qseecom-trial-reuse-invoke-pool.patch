@@ -1,0 +1,43 @@
+--- a/drivers/tee/qseecom/core.c
++++ b/drivers/tee/qseecom/core.c
+@@ -53,6 +53,11 @@
+ 
+ #define QSEECOM_TEE_MAX_APP_NAME	64
+ 
++/* Trial-only allocator comparison; disabled unless selected at module load. */
++static bool reuse_invoke_pool;
++module_param(reuse_invoke_pool, bool, 0400);
++MODULE_PARM_DESC(reuse_invoke_pool, "Use the persistent TZ pool for invoke staging");
++
+ 
+ 
+ /*
+@@ -898,13 +903,16 @@
+ 		bc.initial_size = PAGE_ALIGN(need) + PAGE_SIZE;
+ 		bc.max_size = bc.initial_size;
+ 
+-		bp = qcom_tzmem_pool_new(&bc);
++		/* Keep the coherent mapping alive in the selected comparison. */
++		bp = reuse_invoke_pool ? ctxdata->qtee->mempool :
++			qcom_tzmem_pool_new(&bc);
+ 		if (IS_ERR(bp))
+ 			return PTR_ERR(bp);
+ 
+ 		b = qcom_tzmem_alloc(bp, bc.initial_size, GFP_KERNEL);
+ 		if (!b) {
+-			qcom_tzmem_pool_free(bp);
++			if (!reuse_invoke_pool)
++				qcom_tzmem_pool_free(bp);
+ 			return -ENOMEM;
+ 		}
+ 
+@@ -985,7 +993,8 @@
+ 		/* Clear credentials and other sensitive application data. */
+ 		memzero_explicit(b, bc.initial_size);
+ 		qcom_tzmem_free(b);
+-		qcom_tzmem_pool_free(bp);
++		if (!reuse_invoke_pool)
++			qcom_tzmem_pool_free(bp);
+ 
+ 		if (ret)
+ 			return ret;

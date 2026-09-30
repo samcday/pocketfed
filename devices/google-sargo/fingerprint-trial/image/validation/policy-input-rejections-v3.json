@@ -1,0 +1,22 @@
+{
+  "scope": "temporary local input fixtures; no destination writes",
+  "harness_sha256": "dcb1832c641014062de21a7a7a827a549bb02c70311edacc4eff3622f743a7dd",
+  "results": [
+    {
+      "case": "wrong-policy-bytes",
+      "rejected": true
+    },
+    {
+      "case": "extra-input-file",
+      "rejected": true
+    },
+    {
+      "case": "symlink-policy-input",
+      "rejected": true
+    },
+    {
+      "case": "outside-target-path",
+      "rejected": true
+    }
+  ]
+}

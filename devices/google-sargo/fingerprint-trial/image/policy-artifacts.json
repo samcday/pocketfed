@@ -1,0 +1,50 @@
+{
+  "policy_module_copr_build": 10973947,
+  "module_pp_sha256": "994cebfad06b908e82bf0ac14fc6d44676204909eb41e0a8e86f920813ecbdef",
+  "compiler_image_id": "7abbae67bf384120c183f236b02909dc398f01ff929a565fc4b10865f0655b85",
+  "file_contexts_compiler": [
+    "libselinux-3.11-5.fc46.aarch64",
+    "pcre2-10.47-1.fc45.2.aarch64"
+  ],
+  "files": {
+    "policy.35": {
+      "target": "/etc/selinux/targeted/policy/policy.35",
+      "base": {
+        "bytes": 3818075,
+        "sha256": "ca98dfcea858d4974bdaa1e10e54e1d70264a28c0fb79c03e339565360384973"
+      },
+      "candidate": {
+        "bytes": 3816857,
+        "sha256": "2a6013d4c22133f1ea730df92bcf4c739b5ac49e43682007cce59ac39f99913a"
+      }
+    },
+    "file_contexts": {
+      "target": "/etc/selinux/targeted/contexts/files/file_contexts",
+      "base": {
+        "bytes": 419685,
+        "sha256": "2032f42b11fa2783e9f395336c3b2eeab5b8c995d5f6dfd7427e01c062f94194"
+      },
+      "candidate": {
+        "bytes": 420059,
+        "sha256": "93cdc186b6eedc237ae175c27c07b7a45e0041b0687fab3622b28783b3355fd4"
+      }
+    },
+    "file_contexts.bin": {
+      "target": "/etc/selinux/targeted/contexts/files/file_contexts.bin",
+      "base": {
+        "bytes": 441151,
+        "sha256": "4b79f470c63eb323d1795d16e7611f8c70bd392d359f55ee1068a74f66911ed9"
+      },
+      "candidate": {
+        "bytes": 5014867,
+        "sha256": "7ad37ac16f6dd693649b0469dd124c4c910b3ece6652f879981be1d29a974dfb"
+      }
+    }
+  },
+  "validation_sources": {
+    "distribution-investigation.json": "6c867f98300471290acf5713a1a3d63f679585d5c888d1cdca7228a3d6440d43",
+    "distribution-policy-validation.json": "2378f87be722a09f5a7bf0dc290cca7307c26e78c6dbc57ece63017ecd2443d4",
+    "preservation-validation.json": "acdf026fbffaf143ca0ce2c2fb1a380cbef4d53fc9acbf67879f9d7c9607d5c5"
+  },
+  "policy_store": "compiled offline through the complete reconstructed distribution store; runtime store layout unchanged"
+}

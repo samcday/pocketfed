@@ -1,0 +1,28 @@
+{
+  "status": "Host and ARM64 synthetic recovery tests passed; not executed on daily phone",
+  "binary": {
+    "path": "/tmp/sargo-fingerprint-daily-recovery-arm64-20260912/recover-storage-once",
+    "sha256": "c36459ccbca8ceb6fed8b745c3817659ae3ebd71af164eff801dde94bbcccb22"
+  },
+  "sources": {
+    "inspect-staged.py": "ce9fe1a571fb892ef27a43884a9b8171b9e2177b27a99038c34f2282347da291",
+    "stage-candidate.py": "5ac6353d264c2d5bc09e37d68f9cc31dc023bf4ee3d555b8f21eaeabbec0ee64",
+    "install-upgrade.py": "f243584386493961d4c664c51ad19839017ea826749c3e11f53cd6a91cbe4ae6",
+    "test-recovery-bundle.py": "17ccf6221d0ef13d9154732a23a82b538c5879353fc245544f81b47bad6ffc34",
+    "preview-boot.py": "ef4ed15b42ed98b0421dfc5624b2522feeb82d862a093edb2fa86e11d0ee2c85",
+    "activate-candidate.py": "561f468cd49da56a83448a9620eb2bf41ae401dd76d08d899b65647a8bfe78ac",
+    "startup-once.py": "cf448aa7cbdc1f8dbd4fe2982c326a4bcd477f90a3b3da08069f0d03721b2b64",
+    "test-recover-storage-once.c": "bba9fc894c5a0faec791f4b40d822ea862e0266ba6a2d353b8f15a219d751647",
+    "recover-storage-once.c": "96f6ceaa580a6f2d41e1de0b1a6751e8096776636c9c3fefe2aacb6e38936cb1",
+    "inspect-image.py": "c16621177a96436cadd38b303cdd775dd82638bb93b70c4bd84cfc8aaaeed35d",
+    "prepare-recovery.py": "bb2605e7f7e1945ff9ce162c451ffb22280bb211b808d7f46b851e9e525e0254",
+    "compare-images.py": "fb27a466254cc70bd22fd1979a61a35ac3902dbcf7f0b20d9a87eaf9b17094bd",
+    "launch-recovery.py": "1f40e96cc1708a7833d45b2bd70dd700e417320f36bb66f9d2c04156269bc622"
+  },
+  "log": "/tmp/sargo-fingerprint-daily-recovery-arm64-20260912.log",
+  "linux_uid": 1000,
+  "gatekeeper_uid": "0x700003e8",
+  "serial": "994AY18RSD",
+  "new_approval_required": true,
+  "bundle_validation_log": "/tmp/sargo-fingerprint-daily-recovery-bundle-test-20260912.log"
+}

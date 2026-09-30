@@ -1,0 +1,19 @@
+{
+  "status": "regular-file boot preview passed",
+  "staged_checksum": "d639fe55e1cf11b2756f367fef1dad99ab7e2705c19b0b72f73e80c265d16b89",
+  "manifest": "sha256:82a2f20a07d45ee3db0f651ee86ef223cae62337cdd7ad7ad14db2226df61e1e",
+  "locked": true,
+  "expected_options": "root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.0/pocketfed/d709d8b08676754eebd5a73df44b1f57f6b0e0c9c535d3f2a6e1a529106dcb51/0 plymouth.ignore-serial-consoles plymouth.debug=stream:/dev/null",
+  "boot_preview": {
+    "bytes": 52731904,
+    "sha256": "84e6efa1e6a02ea3bd7c2bed97d2d190fa5b6f76da28b52b20e1bf3bfaf0ff4a",
+    "outer_shim_sha256": "c3f8f285f94901cc0af73c47d88612ecc8f7b30eb363feded538894899471853",
+    "dtb_sha256": "8b682c3860fce48701030ed4d18930f6895c1a670dc831b87bb3d88d99d476e7",
+    "canonical_kernel_sha256": "b35bc456f9cb46b1cc44fb23e66016af9b6dc9f0570694267c328778e8aa7926",
+    "initramfs_sha256": "6ca705344404b554eabdbee8cf47edb98527e71ea5f9f907915d7746c107bf65",
+    "cmdline": "<S> quiet rhgb plymouth.ignore-serial-consoles init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=/ostree/boot.0/pocketfed/d709d8b08676754eebd5a73df44b1f57f6b0e0c9c535d3f2a6e1a529106dcb51/0 plymouth.ignore-serial-consoles plymouth.debug=stream:/dev/null <E>",
+    "payloads_match_module_directory": true
+  },
+  "preview_path": "/var/tmp/sargo-fingerprint-mm-20260912/boot-preview/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64/aboot.img",
+  "partition_written": false
+}

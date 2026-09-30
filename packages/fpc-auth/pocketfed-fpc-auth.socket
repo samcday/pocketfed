@@ -1,0 +1,17 @@
+[Unit]
+Description=Native fingerprint enrollment token broker
+Documentation=file:/usr/share/doc/pocketfed-fpc-auth/README.md
+
+[Socket]
+ListenStream=/run/pocketfed-fpc-auth/token.sock
+SocketUser=root
+SocketGroup=root
+SocketMode=0600
+DirectoryMode=0700
+Accept=no
+Backlog=8
+RemoveOnStop=yes
+Service=pocketfed-fpc-auth.service
+
+# Intentionally static: packaging does not enable this socket. The Keymaster
+# backend and enforcing policy require a controlled hardware trial before activation.

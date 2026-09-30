@@ -1,0 +1,42 @@
+{
+  "control_passed": true,
+  "mutations_rejected": 8,
+  "cases": [
+    {
+      "case": "control",
+      "status": "accepted"
+    },
+    {
+      "case": "modem_downgrade",
+      "status": "rejected"
+    },
+    {
+      "case": "pin_change",
+      "status": "rejected"
+    },
+    {
+      "case": "unmasked_fprintd",
+      "status": "rejected"
+    },
+    {
+      "case": "wrong_policy",
+      "status": "rejected"
+    },
+    {
+      "case": "missing_rootwait",
+      "status": "rejected"
+    },
+    {
+      "case": "duplicate_root",
+      "status": "rejected"
+    },
+    {
+      "case": "extra_service",
+      "status": "rejected"
+    },
+    {
+      "case": "removed_keys",
+      "status": "rejected"
+    }
+  ]
+}

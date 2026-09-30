@@ -1,0 +1,61 @@
+{
+  "status": "ARM64 build and unit/FPC tests passed",
+  "candidate_release": "1.94.100-1.6.pocketfed",
+  "library": {
+    "path": "/tmp/sargo-fpc-finalization-library-20260912.so",
+    "sha256": "653021efb2a34f4e79a03fb692ee6a521cbdda5210b21fddf722990a92b2484e"
+  },
+  "sources": {
+    "0002-goodixqsee-include-protocol-header.patch": "dfbee3f9561e422294f6005a2e1c87c6484e3fb124ca6adff6eb063d500d1a76",
+    "0003-fpcqsee-handle-empty-database-identification.patch": "0609d7007ed86e8ea855e7c525ae4a811d026e59b9b472b9e960e44eabba4fc5",
+    "0001-fpcqsee-native-sargo-driver.patch": "0b264cc0b68c872e82805d19aa639bbf2067fe1c2150bc63b7ec715e80507a52",
+    "0004-fpcqsee-complete-identification-state.patch": "450eac116264502f0201cf12d5837134f083b0c87e7ddf4ae2b5c0e622856528"
+  },
+  "driver_source_sha256": "faa2274603352276843ef3fe3332881cd84c62f27a70e352d1479e65e20e9bde",
+  "test_source_sha256": "65b284cde472207c94b18d0d84520d76c5a60ecc285bdc1114241d27fdb16845",
+  "tests": [
+    {
+      "name": "fpcqsee - libfprint:fpc-auth-client",
+      "result": "OK",
+      "duration": 0.06353020668029785
+    },
+    {
+      "name": "fpcqsee - libfprint:fpc-driver",
+      "result": "OK",
+      "duration": 0.12268185615539551
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-ssm",
+      "result": "OK",
+      "duration": 1.1042542457580566
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-assembling",
+      "result": "OK",
+      "duration": 2.0053963661193848
+    },
+    {
+      "name": "unit-tests - libfprint:fp-context",
+      "result": "OK",
+      "duration": 2.3083512783050537
+    },
+    {
+      "name": "unit-tests - libfprint:fp-device",
+      "result": "OK",
+      "duration": 6.242191314697266
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-device",
+      "result": "OK",
+      "duration": 8.02868127822876
+    }
+  ],
+  "hardware_acceptance": {
+    "run_id": "sargo-fingerprint-lab-fprintd-reopen-20260912",
+    "scope": "fprintd match and nonmatch after reboot with restored enrollment",
+    "result": "passed",
+    "enrollment_ui_or_lockscreens_tested": false
+  },
+  "mutation_policy": "Finalize identification but do not persist adaptive changes; reload saved database before every operation",
+  "patch_stack_verified_against_pinned_archive": true
+}

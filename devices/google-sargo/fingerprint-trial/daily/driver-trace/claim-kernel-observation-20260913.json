@@ -1,0 +1,57 @@
+{
+  "status": "Full fprintd Claim not reached; setup failures and a returned secure-app load error retained",
+  "serial": "994AY18RSD",
+  "boot_id": "0ac24861-f5de-4f09-8128-fd24c2f80070",
+  "kernel": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+  "prior_cpu_comparison": "../cpu-compare/result.json",
+  "attempts": [
+    {
+      "version": "initial",
+      "result": "209/STDOUT before fprintd exec: direct UART output blocked by service restrictions",
+      "claim_called": false,
+      "correction": "Preserved daemon restrictions; send its normal journal output through a separate reader"
+    },
+    {
+      "version": "v2",
+      "result": "Systemd refused duplicate BusName registration held by the first failed temporary daemon unit",
+      "claim_called": false,
+      "correction": "Hash-verified failed inactive temporary unit removed after saving its exact content; corrected daemon then verified loaded/inactive"
+    },
+    {
+      "version": "v3",
+      "result": "Fingerprint secure-app loader acquire returned errno 22; daemon and Claim never started",
+      "claim_called": false,
+      "kernel_evidence": [
+        "45251.595246 qcom_scm: qseecom: scm call failed with error -22",
+        "45251.598419 qcom_qseecom_tee: failed to load 'fpctzappfingerprint': -22"
+      ],
+      "prior_loads_this_boot": [
+        {"time": "44502.114255", "app_id": 2, "trial": "CPU7 standalone"},
+        {"time": "44560.064088", "app_id": 3, "trial": "CPU1 standalone"},
+        {"time": "44919.565266", "app_id": 4, "trial": "initial daemon setup"},
+        {"time": "45071.121628", "app_id": 5, "trial": "v2 daemon setup"}
+      ],
+      "inference_limit": "The returned SCM error is distinct from the earlier unreturned INIT call. Repeated loading preceded it, but causality and the specific rejected argument are not established."
+    }
+  ],
+  "final_health": {
+    "uptime_seconds": 46335.31,
+    "same_boot": true,
+    "selinux": "Enforcing",
+    "pin_pam_unchanged": true,
+    "production_fingerprint_masks": "preserved/inactive",
+    "secure_service_processes": "all stopped; failed loader has MainPID 0",
+    "diagnostic_daemon_and_controller": "inactive",
+    "trace_instances": [],
+    "uart": "Assigned A5069RR4 capture remains active"
+  },
+  "artifacts": [
+    "out/fingerprint-daily-claim-kernel-20260913/result.json",
+    "out/fingerprint-daily-claim-kernel-20260913-v2/result.json",
+    "out/fingerprint-daily-claim-kernel-20260913-v3/result.json",
+    "out/fingerprint-daily-claim-kernel-20260913-v3/final-health.json"
+  ],
+  "next": "Use a fresh, guarded boot for the corrected daemon trace, preserving automatic fingerprint masks and all previous receipts. Instrument loader returns if its error recurs. Do not infer a CPU fix from the standalone passes.",
+  "credential_recovery": "Not run and not authorized to repeat",
+  "test_sargo": "Untouched; assigned to another session"
+}

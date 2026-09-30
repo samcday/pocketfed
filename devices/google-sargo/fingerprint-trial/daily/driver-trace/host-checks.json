@@ -1,0 +1,33 @@
+{
+  "host_tests": [
+    {
+      "name": "protocol",
+      "returncode": 0,
+      "stdout": "FPC protocol wire-format and rejection tests passed",
+      "trace_lines": 56
+    },
+    {
+      "name": "transport",
+      "returncode": 0,
+      "stdout": "transport ABI, cleanup and fail-closed tests: OK",
+      "trace_lines": 14
+    },
+    {
+      "name": "sensor",
+      "returncode": 0,
+      "stdout": "sensor boundary: stale IRQ, current level, cancellation, disconnect, malformed event and deadline tests passed",
+      "trace_lines": 8
+    },
+    {
+      "name": "trace",
+      "returncode": 0,
+      "stdout": "trace sink success/failure both preserve errno and bounded metadata framing",
+      "trace_lines": 0
+    }
+  ],
+  "hardware_accessed": false,
+  "trace_patch_sha256": "1bb3a5ccb2c1f0854f727bf2c338fd14464dd5a8700ec71285bc517c25cf52ba",
+  "compiler": "gcc (GCC) 16.2.1 20260819 (Red Hat 16.2.1-2)",
+  "arm64_build": "Passed subsequently; see arm64-build-result.json",
+  "full_libfprint_driver_build": "Passed subsequently, all drivers and seven unit/FPC tests"
+}

@@ -1,0 +1,357 @@
+Subject: [PATCH] lockscreen: run fingerprint PAM independently of PIN entry
+
+Use a separate fingerprint socket client so a scan can be cancelled when
+the user types a PIN, the display blanks, or the lockscreen is destroyed.
+Only successful authentication plus account management may unlock. Discard
+cancelled/stale completions and exclude greeter subclasses.
+
+Requires the separately packaged phosh-fingerprint-auth client, peer-UID-bound
+PAM worker, and enabled socket. Device acceptance remains required before
+promotion; package and synthetic test results are recorded separately.
+
+--- /dev/null
++++ b/src/fingerprint-auth.c
+@@ -0,0 +1,131 @@
++/* SPDX-License-Identifier: GPL-3.0-or-later */
++#include "fingerprint-auth.h"
++
++#ifndef FINGERPRINT_HELPER_PATH
++#define FINGERPRINT_HELPER_PATH "/usr/libexec/phosh-fingerprint-auth"
++#endif
++
++struct _PhoshFingerprintAuth {
++  GObject parent;
++  GSubprocess *child;
++  GDataInputStream *messages;
++  gboolean started;
++  gboolean cancelled;
++};
++G_DEFINE_TYPE (PhoshFingerprintAuth, phosh_fingerprint_auth, G_TYPE_OBJECT)
++
++static guint message_signal;
++
++static void
++on_message (GObject *source, GAsyncResult *result, gpointer user_data)
++{
++  g_autoptr (PhoshFingerprintAuth) self = PHOSH_FINGERPRINT_AUTH (user_data);
++  g_autofree char *line = g_data_input_stream_read_line_finish (G_DATA_INPUT_STREAM (source),
++                                                              result, NULL, NULL);
++  if (!line || self->cancelled)
++    return;
++  if (g_utf8_validate (line, -1, NULL))
++    g_signal_emit (self, message_signal, 0, line);
++  if (!self->cancelled)
++    g_data_input_stream_read_line_async (self->messages, G_PRIORITY_DEFAULT,
++                                         NULL, on_message, g_object_ref (self));
++}
++
++static void
++on_child_done (GObject *source, GAsyncResult *result, gpointer user_data)
++{
++  g_autoptr (GTask) task = G_TASK (user_data);
++  PhoshFingerprintAuth *self = g_task_get_source_object (task);
++  g_autoptr (GError) error = NULL;
++  gboolean success = g_subprocess_wait_check_finish (G_SUBPROCESS (source), result, &error);
++
++  g_clear_object (&self->child);
++  /* Cancellation wins even if a successful child exit raced with it. */
++  if (self->cancelled)
++    g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_CANCELLED, "Fingerprint cancelled");
++  else if (!success)
++    g_task_return_error (task, g_steal_pointer (&error));
++  else
++    g_task_return_boolean (task, TRUE);
++}
++
++void
++phosh_fingerprint_auth_cancel (PhoshFingerprintAuth *self)
++{
++  g_return_if_fail (PHOSH_IS_FINGERPRINT_AUTH (self));
++  self->cancelled = TRUE;
++  if (self->child)
++    g_subprocess_force_exit (self->child);
++}
++
++void
++phosh_fingerprint_auth_start (PhoshFingerprintAuth *self,
++                              GAsyncReadyCallback callback,
++                              gpointer user_data)
++{
++  g_autoptr (GError) error = NULL;
++  GTask *task;
++  g_return_if_fail (PHOSH_IS_FINGERPRINT_AUTH (self));
++  g_return_if_fail (!self->started);
++  self->started = TRUE;
++  task = g_task_new (self, NULL, callback, user_data);
++  if (self->cancelled) {
++    g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_CANCELLED, "Fingerprint cancelled");
++    g_object_unref (task);
++    return;
++  }
++  self->child = g_subprocess_new (G_SUBPROCESS_FLAGS_STDIN_PIPE |
++                                 G_SUBPROCESS_FLAGS_STDOUT_PIPE |
++                                 G_SUBPROCESS_FLAGS_STDERR_SILENCE,
++                                 &error, FINGERPRINT_HELPER_PATH, NULL);
++  if (!self->child) {
++    g_task_return_error (task, g_steal_pointer (&error));
++    g_object_unref (task);
++    return;
++  }
++  /* No credential can be read from the invoking terminal. */
++  g_output_stream_close (g_subprocess_get_stdin_pipe (self->child), NULL, NULL);
++  self->messages = g_data_input_stream_new (g_subprocess_get_stdout_pipe (self->child));
++  g_data_input_stream_read_line_async (self->messages, G_PRIORITY_DEFAULT,
++                                       NULL, on_message, g_object_ref (self));
++  /* Always reap, including after cancel(). Do not cancel this wait operation. */
++  g_subprocess_wait_check_async (self->child, NULL, on_child_done, task);
++}
++
++gboolean
++phosh_fingerprint_auth_finish (PhoshFingerprintAuth *self,
++                               GAsyncResult *result,
++                               GError **error)
++{
++  g_return_val_if_fail (g_task_is_valid (result, self), FALSE);
++  return g_task_propagate_boolean (G_TASK (result), error);
++}
++
++static void
++phosh_fingerprint_auth_finalize (GObject *object)
++{
++  PhoshFingerprintAuth *self = PHOSH_FINGERPRINT_AUTH (object);
++  g_clear_object (&self->child);
++  g_clear_object (&self->messages);
++  G_OBJECT_CLASS (phosh_fingerprint_auth_parent_class)->finalize (object);
++}
++
++static void
++phosh_fingerprint_auth_class_init (PhoshFingerprintAuthClass *klass)
++{
++  G_OBJECT_CLASS (klass)->finalize = phosh_fingerprint_auth_finalize;
++  message_signal = g_signal_new ("message", G_TYPE_FROM_CLASS (klass), G_SIGNAL_RUN_LAST,
++                                  0, NULL, NULL, NULL, G_TYPE_NONE, 1, G_TYPE_STRING);
++}
++
++static void
++phosh_fingerprint_auth_init (PhoshFingerprintAuth *self)
++{
++  (void) self;
++}
++
++PhoshFingerprintAuth *
++phosh_fingerprint_auth_new (void)
++{
++  return g_object_new (PHOSH_TYPE_FINGERPRINT_AUTH, NULL);
++}
+--- /dev/null
++++ b/src/fingerprint-auth.h
+@@ -0,0 +1,17 @@
++/* SPDX-License-Identifier: GPL-3.0-or-later */
++#pragma once
++#include <gio/gio.h>
++
++G_BEGIN_DECLS
++#define PHOSH_TYPE_FINGERPRINT_AUTH (phosh_fingerprint_auth_get_type ())
++G_DECLARE_FINAL_TYPE (PhoshFingerprintAuth, phosh_fingerprint_auth, PHOSH, FINGERPRINT_AUTH, GObject)
++
++PhoshFingerprintAuth *phosh_fingerprint_auth_new (void);
++void phosh_fingerprint_auth_start (PhoshFingerprintAuth *self,
++                                  GAsyncReadyCallback callback,
++                                  gpointer user_data);
++void phosh_fingerprint_auth_cancel (PhoshFingerprintAuth *self);
++gboolean phosh_fingerprint_auth_finish (PhoshFingerprintAuth *self,
++                                       GAsyncResult *result,
++                                       GError **error);
++G_END_DECLS
+--- a/src/lockscreen.c
++++ b/src/lockscreen.c
+@@ -10,6 +10,7 @@
+ #define G_LOG_DOMAIN "phosh-lockscreen"
+ 
+ #include "auth.h"
++#include "fingerprint-auth.h"
+ #include "call-notification.h"
+ #include "calls-manager.h"
+ #include "keypad.h"
+@@ -103,6 +104,8 @@
+   guint idle_timer;
+   gint64 last_input;
+   PhoshAuth          *auth;
++  PhoshFingerprintAuth *fingerprint;
++  gboolean             fingerprint_blanked;
+   GSettings          *lockscreen_settings;
+ 
+   struct {
+@@ -128,6 +131,101 @@
+ } PhoshLockscreenPrivate;
+ 
+ G_DEFINE_TYPE_WITH_PRIVATE (PhoshLockscreen, phosh_lockscreen, PHOSH_TYPE_LAYER_SURFACE)
++
++static void
++stop_fingerprint (PhoshLockscreen *self)
++{
++  PhoshLockscreenPrivate *priv = phosh_lockscreen_get_instance_private (self);
++  if (priv->fingerprint)
++    phosh_fingerprint_auth_cancel (priv->fingerprint);
++  g_clear_object (&priv->fingerprint);
++}
++
++static void
++on_fingerprint_message (PhoshLockscreen *self, const char *message, PhoshFingerprintAuth *auth)
++{
++  PhoshLockscreenPrivate *priv = phosh_lockscreen_get_instance_private (self);
++  if (priv->fingerprint == auth && !priv->auth)
++    phosh_lockscreen_set_unlock_status (self, message);
++}
++
++static void
++on_fingerprint_done (GObject *source, GAsyncResult *result, gpointer user_data)
++{
++  GWeakRef *weak = user_data;
++  g_autoptr (PhoshLockscreen) self = g_weak_ref_get (weak);
++  g_autoptr (GError) error = NULL;
++  PhoshFingerprintAuth *auth = PHOSH_FINGERPRINT_AUTH (source);
++  PhoshLockscreenPrivate *priv;
++  gboolean success = phosh_fingerprint_auth_finish (auth, result, &error);
++
++  g_weak_ref_clear (weak);
++  g_free (weak);
++  if (!self)
++    return;
++  priv = phosh_lockscreen_get_instance_private (self);
++  /* A cancelled/replaced transaction can never unlock a later screen. */
++  if (priv->fingerprint != auth)
++    return;
++  g_clear_object (&priv->fingerprint);
++  if (success && priv->require_unlock && !priv->auth &&
++      gtk_widget_get_mapped (GTK_WIDGET (self)) &&
++      gtk_widget_is_sensitive (GTK_WIDGET (self)) &&
++      !phosh_shell_get_blanked (phosh_shell_get_default ()) &&
++      gtk_entry_get_text_length (GTK_ENTRY (priv->entry_pin)) == 0)
++    g_signal_emit (self, signals[LOCKSCREEN_UNLOCK], 0);
++  else if (!priv->auth)
++    phosh_lockscreen_set_unlock_status (self, _("Enter Passcode"));
++}
++
++static void
++start_fingerprint (PhoshLockscreen *self)
++{
++  PhoshLockscreenPrivate *priv = phosh_lockscreen_get_instance_private (self);
++  GWeakRef *weak;
++
++  /* Greeter subclasses own a selected-user greetd transaction. Do not run
++   * the greeter process owner's fingerprint service from the base widget. */
++  if (G_OBJECT_TYPE (self) != PHOSH_TYPE_LOCKSCREEN || !priv->require_unlock ||
++      priv->fingerprint || priv->auth ||
++      !gtk_widget_get_mapped (GTK_WIDGET (self)) ||
++      !gtk_widget_is_sensitive (GTK_WIDGET (self)) ||
++      phosh_shell_get_blanked (phosh_shell_get_default ()) ||
++      gtk_entry_get_text_length (GTK_ENTRY (priv->entry_pin)) != 0)
++    return;
++  weak = g_new0 (GWeakRef, 1);
++  g_weak_ref_init (weak, self);
++  priv->fingerprint = phosh_fingerprint_auth_new ();
++  g_signal_connect_object (priv->fingerprint, "message", G_CALLBACK (on_fingerprint_message),
++                           self, G_CONNECT_SWAPPED);
++  phosh_fingerprint_auth_start (priv->fingerprint, on_fingerprint_done, weak);
++}
++
++static void
++on_fingerprint_screen_state (PhoshLockscreen *self, GParamSpec *pspec, PhoshShell *shell)
++{
++  PhoshLockscreenPrivate *priv = phosh_lockscreen_get_instance_private (self);
++  gboolean blanked = phosh_shell_get_blanked (shell);
++
++  if (priv->fingerprint_blanked == blanked)
++    return;
++  priv->fingerprint_blanked = blanked;
++  if (blanked)
++    stop_fingerprint (self);
++  else
++    start_fingerprint (self);
++}
++
++static void
++on_fingerprint_gate_changed (PhoshLockscreen *self, GParamSpec *pspec, GObject *object)
++{
++  PhoshLockscreenPrivate *priv = phosh_lockscreen_get_instance_private (self);
++  if (!priv->require_unlock || !gtk_widget_is_sensitive (GTK_WIDGET (self)))
++    stop_fingerprint (self);
++  else
++    start_fingerprint (self);
++}
++
+ 
+ 
+ static gboolean
+@@ -218,6 +316,7 @@
+ 
+   phosh_layer_surface_set_stacked_below (PHOSH_LAYER_SURFACE (priv->background),
+                                          PHOSH_LAYER_SURFACE (self));
++  start_fingerprint (self);
+ }
+ 
+ 
+@@ -466,6 +565,10 @@
+   length = gtk_entry_get_text_length (GTK_ENTRY (priv->entry_pin));
+ 
+   gtk_widget_set_sensitive (priv->btn_submit, length != 0);
++  if (length)
++    stop_fingerprint (self);
++  else
++    start_fingerprint (self);
+ }
+ 
+ 
+@@ -921,6 +1024,17 @@
+                                  G_LIST_MODEL (phosh_notify_manager_get_list (manager)));
+ 
+   shell = phosh_shell_get_default ();
++  priv->fingerprint_blanked = phosh_shell_get_blanked (shell);
++  g_signal_connect_object (shell, "notify::shell-state",
++                           G_CALLBACK (on_fingerprint_screen_state), self, G_CONNECT_SWAPPED);
++  g_signal_connect_object (self, "notify::sensitive",
++                           G_CALLBACK (on_fingerprint_gate_changed), self, G_CONNECT_SWAPPED);
++  g_signal_connect_object (self, "notify::require-unlock",
++                           G_CALLBACK (on_fingerprint_gate_changed), self, G_CONNECT_SWAPPED);
++  g_signal_connect_object (self, "notify::page",
++                           G_CALLBACK (on_fingerprint_gate_changed), self, G_CONNECT_SWAPPED);
++  g_signal_connect_swapped (self, "destroy", G_CALLBACK (stop_fingerprint), self);
++  g_signal_connect_swapped (self, "unmap", G_CALLBACK (stop_fingerprint), self);
+   osk_manager = phosh_shell_get_osk_manager (shell);
+   g_object_bind_property (osk_manager, "visible",
+                           priv->keypad_revealer, "reveal-child",
+@@ -981,6 +1095,7 @@
+   PhoshLockscreen *self = PHOSH_LOCKSCREEN (object);
+   PhoshLockscreenPrivate *priv = phosh_lockscreen_get_instance_private (self);
+ 
++  stop_fingerprint (self);
+   g_clear_object (&priv->notification_settings);
+   g_clear_handle_id (&priv->idle_timer, g_source_remove);
+   g_clear_object (&priv->calls_manager);
+@@ -1031,6 +1146,7 @@
+   if (length == 0)
+     return;
+ 
++  stop_fingerprint (self);
+   input = gtk_entry_get_text (GTK_ENTRY (priv->entry_pin));
+ 
+   phosh_lockscreen_set_unlock_status (self, _("Checking…"));
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -316,6 +316,7 @@
+   'audio/audio-device.h',
+   'audio/audio-devices.h',
+   'auth.h',
++  'fingerprint-auth.h',
+   'background-manager.h',
+   'backlight-sysfs.h',
+   'backlight.h',
+@@ -391,6 +392,7 @@
+   'app-tracker.c',
+   'arrow.c',
+   'auth.c',
++  'fingerprint-auth.c',
+   'background-manager.c',
+   'battery-info.c',
+   'bt-device-row.c',

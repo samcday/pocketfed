@@ -1,0 +1,10 @@
+{
+  "state": "published and read-back verified against the exact user-approved frozen payload",
+  "payload": "issue11-publication-payload.md",
+  "sha256": "6a0bc317f594322f97d8744468efef6fa853a6c7742e3b5c80e13bd09a652f59",
+  "bytes": 12994,
+  "github_updated": true,
+  "url": "https://github.com/samcday/sam-sargo/issues/11",
+  "updated_at": "2026-09-11T01:15:08Z",
+  "previous_review_rejection": "The reviewer rejected changes made to the draft after the prior approval: final corrected image, final Phosh build, resolved negotiation, and SELinux findings."
+}

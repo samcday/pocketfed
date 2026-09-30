@@ -1,0 +1,41 @@
+{
+  "architecture": "aarch64",
+  "build": "drivers=all; introspection=false; installed-tests=false; doc=false; udev_hwdb=disabled",
+  "cases": [
+    {
+      "name": "fpcqsee - libfprint:fpc-auth-client",
+      "result": "OK",
+      "duration": 0.05374574661254883
+    },
+    {
+      "name": "fpcqsee - libfprint:fpc-driver",
+      "result": "OK",
+      "duration": 0.10789108276367188
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-ssm",
+      "result": "OK",
+      "duration": 1.099376916885376
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-assembling",
+      "result": "OK",
+      "duration": 1.9369494915008545
+    },
+    {
+      "name": "unit-tests - libfprint:fp-context",
+      "result": "OK",
+      "duration": 2.1830904483795166
+    },
+    {
+      "name": "unit-tests - libfprint:fp-device",
+      "result": "OK",
+      "duration": 6.072246551513672
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-device",
+      "result": "OK",
+      "duration": 8.001748323440552
+    }
+  ]
+}

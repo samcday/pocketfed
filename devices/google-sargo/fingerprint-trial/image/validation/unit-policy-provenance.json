@@ -1,0 +1,140 @@
+{
+  "/usr/lib/systemd/system/fprintd.service": {
+    "metadata": {
+      "bytes": 928,
+      "sha256": "da6722b0404c3a8e4ab3b3a6247be0bf9f0e8bf10f99e9f9457004f8a202c050"
+    },
+    "rpm": {
+      "filename": "fprintd-1.94.5-6.fc45.aarch64.rpm",
+      "name": "fprintd",
+      "evra": "0:1.94.5-6.fc45.aarch64",
+      "bytes": 183607,
+      "sha256": "e363e6f703dcb91766408379bf6b3bf0796c2e3d9cb9399c44b815857ef299de"
+    }
+  },
+  "/usr/lib/systemd/system/fprintd.service.d/90-fpc-qsee.conf": {
+    "metadata": {
+      "bytes": 1061,
+      "sha256": "6960506693680e26f2f2e4d6099a51c59d142eccb1f2d7d94f654a90b8ea620b"
+    },
+    "rpm": {
+      "filename": "libfprint-fpc-qsee-1.94.100-1.3.pocketfed.fc46.aarch64.rpm",
+      "name": "libfprint-fpc-qsee",
+      "evra": "0:1.94.100-1.3.pocketfed.fc46.aarch64",
+      "bytes": 11875,
+      "sha256": "174482b131f33d5c4235164aa3e49ef27086606380f60cfaf6a430d98c473d12"
+    }
+  },
+  "/usr/lib/systemd/system/phosh-fingerprint-auth.socket": {
+    "metadata": {
+      "bytes": 249,
+      "sha256": "bc0a829f21980deedd2619699efe0994393034b16984b01dc28bd613b773958b"
+    },
+    "rpm": {
+      "filename": "phosh-fingerprint-auth-0.1.0-0.1.pocketfed.fc46.aarch64.rpm",
+      "name": "phosh-fingerprint-auth",
+      "evra": "0:0.1.0-0.1.pocketfed.fc46.aarch64",
+      "bytes": 33897,
+      "sha256": "40f88e6d34de22a3be0b7f81e98aaeac13dd608848e99f6b6a00b32ddc7dd88d"
+    }
+  },
+  "/usr/lib/systemd/system/phosh-fingerprint-auth@.service": {
+    "metadata": {
+      "bytes": 281,
+      "sha256": "bf6bb1e4639098fbd183e48faf12ec4b143d6469331e048368ec624b1a238ea4"
+    },
+    "rpm": {
+      "filename": "phosh-fingerprint-auth-0.1.0-0.1.pocketfed.fc46.aarch64.rpm",
+      "name": "phosh-fingerprint-auth",
+      "evra": "0:0.1.0-0.1.pocketfed.fc46.aarch64",
+      "bytes": 33897,
+      "sha256": "40f88e6d34de22a3be0b7f81e98aaeac13dd608848e99f6b6a00b32ddc7dd88d"
+    }
+  },
+  "/usr/lib/systemd/system/qsee-app-loader@.service": {
+    "metadata": {
+      "bytes": 762,
+      "sha256": "b1e45f79acb8b055eebdddaf0659946ed2f258292818bac2c2978c9842467832"
+    },
+    "rpm": {
+      "filename": "qsee-supplicant-0.1.1-1.2.pocketfed.fc46.aarch64.rpm",
+      "name": "qsee-supplicant",
+      "evra": "0:0.1.1-1.2.pocketfed.fc46.aarch64",
+      "bytes": 32245,
+      "sha256": "25940a1e0c330520e0b94f0dc6014a9495af88a8ff20fcbe733f437f02110b3b"
+    }
+  },
+  "/usr/lib/systemd/system/qsee-shared-loader@.service": {
+    "metadata": {
+      "bytes": 673,
+      "sha256": "ea1e1396e4e4e2bcced020ce5b42e89ead263ab830724688587a63e3f839c0de"
+    },
+    "rpm": {
+      "filename": "qsee-supplicant-0.1.1-1.2.pocketfed.fc46.aarch64.rpm",
+      "name": "qsee-supplicant",
+      "evra": "0:0.1.1-1.2.pocketfed.fc46.aarch64",
+      "bytes": 32245,
+      "sha256": "25940a1e0c330520e0b94f0dc6014a9495af88a8ff20fcbe733f437f02110b3b"
+    }
+  },
+  "/usr/lib/systemd/system/qsee-supplicant.service": {
+    "metadata": {
+      "bytes": 776,
+      "sha256": "3c8a1a7be718a400bfab842ac238fcc7e12206a7e5355956b8e43fcb5e074563"
+    },
+    "rpm": {
+      "filename": "qsee-supplicant-0.1.1-1.2.pocketfed.fc46.aarch64.rpm",
+      "name": "qsee-supplicant",
+      "evra": "0:0.1.1-1.2.pocketfed.fc46.aarch64",
+      "bytes": 32245,
+      "sha256": "25940a1e0c330520e0b94f0dc6014a9495af88a8ff20fcbe733f437f02110b3b"
+    }
+  },
+  "/usr/lib/systemd/system/tailscaled.service": {
+    "metadata": {
+      "bytes": 1198,
+      "sha256": "664c6fa3a92c74f1c30c03ce0910c756d228d0612f23f656bcf6cc6654270e9c"
+    },
+    "rpm": {
+      "filename": "tailscale-1.98.8-1.fc45.aarch64.rpm",
+      "name": "tailscale",
+      "evra": "0:1.98.8-1.fc45.aarch64",
+      "bytes": 14297277,
+      "sha256": "5ba450adf152639f2c8a739af4b4616b401ba87a9ea0f4e1fa2b48b6ee35340a"
+    }
+  },
+  "/usr/lib/systemd/user/tailscale-systray.service": {
+    "metadata": {
+      "bytes": 257,
+      "sha256": "fd9802a87d678d32e7c68dc537cbeb6107fe604f7e1dc9b2d3390d36c18e37b7"
+    },
+    "rpm": {
+      "filename": "tailscale-1.98.8-1.fc45.aarch64.rpm",
+      "name": "tailscale",
+      "evra": "0:1.98.8-1.fc45.aarch64",
+      "bytes": 14297277,
+      "sha256": "5ba450adf152639f2c8a739af4b4616b401ba87a9ea0f4e1fa2b48b6ee35340a"
+    }
+  },
+  "/usr/lib/systemd/system/pocketfed-fingerprint-firmware.service": {
+    "metadata": {
+      "bytes": 773,
+      "sha256": "ddc5f04f5bf1e62276ed2c1d84129a86b1c65240a03c88ec0b62844ab7a29990"
+    },
+    "source": "devices/google-sargo/fingerprint-trial/pocketfed-fingerprint-firmware.service"
+  },
+  "/usr/lib/systemd/system/qsee-app-loader@fpctzappfingerprint.service.d/90-common-library.conf": {
+    "metadata": {
+      "bytes": 94,
+      "sha256": "12a346e72dafe5d4b3536439dd7663a3b56f2ddb30b3a97ae46256638e1f18a7"
+    },
+    "source": "devices/google-sargo/fingerprint-trial/qsee-app-loader@fpctzappfingerprint.service.d/90-common-library.conf"
+  },
+  "/usr/lib/systemd/system/qsee-shared-loader@cmnlib64.service.d/90-firmware.conf": {
+    "metadata": {
+      "bytes": 148,
+      "sha256": "8640f5fe3061e9d269af3cce51d04301ee2b26710b81cb9585161b52abaa9153"
+    },
+    "source": "devices/google-sargo/fingerprint-trial/qsee-shared-loader@cmnlib64.service.d/90-firmware.conf"
+  }
+}

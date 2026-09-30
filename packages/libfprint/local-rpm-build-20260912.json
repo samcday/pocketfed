@@ -1,0 +1,119 @@
+{
+  "status": "Full offline ARM64 RPM build and required unit/FPC tests passed",
+  "candidate_release": "1.94.100-1.5.pocketfed.fc46",
+  "build_image": "sha256:a11b75544e1e5f304d103fa4602068bc70e2ce2aa6d557a1eb8b7eab742f0dd3",
+  "sources": {
+    "90-fpc-qsee.conf": "c7a475b77dd740730b825259bc6731664d27a91f6b1c7b08e697b44340946c37",
+    "0003-fpcqsee-handle-empty-database-identification.patch": "0609d7007ed86e8ea855e7c525ae4a811d026e59b9b472b9e960e44eabba4fc5",
+    "0002-goodixqsee-include-protocol-header.patch": "dfbee3f9561e422294f6005a2e1c87c6484e3fb124ca6adff6eb063d500d1a76",
+    "0001-fpcqsee-native-sargo-driver.patch": "0b264cc0b68c872e82805d19aa639bbf2067fe1c2150bc63b7ec715e80507a52",
+    "libfprint-430e24e538ba137b6edcfe2e1b3b8cc29c66fa6a.tar.gz": "60ed43e7567bd63b2fb0d5aa0df1412540fc8859dd056aa8e2cd41ad956613cd",
+    "libfprint.spec": "9e365b63ed0ea1e4f2b9e654b45392ff1df6b94151af522a0156eef32cd99455"
+  },
+  "artifacts": [
+    {
+      "path": "/tmp/sargo-libfprint-rpm-20260912/RPMS/aarch64/libfprint-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "name": "libfprint-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "sha256": "d9fa74064e17e6a52e365104d07f5b1b852570138d5dbd462a9a2ffae12783b3",
+      "bytes": 389308
+    },
+    {
+      "path": "/tmp/sargo-libfprint-rpm-20260912/RPMS/aarch64/libfprint-debuginfo-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "name": "libfprint-debuginfo-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "sha256": "10a379064a16b81b30e9b97a40d68f501f49bee71f8356b471adbf1884ee5c60",
+      "bytes": 1087940
+    },
+    {
+      "path": "/tmp/sargo-libfprint-rpm-20260912/RPMS/aarch64/libfprint-debugsource-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "name": "libfprint-debugsource-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "sha256": "878bdd131e39c4f16baf79aa6db7ff5247140453cea504e093dda2e0608e2327",
+      "bytes": 513500
+    },
+    {
+      "path": "/tmp/sargo-libfprint-rpm-20260912/RPMS/aarch64/libfprint-devel-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "name": "libfprint-devel-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "sha256": "ccba8a4a456868abb23ca31b53372c7e292feaaa2c504e0ee54f9424e1f82ba3",
+      "bytes": 28266
+    },
+    {
+      "path": "/tmp/sargo-libfprint-rpm-20260912/RPMS/aarch64/libfprint-fpc-qsee-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "name": "libfprint-fpc-qsee-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "sha256": "7f9a5d0df5c9205d4ef20dfbcdf7c3e572ee064e7b6e66bb7f9ea4709e122c5b",
+      "bytes": 12430
+    },
+    {
+      "path": "/tmp/sargo-libfprint-rpm-20260912/RPMS/aarch64/libfprint-tests-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "name": "libfprint-tests-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "sha256": "51d1d2456804968d29be790761bd129ea573c925a14ea9a89c347fffe36ed893",
+      "bytes": 8275040
+    },
+    {
+      "path": "/tmp/sargo-libfprint-rpm-20260912/RPMS/aarch64/libfprint-tests-debuginfo-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "name": "libfprint-tests-debuginfo-1.94.100-1.5.pocketfed.fc46.aarch64.rpm",
+      "sha256": "e5f72b308e2de50adffaa8c8e2e2fdcd5219eea6c441034ff9a6961d6c638ecf",
+      "bytes": 541942
+    },
+    {
+      "path": "/tmp/sargo-libfprint-rpm-20260912/SRPMS/libfprint-1.94.100-1.5.pocketfed.fc46.src.rpm",
+      "name": "libfprint-1.94.100-1.5.pocketfed.fc46.src.rpm",
+      "sha256": "bfb1a0333a2b3bb9106f29274bf876c8e30dab4aa7fa69e1702f2fc5212be3aa",
+      "bytes": 11935455
+    }
+  ],
+  "tests": [
+    {
+      "name": "fpcqsee - libfprint:fpc-auth-client",
+      "result": "OK",
+      "seconds": 0.06
+    },
+    {
+      "name": "fpcqsee - libfprint:fpc-driver",
+      "result": "OK",
+      "seconds": 0.11
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-assembling",
+      "result": "OK",
+      "seconds": 0.57
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-ssm",
+      "result": "OK",
+      "seconds": 1.1
+    },
+    {
+      "name": "unit-tests - libfprint:fp-context",
+      "result": "OK",
+      "seconds": 2.28
+    },
+    {
+      "name": "unit-tests - libfprint:fp-device",
+      "result": "OK",
+      "seconds": 6.23
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-device",
+      "result": "OK",
+      "seconds": 8.04
+    }
+  ],
+  "test_evidence": "Required RPM check stage in retained build.log; rpmbuild removed its temporary build tree on success",
+  "integration_requires": [
+    "/bin/sh",
+    "/bin/sh",
+    "fprintd",
+    "libfprint(aarch-64) = 1.94.100-1.5.pocketfed.fc46",
+    "pocketfed-fpc-auth >= 0.1.0-0.4.pocketfed",
+    "qsee-supplicant >= 0.1.1",
+    "rpmlib(CompressedFileNames) <= 3.0.4-1",
+    "rpmlib(FileDigests) <= 4.6.0-1",
+    "rpmlib(PayloadFilesHavePrefix) <= 4.0-1",
+    "rpmlib(PayloadIsZstd) <= 5.4.18-1",
+    "systemd",
+    "systemd",
+    "systemd"
+  ],
+  "hardware_acceptance": false,
+  "published": false,
+  "build_log_sha256": "5dc67688692c3c141e7a432d7e50308fe72f3b9d176d51f05c20a320942e8e6c"
+}

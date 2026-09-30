@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MIT
+/dev/fpc1020                 -c  system_u:object_r:pocketfed_fpc_device_t:s0
+/dev/tee([0-9]|1[0-5])      -c  system_u:object_r:pocketfed_fpc_tee_device_t:s0
+/var/lib/pocketfed-fpc-auth(/.*)?  system_u:object_r:pocketfed_fpc_auth_state_t:s0
+/run/pocketfed-fpc-auth     -d  system_u:object_r:pocketfed_fpc_auth_run_t:s0
+/run/pocketfed-fpc-auth/token\.sock -s system_u:object_r:pocketfed_fpc_auth_run_t:s0

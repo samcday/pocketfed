@@ -1,0 +1,55 @@
+{
+  "status": "Connection lost during approved native recovery; later boot reported watchdog, but cause and timing are unconfirmed",
+  "boot_reason": [
+    "androidboot.bootreason=watchdog"
+  ],
+  "native_receipt_present": true,
+  "completed_credential_present": false,
+  "credential_metadata": [
+    {
+      "name": ".lock",
+      "bytes": 0,
+      "mode": "0o600",
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "uid-1000.first-recovery-attempt",
+      "bytes": 132,
+      "mode": "0o600",
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "uid-1000.intent",
+      "bytes": 160,
+      "mode": "0o600",
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "uid-1000.pre-storage-recovery.intent",
+      "bytes": 160,
+      "mode": "0o600",
+      "uid": 0,
+      "gid": 0
+    },
+    {
+      "name": "uid-1000.storage-recovery-attempt",
+      "bytes": 136,
+      "mode": "0o600",
+      "uid": 0,
+      "gid": 0
+    }
+  ],
+  "exact_secure_call_outcome": "unknown; no return status was retained",
+  "automatic_retry": false,
+  "pstore_current_files": 0,
+  "qsee_masked": true,
+  "phosh_pin_pam_unchanged": true,
+  "interpretation_correction": {
+    "user_context": "Sam says he may have rebooted the phone himself.",
+    "evidence_limit": "The bootreason value does not establish that the native recovery caused a watchdog reset; no live UART or secure-call return was captured.",
+    "next_check": "Capture daily sam-sargo directly over UART during the next requested live test."
+  }
+}

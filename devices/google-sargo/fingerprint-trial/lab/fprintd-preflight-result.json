@@ -1,0 +1,123 @@
+{
+  "run_id": "sargo-fingerprint-lab-fprintd-preflight-20260911",
+  "serial": "99NAY1AZG1",
+  "linux_uid": 1234,
+  "gatekeeper_enrollment": false,
+  "steps": [
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-firmware.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-rpmb.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1107",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-cmnlib.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1121",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-fpc.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1124",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-keymaster.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fpc-auth.socket",
+      "status": 1,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success"
+      ]
+    }
+  ],
+  "signals": [],
+  "error": "service operation failed: pocketfed-fpc-auth.socket",
+  "events": {
+    "pocketfed-fingerprint-lab-rpmb.service": [
+      "Starting pocketfed-fingerprint-lab-rpmb.service - Test-sargo bounded authenticated RPMB trial...",
+      "event=rpmb_geometry sectors_512=32768 reliable_frames=32 writes=bounded",
+      "event=listener_registered transport=qseecom id=10 size=20480",
+      "event=listener_registered transport=qseecom id=28672 size=516096",
+      "event=listener_registered transport=qseecom id=8192 size=25600",
+      "Started pocketfed-fingerprint-lab-rpmb.service - Test-sargo bounded authenticated RPMB trial."
+    ],
+    "pocketfed-fpc-auth.service": [],
+    "fprintd.service": []
+  },
+  "handoff": {
+    "schema_version": 1,
+    "run_id": "sargo-fingerprint-lab-fprintd-preflight-20260911",
+    "result": "pass",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "root_fstype": "overlay",
+    "root_mode": "usb",
+    "resident": {},
+    "usb_policy_state": "masked",
+    "module_mount": "/dev/ublkb1[/usr/lib/modules/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64] erofs",
+    "selinux": "Enforcing",
+    "label_repair_state": "active",
+    "failed_units": [],
+    "checks": {
+      "run_id_present": true,
+      "disposable_root": true,
+      "matching_modules_present": true,
+      "root_transport_ready": true,
+      "slot_marking_disabled": true,
+      "usb_transport_policy": true,
+      "selinux_enforcing": true,
+      "writable_root_labels_restored": true
+    }
+  },
+  "recovery": {
+    "sysrq_reset_acknowledged": true,
+    "fastboot_serial_verified": "99NAY1AZG1",
+    "host_stopped_after_fastboot": true,
+    "clean_service_shutdown_not_tested": true
+  }
+}

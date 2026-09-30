@@ -1,0 +1,270 @@
+{
+  "run_id": "sargo-fingerprint-lab-fprintd-emptydb-20260912",
+  "serial": "99NAY1AZG1",
+  "linux_uid": 1234,
+  "gatekeeper_enrollment": false,
+  "steps": [
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-firmware.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-rpmb.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1127",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-cmnlib.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1133",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-fpc.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1146",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-keymaster.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fpc-auth.socket",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=listening",
+        "Result=success"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "fprintd.service",
+      "status": 1,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=failed",
+        "SubState=failed",
+        "MainPID=0",
+        "Result=exit-code",
+        "NRestarts=0"
+      ],
+      "diagnostic": "Job for fprintd.service failed because the control process exited with error code.\nSee \"systemctl status fprintd.service\" and \"journalctl -xeu fprintd.service\" for details.\n"
+    },
+    {
+      "action": "stop",
+      "unit": "fprintd.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=failed",
+        "SubState=failed",
+        "MainPID=0",
+        "Result=exit-code",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fpc-auth.socket",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fpc-auth.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-keymaster.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-fpc.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-cmnlib.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-rpmb.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    }
+  ],
+  "signals": [],
+  "fprintd_requires": [
+    "pocketfed-fingerprint-lab-fpc.service",
+    "dbus.socket",
+    "pocketfed-fingerprint-lab-keymaster.service",
+    "system.slice",
+    "pocketfed-fingerprint-lab-rpmb.service",
+    "sysinit.target"
+  ],
+  "error": "service operation failed: fprintd.service",
+  "clean_shutdown": true,
+  "events": {
+    "pocketfed-fingerprint-lab-rpmb.service": [
+      "Starting pocketfed-fingerprint-lab-rpmb.service - Test-sargo bounded authenticated RPMB trial...",
+      "event=rpmb_geometry sectors_512=32768 reliable_frames=32 writes=bounded",
+      "event=listener_registered transport=qseecom id=10 size=20480",
+      "event=listener_registered transport=qseecom id=28672 size=516096",
+      "event=listener_registered transport=qseecom id=8192 size=25600",
+      "Started pocketfed-fingerprint-lab-rpmb.service - Test-sargo bounded authenticated RPMB trial.",
+      "Stopping pocketfed-fingerprint-lab-rpmb.service - Test-sargo bounded authenticated RPMB trial...",
+      "event=shutdown status=0 errno=0 stopping=1",
+      "pocketfed-fingerprint-lab-rpmb.service: Deactivated successfully.",
+      "Stopped pocketfed-fingerprint-lab-rpmb.service - Test-sargo bounded authenticated RPMB trial."
+    ],
+    "pocketfed-fpc-auth.socket": [
+      "Starting pocketfed-fpc-auth.socket - Native fingerprint enrollment token broker...",
+      "Listening on pocketfed-fpc-auth.socket - Native fingerprint enrollment token broker.",
+      "pocketfed-fpc-auth.socket: Deactivated successfully.",
+      "Closed pocketfed-fpc-auth.socket - Native fingerprint enrollment token broker."
+    ],
+    "pocketfed-fpc-auth.service": [],
+    "fprintd.service": [
+      "Starting fprintd.service - Fingerprint Authentication Daemon...",
+      "Failed to open connection to bus: Could not connect: Connection refused",
+      "fprintd.service: Main process exited, code=exited, status=1/FAILURE",
+      "fprintd.service: Failed with result 'exit-code'.",
+      "Failed to start fprintd.service - Fingerprint Authentication Daemon."
+    ]
+  },
+  "handoff": {
+    "schema_version": 1,
+    "run_id": "sargo-fingerprint-lab-fprintd-emptydb-20260912",
+    "result": "pass",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "root_fstype": "overlay",
+    "root_mode": "usb",
+    "resident": {},
+    "usb_policy_state": "masked",
+    "module_mount": "/dev/ublkb1[/usr/lib/modules/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64] erofs",
+    "selinux": "Enforcing",
+    "label_repair_state": "active",
+    "failed_units": [
+      "dbus-broker.service             loaded failed failed D-Bus System Message Bus",
+      "polkit.service                  loaded failed failed Authorization Manager",
+      "rtkit-daemon.service            loaded failed failed RealtimeKit Scheduling Policy Service",
+      "systemd-homed.service           loaded failed failed Home Area Manager",
+      "systemd-oomd.service            loaded failed failed Userspace Out-Of-Memory (OOM) Killer",
+      "systemd-resolved.service        loaded failed failed Network Name Resolution",
+      "systemd-timesyncd.service       loaded failed failed Network Time Synchronization",
+      "dbus.socket                     loaded failed failed D-Bus System Message Bus Socket",
+      "systemd-oomd.socket             loaded failed failed Userspace Out-Of-Memory (OOM) Killer Socket",
+      "systemd-resolved-monitor.socket loaded failed failed Resolve Monitor Varlink Socket",
+      "systemd-resolved-varlink.socket loaded failed failed Resolve Service Varlink Socket"
+    ],
+    "checks": {
+      "run_id_present": true,
+      "disposable_root": true,
+      "matching_modules_present": true,
+      "root_transport_ready": true,
+      "slot_marking_disabled": true,
+      "usb_transport_policy": true,
+      "selinux_enforcing": true,
+      "writable_root_labels_restored": true
+    }
+  },
+  "outcome": "No enrollment attempt: system bus unavailable; exported /usr/lib64 had mode 0700 instead of 0755",
+  "private_database_export": false,
+  "shutdown_verification": {
+    "uart_reset_acknowledged": true,
+    "exact_serial_fastboot_observed": true,
+    "host_stopped_after_fastboot": true
+  }
+}

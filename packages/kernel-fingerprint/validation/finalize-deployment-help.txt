@@ -1,0 +1,17 @@
+Usage:
+  rpm-ostree finalize-deployment [OPTION…] CHECKSUM
+
+Unset the finalization locking state of the staged deployment and reboot
+
+Help Options:
+  -h, --help                   Show help options
+
+Application Options:
+  --stateroot=STATEROOT        Operate on provided STATEROOT
+  --allow-missing-checksum     Don't error out if no expected checksum is provided
+  --allow-unlocked             Don't error out if staged deployment wasn't locked
+  --sysroot=SYSROOT            Use system root SYSROOT (default: /)
+  --peer                       Force a peer-to-peer connection instead of using the system message bus
+  --version                    Print version information and exit
+  -q, --quiet                  Avoid printing most informational messages
+

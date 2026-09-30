@@ -1,0 +1,2 @@
+# SPDX-License-Identifier: MIT
+/usr/bin/pocketfed-fpc-auth -- system_u:object_r:pocketfed_fpc_auth_exec_t:s0

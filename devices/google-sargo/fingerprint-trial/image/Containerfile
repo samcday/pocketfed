@@ -1,0 +1,25 @@
+# Local trial. KERNEL_IMAGE must be the independently verified .11
+# stage derived from the proven current base. No proprietary firmware is input.
+ARG KERNEL_IMAGE
+FROM scratch AS userspace-inputs
+COPY runtime-rpms /inputs
+FROM scratch AS policy-inputs
+COPY policy-inputs /inputs
+
+FROM ${KERNEL_IMAGE}
+LABEL io.pocketfed.fingerprint-trial.activation="masked-pending-device-validation"
+COPY --chmod=0755 install-userspace.sh /tmp/install-fingerprint-userspace
+COPY validate-inputs.py /tmp/validate-fingerprint-inputs.py
+COPY --chmod=0755 install-policy.py /tmp/install-fingerprint-policy.py
+COPY policy-artifacts.json /usr/share/pocketfed/fingerprint-trial/policy-artifacts.json
+COPY --chmod=0755 firmware/extract-firmware.py /usr/libexec/pocketfed-fingerprint-firmware
+COPY firmware/firmware-manifest.json /usr/share/pocketfed/fingerprint-trial/firmware-manifest.json
+COPY firmware/pocketfed-fingerprint-firmware.service /usr/lib/systemd/system/pocketfed-fingerprint-firmware.service
+COPY firmware/qsee-shared-loader@cmnlib64.service.d/ /usr/lib/systemd/system/qsee-shared-loader@cmnlib64.service.d/
+COPY firmware/qsee-app-loader@fpctzappfingerprint.service.d/ /usr/lib/systemd/system/qsee-app-loader@fpctzappfingerprint.service.d/
+RUN --mount=from=userspace-inputs,source=/inputs,target=/run/fingerprint-userspace,ro \
+    --mount=from=policy-inputs,source=/inputs,target=/run/fingerprint-policy,ro \
+    /tmp/install-fingerprint-userspace && \
+    rm /tmp/install-fingerprint-userspace /tmp/validate-fingerprint-inputs.py /tmp/install-fingerprint-policy.py
+# The coordinating verification script must inspect the final image and compare
+# it with its immutable baseline before any publish, deployment or activation.

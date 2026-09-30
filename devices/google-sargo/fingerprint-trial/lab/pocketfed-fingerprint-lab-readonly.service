@@ -1,0 +1,15 @@
+[Unit]
+Description=Observe one test-sargo read-only receiver lifetime
+Requires=pocketfed-fingerprint-lab-inspect.service
+After=pocketfed-fingerprint-lab-inspect.service
+ConditionKernelCommandLine=pocketfed.liveboot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/libexec/sargo-fingerprint-lab/trial-read-only.py
+TimeoutStartSec=infinity
+TimeoutStopSec=infinity
+Restart=no
+StandardOutput=journal+console
+StandardError=journal+console
+RemainAfterExit=yes

@@ -1,0 +1,36 @@
+{
+  "scope": "synthetic offline mutations; no installed policy change",
+  "harness_sha256": "5ae2bc78dc8f6fcfe4ed076e8834005fc0ce00ea9cf173f7b51c153c28306114",
+  "results": [
+    {
+      "case": "unrelated-existing-file-write",
+      "rejected": true,
+      "returncode": 1,
+      "diagnostic": "candidate module contains an unreviewed declaration, rule or file context"
+    },
+    {
+      "case": "extra-device-map",
+      "rejected": true,
+      "returncode": 1,
+      "diagnostic": "candidate module contains an unreviewed declaration, rule or file context"
+    },
+    {
+      "case": "privileged-tee-label",
+      "rejected": true,
+      "returncode": 1,
+      "diagnostic": "candidate module contains an unreviewed declaration, rule or file context"
+    },
+    {
+      "case": "private-credential-read",
+      "rejected": true,
+      "returncode": 1,
+      "diagnostic": "candidate module contains an unreviewed declaration, rule or file context"
+    },
+    {
+      "case": "broader-service-peer",
+      "rejected": true,
+      "returncode": 1,
+      "diagnostic": "candidate module contains an unreviewed declaration, rule or file context"
+    }
+  ]
+}

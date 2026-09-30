@@ -1,0 +1,24 @@
+[Unit]
+Description=Verify and stage exact Sargo QSEE fingerprint firmware
+Requires=blob-wrangler.service
+After=blob-wrangler.service
+# This unit is static. The coordinated loader chain must require it explicitly.
+# Extraction neither loads a kernel module nor opens a QSEE application.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 /usr/libexec/pocketfed-fingerprint-firmware --ensure
+TimeoutStartSec=120
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RuntimeDirectory=pocketfed-fingerprint-firmware
+RuntimeDirectoryMode=0700
+ReadWritePaths=/var/lib/firmware-updates
+ReadOnlyPaths=-/dev/mapper/vendor_b
+DevicePolicy=closed
+DeviceAllow=/dev/mapper/vendor_b r
+RestrictAddressFamilies=AF_UNIX

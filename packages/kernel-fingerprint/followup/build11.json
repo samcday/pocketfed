@@ -1,0 +1,67 @@
+{
+  "date": "2026-09-11",
+  "release": "7.1.2-0.pocketfed.sdm670.11.fc46",
+  "base_release_commit": "288962298f4aee8e67ade2c566cf77d3c95f5b22",
+  "cleanup_commit": "2e950df3ef4b5fbbec0356a7d44b5acb7a0f3378",
+  "release_commit": "132283913205a1db1d57fc3e563eea8224f5b79a",
+  "srpm": {
+    "path": "/tmp/sargo-fingerprint-kernel/redhat/rpm/SRPMS/kernel-7.1.2-0.pocketfed.sdm670.11.fc46.src.rpm",
+    "bytes": 238930085,
+    "sha256": "ee701aee14011e242c4c317f81ce98106f1f32234df85ed6ea32acee7073b6f4"
+  },
+  "copr": {
+    "build_id": 10973843,
+    "url": "https://copr.fedorainfracloud.org/coprs/build/10973843",
+    "project": "samcday/kernel-sdm670-mainline:custom:fingerprint-trial",
+    "chroot": "fedora-rawhide-aarch64",
+    "state": "succeeded"
+  },
+  "image_updated": true,
+  "device_changed": false,
+  "rpms": [
+    {
+      "filename": "kernel-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm",
+      "bytes": 252017,
+      "sha256": "93d5dd5c3056bea3b3ebf3bf276dd6fd137f9da28da427a2bacb972e983e68d4",
+      "signature_verification": "/tmp/sargo-fingerprint-kernel11-rpms/kernel-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK"
+    },
+    {
+      "filename": "kernel-core-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm",
+      "bytes": 24260281,
+      "sha256": "a748d3f96ea38544865915b76d4bc907136d04cf28d4861cd16d7183acee55ab",
+      "signature_verification": "/tmp/sargo-fingerprint-kernel11-rpms/kernel-core-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK"
+    },
+    {
+      "filename": "kernel-modules-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm",
+      "bytes": 63620941,
+      "sha256": "11c8353dc235c471627bdf6b3d748304e47b1263011b7ee1f1b5b95194b9ee35",
+      "signature_verification": "/tmp/sargo-fingerprint-kernel11-rpms/kernel-modules-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK"
+    },
+    {
+      "filename": "kernel-modules-core-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm",
+      "bytes": 43772817,
+      "sha256": "c57641cd20fba89453e51d5a8c8d9add14ebffc001b324bb5a744812855b8a69",
+      "signature_verification": "/tmp/sargo-fingerprint-kernel11-rpms/kernel-modules-core-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK"
+    },
+    {
+      "filename": "kernel-modules-extra-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm",
+      "bytes": 1500745,
+      "sha256": "1c95f5d28c8fe82081dfcbb4682c29573dacc9e180bd0ed3816b99d88a44fdf8",
+      "signature_verification": "/tmp/sargo-fingerprint-kernel11-rpms/kernel-modules-extra-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK"
+    },
+    {
+      "filename": "kernel-modules-extra-matched-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm",
+      "bytes": 251765,
+      "sha256": "06f83dbfff7ed1e0cb3d143db553e581a4419322566a101d35731d5d05b481fb",
+      "signature_verification": "/tmp/sargo-fingerprint-kernel11-rpms/kernel-modules-extra-matched-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK"
+    },
+    {
+      "filename": "kernel-modules-internal-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm",
+      "bytes": 2338921,
+      "sha256": "0db1d547bbceb27f9e3fa63f76de514f768eff1225601deab3f80226fdd08182",
+      "signature_verification": "/tmp/sargo-fingerprint-kernel11-rpms/kernel-modules-internal-7.1.2-0.pocketfed.sdm670.11.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: e58892d1cbf2fac58a3490c94e2c57a4a2603023: OK"
+    }
+  ],
+  "image_id": "671197f9f3bf539fc4e1fd138843a8739df3958cabcacd0e5f9ca6a3baaa9996",
+  "image_evidence": "devices/google-sargo/fingerprint-trial/image/validation/v3-result.json"
+}

@@ -1,0 +1,79 @@
+{
+  "state": "local build and offline validation passed; no publish or device changes",
+  "base_image_id": "7abbae67bf384120c183f236b02909dc398f01ff929a565fc4b10865f0655b85",
+  "image_id": "671197f9f3bf539fc4e1fd138843a8739df3958cabcacd0e5f9ca6a3baaa9996",
+  "architecture": "arm64",
+  "activation": "fprintd, Phosh fingerprint socket, QSEE supplicant, broker socket and provisioning template masked; no credential or DB initialization",
+  "functional_limitations": {
+    "enrollment": "Production broker/backend and access policy included; genuine token issuance and successful sensor enrollment remain untested on hardware.",
+    "selinux_policy_sha256": "2a6013d4c22133f1ea730df92bcf4c739b5ac49e43682007cce59ac39f99913a",
+    "selinux": "The image contains the exact policy and context outputs from the normal offline module-store integration and preservation checks. Actual process/device/state labels and enforcing operations remain to be tested.",
+    "metadata_scope": "Policy comparison covers file bytes and symlink targets, not a full ownership, mode, xattr or SELinux inode-label audit. Mutable-state comparison covers path, type and mode, not file contents or ownership.",
+    "hardware": "No sensor, secure-app, enrollment, verification, suspend/wakeup or trial boot has been exercised by this offline image validation."
+  },
+  "full_oci_and_bootc_lint": "passed in the successful final image build layer; bound build log included",
+  "initramfs_comparison": {
+    "same_module_paths_as_working_base": 107,
+    "same_dracut_modules_and_critical_config": true,
+    "critical_drivers": [
+      "cqhci",
+      "gcc_sdm845",
+      "gpio_keys",
+      "mmc_block",
+      "mmc_core",
+      "msm",
+      "panel_samsung_s6e3fa7",
+      "pinctrl_sdm670",
+      "qnoc_sdm670",
+      "rmi_core",
+      "rmi_i2c",
+      "sdhci",
+      "sdhci_msm",
+      "sdhci_pltfm"
+    ],
+    "dracut_warning_explanation": "The inherited strict config omits the generic drm dracut module and Plymouth, while explicitly including Sargo display drivers. Storage, display, input and rootfs support match the base."
+  },
+  "lint_comparison": {
+    "same_warning_categories_as_base": [
+      "baseimage-composefs",
+      "nonempty-run-tmp",
+      "var-log",
+      "var-tmpfiles"
+    ],
+    "new_mutable_paths": {
+      "/var/cache/tailscale": {
+        "mode": "0o600",
+        "type": "directory"
+      },
+      "/var/lib/fprint": {
+        "mode": "0o700",
+        "type": "directory"
+      },
+      "/var/lib/fprint/fpc-qsee": {
+        "mode": "0o700",
+        "type": "directory"
+      },
+      "/var/lib/tailscale": {
+        "mode": "0o600",
+        "type": "directory"
+      }
+    }
+  },
+  "verification_sources_sha256": {
+    "verify.sh": "6709fe06390290b0ad744906552dfa4eacb559fe00aaf3cc9f71ba39865d0b2f",
+    "image-facts.py": "2c6dfce6dd9677ba627c781bf264ed615453391274d47a3df4430613ab2bde99",
+    "compare-facts.py": "04f16e622d7bada785383f81d7b3fe10aa810fb0fffe5b21b0e3094d12ff3128",
+    "install-policy.py": "dcb1832c641014062de21a7a7a827a549bb02c70311edacc4eff3622f743a7dd"
+  },
+  "evidence_sha256": {
+    "base-facts.json": "bbbf090b5f38ffc647b78effade0027b62b7e47e3a7696246aa975ad73212858",
+    "base-lint.log": "19de3844d4eda2bfb3aeaf447f9d09f4446e1743e2d168e8008408055791a95d",
+    "build.log": "5c91f4f3aa6b39805c54b0009f964263ff0d688bb58ab22587007571095695b3",
+    "camera-image-facts.py": "0c58f91169c53445f434f265592ea6c4c93df6ebedbfc78825c6f7b861952a9f",
+    "candidate-facts.json": "c3b5fc65d2f15a176faec64bcbd9d9fcdc689db8a2c42122237ef6394609f36d",
+    "comparison.json": "12f15ba7b9752c1f2783ddf64591967ac2cf8d46694124fe3d33836db3f2cac9",
+    "image-inspect.json": "a25cacbf369c0e027c7afa76ca13e473a3e0c7759b10425f0429e3b306490de3",
+    "policy-artifacts.json": "6fad860e16b49bbe4936de2e434f2eddd2a1ba4eb307be172ef7db4c738d1785",
+    "runtime-artifacts.json": "27e71e4b5c1c20c59f69a20d6e7dbc84feb577864991a37678dfe2b8e69396e4"
+  }
+}

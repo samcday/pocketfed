@@ -1,0 +1,38 @@
+{
+  "rpmb-protocol.c": {
+    "source": "devices/google-sargo/fingerprint-trial/rpmb-protocol.c",
+    "sha256": "f6032a2f7ed10db6cde734a0f2879843d9bf72131e2f18b2cf4b44d75ecac071"
+  },
+  "rpmb-protocol.h": {
+    "source": "devices/google-sargo/fingerprint-trial/rpmb-protocol.h",
+    "sha256": "53665f643c14da8574cf0e5ebfab11d06abe83761fefcd0ad21c84525bff802d"
+  },
+  "rpmb-mmc.c": {
+    "source": "devices/google-sargo/fingerprint-trial/rpmb-mmc.c",
+    "sha256": "ce6036d731cf660d6129d3f7086c58c9ed60b6a3ee8d8a5bed4953f51a7a1405"
+  },
+  "rpmb-mmc.h": {
+    "source": "devices/google-sargo/fingerprint-trial/rpmb-mmc.h",
+    "sha256": "02744188a8e55a4073b674a70540e0fd8042b933a94bc4d54f8778d0821e189b"
+  },
+  "test-rpmb-protocol.c": {
+    "source": "devices/google-sargo/fingerprint-trial/test-rpmb-protocol.c",
+    "sha256": "b56d8c02c25fe3c21b76427270108c46a5abfd9da82a091f0cea788fc47850ac"
+  },
+  "test-rpmb-mmc.c": {
+    "source": "devices/google-sargo/fingerprint-trial/test-rpmb-mmc.c",
+    "sha256": "8691b28ccd0ab2b45b2cdb7480de6aa763dda3d68c422761fe2f838cf831f302"
+  },
+  "sargo-device.h": {
+    "source": "devices/google-sargo/fingerprint-trial/lab/lab-device.h",
+    "sha256": "e73f96e08f8cd545cfebba650da09e5e966cd9704c0c9a2f4c2081e68939ded1"
+  },
+  "test-sargo-device.c": {
+    "source": "devices/google-sargo/fingerprint-trial/lab/test-lab-device.c",
+    "sha256": "a50a26d7751d45d89550ac8e3353bc9979c84ceb877075243c22c5b2e4c2b119"
+  },
+  "main.c": {
+    "source": "/tmp/sargo-fingerprint-fprintd-buttons-writer-source-20260912/rpmb-supplicant.c",
+    "sha256": "c3c4d307411eb7b9ad65ac7fbe2e67870ff35d6faff82027c02a07eeec804335"
+  }
+}

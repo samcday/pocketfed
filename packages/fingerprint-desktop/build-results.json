@@ -1,0 +1,276 @@
+{
+  "status": "Final Phosh 1.5, GNOME Settings and helper ARM64 COPR builds succeeded; all downloaded RPM signatures verified. Corrected Phosh preserves Fedora system-auth PAM. No phone changes.",
+  "target": "Parent-managed ARM64 COPR trial: samcday/pocketfed custom:fingerprint-trial",
+  "phosh_tests": {
+    "passed": 45,
+    "failed": 0,
+    "log": "build/phosh-rpmbuild.log",
+    "note": "Existing rejected-PIN patch retained. Source RPM refreshed only for patch description after completed binary build; patched code unchanged."
+  },
+  "control_center_build": {
+    "status": "passed",
+    "log": "build/gcc-rpmbuild.log",
+    "tests": "Exact Fedora 51~beta-1.fc45 source RPM spec has no %check suite",
+    "upstream_srpm_sha256": "a51244b5cffebb48f3bb66bfdc769ee925c725b2e46ba6a968810330e45134a3"
+  },
+  "helper_tests": {
+    "status": "passed",
+    "log": "build/helper-rpmbuild.log",
+    "cases": [
+      "info-only PAM conversations",
+      "password and username prompt rejection",
+      "auth rejection",
+      "account denial and missing credentials",
+      "PAM cleanup failure",
+      "fixed service and peer-derived username",
+      "root worker success over socket pair",
+      "root supervisor kills and reaps blocked synthetic PAM child on disconnect",
+      "GIO client exit success, rejection, signal, cancellation, raced success, pre-cancellation"
+    ],
+    "actual_biometric_authentication": false
+  },
+  "activation": "The trial image must explicitly enable phosh-fingerprint-auth.socket; package has no activation scriptlets. The greetd PAM candidate is not installed by the package.",
+  "packages": [
+    {
+      "package": "phosh 0.57.0-1.2.fingerprint.fc46 x86_64",
+      "path": "build/phosh/SRPMS/phosh-0.57.0-1.2.fingerprint.fc46.src.rpm",
+      "sha256": "1908ed7017ac1c12907a8b34863ca4ce6c9f1efa5319d1a2cb0f546151d27c07"
+    },
+    {
+      "package": "libphosh 0.57.0-1.2.fingerprint.fc46 x86_64",
+      "path": "build/phosh/RPMS/x86_64/libphosh-0.57.0-1.2.fingerprint.fc46.x86_64.rpm",
+      "sha256": "df258a1dbed89bfb3c670b3fe586592afd1aa8a30143e18cffdd1e6a99c9b074"
+    },
+    {
+      "package": "libphosh-debuginfo 0.57.0-1.2.fingerprint.fc46 x86_64",
+      "path": "build/phosh/RPMS/x86_64/libphosh-debuginfo-0.57.0-1.2.fingerprint.fc46.x86_64.rpm",
+      "sha256": "2fe0c35f1f39e8dd3bdede3c9b47d0253c538eb75072b7b31b36d7a836fc0725"
+    },
+    {
+      "package": "libphosh-devel 0.57.0-1.2.fingerprint.fc46 x86_64",
+      "path": "build/phosh/RPMS/x86_64/libphosh-devel-0.57.0-1.2.fingerprint.fc46.x86_64.rpm",
+      "sha256": "a65c4b6193fb0b96ce35af6782f109ac536e5b417173eb4238c7c8ec0daec34a"
+    },
+    {
+      "package": "phosh 0.57.0-1.2.fingerprint.fc46 x86_64",
+      "path": "build/phosh/RPMS/x86_64/phosh-0.57.0-1.2.fingerprint.fc46.x86_64.rpm",
+      "sha256": "90f0a7bd7593d1d20070d7b563f720c13627e464bcbac5629e9536bf84e429a4"
+    },
+    {
+      "package": "phosh-debuginfo 0.57.0-1.2.fingerprint.fc46 x86_64",
+      "path": "build/phosh/RPMS/x86_64/phosh-debuginfo-0.57.0-1.2.fingerprint.fc46.x86_64.rpm",
+      "sha256": "c3dccb5cd1e0dc88ea85881683b7da6e7d05a4565342d6188f8f1ae6cbbb9e6e"
+    },
+    {
+      "package": "phosh-debugsource 0.57.0-1.2.fingerprint.fc46 x86_64",
+      "path": "build/phosh/RPMS/x86_64/phosh-debugsource-0.57.0-1.2.fingerprint.fc46.x86_64.rpm",
+      "sha256": "2a3e0d0c064c7687b8a31b29138033ee2e46b489f6cd2e1c998f5cca90d527d9"
+    },
+    {
+      "package": "phosh-devel 0.57.0-1.2.fingerprint.fc46 x86_64",
+      "path": "build/phosh/RPMS/x86_64/phosh-devel-0.57.0-1.2.fingerprint.fc46.x86_64.rpm",
+      "sha256": "94d710b8f6a82161cc595fd30561989765514be9f72a2c905f5cc5546b4bbd07"
+    },
+    {
+      "package": "gnome-control-center 51~beta-1.1.fingerprint.fc46 x86_64",
+      "path": "build/control-center/SRPMS/gnome-control-center-51~beta-1.1.fingerprint.fc46.src.rpm",
+      "sha256": "24d970d2a9a8da34830e3784522a0240d847ca00e4a67a5566f287448b931a71"
+    },
+    {
+      "package": "gnome-control-center-filesystem 51~beta-1.1.fingerprint.fc46 noarch",
+      "path": "build/control-center/RPMS/noarch/gnome-control-center-filesystem-51~beta-1.1.fingerprint.fc46.noarch.rpm",
+      "sha256": "da0dae24d3a2f9aeafc2b500692e18ba41b213d87b7738ddf3d687450d6b31d4"
+    },
+    {
+      "package": "gnome-control-center 51~beta-1.1.fingerprint.fc46 x86_64",
+      "path": "build/control-center/RPMS/x86_64/gnome-control-center-51~beta-1.1.fingerprint.fc46.x86_64.rpm",
+      "sha256": "8c44729f01ee82c99e7a887e5c528acbb00505c4485137707b46ecc3173d5221"
+    },
+    {
+      "package": "gnome-control-center-debuginfo 51~beta-1.1.fingerprint.fc46 x86_64",
+      "path": "build/control-center/RPMS/x86_64/gnome-control-center-debuginfo-51~beta-1.1.fingerprint.fc46.x86_64.rpm",
+      "sha256": "1173dcd77b43e0fabef0e431e4cded3dfc5ba7d61f0db139d0be545ba08bb1b9"
+    },
+    {
+      "package": "gnome-control-center-debugsource 51~beta-1.1.fingerprint.fc46 x86_64",
+      "path": "build/control-center/RPMS/x86_64/gnome-control-center-debugsource-51~beta-1.1.fingerprint.fc46.x86_64.rpm",
+      "sha256": "40b23b94b0dca0620903a3151efd39fd568bcc84293990a8d12b6b3eb0ff112a"
+    },
+    {
+      "package": "phosh-fingerprint-auth 0.1.0-0.1.pocketfed.fc46 x86_64",
+      "path": "build/helper/SRPMS/phosh-fingerprint-auth-0.1.0-0.1.pocketfed.fc46.src.rpm",
+      "sha256": "d8cff7716e9cb60a0855c8d34049d5782683e1b86ef3d75fc8240a8ff202e846"
+    },
+    {
+      "package": "phosh-fingerprint-auth 0.1.0-0.1.pocketfed.fc46 x86_64",
+      "path": "build/helper/RPMS/x86_64/phosh-fingerprint-auth-0.1.0-0.1.pocketfed.fc46.x86_64.rpm",
+      "sha256": "016175fff8661e02015411f3af40c6894c40ab0d1388dce1fc0652f2b988d088"
+    },
+    {
+      "package": "phosh-fingerprint-auth-debuginfo 0.1.0-0.1.pocketfed.fc46 x86_64",
+      "path": "build/helper/RPMS/x86_64/phosh-fingerprint-auth-debuginfo-0.1.0-0.1.pocketfed.fc46.x86_64.rpm",
+      "sha256": "2ee379d2fdb3efc9df1513b642c57a2d488ce6dc9ecda838b19e18968c973364"
+    },
+    {
+      "package": "phosh-fingerprint-auth-debugsource 0.1.0-0.1.pocketfed.fc46 x86_64",
+      "path": "build/helper/RPMS/x86_64/phosh-fingerprint-auth-debugsource-0.1.0-0.1.pocketfed.fc46.x86_64.rpm",
+      "sha256": "94f64ab7f9301c0c2cff4a328e69ed0568817ed8f00ba1050c46c44b6136c573"
+    }
+  ],
+  "unit_validation": "systemd-analyze verify --man=no passed inside isolated container; units were not started",
+  "copr_submitted_by_parent": {
+    "project": "samcday/pocketfed",
+    "custom_chroot": "custom:fingerprint-trial",
+    "chroot": "fedora-rawhide-aarch64",
+    "builds": {
+      "phosh": 10973752,
+      "gnome-control-center": 10973640,
+      "phosh-fingerprint-auth": 10973641
+    },
+    "status": "Final three selected builds succeeded; Phosh 10973752 supersedes 10973639."
+  },
+  "arm64_copr_status": {
+    "10973639": "succeeded",
+    "10973640": "succeeded",
+    "10973641": "succeeded",
+    "10973732": "failed: 44/45 tests passed; status-icon could not initialize X display",
+    "10973738": "failed before tests: xvfb-run could not reopen /dev/stderr under mockbuild",
+    "10973752": "succeeded"
+  },
+  "arm64_signature_verification": "All downloaded runtime/development/debug/source RPMs verified with rpmkeys against the PocketFed COPR key in an isolated temporary RPM database.",
+  "arm64_artifacts": [
+    {
+      "name": "gnome-control-center-51~beta-1.1.fingerprint.fc46.aarch64.rpm",
+      "bytes": 6193320,
+      "sha256": "499faab7b6cf34cf6d084dae877e383235d6bdc9c1999d9a5feeed1a7ea599e8"
+    },
+    {
+      "name": "gnome-control-center-51~beta-1.1.fingerprint.fc46.src.rpm",
+      "bytes": 7130855,
+      "sha256": "45b84774cefbd211e23ef941acc4c2d6b3f80db930fec5a88ef5ced3b96c23ef"
+    },
+    {
+      "name": "gnome-control-center-debuginfo-51~beta-1.1.fingerprint.fc46.aarch64.rpm",
+      "bytes": 3042134,
+      "sha256": "eaf6508ed7aa7cb175c53d8fb63223386d40782450a1f0259f920928c5f59a41"
+    },
+    {
+      "name": "gnome-control-center-debugsource-51~beta-1.1.fingerprint.fc46.aarch64.rpm",
+      "bytes": 2036207,
+      "sha256": "5a653594ca2e7ac726e4b1dc6e03ec0f6b2a3eb23e1f327b0d1ed88840963492"
+    },
+    {
+      "name": "gnome-control-center-filesystem-51~beta-1.1.fingerprint.fc46.noarch.rpm",
+      "bytes": 10949,
+      "sha256": "4c88d0399ebb5be2f317e953a8da0c599a81be6f321314da5df313e53f2fb5bf"
+    },
+    {
+      "name": "libphosh-0.57.0-1.2.fingerprint.fc46.aarch64.rpm",
+      "bytes": 567912,
+      "sha256": "30c2304ad275f0bc0e32428a01f699f0579da51e0e8fab7c793cf0a5101ec5d4"
+    },
+    {
+      "name": "libphosh-debuginfo-0.57.0-1.2.fingerprint.fc46.aarch64.rpm",
+      "bytes": 1923405,
+      "sha256": "4b56dda4765bc9cee55c58439f1449e6925682f529f0517e28eaac452c67964c"
+    },
+    {
+      "name": "libphosh-devel-0.57.0-1.2.fingerprint.fc46.aarch64.rpm",
+      "bytes": 19085,
+      "sha256": "7c8e939a7e456fd50be89db7c934eb2932237f0a508ab23f4cad811a4b3ec59f"
+    },
+    {
+      "name": "phosh-0.57.0-1.2.fingerprint.fc46.aarch64.rpm",
+      "bytes": 975353,
+      "sha256": "485fdc55a024a9c07b98651ff3ab4015384629ce8c73a20efed5931ea813cabb"
+    },
+    {
+      "name": "phosh-0.57.0-1.2.fingerprint.fc46.src.rpm",
+      "bytes": 1859677,
+      "sha256": "93d7bf28c794c35a401fb6e63a92ea9e9308d085897b91603032730e2868ea66"
+    },
+    {
+      "name": "phosh-debuginfo-0.57.0-1.2.fingerprint.fc46.aarch64.rpm",
+      "bytes": 2893620,
+      "sha256": "36f74a75df6e237d62ed689f213d42c5efd5544f65e982ac0dc2fc72bc564358"
+    },
+    {
+      "name": "phosh-debugsource-0.57.0-1.2.fingerprint.fc46.aarch64.rpm",
+      "bytes": 793463,
+      "sha256": "e80a6f4206820788846858b008b4f3a443435700a5bc1ec9bac92bb260a141a1"
+    },
+    {
+      "name": "phosh-devel-0.57.0-1.2.fingerprint.fc46.aarch64.rpm",
+      "bytes": 28959,
+      "sha256": "9bcccf58aee25cb850303ff5b30808560f0a629d6ae4623fb2969f4d97d8894f"
+    },
+    {
+      "name": "phosh-fingerprint-auth-0.1.0-0.1.pocketfed.fc46.aarch64.rpm",
+      "bytes": 33897,
+      "sha256": "40f88e6d34de22a3be0b7f81e98aaeac13dd608848e99f6b6a00b32ddc7dd88d"
+    },
+    {
+      "name": "phosh-fingerprint-auth-0.1.0-0.1.pocketfed.fc46.src.rpm",
+      "bytes": 37176,
+      "sha256": "a6e2daa69a7492d4b448b464b1e6c72dcdc398d81715a49fc0c98227d54d5eaf"
+    },
+    {
+      "name": "phosh-fingerprint-auth-debuginfo-0.1.0-0.1.pocketfed.fc46.aarch64.rpm",
+      "bytes": 22625,
+      "sha256": "064e64bfc10c4e0e36ba54dd6d7b316574de06acb72ca1a446de2abe536feb76"
+    },
+    {
+      "name": "phosh-fingerprint-auth-debugsource-0.1.0-0.1.pocketfed.fc46.aarch64.rpm",
+      "bytes": 10286,
+      "sha256": "5415388ce749ea800e1c89b44b4bef4fecebaf52e2e431de72f26901b039b3a5"
+    },
+    {
+      "name": "libphosh-0.57.0-1.5.fingerprint.fc46.aarch64.rpm",
+      "bytes": 568610,
+      "sha256": "99dff61240526422edd949b7611944f082ecc1440f01d3ab2b6358a51b3b93b6"
+    },
+    {
+      "name": "libphosh-debuginfo-0.57.0-1.5.fingerprint.fc46.aarch64.rpm",
+      "bytes": 1924085,
+      "sha256": "4a142fe06f2e25dc63b256bdd3f7091ab5555d024f337b6cc5193c70bb6be855"
+    },
+    {
+      "name": "libphosh-devel-0.57.0-1.5.fingerprint.fc46.aarch64.rpm",
+      "bytes": 19805,
+      "sha256": "a1817212eb3e7c896dc4095f80d94e6df47c6fe0a09f4b0d9ba952a1c5d75b07"
+    },
+    {
+      "name": "phosh-0.57.0-1.5.fingerprint.fc46.aarch64.rpm",
+      "bytes": 976181,
+      "sha256": "7c0f69491f79e6706a4195fa77de3c576e882a76d324512c001c99c03e2988e9"
+    },
+    {
+      "name": "phosh-0.57.0-1.5.fingerprint.fc46.src.rpm",
+      "bytes": 1863121,
+      "sha256": "8a1b0800aff3a22458238ad716e0844261c8ede5994b81503f06ba43021c7b9e"
+    },
+    {
+      "name": "phosh-debuginfo-0.57.0-1.5.fingerprint.fc46.aarch64.rpm",
+      "bytes": 2893484,
+      "sha256": "516cbc16ee10c822239260628c08e11c1cfce8c924553c96dbe39772e151971a"
+    },
+    {
+      "name": "phosh-debugsource-0.57.0-1.5.fingerprint.fc46.aarch64.rpm",
+      "bytes": 793950,
+      "sha256": "06b1396240f33008b3466a6322c3380b678701ccea7bcf2465c3439ced0cc9d5"
+    },
+    {
+      "name": "phosh-devel-0.57.0-1.5.fingerprint.fc46.aarch64.rpm",
+      "bytes": 29682,
+      "sha256": "510a3ab84169902f360c4ca57aa0cfa5848bb76d482a99d313cb243fd846a7c3"
+    }
+  ],
+  "phosh_packaging_correction": "phosh-packaging-validation.json",
+  "phosh_harness_correction": "phosh-harness-validation.json",
+  "phosh_mockbuild_logging_correction": "phosh-mockbuild-logging-validation.json",
+  "phosh_final_srpm": {
+    "path": "build/phosh-1.5-review/SRPMS/phosh-0.57.0-1.5.fingerprint.fc46.src.rpm",
+    "sha256": "cacdbaba47dac74ef165b195f3e213d0308d860987ad2f0fb8f05a6ce435947c"
+  },
+  "phosh_final_rpm_pam_validation": "phosh-final-rpm-pam-validation.json"
+}

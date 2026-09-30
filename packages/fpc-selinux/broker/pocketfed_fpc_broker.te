@@ -1,0 +1,60 @@
+# SPDX-License-Identifier: MIT
+module pocketfed_fpc_broker 1.0;
+
+require {
+    type init_t, fprintd_t;
+    type root_t, usr_t, lib_t, ld_so_t, etc_t, var_t, var_lib_t, var_run_t;
+    type device_t, null_device_t;
+    type pocketfed_fpc_auth_state_t, pocketfed_fpc_auth_run_t;
+    type pocketfed_fpc_tee_device_t;
+    attribute domain, file_type, exec_type, non_auth_file_type, non_security_file_type;
+    role system_r;
+    class process { transition siginh rlimitinh sigchld setrlimit };
+    class process2 nnp_transition;
+    class fd use;
+    class file { entrypoint execute getattr open read map write create lock unlink };
+    class lnk_file { getattr read };
+    class dir { getattr open read search write add_name remove_name };
+    class chr_file { getattr open read write ioctl };
+    class sock_file getattr;
+    class unix_stream_socket { create bind listen accept getattr getopt setopt read write ioctl shutdown connectto };
+}
+
+# A dedicated, confined peer. Do not inherit unconfined service attributes.
+type pocketfed_fpc_auth_t, domain;
+type pocketfed_fpc_auth_exec_t, file_type, exec_type, non_auth_file_type, non_security_file_type;
+role system_r types pocketfed_fpc_auth_t;
+type_transition init_t pocketfed_fpc_auth_exec_t:process pocketfed_fpc_auth_t;
+allow init_t pocketfed_fpc_auth_exec_t:file { open read execute };
+allow init_t pocketfed_fpc_auth_t:process { transition siginh rlimitinh };
+allow init_t pocketfed_fpc_auth_t:process2 nnp_transition;
+allow pocketfed_fpc_auth_t pocketfed_fpc_auth_exec_t:file { entrypoint execute getattr open read map };
+allow pocketfed_fpc_auth_t init_t:fd use;
+allow pocketfed_fpc_auth_t init_t:process sigchld;
+allow pocketfed_fpc_auth_t self:process setrlimit;
+
+# systemd determines this socket's SID from the service executable transition.
+# The existing module separately grants fprintd the exact socket inode access.
+allow init_t pocketfed_fpc_auth_t:unix_stream_socket { create bind listen getattr getopt setopt read write ioctl shutdown };
+allow pocketfed_fpc_auth_t self:unix_stream_socket { accept getattr getopt setopt read write ioctl shutdown };
+allow pocketfed_fpc_auth_t init_t:unix_stream_socket { getattr read write ioctl };
+allow fprintd_t pocketfed_fpc_auth_t:unix_stream_socket connectto;
+allow pocketfed_fpc_auth_t pocketfed_fpc_auth_run_t:dir { getattr open read search };
+allow pocketfed_fpc_auth_t pocketfed_fpc_auth_run_t:sock_file getattr;
+
+# Dynamic loader/libc, inherited /dev/null and path traversal. The broker does
+# not consult NSS, open a network connection, or execute subprocesses.
+allow pocketfed_fpc_auth_t { root_t usr_t lib_t etc_t var_t var_lib_t var_run_t device_t }:dir { getattr open read search };
+allow pocketfed_fpc_auth_t { lib_t ld_so_t }:file { getattr open read execute map };
+allow pocketfed_fpc_auth_t { lib_t ld_so_t }:lnk_file { getattr read };
+allow pocketfed_fpc_auth_t etc_t:file { getattr open read };
+allow pocketfed_fpc_auth_t null_device_t:chr_file { getattr open read write ioctl };
+
+# StateDirectory is created by PID1. Existing store code creates/locks .lock
+# and manages only this separately labeled namespace, also for provisioning.
+allow pocketfed_fpc_auth_t pocketfed_fpc_auth_state_t:dir { getattr open read search write add_name remove_name };
+allow pocketfed_fpc_auth_t pocketfed_fpc_auth_state_t:file { getattr open read write create lock unlink };
+
+# Public TEE clients only; no sensor, private TEE, RPMB or generic device grant.
+allow pocketfed_fpc_auth_t pocketfed_fpc_tee_device_t:chr_file { getattr open read write ioctl };
+allowxperm pocketfed_fpc_auth_t pocketfed_fpc_tee_device_t:chr_file ioctl { 0xa400 0xa401 0xa402 0xa403 0xa405 };

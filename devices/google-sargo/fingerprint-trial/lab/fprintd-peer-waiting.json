@@ -1,0 +1,49 @@
+{
+  "run_id": "sargo-fingerprint-lab-fprintd-peer-20260912",
+  "state": "Waiting on physical readiness",
+  "controls": {
+    "buttons": [
+      "pm8941_resin",
+      "gpio-keys"
+    ],
+    "console": "tty1",
+    "console_setup": {
+      "setterm": 0
+    },
+    "readiness": "fresh Volume Up press and release; no readiness deadline",
+    "cancel": "Volume Down"
+  },
+  "waiting": {
+    "phase": "enroll",
+    "instruction": "Enroll your right index finger: repeatedly touch and lift it, varying placement slightly.",
+    "readiness": "device Volume Up",
+    "timeout_seconds": null
+  },
+  "handoff": {
+    "schema_version": 1,
+    "run_id": "sargo-fingerprint-lab-fprintd-peer-20260912",
+    "result": "pass",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "root_fstype": "overlay",
+    "root_mode": "usb",
+    "resident": {},
+    "usb_policy_state": "masked",
+    "module_mount": "/dev/ublkb1[/usr/lib/modules/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64] erofs",
+    "selinux": "Enforcing",
+    "label_repair_state": "active",
+    "failed_units": [],
+    "checks": {
+      "run_id_present": true,
+      "disposable_root": true,
+      "matching_modules_present": true,
+      "root_transport_ready": true,
+      "slot_marking_disabled": true,
+      "usb_transport_policy": true,
+      "selinux_enforcing": true,
+      "writable_root_labels_restored": true
+    }
+  },
+  "readiness_seen_at_checkpoint": false,
+  "usb_host_retained": true
+}

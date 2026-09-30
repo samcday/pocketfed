@@ -1,0 +1,116 @@
+{
+  "run_id": "sargo-fingerprint-lab-storage-frame-probe-20260911",
+  "serial": "99NAY1AZG1",
+  "enrollment": false,
+  "synthetic_invalid_verification": true,
+  "rpmb_writes": false,
+  "code": {
+    "guard-device.py": "2ee6490309dd37c4e03c9d84efa76177204e6137cbab8c941506afb44109fd21",
+    "trial-startup.py": "b0b817d46667040a3c8cd9db403605a304eee1b5da61761d9b5f6e882f2e2f41",
+    "keymaster-startup": "4cff2ecf8139cbfacb608e378d9fe372b17f105c823742a96cc03fef184cb371",
+    "lab_report.py": "7c9b8b163c65a86c1a129f8ddd93351fdd2a8ab75ba80a8677f3d1fa09a401df",
+    "stage-firmware.py": "58490e33af43b1d19280f097db1562401696c77dacd5ef3be5240e2877e2c0cf",
+    "storage-probe": "fac75c7e8f9a54342393efb6dac375095b71d7712dba182c82ce4aa49abdc156",
+    "firmware-manifest.json": "2fcd802c3c96c56ce4aa2ff2ed12513b02ed9ed3ead907486d1b43b08e72956b",
+    "inspect-device.py": "a25e334b2edafd76716df1cf82c42be6bfa4cbf2e35f412bb04605dff6d5d99d",
+    "rpmb-supplicant-ro": "0cdfc9f0a6af508f8b17c81f96909e59ef01e79ffe1e7860a873be45c50a4af7",
+    "trial-read-only.py": "f05b20f13f9e73f340919013630c035e28f537bac17598cd4cdfdd552ae5e238"
+  },
+  "units": {
+    "pocketfed-fingerprint-lab-firmware.service": "95e3e5652682a3515aeb9f517257411847c3e174bf1f12849701b45a19e3fa76",
+    "pocketfed-fingerprint-lab-startup.service": "0904717f79d81af3af8cc3cb95a02f2e317d04c64bb0af77aff498ea4c3f76af",
+    "pocketfed-fingerprint-lab-probe.service": "8f2638907142d6701a6719550374b99c264aa827cd65871eda674523188d20ff",
+    "pocketfed-fingerprint-lab-cmnlib.service": "83a7b5f0234d3d108329e1fe9cd0f9aaf0ae95b3372708ce1288eb39751c7e77",
+    "pocketfed-fingerprint-lab-rpmb.service": "9c9264bdc10b9b31a87470d44621eda12c733be296cfad54ecb0a0cdde59e8ab",
+    "pocketfed-fingerprint-lab-inspect.service": "7085abbd63728f3b540071250ec53079aefb1a2926283f2067dd52ac69520098",
+    "pocketfed-fingerprint-lab-readonly.service": "59d1acd98b1c43246f4df747a1ed68ad5a0fbdcdc07cb36626a7f34a6e5a772b",
+    "pocketfed-fingerprint-lab-fpc.service": "6dc6ccb7692ee11ff30651978e3ba84be7c04a982d7e42130c95c4943762116d",
+    "pocketfed-fingerprint-lab-keymaster.service": "7aa08edf109bd530fb992ff39c75d3e73fda092d4d86ea927bf0d6ab3fab2eae"
+  },
+  "sources": {
+    "storage-probe.c": "ae5d12a4206ec4e2698233ed77027a304ffb9d542fc9f5c6ae7ab8007d0a11b1",
+    "test-storage-probe.c": "57ebf864a3d7a97ae0533c288a054a11a11a6444eaeb2f7c7502a996294a4e83",
+    "prepare-storage-probe.py": "909206cfbcfd4aa916d8ec56c48c33ed70fe6d49a7b045213542c018108ec5ff",
+    "boot-storage-probe.py": "993c2c21a575b13401cd8c4c7071ad1a2a2e1bd3ef71e9387d1d8bd84d35df18",
+    "trial-startup.py": "1305ba6b8fd1db463ccea0b6abfcf851c95baba92e35d0cb8fce70b2825b2d64",
+    "storage-frame-probe.c": "57d62a9fce64f15270c27e7967c1c8deb17c78d2d17fa3ba57d9db182d5d6e97",
+    "test-storage-frame-probe.c": "0342e237fd3d725287228abc2d9f153d03285c1fac1d16c88f70e34f0da44408",
+    "boot-storage-frame-probe.py": "6047d2be74b1d1520115ca188365896ab16df6e8ed986882f424a4f2059422a1"
+  },
+  "receiver_sources": {
+    "frozen_receiver_sha256": "8216145eb6d509839a8dddd188e8615754322c0af0556657a8b14b1f8355d5f3",
+    "change": "Replace fixed 504:0 check with named sysfs RPMB/card/device identity; read-only guards unchanged",
+    "files": {
+      "lab-device.h": "e73f96e08f8cd545cfebba650da09e5e966cd9704c0c9a2f4c2081e68939ded1",
+      "rpmb-mmc.c": "ce6036d731cf660d6129d3f7086c58c9ed60b6a3ee8d8a5bed4953f51a7a1405",
+      "rpmb-mmc.h": "02744188a8e55a4073b674a70540e0fd8042b933a94bc4d54f8778d0821e189b",
+      "rpmb-protocol.c": "d84e87d8679e357febe73c37b526b62879d7b6cbe52cd50c1cd5764ca21dc343",
+      "rpmb-protocol.h": "3e475aa47a857ff0c08b8cce6b438d1324c0083a380213dd98385183e730ef17",
+      "rpmb-supplicant.c": "b4a145d76d5e5f3c9b866c3e90d484ee03e7041577d3f21b6019b7bc16ab8b27",
+      "test-lab-device.c": "a50a26d7751d45d89550ac8e3353bc9979c84ceb877075243c22c5b2e4c2b119",
+      "test-rpmb-mmc.c": "8691b28ccd0ab2b45b2cdb7480de6aa763dda3d68c422761fe2f838cf831f302",
+      "test-rpmb-protocol.c": "747dbd31b920eed3d9454aee52a93428a53940dc9f2d1d49d8baf68a74808764",
+      "test-rpmb-supplicant.c": "859ec764861aab0900c012392fb7936418956e1f5fb9b290175821739704c567"
+    }
+  },
+  "profile": {
+    "schema_version": 1,
+    "id": "google-sargo",
+    "display_name": "PocketFed Pixel 3a liveboot",
+    "devicetree_name": "qcom/sdm670-google-sargo",
+    "match": [
+      {
+        "fastboot": {
+          "vid": 6353,
+          "pid": 20192
+        }
+      }
+    ],
+    "probe": [
+      {
+        "fastboot.getvar": "product",
+        "equals": "sargo"
+      }
+    ],
+    "boot": {
+      "fastboot_boot": {
+        "android_bootimg": {
+          "header_version": 2,
+          "page_size": 4096,
+          "base": 0,
+          "kernel_offset": 32768,
+          "dtb_offset": 50331648,
+          "kernel": {
+            "encoding": "image.gz"
+          }
+        }
+      }
+    },
+    "ramdisk_offset": 67108864,
+    "dracut_config": "tools/liveboot/profiles/google-sargo-initrd.conf",
+    "cmdline": [
+      "console=ttyMSM0,115200n8",
+      "earlycon",
+      "init_on_alloc=0",
+      "sysrq_always_enabled=1",
+      "module_blacklist=rpmsg_wwan_ctrl",
+      "systemd.firstboot=off",
+      "systemd.wants=pocketfed-liveboot-check.service",
+      "systemd.wants=pocketfed-liveboot-labels.service",
+      "systemd.unit=multi-user.target",
+      "systemd.wants=pocketfed-fingerprint-lab-startup.service",
+      "systemd.show_status=false"
+    ],
+    "fixture_image": "ghcr.io/samcday/pocketfed-phosh-google-sargo@sha256:bfb17e069aef329113a41d3b42c348e5f866d40f72e8a4ff16d2ceb0ce4db881"
+  },
+  "status": "live read transfers passed; initialization write observed and refused; clean service shutdown",
+  "validation": [
+    "Host and ARM64 bounded physical-frame and payload-length tests passed",
+    "Host and ARM64 combined receiver and MMC tests passed with writes disabled",
+    "Host and ARM64 fixed invalid-verification lifecycle tests passed"
+  ],
+  "build_image": "sha256:a11b75544e1e5f304d103fa4602068bc70e2ce2aa6d557a1eb8b7eab742f0dd3",
+  "receiver_build_diagnostics": true,
+  "handoff_seconds": 64.94140863418579,
+  "result": "storage-frame-probe-result.json"
+}

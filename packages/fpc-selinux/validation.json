@@ -1,0 +1,93 @@
+{
+  "status": "offline compile and query tests passed; not loaded or runtime-tested",
+  "base_policy_sha256": "ca98dfcea858d4974bdaa1e10e54e1d70264a28c0fb79c03e339565360384973",
+  "base_policy_version": 35,
+  "candidate_sources": {
+    "pocketfed_fpc.te": "831da2ab8b37ab367f7bf6687c9fa7d830a4d2e4922ea9c132be124f9985ef1a",
+    "pocketfed_fpc.fc": "4f0aedd3e5d4277392ee36e21db11bab427a48f293f08036f120863b985eb39b"
+  },
+  "module_pp_sha256": "d42cd91bfd2b08072f04b8e059bece15be4b1bd1ccabc1a634c0227aad31daed",
+  "merged_policy_sha256": "3f37695d8e93c533947044bf0a0316ee5e4e44e9afcd98f95c182e31b52955ce",
+  "grants": {
+    "pocketfed_fpc_device_t": {
+      "permissions": [
+        "getattr",
+        "ioctl",
+        "open",
+        "read",
+        "write"
+      ],
+      "ioctl_low16": [
+        "0x4600",
+        "0x4601",
+        "0x4602"
+      ]
+    },
+    "pocketfed_fpc_tee_device_t": {
+      "permissions": [
+        "getattr",
+        "ioctl",
+        "open",
+        "read",
+        "write"
+      ],
+      "ioctl_low16": [
+        "0xa400",
+        "0xa401",
+        "0xa402",
+        "0xa403",
+        "0xa405"
+      ]
+    }
+  },
+  "positive_contexts": {
+    "/dev/fpc1020": "system_u:object_r:pocketfed_fpc_device_t:s0",
+    "/dev/tee0": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee1": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee2": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee3": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee4": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee5": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee6": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee7": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee8": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee9": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee10": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee11": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee12": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee13": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee14": "system_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/dev/tee15": "system_u:object_r:pocketfed_fpc_tee_device_t:s0"
+  },
+  "negative_contexts_unchanged": [
+    "/dev/teepriv0",
+    "/dev/teepriv15",
+    "/dev/tee16",
+    "/dev/tee99",
+    "/dev/tee00",
+    "/dev/tee01",
+    "/dev/tee",
+    "/dev/fpc10200",
+    "/dev/fpc1020/child",
+    "/run/pocketfed-fpc-auth/token.sock"
+  ],
+  "tests": [
+    "module compile/package",
+    "exact complete module declaration/rule/filecon contract",
+    "image binary to CIL and merged binary compile",
+    "exact added types/attributes",
+    "exact fprintd permissions and ioctl sets including disabled branches",
+    "existing udev relabel and QSEE service access preserved",
+    "generic device and broker rules unchanged",
+    "service transitions unchanged",
+    "fprintd remains confined",
+    "exact positive/negative path and inode-class labels"
+  ],
+  "limits": "binary policy lacks source neverallow assertions; compilation does not test module-store integration, kernel policy loading, udev labels or actual hardware access",
+  "audit_inputs": {
+    "packages/fpc-qsee/sensor.c": "33e1877dc88044b5a8dea58e965301ea6441b765fd4ef637e1c1a3abe519c66c",
+    "packages/fpc-qsee/qsee-transport.c": "6c381c0ba09cb86f73709488d531d49873855c333f97b4d39db04c71935cc16c",
+    "packages/fpc-qsee/fpc1020.h": "ee8cd308d9587ee9fc63d81a5b91a6755511efb972f6f9c78a32a5352b2213d0"
+  },
+  "validation_harness_sha256": "be94fdb9bfce5f44ac67e7c44a6234ae4017b770d003430747c1cf207ddbb71a"
+}

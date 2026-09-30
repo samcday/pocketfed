@@ -1,0 +1,6 @@
+FROM localhost/pocketfed-megapixels-build:20260910
+RUN dnf install -y --setopt=install_weak_deps=False \
+    libgusb-devel libgudev-devel gobject-introspection-devel \
+    cairo-devel openssl-devel python3-gobject python3-cairo \
+    python3-pytest python3-pytest-timeout umockdev-devel \
+    systemd-rpm-macros

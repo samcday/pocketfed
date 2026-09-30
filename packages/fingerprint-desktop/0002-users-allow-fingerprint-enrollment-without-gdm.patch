@@ -1,0 +1,23 @@
+Subject: [PATCH] users: allow fingerprint enrollment without GDM schemas
+
+GNOME Settings also runs in desktops using greetd, where the optional
+org.gnome.login-screen schema is not installed. A missing GDM preference
+does not mean fingerprint enrollment is disabled. Show the row when
+fprintd exposes a device for the current user; continue honoring an
+explicit enable-fingerprint-authentication=false when the schema exists.
+
+Based on GNOME Control Center 51.beta, the version installed on Sargo.
+
+--- a/panels/system/users/cc-user-page.c
++++ b/panels/system/users/cc-user-page.c
+@@ -348,8 +348,8 @@
+     gboolean visible = FALSE;
+ 
+     visible = (act_user_get_uid (self->user) == getuid ()
+-               && (self->login_screen_settings
+-                   && g_settings_get_boolean (self->login_screen_settings, "enable-fingerprint-authentication")));
++               && (!self->login_screen_settings
++                   || g_settings_get_boolean (self->login_screen_settings, "enable-fingerprint-authentication")));
+     gtk_widget_set_visible (GTK_WIDGET (self->fingerprint_row), visible);
+     if (!visible)
+         return;

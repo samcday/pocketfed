@@ -1,0 +1,103 @@
+{
+  "date": "2026-09-13",
+  "purpose": "Physical regression test for Settings VerifyStop/EnrollStart race",
+  "stage_result": "cancelled during RPM database regeneration; no staged deployment or live apply",
+  "cancellation": "rpm-ostree cancel returned success; proposed targeted subprocess kill did not execute because guard rejected it",
+  "booted_deployment": "d639fe55e1cf11b2756f367fef1dad99ab7e2705c19b0b72f73e80c265d16b89",
+  "installed_settings": "51~rc.1-1.1.fingerprint.fc46.aarch64",
+  "trial_settings": "51~rc.1-1.2.fingerprint.fc46.aarch64",
+  "trial_executable": "/usr/local/libexec/gnome-control-center-fingerprint-20260913",
+  "comparison": {
+    "changed_paths": [
+      "usr/bin/gnome-control-center",
+      "usr/lib/.build-id/08/fc294be96650e2e79834d323003c33fce7565c",
+      "usr/lib/.build-id/3e/c66a2469dbb5e241673d27bdead4d9490e9587",
+      "usr/lib/.build-id/7c/3786f91e8a8aafb53d33d11b322b25fab388f7",
+      "usr/lib/.build-id/96/da963418271c3ee8248eb4fad44460b537c946",
+      "usr/lib/.build-id/bd/df5b434833223ac89bfadba59d0328490e9587",
+      "usr/lib/.build-id/cc/e69c50b04cbb3cbd02e3d8da6180f848d28740",
+      "usr/lib/.build-id/d0/5316d632018b8e1c0cfbfe7bc9fc9ab537c946",
+      "usr/lib/.build-id/fb/d7fc5bd487bd22faf5a5d0a9dcaea548d28740",
+      "usr/libexec/gnome-control-center-global-shortcuts-provider",
+      "usr/libexec/gnome-control-center-print-renderer",
+      "usr/libexec/gnome-control-center-search-provider"
+    ],
+    "new_executable_sha256": "bdd71e22962d8bb08b2ba7ac762a54d92a7dba439aa2c95ac048fc8c641cea31",
+    "old_executable_sha256": "ea67cc6bc6e7de172c2bf16e2f8239d0e08ddd010b04aa0a8f24f10d50b70bd0"
+  },
+  "ready": {
+    "boot_id": "15c464d5-16f8-44fe-a3e0-96e6ee380310",
+    "uptime": "1414.86",
+    "pin_sha256": "695d627f3d54bf6010b001bef211792f536437c34b01d60833862c4a9509d5b6",
+    "selinux": "Enforcing",
+    "units": {
+      "fprintd.service": "ActiveState=active\nMainPID=8387\nResult=success",
+      "qsee-supplicant.service": "ActiveState=active\nMainPID=8373\nResult=success",
+      "qsee-app-loader@fpctzappfingerprint.service": "ActiveState=active\nMainPID=8380\nResult=success",
+      "pocketfed-fpc-auth.socket": "ActiveState=active\nResult=success",
+      "phosh-fingerprint-auth.socket": "ActiveState=inactive\nResult=success"
+    },
+    "settings": "ActiveState=active\nMainPID=8450\nResult=success",
+    "kernel_probes": false
+  },
+  "user_acceptance": {
+    "second_finger_enrollment": true,
+    "existing_finger_retained": true,
+    "new_and_previous_finger_match": true,
+    "other_fingers_rejected": true,
+    "verbatim": "enrolled second finger and confirmed both new and previous finger are lighting up green, others lighting up red",
+    "phone_responsive_after_report": true,
+    "boot_id": "15c464d5-16f8-44fe-a3e0-96e6ee380310",
+    "fprintd_pid_unchanged": 8387
+  },
+  "persistent_package_update": "applied live from cached commit; finalization unlocked; reboot acceptance pending",
+  "phosh_acceptance": {
+    "wrong_finger_rejected": true,
+    "both_enrolled_fingers_unlock_without_pin": true,
+    "phone_responsive": true,
+    "source": "explicit user confirmation",
+    "boot_id": "15c464d5-16f8-44fe-a3e0-96e6ee380310",
+    "pin_fallback_then_fingerprint": true
+  },
+  "known_ux_issue": {
+    "user_report": "Phosh lockscreen briefly flashes a bad-fingerprint/PAM message too quickly to read, with odd timeout behavior",
+    "priority": "follow-up; user says not super important",
+    "fixed": false
+  },
+  "reliability_status": "failed: subsequent normal Settings fingerprint dialog froze the phone",
+  "subsequent_freeze": {
+    "user_report": "I just logged back in, opened settings app and fingerprints and that froze the system",
+    "kernel_tracing": false,
+    "production_libfprint": true,
+    "settings_installed_version": "51~rc.1-1.2.fingerprint.fc46",
+    "boot_id": "15c464d5-16f8-44fe-a3e0-96e6ee380310",
+    "planned_reboot_not_sent": true,
+    "ssh_banner_timeout": true,
+    "uart_soft_lockup_cpus": [
+      3,
+      5
+    ],
+    "uart_first_lockup_uptime": 2208.047184,
+    "private_uart": "out/private/sargo-daily-settings-freeze-tasks-20260913/uart.log",
+    "root_cause": "under investigation",
+    "fprintd_pid": 10711,
+    "worker_tid": 10733,
+    "worker_state": "R",
+    "worker_cpu": 1,
+    "cpu_backtraces_received": [
+      0,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "cpu_without_backtrace": 1,
+    "secondary_waiters": {
+      "cpu3": "RCU expedited cross-CPU wait",
+      "cpu5": "BPF program cleanup cross-CPU wait"
+    },
+    "inference": "Fingerprint worker occupies the unresponsive CPU; exact call is unknown without userspace markers. Kernel tracing is not required to reproduce the freeze."
+  }
+}

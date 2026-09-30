@@ -1,0 +1,39 @@
+{
+  "date": "2026-09-13",
+  "boot_id": "8efc952f-549c-40b7-83ee-a8a00f8cc36e",
+  "recovered_boot_id_from_uart": "260cb29f-33c0-4569-9c61-880b846ca82c",
+  "serial": "994AY18RSD",
+  "source": "init-cma-qos-20260913.c",
+  "controller": "init-cma-qos-20260913.py",
+  "binary_sha256": "8cd0ec3ff9669990a3707e7cf67fec14ddf54acc0d20cfcb6d0752b535b4c521",
+  "cpu_affinity": "7",
+  "kernel_tracing": false,
+  "sensor_init_returned": true,
+  "sensor_init_status": {
+    "transport": 0,
+    "outer": 0,
+    "command": 0
+  },
+  "cma_allocations_completed": null,
+  "cma_bytes_per_allocation": 8192,
+  "last_complete_uart_marker": "FPC_INIT_CMA_PROGRESS completed=900",
+  "last_complete_uart_marker_uptime": 365.330378,
+  "deep_sleep_result_recorded": false,
+  "deep_sleep_entry_recorded": false,
+  "capture_requested": false,
+  "credential_operation_requested": false,
+  "outcome": "reset observed after temporary CPU latency request was verified active; no assistant reboot command",
+  "assistant_reboot_command_sent": false,
+  "kernel_backtrace_obtained": false,
+  "conclusion": "The run still reset with a temporary zero-microsecond CPU latency request active. It did not reach the final counter check, so deep-idle prevention is not independently confirmed by usage deltas.",
+  "limitations": [
+    "DMA-heap allocation does not exercise DMA coherent virtual mapping.",
+    "The 8 KiB baseline is not the exact FPC bounce allocation size: 64-byte request + 64-byte response + 4096-byte auxiliary yields a 12288-byte pool with the current kernel sizing.",
+    "Sensor command requests and responses are both 64 bytes, so the suspected general bounce response alignment issue does not affect these INIT/DEEP_SLEEP exchanges."
+  ],
+  "private_uart": "out/private/sargo-daily-cpu7-freeze-recovery-20260913/uart.log",
+  "cma_allocations_confirmed_complete": 900,
+  "last_partial_uart_marker": "FPC_INIT_CMA_PROGRESS completed=10",
+  "cpu_dma_latency_us": 0,
+  "deep_idle_usage_after": null
+}

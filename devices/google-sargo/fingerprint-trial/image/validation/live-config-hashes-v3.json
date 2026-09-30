@@ -1,0 +1,204 @@
+{
+  "/etc/authselect/authselect.conf": {
+    "bytes": 45,
+    "sha256": "21d184c39a0610c8805760c79e71aafe3e3bad1fe73d441d52782faaffbb82bf"
+  },
+  "/etc/authselect/dconf-db": {
+    "bytes": 397,
+    "sha256": "d708aaec42f875da6c26fe2be6392839cb17db56fe3beec9a0287d95e3490627"
+  },
+  "/etc/authselect/dconf-locks": {
+    "bytes": 426,
+    "sha256": "f680d1c813b3a20639b00df27c4053c27d9b8aad2df4dffff43947fa9098fef1"
+  },
+  "/etc/authselect/fingerprint-auth": {
+    "bytes": 304,
+    "sha256": "9e0ea3820ffe5b6ff6f4cea4896b40e244077830538ea824911759095f8b4a8a"
+  },
+  "/etc/authselect/nsswitch.conf": {
+    "bytes": 639,
+    "sha256": "36d4629defe53f0fe01b1578296b3cd411272f888643785716a439370e67166b"
+  },
+  "/etc/authselect/password-auth": {
+    "bytes": 1666,
+    "sha256": "237e6c77af2f296fa18ccd53665696d421167c0d1b948ab138291736374934f9"
+  },
+  "/etc/authselect/postlogin": {
+    "bytes": 534,
+    "sha256": "c1ecd4d1a5b5de7d26e3336cd33551d1d65e13751b5f46405183472895838a9d"
+  },
+  "/etc/authselect/smartcard-auth": {
+    "bytes": 304,
+    "sha256": "9e0ea3820ffe5b6ff6f4cea4896b40e244077830538ea824911759095f8b4a8a"
+  },
+  "/etc/authselect/switchable-auth": {
+    "bytes": 304,
+    "sha256": "9e0ea3820ffe5b6ff6f4cea4896b40e244077830538ea824911759095f8b4a8a"
+  },
+  "/etc/authselect/system-auth": {
+    "bytes": 1666,
+    "sha256": "237e6c77af2f296fa18ccd53665696d421167c0d1b948ab138291736374934f9"
+  },
+  "/etc/dracut.conf.d/50-pocketfed-ostree.conf": {
+    "bytes": 238,
+    "sha256": "d45231d16fe4c580e45c059fd0ab757aba0eeba1f4d6744dd235f46e3d70d934"
+  },
+  "/etc/dracut.conf.d/60-google-sargo.conf": {
+    "bytes": 2073,
+    "sha256": "6f43ffd217447f518727f691b58ac80559943367e9397dd4c5324f01977810bc"
+  },
+  "/etc/greetd/config.toml": {
+    "bytes": 535,
+    "sha256": "bc8beb3e63e4241adf2647eba4d24f9231afab18e2a504eb75f40eb61af06c3e"
+  },
+  "/etc/pam.d/chfn": {
+    "bytes": 192,
+    "sha256": "78735eb88739700bd80f8dfadf177373e0180e838268c42b8cdb87e514cef81d"
+  },
+  "/etc/pam.d/chpasswd": {
+    "bytes": 168,
+    "sha256": "0fe34a8fecd71df3dea92e3aeaa8243b136b71e2853263c65fd89969bd2f8425"
+  },
+  "/etc/pam.d/chsh": {
+    "bytes": 192,
+    "sha256": "78735eb88739700bd80f8dfadf177373e0180e838268c42b8cdb87e514cef81d"
+  },
+  "/etc/pam.d/config-util": {
+    "bytes": 232,
+    "sha256": "4f10f27a970924ba9f636f2d5fdb4267c3ada93f7b4eee1bc3ad05c33406e76c"
+  },
+  "/etc/pam.d/fingerprint-auth": {
+    "symlink": "/etc/authselect/fingerprint-auth"
+  },
+  "/etc/pam.d/login": {
+    "bytes": 676,
+    "sha256": "9c730de7207b901279091b7ca040a75fd42714a3bb224d97614aabc2750d187d"
+  },
+  "/etc/pam.d/newusers": {
+    "bytes": 168,
+    "sha256": "0fe34a8fecd71df3dea92e3aeaa8243b136b71e2853263c65fd89969bd2f8425"
+  },
+  "/etc/pam.d/other": {
+    "bytes": 154,
+    "sha256": "c5c2a7c1f8dfbefa5df66cd32a7b754266d6375471d43cea06b8bea937d24b40"
+  },
+  "/etc/pam.d/passwd": {
+    "bytes": 168,
+    "sha256": "0fe34a8fecd71df3dea92e3aeaa8243b136b71e2853263c65fd89969bd2f8425"
+  },
+  "/etc/pam.d/password-auth": {
+    "symlink": "/etc/authselect/password-auth"
+  },
+  "/etc/pam.d/phosh": {
+    "bytes": 252,
+    "sha256": "695d627f3d54bf6010b001bef211792f536437c34b01d60833862c4a9509d5b6"
+  },
+  "/etc/pam.d/postlogin": {
+    "symlink": "/etc/authselect/postlogin"
+  },
+  "/etc/pam.d/remote": {
+    "bytes": 640,
+    "sha256": "dd90767b2883bfb2bee6c27acc794bcea58bf3436cc2180ccfca0e822b6c0145"
+  },
+  "/etc/pam.d/runuser": {
+    "bytes": 143,
+    "sha256": "2d430cb6628248953568010427d663f3305856f3cb055955c2239bea226c5280"
+  },
+  "/etc/pam.d/runuser-l": {
+    "bytes": 138,
+    "sha256": "be9329a8b26e3cfd4af879fe60900f646f8188f3fbe491688f23d4d8b491c5b1"
+  },
+  "/etc/pam.d/smartcard-auth": {
+    "symlink": "/etc/authselect/smartcard-auth"
+  },
+  "/etc/pam.d/sshd": {
+    "bytes": 727,
+    "sha256": "443b9656478e67d1bff41f28707e5588449b302e50c9a5832e2762ee8fc731ed"
+  },
+  "/etc/pam.d/su": {
+    "bytes": 566,
+    "sha256": "6b08d1c3f556df6bf412834710f949e9adb6d6d566e850918e8f6eb18a5da96a"
+  },
+  "/etc/pam.d/su-l": {
+    "bytes": 137,
+    "sha256": "4d10241676e97e5e8d8935e5c8e8f6cb2f871afb881059715f155909be9ebd77"
+  },
+  "/etc/pam.d/sudo": {
+    "bytes": 238,
+    "sha256": "fb766aab394fc417c72f07365ea29f9ba65bb101991293a14a6e81aed6202f77"
+  },
+  "/etc/pam.d/sudo-i": {
+    "bytes": 178,
+    "sha256": "268616ef041372c9cdc170df1b4deea85cbf67928b17451759bfd24ac689b803"
+  },
+  "/etc/pam.d/switchable-auth": {
+    "symlink": "/etc/authselect/switchable-auth"
+  },
+  "/etc/pam.d/system-auth": {
+    "symlink": "/etc/authselect/system-auth"
+  },
+  "/etc/phrog/greetd-config.toml": {
+    "bytes": 210,
+    "sha256": "dbdb8882c84c1064d644719e28e2bf286babe4503fb788998f7f54e4b39b6739"
+  },
+  "/usr/bin/aboot-deploy": {
+    "bytes": 10635,
+    "sha256": "afda60e25cd2fbccab34adbfae3960b231cd7eefa8cb9479fd07522b1854bb99"
+  },
+  "/usr/lib/ostree-boot/aboot-kargs": {
+    "bytes": 72,
+    "sha256": "088d95aeeea02b6f0563da2e426797966dc2cc37778114a922f6750f82d7bb2e"
+  },
+  "/usr/lib/ostree-boot/aboot.cfg": {
+    "bytes": 101,
+    "sha256": "ea5101175fe460c7c948daf055fe50b97acc1f2388cf7ac89005f7b5628ac439"
+  },
+  "/usr/lib/pam.d/greetd": {
+    "bytes": 875,
+    "sha256": "87ab2bb4e6da7272595308875b3ff0542c9e9b839cafb13c2d393f72e68ab603"
+  },
+  "/usr/lib/pam.d/greetd-greeter": {
+    "bytes": 445,
+    "sha256": "5f443ad95f55d31290385109c430b216cba99688771584a0b48ea034035ab394"
+  },
+  "/usr/lib/pam.d/polkit-1": {
+    "bytes": 155,
+    "sha256": "a4454c54582a86fd4560321b22ffb7639485968438a07d5412fadc102d62cf49"
+  },
+  "/usr/lib/pam.d/systemd-run0": {
+    "bytes": 1180,
+    "sha256": "1bebf89fa71d19d7985cbf2ab873d8fb000cd61f8f1be6e1fb4bf22e3b58e3a5"
+  },
+  "/usr/lib/pam.d/systemd-user": {
+    "bytes": 478,
+    "sha256": "40275c8e16f29735096248ac71d41663e73195b7ab54b4a7a98a5f186c81c9e2"
+  },
+  "/usr/lib/systemd/system/81voltd.service": {
+    "bytes": 150,
+    "sha256": "5440d88b9e890e64c886cc2fefdc513810714a10c0877c0e3e2d60283388731d"
+  },
+  "/usr/lib/systemd/system/ModemManager.service": {
+    "bytes": 514,
+    "sha256": "5dc77fc78a3e766f0f651943b7787ee091538ef4f0d963ff8b375fbb1fcd8305"
+  },
+  "/usr/lib/systemd/system/greetd.service": {
+    "bytes": 370,
+    "sha256": "de9f5b3054043a6b9e47af0dd3f08a01aaf6e74e79760d5b49ff17545fcf2ed7"
+  },
+  "/usr/lib/systemd/system/phrog.service": {
+    "bytes": 442,
+    "sha256": "5b7344c90dd105087564ebca1f29d85763b486add2105c80fae1256a8a5c8af0"
+  },
+  "/usr/libexec/abl-exorcist-assembler": {
+    "bytes": 594624,
+    "sha256": "7867be9105cc1131f357ea29ff100c9a5c38b3cca2f305aa54ea4bbad5bd7977"
+  },
+  "/usr/libexec/pocketfed-aboot-finalize": {
+    "bytes": 12809,
+    "sha256": "9174e3e1679e335d5f5ad9bf03b519eebe5c6cb78b542cca9b1ecd875599afc6"
+  },
+  "/usr/libexec/pocketfed-verify-kernel": {
+    "bytes": 3658,
+    "sha256": "eb4e9d5f9e33a5ebd93407c2856b3dd4e2e227347b3b9f05b4ecf3d25b3360f5"
+  }
+}

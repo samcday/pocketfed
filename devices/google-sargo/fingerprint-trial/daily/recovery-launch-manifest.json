@@ -1,0 +1,16 @@
+{
+  "serial": "994AY18RSD",
+  "linux_uid": 1000,
+  "gatekeeper_uid": "0x700003e8",
+  "booted_checksum": "6f5d5fe5b07a9ca3ef9b74a3782b4d4e9ec964411fb27b7dcd135e1b63544e4b",
+  "policy_sha256": "da1c3527aca1668594c767e610c4e98ec07c97c40d2feafa73c0d3d6fff57174",
+  "binary_sha256": "c36459ccbca8ceb6fed8b745c3817659ae3ebd71af164eff801dde94bbcccb22",
+  "files": {
+    "pocketfed-fpc-storage-recovery-once.service": "9a440f5c73d0f4e81b9e4c9cdb9858135ad005bc129c1dc8423cb80196ab91e7",
+    "launch-recovery.py": "1f40e96cc1708a7833d45b2bd70dd700e417320f36bb66f9d2c04156269bc622",
+    "recover-storage-once": "c36459ccbca8ceb6fed8b745c3817659ae3ebd71af164eff801dde94bbcccb22"
+  },
+  "prior_receipt_preserved": true,
+  "original_intent_snapshot_retained": true,
+  "automatic_retry": false
+}

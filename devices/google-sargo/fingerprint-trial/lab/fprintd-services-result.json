@@ -1,0 +1,173 @@
+{
+  "run_id": "sargo-fingerprint-lab-fprintd-services-20260912",
+  "serial": "99NAY1AZG1",
+  "linux_uid": 1234,
+  "gatekeeper_enrollment": false,
+  "steps": [
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-firmware.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "qsee-supplicant.service",
+      "status": 1,
+      "state": [
+        "LoadState=masked",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ],
+      "diagnostic": "Failed to start qsee-supplicant.service: Unit qsee-supplicant.service is masked.\n"
+    },
+    {
+      "action": "stop",
+      "unit": "fprintd.service",
+      "status": 0,
+      "state": [
+        "LoadState=masked",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fpc-auth.socket",
+      "status": 0,
+      "state": [
+        "LoadState=masked",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fpc-auth.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-keymaster-startup.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-app-loader@fpctzappfingerprint.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-shared-loader@cmnlib64.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-supplicant.service",
+      "status": 0,
+      "state": [
+        "LoadState=masked",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    }
+  ],
+  "signals": [],
+  "error": "service operation failed: qsee-supplicant.service",
+  "process_domains": {
+    "fprintd.service": "not running",
+    "pocketfed-fpc-auth.service": "not running"
+  },
+  "object_labels": [
+    "-rwxr-xr-x. 1 root root system_u:object_r:pocketfed_fpc_auth_exec_t:s0  69336 Sep 12  2026 /usr/bin/pocketfed-fpc-auth",
+    "drwx------. 2 root root system_u:object_r:pocketfed_fpc_auth_state_t:s0    58 Sep 12  2026 /var/lib/pocketfed-fpc-auth"
+  ],
+  "clean_shutdown": true,
+  "events": {
+    "qsee-supplicant.service": [],
+    "pocketfed-fpc-auth.socket": [],
+    "pocketfed-fpc-auth.service": [],
+    "fprintd.service": []
+  },
+  "outcome": "Normal listener startup blocked by inherited base-image mask; no fingerprint or RPMB operation",
+  "handoff": {
+    "schema_version": 1,
+    "run_id": "sargo-fingerprint-lab-fprintd-services-20260912",
+    "result": "pass",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "root_fstype": "overlay",
+    "root_mode": "usb",
+    "resident": {},
+    "usb_policy_state": "masked",
+    "module_mount": "/dev/ublkb0[/usr/lib/modules/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64] erofs",
+    "selinux": "Enforcing",
+    "label_repair_state": "active",
+    "failed_units": [],
+    "checks": {
+      "run_id_present": true,
+      "disposable_root": true,
+      "matching_modules_present": true,
+      "root_transport_ready": true,
+      "slot_marking_disabled": true,
+      "usb_transport_policy": true,
+      "selinux_enforcing": true,
+      "writable_root_labels_restored": true
+    }
+  },
+  "recovery": {
+    "clean_shutdown": true,
+    "uart_reset_acknowledged": true,
+    "fastboot_serial": "99NAY1AZG1",
+    "usb_host_stopped_after_fastboot": true
+  }
+}

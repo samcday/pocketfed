@@ -1,0 +1,7 @@
+{
+  "returncode": 0,
+  "image": "sha256:69ffaa7c0dec7f64cdd3cbfb877f69d3d7b7d840a5afc961e66ecba4bbcc9135",
+  "trace_patch_sha256": "1bb3a5ccb2c1f0854f727bf2c338fd14464dd5a8700ec71285bc517c25cf52ba",
+  "hardware_accessed": false,
+  "installed": false
+}

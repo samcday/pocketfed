@@ -1,0 +1,59 @@
+{
+  "status": "live trial completed; same -30 and rejected read; no exported credential",
+  "serial": "99NAY1AZG1",
+  "run_id": "sargo-fingerprint-lab-gatekeeper-rw0-20260911",
+  "gatekeeper_uid": "0x700004d2",
+  "rpmb_writes": false,
+  "reason": "Deliberate read-path recovery of the preserved first lab failure; original secret reused; original launch receipt and result retained",
+  "authorization": "Sam: this device is yours to do with as you will :D yes approved",
+  "source_sha256": {
+    "recover-read-once.c": "523256528acc0cde99a59ec83e5a6252fa4c120023f9fa0cad4418428bbb7ddb",
+    "test-recover-read-once.c": "1341cae339881e69de8209e230c566b640294a02e184427294c39ede834a5e31",
+    "build-read-recovery.sh": "6cabe95b2816c119acab590f3cd97e8a58e5ef07d33247b24f4c3cdeac73438d",
+    "lab_read_recovery.py": "8a95f433ef4a79d2fb94720fca4b3fc39a2e3894d4095aff333372dc4881e36b",
+    "test-lab-read-recovery.py": "8fbfc8fcfbc75ebd813f4382415f42697ad3ba589b27bb8b85c147824fa58d4e",
+    "lab_vault.py": "38c4607d903be9c63a1557c2289ea87bc58d7b94f8863af92bcafa4dc6529216",
+    "trial-gatekeeper.py": "b5d5ef56786da40bc474ce881b1181f837ad255ab517692f741bc8372aa565ff",
+    "lab_report.py": "7c9b8b163c65a86c1a129f8ddd93351fdd2a8ab75ba80a8677f3d1fa09a401df"
+  },
+  "helper_sha256": "8dc2febbfc34e9709ea5c3a6ca418da930992449768817787601fcb0dc88d528",
+  "receiver_sha256": "8367a7438c27b954f8a6191100192613e9e7c92d046e9bbbb6e477c5d672f007",
+  "receiver_sources": {
+    "frozen_receiver_sha256": "8216145eb6d509839a8dddd188e8615754322c0af0556657a8b14b1f8355d5f3",
+    "change": "Replace fixed 504:0 check with named sysfs RPMB/card/device identity; read-only guards unchanged",
+    "files": {
+      "lab-device.h": "e73f96e08f8cd545cfebba650da09e5e966cd9704c0c9a2f4c2081e68939ded1",
+      "rpmb-mmc.c": "ce6036d731cf660d6129d3f7086c58c9ed60b6a3ee8d8a5bed4953f51a7a1405",
+      "rpmb-mmc.h": "02744188a8e55a4073b674a70540e0fd8042b933a94bc4d54f8778d0821e189b",
+      "rpmb-protocol.c": "d68993e50f012fc1e8de949cac4947c675478729b539dafa96eeff90729a0df5",
+      "rpmb-protocol.h": "3e475aa47a857ff0c08b8cce6b438d1324c0083a380213dd98385183e730ef17",
+      "rpmb-supplicant.c": "b4a145d76d5e5f3c9b866c3e90d484ee03e7041577d3f21b6019b7bc16ab8b27",
+      "test-lab-device.c": "a50a26d7751d45d89550ac8e3353bc9979c84ceb877075243c22c5b2e4c2b119",
+      "test-rpmb-mmc.c": "8691b28ccd0ab2b45b2cdb7480de6aa763dda3d68c422761fe2f838cf831f302",
+      "test-rpmb-protocol.c": "63cbc992a6c2980a2edd9dae4ab3d98cdbc931ac163b62aa5bb138da0b08df61",
+      "test-rpmb-supplicant.c": "859ec764861aab0900c012392fb7936418956e1f5fb9b290175821739704c567"
+    }
+  },
+  "auth_sources": {
+    "auth-store.c": "99f34c30b530907a0fdc747524a77c9473ea349f6aa23f944eb85179cf463759",
+    "auth-store.h": "c458b5c7bd174879dcc846494b0bfcace6a128236b8596b4fcd92d4d966e1a3a",
+    "auth-backend.c": "261616e353f07d58299bc7f1ba7664614591fc4ea19328ab145ef11b4972d7fa",
+    "auth-backend.h": "ef430c2d834057dc982262e8d082f66f46cbe9cf1b1345ddc5d2e4b8b0f3124a"
+  },
+  "qsee_sources": {
+    "gatekeeper-protocol.c": "050aa3b46016588b3b0884651057f200391dec3bf8ab3a8d49f42b2074ccf69f",
+    "gatekeeper-protocol.h": "ecad7859725b90a0c91cec09fa4fb115c13f11ee3aab1df59c34c50e653c12cf",
+    "qsee-transport.c": "6c381c0ba09cb86f73709488d531d49873855c333f97b4d39db04c71935cc16c",
+    "qsee-transport.h": "37d95818ea237019e9415e737b1f300a606b683728c010354ba69610bd048366"
+  },
+  "build_image": "sha256:a11b75544e1e5f304d103fa4602068bc70e2ce2aa6d557a1eb8b7eab742f0dd3",
+  "validation": [
+    "Host and ARM64 RPMB protocol/MMC/combined receiver tests passed",
+    "Host and ARM64 recovery lifecycle and prior-history tests passed",
+    "Host prior-failure/seal/one-use-launch tests passed"
+  ],
+  "private_vault": "out/private/sargo-gatekeeper-20260911",
+  "private_subdirectory": "read-path-recovery",
+  "private_run": "out/private/sargo-gatekeeper-20260911/read-path-recovery/runs/sargo-fingerprint-lab-gatekeeper-rw0-20260911",
+  "result": "read-recovery-result.json"
+}

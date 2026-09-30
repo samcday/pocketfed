@@ -1,0 +1,71 @@
+{
+  "boot": {
+    "bytes": 47947776,
+    "canonical_kernel_sha256": "71d80672bc7df837198fcfad5e9b5281760e507b8a54bbde1f00472c3b0e9a58",
+    "cmdline": "<S> init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true <E>",
+    "dtb_sha256": "8b682c3860fce48701030ed4d18930f6895c1a670dc831b87bb3d88d99d476e7",
+    "initramfs_sha256": "d16323abd3f2800b33f795d8a5453b38b56fe508c5eefc3cb3ba1b0d80cd9b5a",
+    "outer_shim_sha256": "c3f8f285f94901cc0af73c47d88612ecc8f7b30eb363feded538894899471853",
+    "payloads_match_module_directory": true,
+    "sha256": "520e47de1dacf59a7621ef111997ee7394093adf818d906c531ae51500748269"
+  },
+  "fingerprint_dt": {
+    "compatible": [
+      "google,sargo-fingerprint",
+      "fpc,fpc1020"
+    ],
+    "firmware_name": "fpctzappfingerprint",
+    "gpio_provider": "/soc@0/pinctrl@3400000",
+    "irq_active_high": true,
+    "irq_gpio": 121,
+    "present": true,
+    "reset_active_low": true,
+    "reset_gpio": 134,
+    "wakeup_source": true
+  },
+  "fingerprint_modules": {
+    "fpc1020": {
+      "depends": "",
+      "vermagic": "7.1.2-0.pocketfed.sdm670.10.fc46.aarch64 SMP preempt mod_unload aarch64"
+    },
+    "qseecomtee": {
+      "depends": "tee,mdt_loader",
+      "vermagic": "7.1.2-0.pocketfed.sdm670.10.fc46.aarch64 SMP preempt mod_unload aarch64"
+    }
+  },
+  "image_id": "83cc5287c9ae65449e51d5f45c5e495ddca48dba45416e4f1f85d49afe6535a0",
+  "initial_activation": {
+    "broker_present": false,
+    "build_only_helpers_present": false,
+    "database_init_marker_present": false,
+    "masks": {
+      "fprintd.service": {
+        "symlink": "/dev/null"
+      },
+      "phosh-fingerprint-auth.socket": {
+        "symlink": "/dev/null"
+      },
+      "qsee-supplicant.service": {
+        "symlink": "/dev/null"
+      }
+    }
+  },
+  "initramfs_critical_config": {
+    "CONFIG_DEVTMPFS": "y",
+    "CONFIG_DRM": "y",
+    "CONFIG_DRM_MSM": "m",
+    "CONFIG_DRM_PANEL_SAMSUNG_S6E3FA7": "m",
+    "CONFIG_EXT4_FS": "y",
+    "CONFIG_KEYBOARD_GPIO": "m",
+    "CONFIG_MMC": "m",
+    "CONFIG_MMC_BLOCK": "m",
+    "CONFIG_MMC_SDHCI": "m",
+    "CONFIG_MMC_SDHCI_MSM": "m",
+    "CONFIG_QCOM_SCM": "y",
+    "CONFIG_RMI4_CORE": "m",
+    "CONFIG_RMI4_I2C": "m"
+  },
+  "initramfs_kernel_module_count": 107,
+  "kernel_release": "7.1.2-0.pocketfed.sdm670.10.fc46.aarch64",
+  "scope": "Offline parse of the immutable final image, not a live boot or sensor test."
+}

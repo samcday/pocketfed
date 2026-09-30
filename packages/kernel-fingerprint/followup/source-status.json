@@ -1,0 +1,21 @@
+{
+  "status": "source-only; not packaged, submitted, included in an image, or tested on hardware",
+  "base_commit": "288962298f4aee8e67ade2c566cf77d3c95f5b22",
+  "historical_kernel_release": "7.1.2-0.pocketfed.sdm670.10.fc46.aarch64",
+  "historical_copr_build": 10973618,
+  "unchanged_local_image_id": "83cc5287c9ae65449e51d5f45c5e495ddca48dba45416e4f1f85d49afe6535a0",
+  "kernel_worktree_change": "drivers/tee/qseecom/core.c: one comment plus full-allocation memzero_explicit at out_free",
+  "base_core_sha256": "10027da4fb40fe08fe8f5482c5201d881ea4c54e0e7b299f0a710464e9070bbe",
+  "patched_core_sha256": "57b8f1e905126cb1348b70cb9669f2cea31b686dba8906730a943975368ede08",
+  "allocator_sha256": "4224a5802a966bf0977cba8c21c7dc8f9dedeb65276d0ed2ba4c387ac2235b4f",
+  "patch_applies_to_base_and_reverses_current_tree": true,
+  "followup_sha256": {
+    "0001-tee-qseecom-wipe-application-invoke-staging.patch": "7cda4e8e42bc57ab4c64bf6d0abeca5b2ffef38f0086bbe0014c82bd78c5b71d",
+    "README.md": "a336ad6c4010573964f3384f84d79da844e8eea26cc07a28b1565ecc69bf9675",
+    "invoke-wipe-fixture.c": "0bf31d91e38c9dca9ec6bfc914101c331e052883cdbf05d2b2e49953dfe87c9d",
+    "test-invoke-wipe.py": "eab851320a3048a9323cf47d983001a616f39b74b9f251090060e2daf1a3d5eb",
+    "validation/baseline-unwiped.json": "dce66fc71a7a22ae39616cff6537f2e5f8d59d8a1cb0626f79f8128126ce6322",
+    "validation/checkpatch.txt": "50649b058e3d3cf6411deb6eb8c878d8f011323cfb244f27f0e298329803f9fa",
+    "validation/invoke-wipe.json": "9cd4caa3ca82e97508a721f019c089b9206d735b064f9b4a7c48b5df519cf2fb"
+  }
+}

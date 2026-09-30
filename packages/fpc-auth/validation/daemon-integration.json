@@ -1,0 +1,22 @@
+{
+  "captured_at": "2026-09-11T00:19:23.079740+00:00",
+  "harness": "/tmp/review-fpc-auth-daemon.py",
+  "command": "podman run --rm --network=none --security-opt label=disable -v /var/home/sam/src/pocketfed/packages/fpc-auth:/review/auth:ro -v /var/home/sam/src/pocketfed/packages/fpc-qsee:/review/core:ro -v /tmp/review-fpc-auth-daemon.py:/review/daemon-test.py:ro localhost/pocketfed-fingerprint-desktop-deps:x86_64 python3 /review/daemon-test.py",
+  "exit_code": 0,
+  "stdout": "PASS production fd-3 activation, root valid request, bad/extra/truncated framing, real non-root peer refusal, zero tokens and no credential creation",
+  "notes": [
+    "Production broker compiled in disposable container from read-only source mounts; no FPC_AUTH_TESTING backend override.",
+    "Valid root request has absent UID state and returns ENOENT with 69 zero token bytes.",
+    "Non-root connector uses actual setgid/setuid 65534; socket permissions deliberately relaxed only inside the disposable container after daemon startup, testing SO_PEERCRED enforcement.",
+    "All state/socket files and processes are container-local; no phone, firmware, host state or authentication operations.",
+    "Harness explicitly clears fd 3 CLOEXEC after dup2 because source and destination can be identical."
+  ],
+  "source_sha256": {
+    "packages/fpc-auth/auth-broker.c": "7f6b6413bfb0913c7bc759b39a5a141ae7e4f6e00734d9939cae22e964464358",
+    "packages/fpc-auth/auth-store.c": "99f34c30b530907a0fdc747524a77c9473ea349f6aa23f944eb85179cf463759",
+    "packages/fpc-auth/auth-store.h": "c458b5c7bd174879dcc846494b0bfcace6a128236b8596b4fcd92d4d966e1a3a",
+    "packages/fpc-qsee/gatekeeper-protocol.c": "d4e9fba73d2d4fb8f50ded51d717534af853a851934804794367a5278a400114",
+    "packages/fpc-qsee/auth-broker.h": "696121bf8306c74e83c92bab166b1dc4610c6764f4903fb3ddc226f754e73ab7"
+  },
+  "harness_sha256": "70092d947889daf6ededc907b223d25fb2cc8e124373fedb456195a15d3af2c5"
+}

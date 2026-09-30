@@ -1,0 +1,152 @@
+{
+  "status": "independent image comparison passed; not staged or booted",
+  "base_image": "sha256:b5c4bd5293af3caf701193d9f40f8527dedb7e0d57d2fa21f1161c162837959c",
+  "candidate_image": "sha256:094ad9568428bb5351e0ab9d3c03c59ec71db60ed0d79b68ac7f53325d27f861",
+  "package_count": 938,
+  "expected_package_changes": {
+    "fpc-qsee-probe": [
+      "0:0.1.0-0.1.pocketfed.fc46.aarch64"
+    ],
+    "fprintd": [
+      "0:1.94.5-6.fc45.aarch64"
+    ],
+    "fprintd-pam": [
+      "0:1.94.5-6.fc45.aarch64"
+    ],
+    "gnome-control-center": [
+      "0:51~rc.1-1.1.fingerprint.fc46.aarch64"
+    ],
+    "gnome-control-center-filesystem": [
+      "0:51~rc.1-1.1.fingerprint.fc46.noarch"
+    ],
+    "libfprint": [
+      "0:1.94.100-1.6.pocketfed.fc46.aarch64"
+    ],
+    "libfprint-fpc-qsee": [
+      "0:1.94.100-1.6.pocketfed.fc46.aarch64"
+    ],
+    "libphosh": [
+      "0:0.57.0-1.5.fingerprint.fc46.aarch64"
+    ],
+    "phosh": [
+      "0:0.57.0-1.5.fingerprint.fc46.aarch64"
+    ],
+    "phosh-fingerprint-auth": [
+      "0:0.1.0-0.1.pocketfed.fc46.aarch64"
+    ],
+    "pocketfed-fpc-auth": [
+      "0:0.1.0-0.4.pocketfed.fc46.aarch64"
+    ],
+    "pocketfed-fpc-selinux": [
+      "0:0.1.0-0.2.pocketfed.fc46.noarch"
+    ],
+    "qsee-supplicant": [
+      "0:0.1.1-1.4.pocketfed.fc46.aarch64"
+    ],
+    "qsee-supplicant-sargo-rpmb": [
+      "0:0.1.1-1.4.pocketfed.fc46.aarch64"
+    ],
+    "kernel-modules": [
+      "0:7.1.2-0.pocketfed.sdm670.11.fc46.aarch64"
+    ],
+    "kernel-modules-core": [
+      "0:7.1.2-0.pocketfed.sdm670.11.fc46.aarch64"
+    ],
+    "kernel": [
+      "0:7.1.2-0.pocketfed.sdm670.11.fc46.aarch64"
+    ],
+    "kernel-core": [
+      "0:7.1.2-0.pocketfed.sdm670.11.fc46.aarch64"
+    ]
+  },
+  "preserved_modem_packages": {
+    "ModemManager": [
+      "0:1.25.95-1.pocketfed.fc46.aarch64"
+    ],
+    "ModemManager-glib": [
+      "0:1.25.95-1.pocketfed.fc46.aarch64"
+    ],
+    "libqmi": [
+      "0:1.38.0-1.1.pocketfed.fc46.aarch64"
+    ],
+    "libqmi-utils": [
+      "0:1.38.0-1.1.pocketfed.fc46.aarch64"
+    ],
+    "81voltd": [
+      "0:1.2.0-1.1.pocketfed.fc46.aarch64"
+    ],
+    "gtk4": [
+      "0:4.23.4-1.1.pocketfed.fc46.aarch64"
+    ]
+  },
+  "preserved": [
+    "all unrelated package versions",
+    "existing authentication and PIN files",
+    "boot shim and arguments",
+    "unrelated service units"
+  ],
+  "changes": {
+    "authentication": [
+      "/usr/lib/pam.d/phosh-fingerprint"
+    ],
+    "systemd": [
+      "/etc/systemd/system/fprintd.service",
+      "/etc/systemd/system/phosh-fingerprint-auth.socket",
+      "/etc/systemd/system/pocketfed-fpc-auth.socket",
+      "/etc/systemd/system/pocketfed-fpc-provision@.service",
+      "/etc/systemd/system/qsee-supplicant.service",
+      "/usr/lib/systemd/system/fprintd.service",
+      "/usr/lib/systemd/system/fprintd.service.d/90-fpc-qsee.conf",
+      "/usr/lib/systemd/system/phosh-fingerprint-auth.socket",
+      "/usr/lib/systemd/system/phosh-fingerprint-auth@.service",
+      "/usr/lib/systemd/system/pocketfed-fingerprint-firmware.service",
+      "/usr/lib/systemd/system/pocketfed-fpc-auth.service",
+      "/usr/lib/systemd/system/pocketfed-fpc-auth.socket",
+      "/usr/lib/systemd/system/pocketfed-fpc-provision@.service",
+      "/usr/lib/systemd/system/pocketfed-keymaster-startup.service",
+      "/usr/lib/systemd/system/qsee-app-loader@.service",
+      "/usr/lib/systemd/system/qsee-app-loader@fpctzappfingerprint.service.d/90-common-library.conf",
+      "/usr/lib/systemd/system/qsee-shared-loader@.service",
+      "/usr/lib/systemd/system/qsee-shared-loader@cmnlib64.service.d/90-firmware.conf",
+      "/usr/lib/systemd/system/qsee-supplicant.service"
+    ],
+    "files": [
+      "/usr/lib/systemd/system/pocketfed-fingerprint-firmware.service",
+      "/usr/lib/systemd/system/pocketfed-fpc-auth.service",
+      "/usr/lib/systemd/system/pocketfed-fpc-auth.socket",
+      "/usr/lib/systemd/system/pocketfed-fpc-provision@.service",
+      "/usr/lib/systemd/system/pocketfed-keymaster-startup.service",
+      "/usr/libexec/pocketfed-fingerprint-firmware",
+      "/usr/libexec/pocketfed-verify-kernel"
+    ],
+    "selinux": [
+      "/etc/selinux/targeted/contexts/files/file_contexts",
+      "/etc/selinux/targeted/contexts/files/file_contexts.bin",
+      "/etc/selinux/targeted/policy/policy.35"
+    ]
+  },
+  "initramfs_module_changes": {
+    "added": [
+      "kernel/drivers/crypto/ccp/ccp.ko.xz",
+      "kernel/drivers/hid/uhid.ko.xz",
+      "kernel/drivers/hwmon/nzxt-kraken3.ko.xz",
+      "kernel/drivers/hwmon/spd5118.ko.xz",
+      "kernel/drivers/usb/misc/onboard_usb_dev.ko.xz",
+      "kernel/fs/erofs/erofs.ko.xz",
+      "kernel/fs/netfs/netfs.ko.xz",
+      "kernel/net/qrtr/qrtr.ko.xz"
+    ],
+    "removed": [
+      "kernel/drivers/hid/hid-hyperv.ko.xz",
+      "kernel/drivers/hv/hv_vmbus.ko.xz",
+      "kernel/drivers/input/serio/hyperv-keyboard.ko.xz",
+      "kernel/drivers/input/serio/serio_raw.ko.xz",
+      "kernel/drivers/pci/controller/pci-hyperv.ko.xz"
+    ]
+  },
+  "evidence_sha256": {
+    "base-facts-current.json": "88ea6ba8daf34dd000c5b2df8a7c2f4c0b59785bcbdec7b10250068e8c1283a3",
+    "candidate-facts-current.json": "5662f2913389e51b0df8811e1cbd49bf6e9fde31fb63176e680f354def620e03"
+  },
+  "comparator_sha256": "efa9887abd2f19440861276eedf30522a2fa6b47c633780d871ddaf054c79731"
+}

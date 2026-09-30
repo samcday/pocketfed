@@ -1,0 +1,37 @@
+{
+  "status": "locked staged inspection passed",
+  "staged_checksum": "6f5d5fe5b07a9ca3ef9b74a3782b4d4e9ec964411fb27b7dcd135e1b63544e4b",
+  "staged_serial": 0,
+  "manifest": "sha256:0e9857f2e728ae874706925166e42bc18123d2b17b28ee1ea65f6f2a88f6a1c0",
+  "baseline_checksum": "0a32cb8e3b19f53ea0525b1c07a9bd932060fd9a2253a6b97bb478e078fd48a4",
+  "slot": "_b",
+  "root_links": {
+    "/ostree/root.a": "deploy/pocketfed/deploy/ed774331becce2d8351e2cc071dfbb04cbbf3177391dec5d1f1b33d694b6c779.0",
+    "/ostree/root.b": "deploy/pocketfed/deploy/0a32cb8e3b19f53ea0525b1c07a9bd932060fd9a2253a6b97bb478e078fd48a4.1"
+  },
+  "locked": true,
+  "package_count": 945,
+  "requests_and_pins_preserved": true,
+  "boot": {
+    "bytes": 50573312,
+    "sha256": "4ab4e4758a70217f5def99f5d67dca67ed155cc9d413ad28024a10522f3cf42d",
+    "outer_shim_sha256": "c3f8f285f94901cc0af73c47d88612ecc8f7b30eb363feded538894899471853",
+    "dtb_sha256": "8b682c3860fce48701030ed4d18930f6895c1a670dc831b87bb3d88d99d476e7",
+    "canonical_kernel_sha256": "b35bc456f9cb46b1cc44fb23e66016af9b6dc9f0570694267c328778e8aa7926",
+    "initramfs_sha256": "fedc6fe2c0ec37ed1384cb854b211252fd1b5c3ae2037a172a3e59f58f0037a4",
+    "cmdline": "<S> quiet rhgb plymouth.ignore-serial-consoles init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true <E>",
+    "payloads_match_module_directory": true
+  },
+  "policy_sha256": "da1c3527aca1668594c767e610c4e98ec07c97c40d2feafa73c0d3d6fff57174",
+  "labels": {
+    "usr/bin/pocketfed-fpc-auth": "system_u:object_r:unlabeled_t:s0",
+    "usr/bin/qsee-sargo-rpmb": "system_u:object_r:bin_t:s0",
+    "usr/libexec/phosh-fingerprint-worker": "system_u:object_r:bin_t:s0",
+    "stored_broker_context": "system_u:object_r:pocketfed_fpc_auth_exec_t:s0",
+    "broker_object_checksum": "7e699c4781e72596d8b982aac26cb2bbef422a8d9a21d329a0e45b0d029b3b59",
+    "broker_same_object_inode": true
+  },
+  "errors": [],
+  "root": "/ostree/deploy/pocketfed/deploy/6f5d5fe5b07a9ca3ef9b74a3782b4d4e9ec964411fb27b7dcd135e1b63544e4b.0",
+  "regenerate_initramfs": false
+}

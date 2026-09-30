@@ -1,0 +1,73 @@
+{
+  "status": "offline codec preparation validated; not wired to any live backend or included in a refreshed RPM",
+  "date": "2026-09-11",
+  "source_hashes": {
+    "gatekeeper-protocol.c": "050aa3b46016588b3b0884651057f200391dec3bf8ab3a8d49f42b2074ccf69f",
+    "gatekeeper-protocol.h": "ecad7859725b90a0c91cec09fa4fb115c13f11ee3aab1df59c34c50e653c12cf",
+    "test-gatekeeper.c": "b1ab654b1bb313b91f2303453d38067f5ec34c444432d566895a43ee226dd41b",
+    "gatekeeper.md": "c258ee7b8507eec4c2fc9099d1f365de63916662aa4ef32fa81cda49960c2af6"
+  },
+  "reviewed_stock": {
+    "deviceutils_sha256": "39a8184c331d5c7f0fa5c0e02d50499edfa2b905f8ce097732f23a7b774a5bc2",
+    "keymaster_image_sha256": "8f800f36d6eef63373dc502462c5f52d1d779dd078e0ae429108ea86fcbb261a",
+    "get_version_words": [
+      4,
+      0,
+      4,
+      165
+    ],
+    "set_version_request_words": [
+      519,
+      4,
+      5,
+      4,
+      5,
+      0
+    ],
+    "get_request_bytes": 4,
+    "get_response_capacity": 40956,
+    "set_request_bytes": 24,
+    "set_response_capacity": 40936,
+    "gatekeeper_payload_alignment": 1,
+    "verify_password_offset_for_58_byte_handle": 90
+  },
+  "tests": [
+    "Exact GET/SET wire bytes and encoder bounds.",
+    "Unaligned little-endian version decoding with asymmetric words.",
+    "Every short GET reply length0..19 and SET reply length0..3, backed by exact-size allocations.",
+    "Status-only nonzero replies, negative errors, positive status, signed extrema and padded response capacity.",
+    "GET/validate/SET ordering; each mismatched version word prevents SET.",
+    "No retry on transport, secure, positive-status or untouched-output failures in either phase.",
+    "Version output zeroed on all failure paths and invalid-input preflight causes no exchange.",
+    "Exact0xa000 buffer partition with adjacent request/response and cleared trailing storage.",
+    "Unpadded fresh enrollment request37 bytes and verify request95 bytes for an odd5-byte password and58-byte handle."
+  ],
+  "validation": [
+    {
+      "command": "make -C packages/fpc-qsee check",
+      "result": "all four host suites passed after codec implementation; subsequent additional short-allocation assertions passed in both sanitizer runs",
+      "architecture": "x86_64"
+    },
+    {
+      "command": "cc -O1 -g -std=gnu11 -Wall -Wextra -Werror -fsanitize=undefined -fsanitize-undefined-trap-on-error gatekeeper-protocol.c test-gatekeeper.c; execute test",
+      "result": "passed",
+      "environment": "host x86_64"
+    },
+    {
+      "command": "cc -O1 -g -std=gnu11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all gatekeeper-protocol.c test-gatekeeper.c; execute test",
+      "result": "passed",
+      "environment": "localhost/pocketfed-fingerprint-desktop-deps:x86_64; network disabled; source read-only"
+    }
+  ],
+  "limitations": [
+    "No TA/device calls, transport opening, credential enrollment, backend activation or hardware acceptance test.",
+    "Repeated SET_VERSION success neither verifies nor replaces prior once-per-loaded-TA settings.",
+    "The caller error sentinel detects untouched callback output; kernel zero-filled staging prevents using it as proof that the TA wrote response status.",
+    "Submitted probe COPR10973664 and its source RPM predate these changes; no replacement COPR build was submitted."
+  ],
+  "submitted_artifact": {
+    "copr_build_id": 10973664,
+    "current_source_matches_submitted_source": false
+  },
+  "sanitizer_environment_note": "The host combined ASan/UBSan link could not find its runtime libraries; address+undefined validation passed in the existing isolated dependency container. Host UBSan trap mode passed without those shared runtimes."
+}

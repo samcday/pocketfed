@@ -1,0 +1,71 @@
+{
+  "diagnostic_source": "devices/google-sargo/fingerprint-trial/keymaster-sharing.c",
+  "diagnostic_source_sha256": "55f81d60a5740214eed25471aa4874a2a3b2268aba5e5794f080982db6c79fd3",
+  "code": {
+    "guard-device.py": "2ee6490309dd37c4e03c9d84efa76177204e6137cbab8c941506afb44109fd21",
+    "trial-startup.py": "8eddca47c6c10cef70b9cd38fe749c0f2afc42a5ebd728ed1a7f08400038ac48",
+    "keymaster-startup": "effec7c39b394abc896d129362c8af6d2363131f7e06719cf93ebbafba0cb0f6",
+    "lab_report.py": "7c9b8b163c65a86c1a129f8ddd93351fdd2a8ab75ba80a8677f3d1fa09a401df",
+    "stage-firmware.py": "58490e33af43b1d19280f097db1562401696c77dacd5ef3be5240e2877e2c0cf",
+    "firmware-manifest.json": "2fcd802c3c96c56ce4aa2ff2ed12513b02ed9ed3ead907486d1b43b08e72956b",
+    "inspect-device.py": "a25e334b2edafd76716df1cf82c42be6bfa4cbf2e35f412bb04605dff6d5d99d",
+    "rpmb-supplicant-ro": "a52b9fee11f477ae0d4aec189079fd97d4bdd332d9914e2e75c9854c5f26f41d",
+    "trial-read-only.py": "f05b20f13f9e73f340919013630c035e28f537bac17598cd4cdfdd552ae5e238"
+  },
+  "profile": {
+    "schema_version": 1,
+    "id": "google-sargo",
+    "display_name": "PocketFed Pixel 3a liveboot",
+    "devicetree_name": "qcom/sdm670-google-sargo",
+    "match": [
+      {
+        "fastboot": {
+          "vid": 6353,
+          "pid": 20192
+        }
+      }
+    ],
+    "probe": [
+      {
+        "fastboot.getvar": "product",
+        "equals": "sargo"
+      }
+    ],
+    "boot": {
+      "fastboot_boot": {
+        "android_bootimg": {
+          "header_version": 2,
+          "page_size": 4096,
+          "base": 0,
+          "kernel_offset": 32768,
+          "dtb_offset": 50331648,
+          "kernel": {
+            "encoding": "image.gz"
+          }
+        }
+      }
+    },
+    "ramdisk_offset": 67108864,
+    "dracut_config": "tools/liveboot/profiles/google-sargo-initrd.conf",
+    "cmdline": [
+      "console=ttyMSM0,115200n8",
+      "earlycon",
+      "init_on_alloc=0",
+      "sysrq_always_enabled=1",
+      "module_blacklist=rpmsg_wwan_ctrl",
+      "systemd.firstboot=off",
+      "systemd.wants=pocketfed-liveboot-check.service",
+      "systemd.wants=pocketfed-liveboot-labels.service",
+      "systemd.unit=multi-user.target",
+      "systemd.wants=pocketfed-fingerprint-lab-startup.service",
+      "systemd.show_status=false"
+    ],
+    "fixture_image": "ghcr.io/samcday/pocketfed-phosh-google-sargo@sha256:bfb17e069aef329113a41d3b42c348e5f866d40f72e8a4ff16d2ceb0ce4db881"
+  },
+  "live_status": "same wrapped-key failure as packaged helper; rebooted to fastboot and USB host stopped",
+  "run": "out/liveboot/runs/sargo-fingerprint-lab-sharing-20260911",
+  "wrapped_key_status": -16773121,
+  "reboot_acknowledged": true,
+  "handoff_seconds": 63.39498829841614,
+  "uart_sha256": "72d5b96dca42dc4bac5ae433cd671c93d3b45b09228535d26529964fa5fb6bfe"
+}
