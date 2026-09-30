@@ -1,0 +1,553 @@
+From 5efc7e2b2ca9f41a832e46748ef4cdbfc238612b Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 11 Sep 2026 09:31:00 +1000
+Subject: [PATCH 3/4] misc: add Sargo fingerprint reset and IRQ companion
+
+Describe the stock GPIO 134 reset and GPIO 121 IRQ wiring and reset sequence. Expose an exclusive misc device with an IRQ counter, current-level snapshot, reset, and opt-in wakeup controls. Keep open file descriptors safe across device removal. Sensor commands and matching stay in the trusted application.
+
+Assisted-by: Codex:GPT-6
+---
+ .../ABI/testing/sysfs-class-misc-fpc1020      |   7 +
+ .../misc/google,sargo-fingerprint.yaml        |  41 ++
+ .../boot/dts/qcom/sdm670-google-sargo.dts     |  28 ++
+ drivers/misc/Kconfig                          |   9 +
+ drivers/misc/Makefile                         |   2 +
+ drivers/misc/fpc1020.c                        | 354 ++++++++++++++++++
+ include/uapi/linux/fpc1020.h                  |  20 +
+ .../generic/arm/aarch64/CONFIG_FPC1020        |   1 +
+ 8 files changed, 462 insertions(+)
+ create mode 100644 Documentation/ABI/testing/sysfs-class-misc-fpc1020
+ create mode 100644 Documentation/devicetree/bindings/misc/google,sargo-fingerprint.yaml
+ create mode 100644 drivers/misc/fpc1020.c
+ create mode 100644 include/uapi/linux/fpc1020.h
+ create mode 100644 redhat/configs/custom-overrides/generic/arm/aarch64/CONFIG_FPC1020
+
+diff --git a/Documentation/ABI/testing/sysfs-class-misc-fpc1020 b/Documentation/ABI/testing/sysfs-class-misc-fpc1020
+new file mode 100644
+index 0000000000000..51fac49607f53
+--- /dev/null
++++ b/Documentation/ABI/testing/sysfs-class-misc-fpc1020
+@@ -0,0 +1,7 @@
++What:           /sys/class/misc/fpc1020/firmware_name
++Date:           September 2026
++Contact:        Sam Day <me@samcday.com>
++Description:
++                Read-only trusted-application firmware name from the device
++                tree. On Google Sargo this is fpctzappfingerprint. It describes
++                the board integration, not a probed sensor chip identifier.
+diff --git a/Documentation/devicetree/bindings/misc/google,sargo-fingerprint.yaml b/Documentation/devicetree/bindings/misc/google,sargo-fingerprint.yaml
+new file mode 100644
+index 0000000000000..b4794440f0cd2
+--- /dev/null
++++ b/Documentation/devicetree/bindings/misc/google,sargo-fingerprint.yaml
+@@ -0,0 +1,41 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/misc/google,sargo-fingerprint.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Google Pixel 3a fingerprint electrical companion
++
++maintainers:
++  - Sam Day <me@samcday.com>
++
++description: |
++  Normal-world reset and interrupt wiring for the FPC-family sensor used by
++  Google Sargo. The compatible identifies the board integration and Android
++  driver family, not a measured silicon revision. The trusted application
++  controls the sensor bus and performs biometric operations.
++
++properties:
++  compatible:
++    items:
++      - const: google,sargo-fingerprint
++      - const: fpc,fpc1020
++
++  firmware-name:
++    const: fpctzappfingerprint
++
++  reset-gpios:
++    maxItems: 1
++
++  irq-gpios:
++    maxItems: 1
++
++  wakeup-source: true
++
++required:
++  - compatible
++  - firmware-name
++  - reset-gpios
++  - irq-gpios
++
++additionalProperties: false
+diff --git a/arch/arm64/boot/dts/qcom/sdm670-google-sargo.dts b/arch/arm64/boot/dts/qcom/sdm670-google-sargo.dts
+index 523144e9ead02..a220f58e5cc48 100644
+--- a/arch/arm64/boot/dts/qcom/sdm670-google-sargo.dts
++++ b/arch/arm64/boot/dts/qcom/sdm670-google-sargo.dts
+@@ -12,6 +12,16 @@
+ / {
+ 	model = "Google Pixel 3a";
+ 	compatible = "google,sargo", "qcom,sdm670";
++
++	fingerprint {
++		compatible = "google,sargo-fingerprint", "fpc,fpc1020";
++		firmware-name = "fpctzappfingerprint";
++		reset-gpios = <&tlmm 134 GPIO_ACTIVE_LOW>;
++		irq-gpios = <&tlmm 121 GPIO_ACTIVE_HIGH>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&fingerprint_default>;
++		wakeup-source;
++	};
+ };
+ 
+ &battery {
+@@ -34,3 +44,21 @@ &rmi4_f12 {
+ 	touchscreen-x-mm = <63>;
+ 	touchscreen-y-mm = <127>;
+ };
++
++&tlmm {
++	fingerprint_default: fingerprint-default-state {
++		reset-pins {
++			pins = "gpio134";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++		};
++
++		irq-pins {
++			pins = "gpio121";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-pull-down;
++		};
++	};
++};
+diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
+index 00683bf06258f..c9d324bef181a 100644
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -5,6 +5,15 @@
+ 
+ menu "Misc devices"
+ 
++config FPC1020
++	tristate "Google Sargo fingerprint reset and IRQ companion"
++	depends on OF && GPIOLIB
++	help
++	  Provide reset and interrupt notifications for the fingerprint sensor
++	  on Google Pixel 3a. The signed trusted application performs sensor
++	  communication and biometric matching separately through QSEECOM.
++	  The misc device provides no fingerprint images or match decisions.
++
+ config SENSORS_LIS3LV02D
+ 	tristate
+ 	depends on INPUT
+diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
+index b32a2597d2467..5de9fa1369fbb 100644
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -3,6 +3,8 @@
+ # Makefile for misc devices that really don't fit anywhere else.
+ #
+ 
++obj-$(CONFIG_FPC1020)		+= fpc1020.o
++
+ obj-$(CONFIG_IBM_ASM)		+= ibmasm/
+ obj-$(CONFIG_IBMVMC)		+= ibmvmc.o
+ obj-$(CONFIG_AD525X_DPOT)	+= ad525x_dpot.o
+diff --git a/drivers/misc/fpc1020.c b/drivers/misc/fpc1020.c
+new file mode 100644
+index 0000000000000..d0340fe8b59ea
+--- /dev/null
++++ b/drivers/misc/fpc1020.c
+@@ -0,0 +1,354 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Electrical companion for the Google Sargo fingerprint trusted application.
++ * Reset timing and IRQ wiring follow Google's Android fpc1020_platform_tee
++ * driver, Copyright (c) 2015 Fingerprint Cards AB. Sensor SPI and biometric
++ * operations belong to the trusted application, not this driver.
++ */
++
++#include <linux/atomic.h>
++#include <linux/compat.h>
++#include <linux/delay.h>
++#include <linux/fs.h>
++#include <linux/gpio/consumer.h>
++#include <linux/interrupt.h>
++#include <linux/kref.h>
++#include <linux/miscdevice.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/pm_wakeirq.h>
++#include <linux/poll.h>
++#include <linux/property.h>
++#include <linux/slab.h>
++#include <linux/uaccess.h>
++#include <linux/fpc1020.h>
++
++struct fpc1020 {
++	struct miscdevice misc;
++	struct device *dev;
++	struct gpio_desc *reset;
++	struct gpio_desc *irq_gpio;
++	struct mutex lock; /* Serializes removal and hardware access. */
++	struct kref ref;
++	wait_queue_head_t wait;
++	atomic64_t sequence;
++	const char *firmware_name;
++	bool opened;
++	bool removed;
++};
++
++struct fpc1020_file {
++	struct fpc1020 *fpc;
++	struct mutex read_lock; /* Serializes reads on a shared file descriptor. */
++	u64 seen;
++};
++
++static void fpc1020_free(struct kref *ref)
++{
++	struct fpc1020 *fpc = container_of(ref, struct fpc1020, ref);
++
++	mutex_destroy(&fpc->lock);
++	kfree(fpc);
++}
++
++static void fpc1020_put(void *data)
++{
++	struct fpc1020 *fpc = data;
++
++	kref_put(&fpc->ref, fpc1020_free);
++}
++
++static void fpc1020_reset(struct fpc1020 *fpc)
++{
++	lockdep_assert_held(&fpc->lock);
++	/* reset-gpios is active low: logical 1 asserts the reset line. */
++	gpiod_set_value_cansleep(fpc->reset, 0);
++	usleep_range(100, 200);
++	gpiod_set_value_cansleep(fpc->reset, 1);
++	usleep_range(5000, 5100);
++	gpiod_set_value_cansleep(fpc->reset, 0);
++	usleep_range(5000, 5100);
++}
++
++static irqreturn_t fpc1020_irq(int irq, void *data)
++{
++	struct fpc1020 *fpc = data;
++
++	atomic64_inc(&fpc->sequence);
++	if (device_may_wakeup(fpc->dev))
++		pm_wakeup_event(fpc->dev, 1000);
++	wake_up_interruptible(&fpc->wait);
++	return IRQ_HANDLED;
++}
++
++static int fpc1020_open(struct inode *inode, struct file *file)
++{
++	struct miscdevice *misc = file->private_data;
++	struct fpc1020 *fpc = container_of(misc, struct fpc1020, misc);
++	struct fpc1020_file *ctx;
++	int ret = 0;
++
++	ctx = kzalloc_obj(*ctx);
++	if (!ctx)
++		return -ENOMEM;
++
++	mutex_lock(&fpc->lock);
++	if (fpc->removed) {
++		ret = -ENODEV;
++	} else if (fpc->opened) {
++		ret = -EBUSY;
++	} else {
++		fpc->opened = true;
++		kref_get(&fpc->ref);
++		ctx->fpc = fpc;
++		ctx->seen = atomic64_read(&fpc->sequence);
++		mutex_init(&ctx->read_lock);
++		file->private_data = ctx;
++	}
++	mutex_unlock(&fpc->lock);
++	if (ret)
++		kfree(ctx);
++	else
++		nonseekable_open(inode, file);
++	return ret;
++}
++
++static int fpc1020_release(struct inode *inode, struct file *file)
++{
++	struct fpc1020_file *ctx = file->private_data;
++	struct fpc1020 *fpc = ctx->fpc;
++
++	mutex_lock(&fpc->lock);
++	if (!fpc->removed)
++		device_set_wakeup_enable(fpc->dev, false);
++	fpc->opened = false;
++	mutex_unlock(&fpc->lock);
++	kref_put(&fpc->ref, fpc1020_free);
++	mutex_destroy(&ctx->read_lock);
++	kfree(ctx);
++	return 0;
++}
++
++static bool fpc1020_ready(struct fpc1020_file *ctx)
++{
++	return READ_ONCE(ctx->fpc->removed) ||
++	       atomic64_read(&ctx->fpc->sequence) != READ_ONCE(ctx->seen);
++}
++
++static ssize_t fpc1020_read(struct file *file, char __user *buf,
++			    size_t count, loff_t *pos)
++{
++	struct fpc1020_file *ctx = file->private_data;
++	struct fpc1020 *fpc = ctx->fpc;
++	struct fpc1020_irq_event event = {};
++	int ret;
++
++	if (count < sizeof(event))
++		return -EINVAL;
++	if (mutex_lock_interruptible(&ctx->read_lock))
++		return -ERESTARTSYS;
++
++	if (!fpc1020_ready(ctx)) {
++		if (file->f_flags & O_NONBLOCK) {
++			ret = -EAGAIN;
++			goto out;
++		}
++		ret = wait_event_interruptible(fpc->wait, fpc1020_ready(ctx));
++		if (ret)
++			goto out;
++	}
++
++	mutex_lock(&fpc->lock);
++	if (fpc->removed) {
++		ret = -ENODEV;
++		goto out_unlock;
++	}
++	event.sequence = atomic64_read(&fpc->sequence);
++	ret = gpiod_get_value_cansleep(fpc->irq_gpio);
++	if (ret < 0)
++		goto out_unlock;
++	event.level = ret;
++	ret = copy_to_user(buf, &event, sizeof(event)) ? -EFAULT : sizeof(event);
++	if (ret > 0)
++		WRITE_ONCE(ctx->seen, event.sequence);
++out_unlock:
++	mutex_unlock(&fpc->lock);
++out:
++	mutex_unlock(&ctx->read_lock);
++	return ret;
++}
++
++static __poll_t fpc1020_poll(struct file *file, poll_table *wait)
++{
++	struct fpc1020_file *ctx = file->private_data;
++
++	poll_wait(file, &ctx->fpc->wait, wait);
++	if (READ_ONCE(ctx->fpc->removed))
++		return EPOLLERR | EPOLLHUP;
++	if (fpc1020_ready(ctx))
++		return EPOLLIN | EPOLLRDNORM;
++	return 0;
++}
++
++static long fpc1020_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
++{
++	struct fpc1020_file *ctx = file->private_data;
++	struct fpc1020 *fpc = ctx->fpc;
++	struct fpc1020_irq_event event = {};
++	u32 enabled;
++	int ret = 0;
++
++	mutex_lock(&fpc->lock);
++	if (fpc->removed) {
++		ret = -ENODEV;
++		goto out;
++	}
++	switch (cmd) {
++	case FPC1020_IOC_GET_IRQ:
++		event.sequence = atomic64_read(&fpc->sequence);
++		ret = gpiod_get_value_cansleep(fpc->irq_gpio);
++		if (ret < 0)
++			break;
++		event.level = ret;
++		ret = copy_to_user((void __user *)arg, &event, sizeof(event)) ?
++		      -EFAULT : 0;
++		break;
++	case FPC1020_IOC_RESET:
++		fpc1020_reset(fpc);
++		break;
++	case FPC1020_IOC_SET_WAKEUP:
++		if (copy_from_user(&enabled, (void __user *)arg, sizeof(enabled)))
++			ret = -EFAULT;
++		else if (enabled > 1)
++			ret = -EINVAL;
++		else
++			ret = device_set_wakeup_enable(fpc->dev, enabled);
++		break;
++	default:
++		ret = -ENOTTY;
++	}
++out:
++	mutex_unlock(&fpc->lock);
++	return ret;
++}
++
++static const struct file_operations fpc1020_fops = {
++	.owner = THIS_MODULE,
++	.open = fpc1020_open,
++	.release = fpc1020_release,
++	.read = fpc1020_read,
++	.poll = fpc1020_poll,
++	.unlocked_ioctl = fpc1020_ioctl,
++	.compat_ioctl = compat_ptr_ioctl,
++};
++
++static ssize_t firmware_name_show(struct device *dev,
++				  struct device_attribute *attr, char *buf)
++{
++	struct miscdevice *misc = dev_get_drvdata(dev);
++	struct fpc1020 *fpc = container_of(misc, struct fpc1020, misc);
++
++	return sysfs_emit(buf, "%s\n", fpc->firmware_name);
++}
++static DEVICE_ATTR_RO(firmware_name);
++
++static struct attribute *fpc1020_attrs[] = {
++	&dev_attr_firmware_name.attr,
++	NULL,
++};
++ATTRIBUTE_GROUPS(fpc1020);
++
++static void fpc1020_clear_wakeup(void *data)
++{
++	struct device *dev = data;
++
++	dev_pm_clear_wake_irq(dev);
++	device_init_wakeup(dev, false);
++}
++
++static int fpc1020_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct fpc1020 *fpc;
++	int irq, ret;
++
++	fpc = kzalloc_obj(*fpc);
++	if (!fpc)
++		return -ENOMEM;
++	mutex_init(&fpc->lock);
++	kref_init(&fpc->ref);
++	/* Registered first so GPIO/IRQ resources are released before this ref. */
++	ret = devm_add_action_or_reset(dev, fpc1020_put, fpc);
++	if (ret)
++		return ret;
++	fpc->dev = dev;
++	init_waitqueue_head(&fpc->wait);
++	atomic64_set(&fpc->sequence, 0);
++	fpc->reset = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(fpc->reset))
++		return dev_err_probe(dev, PTR_ERR(fpc->reset), "reset GPIO\n");
++	fpc->irq_gpio = devm_gpiod_get(dev, "irq", GPIOD_IN);
++	if (IS_ERR(fpc->irq_gpio))
++		return dev_err_probe(dev, PTR_ERR(fpc->irq_gpio), "IRQ GPIO\n");
++	ret = device_property_read_string(dev, "firmware-name", &fpc->firmware_name);
++	if (ret)
++		return ret;
++	irq = gpiod_to_irq(fpc->irq_gpio);
++	if (irq < 0)
++		return irq;
++	ret = devm_request_threaded_irq(dev, irq, NULL, fpc1020_irq,
++					IRQF_TRIGGER_RISING | IRQF_ONESHOT,
++					dev_name(dev), fpc);
++	if (ret)
++		return dev_err_probe(dev, ret, "request IRQ\n");
++	device_set_wakeup_capable(dev, true);
++	ret = dev_pm_set_wake_irq(dev, irq);
++	if (ret)
++		return ret;
++	ret = devm_add_action_or_reset(dev, fpc1020_clear_wakeup, dev);
++	if (ret)
++		return ret;
++	/* Stay reset until userspace deliberately starts the trusted app. */
++	fpc->misc.minor = MISC_DYNAMIC_MINOR;
++	fpc->misc.name = "fpc1020";
++	fpc->misc.fops = &fpc1020_fops;
++	fpc->misc.parent = dev;
++	fpc->misc.mode = 0600;
++	fpc->misc.groups = fpc1020_groups;
++	platform_set_drvdata(pdev, fpc);
++	return misc_register(&fpc->misc);
++}
++
++static void fpc1020_remove(struct platform_device *pdev)
++{
++	struct fpc1020 *fpc = platform_get_drvdata(pdev);
++
++	misc_deregister(&fpc->misc);
++	mutex_lock(&fpc->lock);
++	WRITE_ONCE(fpc->removed, true);
++	device_set_wakeup_enable(fpc->dev, false);
++	gpiod_set_value_cansleep(fpc->reset, 1);
++	mutex_unlock(&fpc->lock);
++	wake_up_interruptible(&fpc->wait);
++}
++
++static const struct of_device_id fpc1020_of_match[] = {
++	{ .compatible = "google,sargo-fingerprint" },
++	{}
++};
++MODULE_DEVICE_TABLE(of, fpc1020_of_match);
++
++static struct platform_driver fpc1020_driver = {
++	.probe = fpc1020_probe,
++	.remove = fpc1020_remove,
++	.driver = {
++		.name = "fpc1020",
++		.of_match_table = fpc1020_of_match,
++	},
++};
++module_platform_driver(fpc1020_driver);
++
++MODULE_DESCRIPTION("Google Sargo fingerprint reset and IRQ companion");
++MODULE_LICENSE("GPL");
+diff --git a/include/uapi/linux/fpc1020.h b/include/uapi/linux/fpc1020.h
+new file mode 100644
+index 0000000000000..05268035c8ba7
+--- /dev/null
++++ b/include/uapi/linux/fpc1020.h
+@@ -0,0 +1,20 @@
++/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++#ifndef _UAPI_LINUX_FPC1020_H
++#define _UAPI_LINUX_FPC1020_H
++
++#include <linux/ioctl.h>
++#include <linux/types.h>
++
++/* Interrupt notification only; this is never a biometric match result. */
++struct fpc1020_irq_event {
++	__u64 sequence;
++	__u32 level;
++	__u32 reserved;
++};
++
++#define FPC1020_IOC_RESET		_IO('F', 0)
++#define FPC1020_IOC_SET_WAKEUP	_IOW('F', 1, __u32)
++/* Snapshot the current GPIO level and counter without consuming an event. */
++#define FPC1020_IOC_GET_IRQ	_IOR('F', 2, struct fpc1020_irq_event)
++
++#endif /* _UAPI_LINUX_FPC1020_H */
+diff --git a/redhat/configs/custom-overrides/generic/arm/aarch64/CONFIG_FPC1020 b/redhat/configs/custom-overrides/generic/arm/aarch64/CONFIG_FPC1020
+new file mode 100644
+index 0000000000000..ab02a21349c9d
+--- /dev/null
++++ b/redhat/configs/custom-overrides/generic/arm/aarch64/CONFIG_FPC1020
+@@ -0,0 +1 @@
++CONFIG_FPC1020=m

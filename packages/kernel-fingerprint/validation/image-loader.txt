@@ -1,0 +1,3 @@
+PASS: production ELF32/ELF64 assembly, exact payloads, truncated segments,
+      destination bounds, truncated headers, invalid class/data/header, overflow
+PASS: exact stock Sargo ELF64 MDT, 8 segments, 680905 assembled bytes

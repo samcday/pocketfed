@@ -1,0 +1,35 @@
+From 288962298f4aee8e67ade2c566cf77d3c95f5b22 Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Fri, 11 Sep 2026 09:31:00 +1000
+Subject: [PATCH 4/4] [redhat] kernel-7.1.2-0.pocketfed.sdm670.10
+
+Assisted-by: Codex:GPT-6
+---
+ Makefile.rhelver              | 2 +-
+ redhat/kernel.changelog-10.99 | 6 ++++++
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/Makefile.rhelver b/Makefile.rhelver
+index a687d5f91faec..254797c96760a 100644
+--- a/Makefile.rhelver
++++ b/Makefile.rhelver
+@@ -41,4 +41,4 @@ AUTOMOTIVE_MINOR = 99
+ # ---------------------------
+ #
+ # Set DERIVATIVE_STREAM to "yes" to enable derivative kernel versioning.
+-DERIVATIVE_BUILD = 9
++DERIVATIVE_BUILD = 10
+diff --git a/redhat/kernel.changelog-10.99 b/redhat/kernel.changelog-10.99
+index 930bf20558484..c550a502ce851 100644
+--- a/redhat/kernel.changelog-10.99
++++ b/redhat/kernel.changelog-10.99
+@@ -1,3 +1,9 @@
++* Fri Sep 11 2026 Sam Day <me@samcday.com> [7.1.2-0.pocketfed.sdm670.10]
++- misc: add Sargo fingerprint reset and IRQ companion (Sam Day)
++- tee: qseecom: support Sargo ELF64 images and harden session lifetimes (Sam Day)
++- tee: import legacy Qualcomm QSEECOM transport (Dawid Wrobel)
++Resolves: 
++
+ * Thu Sep 10 2026 Sam Day <me@samcday.com> [7.1.2-0.pocketfed.sdm670.9]
+ - media: i2c: lc898219xi: power the lens before restoring focus (Sam Day)
+ Resolves: 

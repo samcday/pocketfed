@@ -1,0 +1,18 @@
+ARG BASE_IMAGE
+ARG DT_TOOLS_IMAGE
+FROM scratch AS inputs
+COPY inputs /inputs
+FROM ${DT_TOOLS_IMAGE} AS dt-tools
+FROM ${BASE_IMAGE}
+LABEL io.pocketfed.fingerprint-trial.kernel-copr-build=10980882
+COPY --chmod=0755 install-kernel.sh /tmp/install-fingerprint-kernel
+COPY replace-template-dtb.py /tmp/replace-template-dtb.py
+COPY install-candidate.py /tmp/install-fingerprint-candidate.py
+RUN --mount=from=inputs,source=/inputs,target=/run/fingerprint-candidate,ro \
+    --mount=from=inputs,source=/inputs/kernel-rpms,target=/run/fingerprint-kernel,ro \
+    --mount=from=dt-tools,source=/out,target=/run/fingerprint-tools,ro \
+    PATH=/run/fingerprint-tools:$PATH LD_LIBRARY_PATH=/run/fingerprint-tools \
+    python3 /tmp/install-fingerprint-candidate.py && \
+    rm /tmp/install-fingerprint-kernel /tmp/replace-template-dtb.py /tmp/install-fingerprint-candidate.py && \
+    /usr/libexec/pocketfed-verify-oci && bootc container lint
+LABEL io.pocketfed.fingerprint-trial.activation="masked-pending-installed-kernel12-validation"

@@ -1,0 +1,6 @@
+make[1]: Entering directory '/tmp/sargo-fingerprint-kbuild'
+  CC [M]  drivers/tee/qseecom/core.o
+  LD [M]  drivers/tee/qseecom/qseecomtee.o
+  CC [M]  drivers/soc/qcom/mdt_loader.o
+  CC [M]  drivers/misc/fpc1020.o
+make[1]: Leaving directory '/tmp/sargo-fingerprint-kbuild'

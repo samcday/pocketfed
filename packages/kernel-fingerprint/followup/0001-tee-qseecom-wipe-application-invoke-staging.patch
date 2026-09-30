@@ -1,0 +1,24 @@
+Subject: [PATCH] tee: qseecom: wipe application invoke staging before release
+
+Application requests, responses and address-patched auxiliary buffers are
+copied into a dedicated TrustZone allocation. These copies may contain
+credentials or authentication tokens. Neither releasing a qcom_tzmem chunk
+nor destroying its pool guarantees that its contents are cleared.
+
+Explicitly clear the complete allocation at the common cleanup label, after
+successful response copy-back and before returning memory to the allocator.
+The same cleanup handles failures after any request or auxiliary copy.
+
+diff --git a/drivers/tee/qseecom/core.c b/drivers/tee/qseecom/core.c
+index 296e7175588223c66d06c3c90cc5c9d04e5f844c..00ab4eb406e9f97b93016bb302c1cc46e59d2e48 100644
+--- a/drivers/tee/qseecom/core.c
++++ b/drivers/tee/qseecom/core.c
+@@ -982,6 +982,8 @@ static int qseecom_tee_invoke_func(struct tee_context *ctx,
+ 		}
+ 
+ out_free:
++		/* Clear credentials and other sensitive application data. */
++		memzero_explicit(b, bc.initial_size);
+ 		qcom_tzmem_free(b);
+ 		qcom_tzmem_pool_free(bp);
+ 

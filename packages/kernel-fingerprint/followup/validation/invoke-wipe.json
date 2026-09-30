@@ -1,0 +1,62 @@
+{
+  "scope": "Synthetic production-function fixture; no hardware, DMA, concurrency or full-kernel validation",
+  "source_sha256": "57b8f1e905126cb1348b70cb9669f2cea31b686dba8906730a943975368ede08",
+  "production_body_sha256": "3bdb3e604672101a5da4f3bf5bb1a4d458f45d7273bdee1e69bcdd37d08696ef",
+  "fixture_sha256": "0bf31d91e38c9dca9ec6bfc914101c331e052883cdbf05d2b2e49953dfe87c9d",
+  "runner_sha256": "eab851320a3048a9323cf47d983001a616f39b74b9f251090060e2daf1a3d5eb",
+  "compiler": "gcc (GCC) 16.2.1 20260819 (Red Hat 16.2.1-2)",
+  "architecture": "aarch64",
+  "flags": "-O2 -flto -Wall -Wextra -Werror -fsanitize=undefined -fsanitize-undefined-trap-on-error",
+  "expected_unwiped_baseline": false,
+  "passed": true,
+  "runs": [
+    {
+      "variant": "production",
+      "page_size": 4096,
+      "exit_status": 0,
+      "expected_exit_status": 0,
+      "stdout": "PASS: 25 invoke cleanup/copy-back cases, PAGE_SIZE=4096",
+      "stderr": ""
+    },
+    {
+      "variant": "production",
+      "page_size": 65536,
+      "exit_status": 0,
+      "expected_exit_status": 0,
+      "stdout": "PASS: 25 invoke cleanup/copy-back cases, PAGE_SIZE=65536",
+      "stderr": ""
+    },
+    {
+      "variant": "missing-wipe-mutant",
+      "page_size": 4096,
+      "exit_status": 90,
+      "expected_exit_status": 90,
+      "stdout": "",
+      "stderr": "UNWIPED invoke staging at free"
+    },
+    {
+      "variant": "missing-wipe-mutant",
+      "page_size": 65536,
+      "exit_status": 90,
+      "expected_exit_status": 90,
+      "stdout": "",
+      "stderr": "UNWIPED invoke staging at free"
+    },
+    {
+      "variant": "short-wipe-mutant",
+      "page_size": 4096,
+      "exit_status": 90,
+      "expected_exit_status": 90,
+      "stdout": "",
+      "stderr": "UNWIPED invoke staging at free"
+    },
+    {
+      "variant": "short-wipe-mutant",
+      "page_size": 65536,
+      "exit_status": 90,
+      "expected_exit_status": 90,
+      "stdout": "",
+      "stderr": "UNWIPED invoke staging at free"
+    }
+  ]
+}

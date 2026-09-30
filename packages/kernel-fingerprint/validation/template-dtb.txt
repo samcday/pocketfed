@@ -1,0 +1,4 @@
+PASS: new Sargo fingerprint DTB, inherited payloads preserved, 131072 bytes
+PASS: independent Android-v2 fixture, component preservation, larger DTB,
+      unchanged header policy, checksum, size and malformed-input checks
+PASS: CLI refuses output replacement; all files remain local fixtures
