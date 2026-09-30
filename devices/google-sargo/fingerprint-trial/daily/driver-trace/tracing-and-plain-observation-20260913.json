@@ -1,0 +1,103 @@
+{
+  "date": "2026-09-13",
+  "serial": "994AY18RSD",
+  "kernel": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+  "traced_trial": {
+    "boot_id": "4deb54c7-8d28-4239-94c4-545f86b5678c",
+    "source": "driver-trace/loader-claim-20260913.py",
+    "result": "freeze during first Claim; no capture started",
+    "init_returned": true,
+    "last_userspace_call": "DEEP_SLEEP TEE ioctl",
+    "fingerprint_worker": {
+      "tid": 4387,
+      "state": "D",
+      "stack": [
+        "synchronize_rcu_expedited",
+        "lru_cache_disable",
+        "alloc_contig_frozen_range_noprof",
+        "cma_alloc",
+        "dma_alloc_attrs",
+        "qcom_tzmem_pool_add_memory",
+        "qcom_tzmem_pool_new",
+        "qseecom_tee_invoke_func"
+      ]
+    },
+    "unresponsive_cpu": 2,
+    "running_task_on_cpu2": {
+      "tid": 4358,
+      "tgid": 4339,
+      "name": "Thread-1 (read)",
+      "role": "scoped kernel trace reader"
+    },
+    "cpu6_backtrace": "idle",
+    "interpretation": "The worker was blocked in per-invocation DMA/CMA allocation before the secure call. The trace reader is a suspect in this freeze, not a proven cause of all earlier failures.",
+    "private_uart": "out/private/sargo-daily-loader-freeze-tasks-20260913/uart.log"
+  },
+  "recovery": {
+    "method": "one SysRq reboot on assigned A5069RR4 UART",
+    "new_boot": "15c464d5-16f8-44fe-a3e0-96e6ee380310",
+    "pin_unchanged": true,
+    "selinux": "Enforcing"
+  },
+  "plain_trial": {
+    "serial": "994AY18RSD",
+    "boot_id": "15c464d5-16f8-44fe-a3e0-96e6ee380310",
+    "kernel_probes": false,
+    "cpu_affinity_changed": false,
+    "capture_started": false,
+    "credential_recovery": false,
+    "planned_claims": 5,
+    "claims": [
+      {
+        "number": 1,
+        "status": 0
+      },
+      {
+        "number": 2,
+        "status": 0
+      },
+      {
+        "number": 3,
+        "status": 0
+      },
+      {
+        "number": 4,
+        "status": 0
+      },
+      {
+        "number": 5,
+        "status": 0
+      }
+    ],
+    "steps": [
+      {
+        "unit": "qsee-supplicant.service",
+        "status": 0
+      },
+      {
+        "unit": "qsee-shared-loader@cmnlib64.service",
+        "status": 0
+      },
+      {
+        "unit": "qsee-app-loader@fpctzappfingerprint.service",
+        "status": 0
+      },
+      {
+        "unit": "pocketfed-keymaster-startup.service",
+        "status": 0
+      },
+      {
+        "unit": "pocketfed-fpc-plain-daemon-20260913.service",
+        "status": 0
+      }
+    ],
+    "clean_shutdown": true,
+    "uncertain_call_pending": false,
+    "passed": true
+  },
+  "limitations": [
+    "Plain trial used metadata-instrumented libfprint, with no kernel probes or trace reader.",
+    "No enrollment, capture or lockscreen verification in these five checks.",
+    "No kernel fix or reliable desktop acceptance established."
+  ]
+}

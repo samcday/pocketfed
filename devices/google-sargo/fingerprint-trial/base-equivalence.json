@@ -1,0 +1,9 @@
+{
+  "manifest_config_digest": "sha256:7abbae67bf384120c183f236b02909dc398f01ff929a565fc4b10865f0655b85",
+  "local_image_id": "7abbae67bf384120c183f236b02909dc398f01ff929a565fc4b10865f0655b85",
+  "rootfs_equal": true,
+  "config_equal": true,
+  "architecture_equal": true,
+  "created_in_metadata": "2026-09-09T22:55:02.781945565Z",
+  "created_locally": "2026-09-09T22:55:02.781945565Z"
+}

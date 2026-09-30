@@ -1,0 +1,23 @@
+{
+  "recorded_at": "2026-09-11T03:01:23.664967+00:00",
+  "host": "sam-sargo",
+  "ssh_refresh": "connection timed out; exit 255",
+  "tailnet_ping": "two attempts timed out; no reply",
+  "device_state_refreshed": true,
+  "device_changed": false,
+  "required_next_conditions": [
+    "user confirms USB/bootloader recovery and fingerprint-touch availability"
+  ],
+  "offline_candidate_image_id": "671197f9f3bf539fc4e1fd138843a8739df3958cabcacd0e5f9ca6a3baaa9996",
+  "availability_question": "submitted; unanswered at record creation",
+  "blocked_audit": {
+    "consecutive_goal_turns_with_same_condition": 3,
+    "condition": "user recovery/touch availability confirmed before the live trial",
+    "latest_revalidation_at": "2026-09-11T03:05:32.114205+00:00",
+    "latest_revalidation": "SSH recovered and full read-only baseline comparison passed; user availability question remains unanswered",
+    "previous_goal_turn_classification": "progress: built and independently verified v3 image",
+    "current_goal_turn_classification": "progress: refreshed authoritative device state; remaining live work is now at an impasse without user availability",
+    "bookkeeping_only": true
+  },
+  "connectivity_recovered_at": "2026-09-11T03:05:32.114205+00:00"
+}

@@ -1,0 +1,85 @@
+{
+  "status": "Normal listener startup blocked by inherited base-image mask; no fingerprint or RPMB operation",
+  "run_id": "sargo-fingerprint-lab-fprintd-services-20260912",
+  "serial": "99NAY1AZG1",
+  "source_sha256": {
+    "lab_fprintd_reopen.py": "fbd46cf0052708f1b8817e1fd8b61234873fadb1e405c65bb8d6b756178ec155",
+    "lab_fprintd_services.py": "f2f4aa2b835de6e2cb0fcdc7328ab95b35b7f5c98a53c037fd77d79018438911",
+    "device_controls.py": "ae5f00bb869574f3e640604b87be9c64a7863f3fc56afb510c7d1de6e4fc3a01",
+    "lab_report.py": "7c9b8b163c65a86c1a129f8ddd93351fdd2a8ab75ba80a8677f3d1fa09a401df",
+    "broker_readiness.py": "124dafc722b43e5d8880fd93413eafb5a9ea476bf996f13869e812d6488da36f",
+    "fprintd_interactive.py": "ca7ae6570c944358a63ccd4d4d9927189262ab0b2830ed09b3ea96ab19e001dc"
+  },
+  "operation": "Verify saved enrollment using packaged listener, loader, broker and libfprint; no enrollment",
+  "controller_sha256": "bfde11ab33dbace6935ea6ec3e0c65842a15404c108cc889896f674d1bbb9cb4",
+  "packages": [
+    {
+      "path": "/tmp/sargo-rpmb-package-rpm-20260912/RPMS/aarch64/qsee-supplicant-0.1.1-1.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "95c1458aa0da99ee18b5aab1b53d59b45e24b724411844d87b0261d3e38134e9",
+      "bytes": 33010
+    },
+    {
+      "path": "/tmp/sargo-rpmb-package-rpm-20260912/RPMS/aarch64/qsee-supplicant-sargo-rpmb-0.1.1-1.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "eab77fe984fa4ca19b452dca419ff18947da2874885c45bb51b070d872c3c3d0",
+      "bytes": 28734
+    },
+    {
+      "path": "/tmp/sargo-fpc-auth-order-rpmbuild-20260911/RPMS/aarch64/pocketfed-fpc-auth-0.1.0-0.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "4f773f450ad567360a10df3d2afcbad0a255a2cdc34dc090f79f89911a2c7c03"
+    },
+    {
+      "path": "/tmp/sargo-libfprint-finalization-rpm-20260912/RPMS/aarch64/libfprint-1.94.100-1.6.pocketfed.fc46.aarch64.rpm",
+      "sha256": "e1f98e1737c32cc1e2838ef29ec1662a6a1a6c4a194becb864db8441fb78fc40",
+      "bytes": 389829
+    },
+    {
+      "path": "/tmp/sargo-libfprint-finalization-rpm-20260912/RPMS/aarch64/libfprint-fpc-qsee-1.94.100-1.6.pocketfed.fc46.aarch64.rpm",
+      "sha256": "4c8bd8b921b1c41cf9b3efd75f5e5274f7911956ec4b0c7d13398c32761bae10",
+      "bytes": 12646
+    }
+  ],
+  "packaged_files": {
+    "usr/bin/qsee-supplicant": "d0ab2014ed65fac33b56f5bc0c36ae33c6bee71f0dd9c52e5f48a0eb5b35a91d",
+    "usr/bin/qsee-app-loader": "a6fca257a6ff6ed4dfde6f76189b201b24c6bbad1306f8a1fb1802ce013085f9",
+    "usr/bin/qsee-sargo-rpmb": "300662ae47ff9bcdac15c1f89413b5a1f169e55ff417d92b2c5deb49d158ffbb",
+    "usr/bin/pocketfed-fpc-auth": "86c317073299cc99624377e0f804ad08b062c5a3efd491cea4fccbdc16e215ec",
+    "usr/bin/pocketfed-keymaster-startup": "c7a2d0ee1e9a725eb56f5052d29b335ae005d1dded5ff6b6171ce77ebe4bc4f4",
+    "usr/lib64/libfprint-2.so.2.0.0": "71ea0aea2c8d4903126a35fe1620d6fa645d3599cdcde2a0ec34a2166737fedc",
+    "usr/lib/systemd/system/qsee-supplicant.service": "3c8a1a7be718a400bfab842ac238fcc7e12206a7e5355956b8e43fcb5e074563",
+    "usr/lib/systemd/system/qsee-app-loader@.service": "b1e45f79acb8b055eebdddaf0659946ed2f258292818bac2c2978c9842467832",
+    "usr/lib/systemd/system/qsee-shared-loader@.service": "ea1e1396e4e4e2bcced020ce5b42e89ead263ab830724688587a63e3f839c0de",
+    "usr/lib/systemd/system/pocketfed-keymaster-startup.service": "e18fd73d68895f9884a0116b1f8dfba2f918be553522cedd2a3c303e08ea0654",
+    "usr/lib/systemd/system/pocketfed-fpc-auth.service": "4f4f9cf47e5b5f46907dcc8925ebd6d0d39fd41035b4bea89272eee1ee1cb5f8",
+    "usr/lib/systemd/system/pocketfed-fpc-auth.socket": "86c119a57bd60e873ec1caaf9b56377d042ba0396713cb3d46be3a83af28fe55"
+  },
+  "operational_dropins": {
+    "etc/systemd/system/qsee-supplicant.service.d/90-sargo-rpmb.conf": "6fd338c6f56e3aebda0335e88190e593a3dd413aa90ddf1c7712209bb9fb740a",
+    "etc/systemd/system/qsee-supplicant.service.d/99-lab-gate.conf": "6d859f5e20b02b607725a44d71f183566604310bc5a3fafdffa5611d477ed6cc",
+    "etc/systemd/system/qsee-shared-loader@cmnlib64.service.d/90-firmware.conf": "f90fec90502173681fd178260bad19039f1292e58fc4b647a8019b8b1f189fba",
+    "etc/systemd/system/qsee-shared-loader@cmnlib64.service.d/99-lab.conf": "7af7b752aff7394b47a40c3a448deaeb5a51873bfc1daf4a38568c58d90eeb11",
+    "etc/systemd/system/qsee-app-loader@fpctzappfingerprint.service.d/90-common-library.conf": "12a346e72dafe5d4b3536439dd7663a3b56f2ddb30b3a97ae46256638e1f18a7",
+    "etc/systemd/system/qsee-app-loader@fpctzappfingerprint.service.d/99-lab.conf": "7af7b752aff7394b47a40c3a448deaeb5a51873bfc1daf4a38568c58d90eeb11",
+    "etc/systemd/system/fprintd.service.d/99-lab.conf": "b0e2ad5a73d04139724b4af90a173813b6893d2f478755c9d88d39bf2654d882",
+    "etc/systemd/system/fprintd.service.d/90-fpc-qsee.conf": "c7a475b77dd740730b825259bc6731664d27a91f6b1c7b08e697b44340946c37",
+    "etc/systemd/system/pocketfed-fpc-auth.service.d/99-lab.conf": "ed6d7155f4924d342390046dbaed5032906658c78a6aa887222e0b14cc11f7e4"
+  },
+  "receiver_policy": "Packaged named-Sargo identity and process-lifetime write-error latch; no fixed run token or eight-group cap",
+  "firmware_override": "Existing verified lab firmware staging for the dedicated test handset",
+  "no_enrollment": true,
+  "private_restored_files": 2,
+  "readiness_timeout_seconds": null,
+  "validation": [
+    "Packaged source artifacts and payload hashes verified",
+    "Generated Python parses; normal service dependency assertions present",
+    "Receiver boot gate follows device and inactivity guard",
+    "No enrollment initialization marker or one-use lab receiver remains"
+  ],
+  "export_checks": {
+    "broker_label": "system_u:object_r:pocketfed_fpc_auth_exec_t:s0",
+    "broker_executable_matches_RPM": true,
+    "restored_files_root_owned_0600": 2,
+    "initialization_marker_absent": true,
+    "library_directory_mode": "0755"
+  },
+  "result_file": "fprintd-services-result.json"
+}

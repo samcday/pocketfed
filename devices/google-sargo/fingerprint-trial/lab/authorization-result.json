@@ -1,0 +1,224 @@
+{
+  "serial": "99NAY1AZG1",
+  "run_id": "sargo-fingerprint-lab-authorization-20260911",
+  "linux_uid": 1234,
+  "rpmb_writes": true,
+  "gatekeeper_enrollment": false,
+  "fingerprint_samples": false,
+  "fingerprint_database_access": false,
+  "steps": [
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-firmware.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-rpmb.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1099",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-cmnlib.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1113",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-fpc.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1116",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-keymaster.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-authorization.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-authorization.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-keymaster.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-fpc.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-cmnlib.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-rpmb.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    }
+  ],
+  "result": "retained credential verified after reboot; FPC authorized enrollment; clean service shutdown",
+  "events": {
+    "rpmb": [
+      "event=rpmb_geometry sectors_512=32768 reliable_frames=32 writes=bounded",
+      "event=listener_registered transport=qseecom id=10 size=20480",
+      "event=listener_registered transport=qseecom id=28672 size=516096",
+      "event=listener_registered transport=qseecom id=8192 size=25600",
+      "event=rpmb_dispatch cmd=258 count=34 length=8704 offset=24 version=0 reliable=0 stage=read-transfer transfer_status=0 reply_status=0",
+      "event=rpmb_callback cmd=258 detail=34 version_field=0 dispatch=0 reply_status=0 writes=bounded",
+      "event=rpmb_dispatch cmd=258 count=14 length=3584 offset=24 version=0 reliable=0 stage=read-transfer transfer_status=0 reply_status=0",
+      "event=rpmb_callback cmd=258 detail=14 version_field=0 dispatch=0 reply_status=0 writes=bounded",
+      "event=rpmb_write_group group=1 frames=2 transport=0 response_type=768 device_status=0 further_writes=bounded",
+      "event=rpmb_dispatch cmd=259 count=2 length=1024 offset=24 version=256 reliable=2 stage=write-transfer transfer_status=0 reply_status=0",
+      "event=rpmb_callback cmd=259 detail=2 version_field=256 dispatch=0 reply_status=0 writes=bounded",
+      "event=rpmb_write_group group=2 frames=2 transport=0 response_type=768 device_status=0 further_writes=bounded",
+      "event=rpmb_dispatch cmd=259 count=2 length=1024 offset=24 version=256 reliable=2 stage=write-transfer transfer_status=0 reply_status=0",
+      "event=rpmb_callback cmd=259 detail=2 version_field=256 dispatch=0 reply_status=0 writes=bounded",
+      "event=rpmb_write_group group=3 frames=2 transport=0 response_type=768 device_status=0 further_writes=bounded",
+      "event=rpmb_dispatch cmd=259 count=2 length=1024 offset=24 version=256 reliable=2 stage=write-transfer transfer_status=0 reply_status=0",
+      "event=rpmb_callback cmd=259 detail=2 version_field=256 dispatch=0 reply_status=0 writes=bounded",
+      "event=shutdown status=0 errno=0 stopping=1"
+    ],
+    "cmnlib": [
+      "event=shared_library_loaded app=cmnlib64 session=1",
+      "event=application_releasing app=cmnlib64 session=1"
+    ],
+    "fpc": [
+      "event=application_loaded app=fpctzappfingerprint session=1",
+      "event=application_releasing app=fpctzappfingerprint session=1"
+    ],
+    "keymaster": [
+      "wrapped_key transport=0 status=-24",
+      "get_hmac_parameters transport=0 status=0",
+      "compute_shared_hmac transport=0 status=0",
+      "sharing_check_length=32 participants=1",
+      "wrapped_key transport=0 status=0 codec_status=0 validated_blob_length=152",
+      "initialization_status=0"
+    ],
+    "authorization": [
+      "lab_sensor_initialize transport=0 outer=0 command=0",
+      "lab_sensor_sleep transport=0 outer=0 command=0",
+      "lab_backend_status=0",
+      "lab_wrapped_key_import transport=0 outer=0 command=0",
+      "lab_enrollment_challenge transport=0 outer=0 command=0",
+      "lab_verify transport=0 secure_status=0",
+      "lab_hat validated_length=69 challenge_bound=true handle_sid_bound=true password_type=true",
+      "lab_fpc_authorize transport=0 outer=0 command=0",
+      "lab_authorization_result=0"
+    ]
+  },
+  "handoff": {
+    "schema_version": 1,
+    "run_id": "sargo-fingerprint-lab-authorization-20260911",
+    "result": "pass",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "root_fstype": "overlay",
+    "root_mode": "usb",
+    "resident": {},
+    "usb_policy_state": "masked",
+    "module_mount": "/dev/ublkb0[/usr/lib/modules/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64] erofs",
+    "selinux": "Enforcing",
+    "label_repair_state": "active",
+    "failed_units": [],
+    "checks": {
+      "run_id_present": true,
+      "disposable_root": true,
+      "matching_modules_present": true,
+      "root_transport_ready": true,
+      "slot_marking_disabled": true,
+      "usb_transport_policy": true,
+      "selinux_enforcing": true,
+      "writable_root_labels_restored": true
+    }
+  },
+  "recovery": {
+    "sysrq_reset_acknowledged": true,
+    "fastboot_serial_verified": "99NAY1AZG1",
+    "host_stopped_after_fastboot": true
+  },
+  "uart_sha256": "f5a537e3c7313fb9bbbb61fa50726efade431ae68ec30f1f956e50442aadddad"
+}

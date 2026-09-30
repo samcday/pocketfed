@@ -1,0 +1,199 @@
+{
+  "scope": "synthetic comparator regression tests only; old actual image remains rejected",
+  "normalizations": [
+    "Only synthetic candidate /etc/pam.d/phosh metadata repaired to base",
+    "Both fixtures receive identical clearly fictional SELinux metadata"
+  ],
+  "comparator_sha256": "aad1cabc7fe75eaff4274eb25dca677f8c50eb100babb350f9f10a41d9e5d440",
+  "test_sha256": "a52d8fb483e089529daf9eedd270ca22b1713df029a371949fb38585f5eb2af4",
+  "tests": [
+    {
+      "name": "synthetic-positive-control",
+      "expected_accept": true,
+      "returncode": 0,
+      "passed": true,
+      "diagnostic": []
+    },
+    {
+      "name": "wrong-root",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: boot command line changed"
+      ]
+    },
+    {
+      "name": "duplicate-root",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: boot command line changed"
+      ]
+    },
+    {
+      "name": "missing-rootwait",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: boot command line changed"
+      ]
+    },
+    {
+      "name": "added-package",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: {'feedbackd-device-themes': ['0:0.8.9-1.fc46.noarch'], 'fpc-qsee-probe': ['0:0.1.0-0.1.pocketfed.fc46.aarch64'], 'fprintd': ['0:1.94.5-6.fc45.aarch64'], 'fprintd-pam': ['0:1.94.5-6.fc45.aarch64'], 'libfprint': ['0:1.94.100-1.3.pocketfed.fc46.aarch64'], 'libfprint-fpc-qsee': ['0:1.94.100-1.3.pocketfed.fc46.aarch64'], 'lpa-gtk': ['0:0.4-1.4.pocketfed.fc46.noarch'], 'phosh-fingerprint-auth': ['0:0.1.0-0.1.pocketfed.fc46.aarch64'], 'python3-cairo': ['0:1.28.0-8.fc45.aarch64'], 'python3-gobject': ['0:3.57.1-6.fc46.aarch64'], 'python3-gobject-base': ['0:3.57.1-6.fc46.aarch64'], 'qsee-supplicant': ['0:0.1.1-1.2.pocketfed.fc46.aarch64'], 'tailscale': ['0:1.98.8-1.fc45.aarch64'], 'unrequested': ['0:1-1.noarch']}"
+      ]
+    },
+    {
+      "name": "wrong-phosh-version",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: ('phosh', ['0:999-1.aarch64'], '0:0.57.0-1.2.fingerprint.fc46.aarch64')"
+      ]
+    },
+    {
+      "name": "removed-libfprint",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: ('libfprint', None, '0:1.94.100-1.3.pocketfed.fc46.aarch64')"
+      ]
+    },
+    {
+      "name": "wrong-epoch",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: ('phosh', ['1:0.57.0-1.2.fingerprint.fc46.aarch64'], '0:0.57.0-1.2.fingerprint.fc46.aarch64')"
+      ]
+    },
+    {
+      "name": "added-pam-override",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: {'/usr/lib/pam.d/phosh-fingerprint': {'bytes': 415, 'sha256': '9c66c88c428cb55a06bb2094bae487b447db26ab9a81c7a19bbe0b9426485c84'}, '/etc/pam.d/greetd': {'bytes': 1, 'sha256': 'unexpected'}}"
+      ]
+    },
+    {
+      "name": "changed-existing-pam",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: /etc/pam.d/phosh"
+      ]
+    },
+    {
+      "name": "added-systemd-dropin",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: {'unexpected': ['/etc/systemd/system/phrog.service.d/99-unexpected.conf'], 'missing': []}"
+      ]
+    },
+    {
+      "name": "changed-existing-systemd-unit",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: /usr/lib/systemd/system/phrog.service"
+      ]
+    },
+    {
+      "name": "changed-new-systemd-unit",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: system/fprintd.service"
+      ]
+    },
+    {
+      "name": "loader-enabled-via-requires",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError"
+      ]
+    },
+    {
+      "name": "removed-fprintd-mask",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError"
+      ]
+    },
+    {
+      "name": "extra-template-state",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: unexpected mutable state paths or permissions"
+      ]
+    },
+    {
+      "name": "state-permissions-widened",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: unexpected mutable state paths or permissions"
+      ]
+    },
+    {
+      "name": "database-init-marker-present",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError"
+      ]
+    },
+    {
+      "name": "broker-present",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError"
+      ]
+    },
+    {
+      "name": "initramfs-missing-driver",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError"
+      ]
+    },
+    {
+      "name": "selinux-policy-changed",
+      "expected_accept": false,
+      "returncode": 1,
+      "passed": true,
+      "diagnostic": [
+        "AssertionError: SELinux policy or default contexts changed"
+      ]
+    }
+  ],
+  "passed": true
+}

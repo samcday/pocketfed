@@ -1,0 +1,42 @@
+{
+  "source_image_id": "671197f9f3bf539fc4e1fd138843a8739df3958cabcacd0e5f9ca6a3baaa9996",
+  "harness_sha256": "04f16e622d7bada785383f81d7b3fe10aa810fb0fffe5b21b0e3094d12ff3128",
+  "results": [
+    {
+      "case": "unmask-broker",
+      "rejected": true
+    },
+    {
+      "case": "unmask-provisioning",
+      "rejected": true
+    },
+    {
+      "case": "credential-state-created",
+      "rejected": true
+    },
+    {
+      "case": "wrong-policy",
+      "rejected": true
+    },
+    {
+      "case": "unexpected-SELinux-file",
+      "rejected": true
+    },
+    {
+      "case": "changed-broker-unit",
+      "rejected": true
+    },
+    {
+      "case": "changed-Phosh-PAM",
+      "rejected": true
+    },
+    {
+      "case": "changed-modem",
+      "rejected": true
+    },
+    {
+      "case": "missing-initramfs-driver",
+      "rejected": true
+    }
+  ]
+}

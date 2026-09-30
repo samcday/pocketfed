@@ -1,0 +1,30 @@
+{
+  "status": "Both pinned daily standalone initialization probes passed; freeze unresolved",
+  "serial": "994AY18RSD",
+  "boot_id": "0ac24861-f5de-4f09-8128-fd24c2f80070",
+  "kernel": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+  "probe_sha256": "0693c99bdb7ae70d8e7cd4be5633b5dd3d6f1f956b0dad95eeb1ae378594c945",
+  "runs": [
+    {
+      "cpu": 7,
+      "passed": true,
+      "init_ms": 284.063,
+      "sleep_ms": 18.531,
+      "trace_removed": true,
+      "result_sha256": "8c7851699164a5070b4fc29076ce36e4bd78ba2eaf253cb6191ed9fee3f14cda"
+    },
+    {
+      "cpu": 1,
+      "passed": true,
+      "init_ms": 383.221,
+      "sleep_ms": 28.863,
+      "trace_removed": true,
+      "result_sha256": "173fc89a1363e9836fc4b11c81038edab324ff80aa3083cdb54bf40ebd70d050"
+    }
+  ],
+  "source_manifest": "out/fingerprint-daily-cpu-compare-20260913-v2/bundle/manifest.json",
+  "masks_preserved": true,
+  "capture_started": false,
+  "credential_operations": false,
+  "conclusion": "CPU1 can complete INIT and DEEP_SLEEP. CPU placement alone is not a sufficient explanation of the previous fprintd Claim freeze. These two calls do not establish reliable fprintd operation."
+}

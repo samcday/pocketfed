@@ -1,0 +1,251 @@
+{
+  "schema_version": 1,
+  "handoff": {
+    "schema_version": 1,
+    "run_id": "sargo-fingerprint-lab-native-idle-auth-20260912",
+    "result": "pass",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "root_fstype": "overlay",
+    "root_mode": "usb",
+    "resident": {},
+    "usb_policy_state": "masked",
+    "module_mount": "/dev/ublkb1[/usr/lib/modules/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64] erofs",
+    "selinux": "Enforcing",
+    "label_repair_state": "active",
+    "failed_units": [],
+    "checks": {
+      "run_id_present": true,
+      "disposable_root": true,
+      "matching_modules_present": true,
+      "root_transport_ready": true,
+      "slot_marking_disabled": true,
+      "usb_transport_policy": true,
+      "selinux_enforcing": true,
+      "writable_root_labels_restored": true
+    }
+  },
+  "probe": {
+    "run_id": "sargo-fingerprint-lab-native-idle-auth-20260912",
+    "serial": "99NAY1AZG1",
+    "linux_uid": 1000,
+    "enrollment": false,
+    "credential_export": false,
+    "steps": [
+      {
+        "action": "start",
+        "unit": "pocketfed-fingerprint-lab-firmware.service",
+        "status": 0,
+        "state": [
+          "ActiveState=active",
+          "SubState=exited",
+          "Result=success",
+          "NRestarts=0",
+          "ExecMainStatus=0"
+        ]
+      },
+      {
+        "action": "start",
+        "unit": "qsee-supplicant.service",
+        "status": 0,
+        "state": [
+          "ActiveState=active",
+          "SubState=running",
+          "Result=success",
+          "NRestarts=0",
+          "ExecMainStatus=0"
+        ]
+      },
+      {
+        "action": "start",
+        "unit": "qsee-shared-loader@cmnlib64.service",
+        "status": 0,
+        "state": [
+          "ActiveState=active",
+          "SubState=running",
+          "Result=success",
+          "NRestarts=0",
+          "ExecMainStatus=0"
+        ]
+      },
+      {
+        "action": "start",
+        "unit": "qsee-app-loader@fpctzappfingerprint.service",
+        "status": 0,
+        "state": [
+          "ActiveState=active",
+          "SubState=running",
+          "Result=success",
+          "NRestarts=0",
+          "ExecMainStatus=0"
+        ]
+      },
+      {
+        "action": "start",
+        "unit": "pocketfed-keymaster-startup.service",
+        "status": 0,
+        "state": [
+          "ActiveState=active",
+          "SubState=exited",
+          "Result=success",
+          "NRestarts=0",
+          "ExecMainStatus=0"
+        ]
+      },
+      {
+        "action": "start",
+        "unit": "pocketfed-fpc-native-auth-probe.service",
+        "status": 0,
+        "state": [
+          "ActiveState=inactive",
+          "SubState=dead",
+          "Result=success",
+          "NRestarts=0",
+          "ExecMainStatus=0"
+        ]
+      },
+      {
+        "action": "stop",
+        "unit": "pocketfed-fpc-native-auth-probe.service",
+        "status": 0,
+        "state": [
+          "ActiveState=inactive",
+          "SubState=dead",
+          "Result=success",
+          "NRestarts=0",
+          "ExecMainStatus=0"
+        ]
+      },
+      {
+        "action": "stop",
+        "unit": "pocketfed-keymaster-startup.service",
+        "status": 0,
+        "state": [
+          "ActiveState=inactive",
+          "SubState=dead",
+          "Result=success",
+          "NRestarts=0",
+          "ExecMainStatus=0"
+        ]
+      },
+      {
+        "action": "stop",
+        "unit": "qsee-app-loader@fpctzappfingerprint.service",
+        "status": 0,
+        "state": [
+          "ActiveState=inactive",
+          "SubState=dead",
+          "Result=success",
+          "NRestarts=0",
+          "ExecMainStatus=0"
+        ]
+      },
+      {
+        "action": "stop",
+        "unit": "qsee-shared-loader@cmnlib64.service",
+        "status": 0,
+        "state": [
+          "ActiveState=inactive",
+          "SubState=dead",
+          "Result=success",
+          "NRestarts=0",
+          "ExecMainStatus=0"
+        ]
+      },
+      {
+        "action": "stop",
+        "unit": "qsee-supplicant.service",
+        "status": 0,
+        "state": [
+          "ActiveState=inactive",
+          "SubState=dead",
+          "Result=success",
+          "NRestarts=0",
+          "ExecMainStatus=0"
+        ]
+      }
+    ],
+    "idle_before": {
+      "/sys/class/block/mmcblk0/device/power": {
+        "runtime_status": "active",
+        "control": "auto",
+        "autosuspend_delay_ms": "3000",
+        "runtime_active_time": "20807",
+        "runtime_suspended_time": "28015"
+      },
+      "/sys/class/mmc_host/mmc0/device/power": {
+        "runtime_status": "suspended",
+        "control": "auto",
+        "autosuspend_delay_ms": "50",
+        "runtime_active_time": "3287",
+        "runtime_suspended_time": "45797"
+      }
+    },
+    "idle_after": {
+      "/sys/class/block/mmcblk0/device/power": {
+        "runtime_status": "suspended",
+        "control": "auto",
+        "autosuspend_delay_ms": "3000",
+        "runtime_active_time": "22903",
+        "runtime_suspended_time": "385932"
+      },
+      "/sys/class/mmc_host/mmc0/device/power": {
+        "runtime_status": "suspended",
+        "control": "auto",
+        "autosuspend_delay_ms": "50",
+        "runtime_active_time": "3287",
+        "runtime_suspended_time": "405810"
+      }
+    },
+    "credential_unchanged": true,
+    "result": "existing native lab credential verified through packaged service chain",
+    "clean_shutdown": true,
+    "events": {
+      "pocketfed-fpc-native-auth-probe.service": [
+        "Starting pocketfed-fpc-native-auth-probe.service - One retained test-sargo credential verification after idle...",
+        "native_auth_stage=probe_started",
+        "native_auth_stage=backend_open_begin",
+        "native_auth_stage=backend_open_end status=0",
+        "native_auth_stage=verify_begin uid=1000",
+        "native_auth_stage=verify_end transport=0 secure_status=0",
+        "native_auth_stage=close_begin",
+        "native_auth_stage=finished status=0",
+        "pocketfed-fpc-native-auth-probe.service: Deactivated successfully.",
+        "Finished pocketfed-fpc-native-auth-probe.service - One retained test-sargo credential verification after idle."
+      ],
+      "qsee-supplicant.service": [
+        "Starting qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant...",
+        "event=rpmb_ready sectors_512=32768 reliable_frames=32 authenticated_writes=1",
+        "event=listener_registered transport=qseecom id=10 size=20480",
+        "event=listener_registered transport=qseecom id=28672 size=516096",
+        "event=listener_registered transport=qseecom id=8192 size=25600",
+        "Started qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant.",
+        "Stopping qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant...",
+        "event=shutdown status=0 errno=0 stopping=1",
+        "qsee-supplicant.service: Deactivated successfully.",
+        "Stopped qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant."
+      ],
+      "pocketfed-keymaster-startup.service": [
+        "Starting pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement...",
+        "wrapped_key transport=0 status=-24",
+        "get_hmac_parameters transport=0 status=0",
+        "compute_shared_hmac transport=0 status=0",
+        "sharing_check_length=32 participants=1",
+        "wrapped_key transport=0 status=0 codec_status=0 validated_blob_length=152",
+        "initialization_status=0",
+        "Finished pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement.",
+        "pocketfed-keymaster-startup.service: Deactivated successfully.",
+        "Stopped pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement."
+      ]
+    }
+  },
+  "source_image": "sha256:39fd4d186f6235332d3ae1c6101b676091243d57d9d7d609a91f8962448f54b1",
+  "uart_sha256": "c0f319ddb0850b97b451dc42585877059cb6f06a3fc073651ac931d4a67451ba",
+  "recovery": {
+    "sysrq_request_refused": "already disarmed after new boot",
+    "fastboot_serial": "99NAY1AZG1",
+    "usb_host_stopped_after_fastboot": true,
+    "host_exit_status": 0,
+    "observation": "UART shows orderly systemd shutdown after the completed successful probe, followed by bootloader; initiator not established."
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "source": "/dev/mapper/vendor_b",
+  "vendor_build": "google/sargo/sargo:12/SP2A.220505.008/8782922:user/release-keys",
+  "block_read_only": false,
+  "access": "debugfs without -w; no source mount or writes",
+  "files": {
+    "fpctzappfingerprint.mdt": {
+      "bytes": 7208,
+      "sha256": "3d23e9a669df46ab3bc50af44215670a5de60be1f623e0e20e69e0bdcce3ab71"
+    },
+    "fpctzappfingerprint.b00": {
+      "bytes": 512,
+      "sha256": "a15aaac6c53d6bd75d5d46ba283f4dafd26377df24484221f00ccaec07f03aca"
+    },
+    "fpctzappfingerprint.b01": {
+      "bytes": 6696,
+      "sha256": "26d38a74c175340dd67f888043c8c054d69670f4e7a62d75998397bf9189f6f4"
+    },
+    "fpctzappfingerprint.b02": {
+      "bytes": 522392,
+      "sha256": "56f9dc28cc7f5a53216edb2a9f3484ae34de5fa545fd6802c0548f17824e2466"
+    },
+    "fpctzappfingerprint.b03": {
+      "bytes": 165,
+      "sha256": "756a5519632a73bccb09718a48f48e6dba92687844da716fab0868f90cfb777e"
+    },
+    "fpctzappfingerprint.b04": {
+      "bytes": 57576,
+      "sha256": "5cc9285b5dc1e8bca16d29436f841cbd410931e13a92b1cc45df81879220a61d"
+    },
+    "fpctzappfingerprint.b05": {
+      "bytes": 720,
+      "sha256": "b6d670f30869efd68ea2a375e630a9561f0c0c95d7c6b9dd6c5ae9713bbda7a9"
+    },
+    "fpctzappfingerprint.b06": {
+      "bytes": 304,
+      "sha256": "4ed0d1065536d33b5b5225a893a183db6d031d30401edf9bc564f0c9f7d4b6b1"
+    },
+    "fpctzappfingerprint.b07": {
+      "bytes": 85332,
+      "sha256": "61728d9db1a441588548aabbd52c98cb161a5c4aaac63262942b809ef06f1a69"
+    },
+    "cmnlib64.mdt": {
+      "bytes": 7032,
+      "sha256": "06a32dccef0ef00451e1e002e41bf955ea2952a5d94a87749cc9faf11bd7cdb4"
+    },
+    "cmnlib64.b00": {
+      "bytes": 400,
+      "sha256": "d90b13ecd28961ea636933d7cb1a30a7478e1cbcad2d8fb3592115380edcba6a"
+    },
+    "cmnlib64.b01": {
+      "bytes": 6632,
+      "sha256": "0776e2d74c9b3985ebbc219ce18ad7a948cfdacb25e07f6d00d87ad80318e14d"
+    },
+    "cmnlib64.b02": {
+      "bytes": 436992,
+      "sha256": "bffb4c261baf6f0b57e727e145b95634515285e57dc4baa546fe02165171e9ab"
+    },
+    "cmnlib64.b03": {
+      "bytes": 4240,
+      "sha256": "fe186a546f453c63777956f6db7b629416f9a649a244b0359d2c0dda6a7c11e9"
+    },
+    "cmnlib64.b04": {
+      "bytes": 288,
+      "sha256": "62ba9bd2ea737fc5f68485057e087954ab7acb491ae55a9ed18ec9363e9e02d1"
+    },
+    "cmnlib64.b05": {
+      "bytes": 30371,
+      "sha256": "01ca9b3f09abf71724535d793cd04501905d46f3e5e7c18c53c2ff73b3ce6de7"
+    }
+  },
+  "structure": {
+    "fpctzappfingerprint": {
+      "elf_class": 64,
+      "machine": 183,
+      "program_headers": 8,
+      "segment_bytes": [
+        512,
+        6696,
+        522392,
+        165,
+        57576,
+        720,
+        304,
+        85332
+      ],
+      "raw_mdt_equals_b00_plus_b01": true
+    },
+    "cmnlib64": {
+      "elf_class": 64,
+      "machine": 183,
+      "program_headers": 6,
+      "segment_bytes": [
+        400,
+        6632,
+        436992,
+        4240,
+        288,
+        30371
+      ],
+      "raw_mdt_equals_b00_plus_b01": true
+    }
+  },
+  "captured_at": "2026-09-10T23:52:33.680003+00:00"
+}

@@ -1,0 +1,25 @@
+{
+  "recorded_at": "2026-09-11T03:05:32.114205+00:00",
+  "deployment_metadata_unchanged": true,
+  "live_package_inventory_unchanged": true,
+  "boot_arguments_unchanged": true,
+  "authentication_device_config_paths_unchanged": 46,
+  "critical_image_files_also_checked": [
+    "/etc/dracut.conf.d/50-pocketfed-ostree.conf",
+    "/etc/dracut.conf.d/60-google-sargo.conf",
+    "/usr/bin/aboot-deploy",
+    "/usr/lib/ostree-boot/aboot-kargs",
+    "/usr/lib/ostree-boot/aboot.cfg",
+    "/usr/libexec/abl-exorcist-assembler",
+    "/usr/libexec/pocketfed-aboot-finalize",
+    "/usr/libexec/pocketfed-verify-kernel"
+  ],
+  "booted_checksum": "ae313ebc772138e011a4a0a42b0f2d4247769433f4a1208b1824a062a78f7cfa",
+  "slot": "_b",
+  "enforcement": "Enforcing",
+  "sam_uid": 1000,
+  "no_staged_deployment": true,
+  "no_transaction": true,
+  "device_mutated": false,
+  "trial_boot_and_physical_results": "not performed; recovery/touch availability is unconfirmed"
+}

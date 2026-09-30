@@ -1,0 +1,96 @@
+{
+  "status": "daily recovered with persistent fingerprint pause; physical PIN login check pending",
+  "recorded_at": "2026-09-12T10:13:48.153783+00:00",
+  "user_report": "Rebooted, froze again while logging in, then rebooted into fastboot",
+  "device_serial": "994AY18RSD",
+  "product": "sargo",
+  "previous_runtime_pause_survives_reboot": false,
+  "latest_freeze_cause": "Not newly instrumented; user report consistent with fingerprint activation returning on reboot",
+  "closed_capture": {
+    "path": "out/private/sargo-daily-freeze-20260912/claim-only-tasks/uart.log",
+    "bytes": 2200610,
+    "sha256": "f991783f032a954a40fd4426fe33bfc213f20437b404aebee007e75832ac65c8"
+  },
+  "rename_thread": "01a094c6-7a3b-7a43-866b-d9b5e3c7c4bf",
+  "recovery_manifest": "out/fingerprint-daily-recovery-20260912/paused-boot.json",
+  "partition_written": false,
+  "recovery_boot_id": "0ac24861-f5de-4f09-8128-fd24c2f80070",
+  "recovery_boot_sha256": "c224419e0acf99f3f8ffb201ec795e7b54a4e20fec98e6e80a2466ff290c1369",
+  "verification": {
+    "boot_id": "0ac24861-f5de-4f09-8128-fd24c2f80070",
+    "uptime_seconds": 230.06,
+    "kernel": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "selinux": "Enforcing",
+    "booted_checksum": "d639fe55e1cf11b2756f367fef1dad99ab7e2705c19b0b72f73e80c265d16b89",
+    "pinned_count": 11,
+    "transaction": null,
+    "units": {
+      "fprintd.service": "LoadState=masked\nActiveState=inactive\nSubState=dead",
+      "phosh-fingerprint-auth.socket": "LoadState=masked\nActiveState=inactive\nSubState=dead",
+      "qsee-supplicant.service": "LoadState=loaded\nActiveState=inactive\nSubState=dead",
+      "sshd.service": "LoadState=loaded\nActiveState=active\nSubState=running",
+      "tailscaled.service": "LoadState=loaded\nActiveState=active\nSubState=running",
+      "display-manager.service": "LoadState=loaded\nActiveState=active\nSubState=running"
+    },
+    "pause": {
+      "serial": "994AY18RSD",
+      "deployment": "d639fe55e1cf11b2756f367fef1dad99ab7e2705c19b0b72f73e80c265d16b89",
+      "boot_id": "0ac24861-f5de-4f09-8128-fd24c2f80070",
+      "started_at": 1789208258.4588392,
+      "before": {
+        "fprintd.service": null,
+        "phosh-fingerprint-auth.socket": null,
+        "phosh-fingerprint-auth@.service": null
+      },
+      "units": [
+        "fprintd.service",
+        "phosh-fingerprint-auth.socket",
+        "phosh-fingerprint-auth@.service"
+      ],
+      "pin_pam_sha256": "695d627f3d54bf6010b001bef211792f536437c34b01d60833862c4a9509d5b6",
+      "purpose": "Prevent automatic sensor initialization across ordinary reboots while kernel freeze is investigated",
+      "verified_units": {
+        "fprintd.service": [
+          "LoadState=masked",
+          "ActiveState=inactive"
+        ],
+        "phosh-fingerprint-auth.socket": [
+          "LoadState=masked",
+          "ActiveState=inactive"
+        ],
+        "phosh-fingerprint-auth@.service": [
+          "LoadState=masked",
+          "ActiveState=inactive"
+        ]
+      },
+      "status": "persistent fingerprint pause verified",
+      "verification_note": "Initial mask operation succeeded. Bare-template property query was rejected; verified a named, unstarted template instance instead.",
+      "completed_at": 1789208297.8375509
+    },
+    "kernel_symbols_found": [
+      "__scm_smc_call",
+      "__scm_smc_do_quirk",
+      "qcom_scm_qseecom_app_send"
+    ],
+    "tracefs_available": true,
+    "diagnostic_instance_exists": false,
+    "sensor_opened_by_this_check": false
+  },
+  "uart_handoff": {
+    "capture_released": true,
+    "rename_attempt": "USB write accepted but full 256-byte readback identical to original, per coordinating task",
+    "active_path": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0",
+    "capture_resumed": true,
+    "capture": "out/private/sargo-daily-freeze-20260912/paused-recovery-uart",
+    "held_locks": [
+      "994AY18RSD.lock"
+    ],
+    "global_usb_host_lock_held": false
+  },
+  "previous_boot": {
+    "boot_id": "c28e7a49-4455-4831-ad21-d27b1dc043d7",
+    "bounded_fingerprint_journal": "No entries retained",
+    "causal_limit": "The immediately preceding login freeze has no retained sensor-startup event; do not attribute it conclusively to fingerprints"
+  },
+  "test_device": "Reserved by Premouth task 01a0941c-d662-73a3-8532-e64c9ddbcbac; requested explicit release before further kernel tracing"
+}

@@ -1,0 +1,8 @@
+{
+  "date": "2026-09-11",
+  "access": "read-only SSH metadata",
+  "selinux_mode": "Enforcing",
+  "selinux_policy": "selinux-policy-targeted-45.15-2.fc46.noarch",
+  "systemd": "systemd-262~rc1-6.fc46.aarch64",
+  "state_changes": false
+}

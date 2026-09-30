@@ -1,0 +1,72 @@
+{
+  "date": "2026-09-12",
+  "device": "daily sam-sargo, confirmed physically by Sam",
+  "kernel": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+  "last_ssh_boot_id": "f4004f50-da2f-4d01-90ac-7fea406885dc",
+  "settings_version_at_last_ssh": "51~rc.1-1.1.fingerprint.fc46",
+  "user_observation": "Second finger enrolled after PIN login, then apparent freeze while USB remained connected",
+  "confirmed_kernel_stall": true,
+  "observations": [
+    "UART repeatedly reports CPU 2 soft lockup, kworker/2:1 PID 81",
+    "CPU 2 stack: smp_call_function_many_cond, kick_all_cpus_sync, __text_poke, aarch64_insn_set, bpf_arch_text_invalidate, bpf_prog_pack_free, bpf_jit_binary_pack_free, bpf_jit_free, bpf_prog_free_deferred",
+    "CPU 0 khugepaged also waits in smp_call_function_many_cond from tlb_remove_table_sync_one and collapse_huge_page",
+    "CPU 3 waits for the BPF pack mutex",
+    "All-CPU diagnostic produced responses for CPUs 0 and 2 through 7; CPU 1 did not produce a response",
+    "Scheduler dump records CPU 1 current PID 0 and zero runnable tasks",
+    "systemd is blocked in cgroup_kn_lock_live while removing a cgroup",
+    "Phosh is waiting in coredump_wait; no userspace core content was read",
+    "fprintd main and six listed threads are sleeping in poll/futex; broker sleeps in poll; receiver sleeps in qseecom_tee_supp_recv",
+    "Later CPU-frequency/interconnect request reports rpmh_write_batch warning and Error sending AMC RPMH requests (-110)"
+  ],
+  "causal_limit": "These stacks show the stalled system, not the initiating fault. BPF, CPU idle, fingerprint, USB, RPMh, and Phosh causation remain unproven. This does not retroactively establish a watchdog-caused reset in earlier trials.",
+  "diagnostics": [
+    {
+      "key": "9",
+      "acknowledged": "554.906402 Loglevel set to 9"
+    },
+    {
+      "key": "l",
+      "acknowledged": "658.333916 Show backtrace of all active CPUs"
+    },
+    {
+      "key": "t",
+      "acknowledged": "711.122999 Show State"
+    },
+    {
+      "key": "R",
+      "acknowledged": "854.181500 Replay kernel logs on consoles"
+    }
+  ],
+  "replay_limit": "The large task/scheduler dump displaced earlier messages from the finite kernel ring. The retained replay begins at uptime ~754s and cannot recover the initiating warning.",
+  "private_closed_captures": {
+    "out/private/sargo-daily-freeze-20260912/uart.log": {
+      "bytes": 274979,
+      "sha256": "9540426e85981f70ff906679f7eb58a49c4681b8f42c7db4d6c36750705035ce"
+    },
+    "out/private/sargo-daily-freeze-20260912/verbose/uart.log": {
+      "bytes": 19513,
+      "sha256": "926b86794b95f5a4f9dd172bdb81bea82fec69b8bea572360a3dbea428a5eb91"
+    },
+    "out/private/sargo-daily-freeze-20260912/cpu-backtraces/uart.log": {
+      "bytes": 19386,
+      "sha256": "cad84da838b205d0866bcfadc44028366e15550b471b07bd6436d0fda4429def"
+    },
+    "out/private/sargo-daily-freeze-20260912/tasks/uart.log": {
+      "bytes": 743975,
+      "sha256": "61753eb51e4ecc970570b70181b9ba27cfec1762f82864134c6a98d183392457"
+    }
+  },
+  "capture_still_running": "out/private/sargo-daily-freeze-20260912/replay-log/uart.log",
+  "next_step": "Sam asked to force-restart with UART retained, then PIN/Wi-Fi login and Settings closed; capture continues across reboot.",
+  "hardware_inventory_correction": "Unescalated /dev and /proc checks saw sandbox state and did not establish that the host adapter or reader was absent. Host UART operations require escalation.",
+  "source_followup": {
+    "rpmh_timeout": "Exact .11 source drivers/soc/qcom/rpmh.c waits for active-request completions and warns/returns -ETIMEDOUT when completion does not arrive. This confirms what the late warning means, not why the completion failed.",
+    "ipi_diagnostics": "Exact .11 kernel/smp.c has an optional csdlock_debug boot parameter when CONFIG_CSD_LOCK_WAIT_DEBUG is built. No boot argument or kernel configuration changed.",
+    "next_boot_checks": [
+      "Capture boot from UART and raise console verbosity before any enrollment retry",
+      "Check new boot ID, package/deployment version, unchanged PIN route, and saved enrolled-finger labels",
+      "Read prior-boot kernel/Phosh service and coredump metadata, without reading core contents",
+      "Keep fingerprint enrollment retries paused until the initiating freeze evidence is collected"
+    ]
+  }
+}

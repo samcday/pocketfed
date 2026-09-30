@@ -1,0 +1,77 @@
+{
+  "binary_sha256": "a52b9fee11f477ae0d4aec189079fd97d4bdd332d9914e2e75c9854c5f26f41d",
+  "sources": {
+    "guard-device.py": "2ee6490309dd37c4e03c9d84efa76177204e6137cbab8c941506afb44109fd21",
+    "lab_report.py": "7c9b8b163c65a86c1a129f8ddd93351fdd2a8ab75ba80a8677f3d1fa09a401df",
+    "inspect-device.py": "11c631f7acee275190bcaa9b9da7cb6105ddbf51ab2e1d226242d9ee4ccc4f44",
+    "rpmb-supplicant-ro": "a52b9fee11f477ae0d4aec189079fd97d4bdd332d9914e2e75c9854c5f26f41d",
+    "trial-read-only.py": "f05b20f13f9e73f340919013630c035e28f537bac17598cd4cdfdd552ae5e238"
+  },
+  "receiver_sources": {
+    "frozen_receiver_sha256": "8216145eb6d509839a8dddd188e8615754322c0af0556657a8b14b1f8355d5f3",
+    "change": "Replace fixed 504:0 check with named sysfs RPMB/card/device identity; read-only guards unchanged",
+    "files": {
+      "lab-device.h": "e73f96e08f8cd545cfebba650da09e5e966cd9704c0c9a2f4c2081e68939ded1",
+      "rpmb-mmc.c": "ce6036d731cf660d6129d3f7086c58c9ed60b6a3ee8d8a5bed4953f51a7a1405",
+      "rpmb-mmc.h": "02744188a8e55a4073b674a70540e0fd8042b933a94bc4d54f8778d0821e189b",
+      "rpmb-protocol.c": "45fa5c133f0e8ebc12ad9d12b1368a352231b930a73eb11821750b5d50c3f525",
+      "rpmb-protocol.h": "1a40e380f39402b19fe004f0ac1f3c95452374343d78cbdfbd827e09119fbcaa",
+      "rpmb-supplicant.c": "b4a145d76d5e5f3c9b866c3e90d484ee03e7041577d3f21b6019b7bc16ab8b27",
+      "test-lab-device.c": "a50a26d7751d45d89550ac8e3353bc9979c84ceb877075243c22c5b2e4c2b119",
+      "test-rpmb-mmc.c": "8691b28ccd0ab2b45b2cdb7480de6aa763dda3d68c422761fe2f838cf831f302",
+      "test-rpmb-protocol.c": "371225b20e17e825786e5f54128f4fb672ef69bbd20c0ceca17010fa7bd7375b",
+      "test-rpmb-supplicant.c": "859ec764861aab0900c012392fb7936418956e1f5fb9b290175821739704c567"
+    }
+  },
+  "validation": [
+    "host C tests passed",
+    "ARM64 C tests passed",
+    "UART report integrity tests passed"
+  ],
+  "live_status": "passed registration, readiness and clean stop on test-sargo; no RPMB callback or authenticated storage acceptance yet",
+  "run": "out/liveboot/runs/sargo-fingerprint-lab-readonly-20260911",
+  "uart_sha256": "046e4d8a5dff6b98c876472eed9f3b39810f699d69e4f61ae2e546daebc96246",
+  "reports": {
+    "inspection": "2cac3749f741f9aee8cd9e55fff748e87ae6ed0dd80aabaf361688b95e741c7c",
+    "receiver_started": "bd9423e58df42393848c167b2f478a9312b962a5fe6664391ebf00e677b9ed39",
+    "receiver_finished": "c65bb236f25909b540ecb34684ca844c763fc070216c9d531c231e992897a5d2"
+  },
+  "handoff": {
+    "schema_version": 1,
+    "run_id": "sargo-fingerprint-lab-readonly-20260911",
+    "result": "pass",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "root_fstype": "overlay",
+    "root_mode": "usb",
+    "resident": {},
+    "usb_policy_state": "masked",
+    "module_mount": "/dev/ublkb1[/usr/lib/modules/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64] erofs",
+    "selinux": "Enforcing",
+    "label_repair_state": "active",
+    "failed_units": [],
+    "checks": {
+      "run_id_present": true,
+      "disposable_root": true,
+      "matching_modules_present": true,
+      "root_transport_ready": true,
+      "slot_marking_disabled": true,
+      "usb_transport_policy": true,
+      "selinux_enforcing": true,
+      "writable_root_labels_restored": true
+    }
+  },
+  "final_host_state": {
+    "schema_version": 1,
+    "phase": "stopped",
+    "started_at": 1789109034.056863,
+    "uart": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0",
+    "run_id": "sargo-fingerprint-lab-readonly-20260911",
+    "control_ready": false,
+    "host_pid": 1636265,
+    "result": "pass",
+    "handoff_seconds": 57.845197916030884,
+    "control_disabled_reason": "new or unmatched kernel boot",
+    "reason": "operator stopped host; USB root no longer served"
+  }
+}

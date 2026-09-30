@@ -1,0 +1,84 @@
+{
+  "base_run": "sargo-fingerprint-lab-startup-20260911",
+  "code": {
+    "guard-device.py": "2ee6490309dd37c4e03c9d84efa76177204e6137cbab8c941506afb44109fd21",
+    "trial-startup.py": "752ad3f3c9e3727cdcf188007ca716b317ce350cfa96f4f783277abef386a2c8",
+    "keymaster-startup": "4cff2ecf8139cbfacb608e378d9fe372b17f105c823742a96cc03fef184cb371",
+    "lab_report.py": "7c9b8b163c65a86c1a129f8ddd93351fdd2a8ab75ba80a8677f3d1fa09a401df",
+    "stage-firmware.py": "58490e33af43b1d19280f097db1562401696c77dacd5ef3be5240e2877e2c0cf",
+    "firmware-manifest.json": "2fcd802c3c96c56ce4aa2ff2ed12513b02ed9ed3ead907486d1b43b08e72956b",
+    "inspect-device.py": "a25e334b2edafd76716df1cf82c42be6bfa4cbf2e35f412bb04605dff6d5d99d",
+    "rpmb-supplicant-ro": "a52b9fee11f477ae0d4aec189079fd97d4bdd332d9914e2e75c9854c5f26f41d",
+    "trial-read-only.py": "f05b20f13f9e73f340919013630c035e28f537bac17598cd4cdfdd552ae5e238"
+  },
+  "units": {
+    "pocketfed-fingerprint-lab-firmware.service": "95e3e5652682a3515aeb9f517257411847c3e174bf1f12849701b45a19e3fa76",
+    "pocketfed-fingerprint-lab-startup.service": "0904717f79d81af3af8cc3cb95a02f2e317d04c64bb0af77aff498ea4c3f76af",
+    "pocketfed-fingerprint-lab-probe.service": "4447c8233cc1f4a7ed32c887860f0987f89049c3dd3c19ea082b2a3fb9e204f8",
+    "pocketfed-fingerprint-lab-cmnlib.service": "83a7b5f0234d3d108329e1fe9cd0f9aaf0ae95b3372708ce1288eb39751c7e77",
+    "pocketfed-fingerprint-lab-rpmb.service": "9c9264bdc10b9b31a87470d44621eda12c733be296cfad54ecb0a0cdde59e8ab",
+    "pocketfed-fingerprint-lab-inspect.service": "7085abbd63728f3b540071250ec53079aefb1a2926283f2067dd52ac69520098",
+    "pocketfed-fingerprint-lab-readonly.service": "59d1acd98b1c43246f4df747a1ed68ad5a0fbdcdc07cb36626a7f34a6e5a772b",
+    "pocketfed-fingerprint-lab-fpc.service": "6dc6ccb7692ee11ff30651978e3ba84be7c04a982d7e42130c95c4943762116d",
+    "pocketfed-fingerprint-lab-keymaster.service": "7aa08edf109bd530fb992ff39c75d3e73fda092d4d86ea927bf0d6ab3fab2eae"
+  },
+  "profile": {
+    "schema_version": 1,
+    "id": "google-sargo",
+    "display_name": "PocketFed Pixel 3a liveboot",
+    "devicetree_name": "qcom/sdm670-google-sargo",
+    "match": [
+      {
+        "fastboot": {
+          "vid": 6353,
+          "pid": 20192
+        }
+      }
+    ],
+    "probe": [
+      {
+        "fastboot.getvar": "product",
+        "equals": "sargo"
+      }
+    ],
+    "boot": {
+      "fastboot_boot": {
+        "android_bootimg": {
+          "header_version": 2,
+          "page_size": 4096,
+          "base": 0,
+          "kernel_offset": 32768,
+          "dtb_offset": 50331648,
+          "kernel": {
+            "encoding": "image.gz"
+          }
+        }
+      }
+    },
+    "ramdisk_offset": 67108864,
+    "dracut_config": "tools/liveboot/profiles/google-sargo-initrd.conf",
+    "cmdline": [
+      "console=ttyMSM0,115200n8",
+      "earlycon",
+      "init_on_alloc=0",
+      "sysrq_always_enabled=1",
+      "module_blacklist=rpmsg_wwan_ctrl",
+      "systemd.firstboot=off",
+      "systemd.wants=pocketfed-liveboot-check.service",
+      "systemd.wants=pocketfed-liveboot-labels.service",
+      "systemd.unit=multi-user.target",
+      "systemd.wants=pocketfed-fingerprint-lab-startup.service",
+      "systemd.show_status=false"
+    ],
+    "fixture_image": "ghcr.io/samcday/pocketfed-phosh-google-sargo@sha256:bfb17e069aef329113a41d3b42c348e5f866d40f72e8a4ff16d2ceb0ce4db881"
+  },
+  "live_status": "startup, repeat already-ready check, sensor initialization/sleep and service shutdown passed; rebooted to fastboot and USB host stopped",
+  "run": "out/liveboot/runs/sargo-fingerprint-lab-ordered-20260911",
+  "handoff_seconds": 64.70009541511536,
+  "wrapped_blob_length": 152,
+  "rpmb_callbacks_observed": false,
+  "credential_operations": false,
+  "reboot_acknowledged": true,
+  "report_sha256": "dd378e7480c7c8f67bfa4ac4b6556195a38e943a952747ad54294b87236ffbc4",
+  "uart_sha256": "d8bcdfe29e15f0d2c653679b6ce34f39eb7fe8d39e78fa5e12a0c0e7731e622b"
+}

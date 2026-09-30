@@ -1,0 +1,7 @@
+{
+  "image_id": "d00f4e30950d566d2bb5181343d61836bf95e9d04f99cfb0a4c604def65889db",
+  "status": "rejected by independent policy comparison",
+  "reason": "Phosh RPM replaced Fedora system-auth-based /etc/pam.d/phosh with upstream pam_unix-only policy, dropping homed integration. The package and image must be corrected before a device trial.",
+  "other_findings": "No other baseline policy or enablement differences except the intended verifier release token and trial masks; exact initramfs module inventories match baseline.",
+  "device_changes": false
+}

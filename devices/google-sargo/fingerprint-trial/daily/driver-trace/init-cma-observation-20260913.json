@@ -1,0 +1,35 @@
+{
+  "date": "2026-09-13",
+  "boot_id": "958f6ac0-f6a3-4b7e-815d-875c2a9a948d",
+  "recovered_boot_id_from_uart": "8efc952f-549c-40b7-83ee-a8a00f8cc36e",
+  "serial": "994AY18RSD",
+  "source": "init-cma-20260913.c",
+  "controller": "init-cma-20260913.py",
+  "binary_sha256": "488a2e8127817179baa8080463118d59524633cdae7080df39ec463a50028ab8",
+  "cpu_affinity": "7",
+  "kernel_tracing": false,
+  "sensor_init_returned": true,
+  "sensor_init_status": {
+    "transport": 0,
+    "outer": 0,
+    "command": 0
+  },
+  "cma_allocations_completed": 1000,
+  "cma_bytes_per_allocation": 8192,
+  "last_complete_uart_marker": "FPC_INIT_CMA_END status=0",
+  "last_complete_uart_marker_uptime": 1093.739722,
+  "deep_sleep_result_recorded": false,
+  "deep_sleep_entry_recorded": false,
+  "capture_requested": false,
+  "credential_operation_requested": false,
+  "outcome": "spontaneous reset after allocation loop; user confirms no manual restart",
+  "assistant_reboot_command_sent": false,
+  "kernel_backtrace_obtained": false,
+  "conclusion": "CMA allocations completed after INIT. The run reset before the next secure command result was recorded; UART alone does not prove the exact reset point or watchdog cause.",
+  "limitations": [
+    "DMA-heap allocation does not exercise DMA coherent virtual mapping.",
+    "The 8 KiB baseline is not the exact FPC bounce allocation size: 64-byte request + 64-byte response + 4096-byte auxiliary yields a 12288-byte pool with the current kernel sizing.",
+    "Sensor command requests and responses are both 64 bytes, so the suspected general bounce response alignment issue does not affect these INIT/DEEP_SLEEP exchanges."
+  ],
+  "private_uart": "out/private/sargo-daily-cpu7-freeze-recovery-20260913/uart.log"
+}

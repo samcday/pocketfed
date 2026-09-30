@@ -1,0 +1,8 @@
+{
+  "status": "C-library decoder matches independent GLib bindings on the actual staged record",
+  "locked": true,
+  "target": {
+    "name": "d639fe55e1cf11b2756f367fef1dad99ab7e2705c19b0b72f73e80c265d16b89.0",
+    "bootcsum": "d709d8b08676754eebd5a73df44b1f57f6b0e0c9c535d3f2a6e1a529106dcb51"
+  }
+}

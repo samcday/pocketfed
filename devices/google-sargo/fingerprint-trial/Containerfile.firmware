@@ -1,0 +1,12 @@
+# Build-only component. No proprietary firmware is an input or image layer.
+# The outer trial recipe owns activation gates and the complete dependency chain.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+RUN dnf install -y --setopt=install_weak_deps=False python3 e2fsprogs && dnf clean all
+COPY --chmod=0755 extract-firmware.py /usr/libexec/pocketfed-fingerprint-firmware
+COPY firmware-manifest.json /usr/share/pocketfed/fingerprint-trial/firmware-manifest.json
+COPY pocketfed-fingerprint-firmware.service /usr/lib/systemd/system/pocketfed-fingerprint-firmware.service
+COPY qsee-shared-loader@cmnlib64.service.d/ /usr/lib/systemd/system/qsee-shared-loader@cmnlib64.service.d/
+COPY qsee-app-loader@fpctzappfingerprint.service.d/ /usr/lib/systemd/system/qsee-app-loader@fpctzappfingerprint.service.d/
+# Static units and drop-ins only: no extraction, enablement, mounts, module
+# loading, TA loading, or D-Bus calls occur during this image build.

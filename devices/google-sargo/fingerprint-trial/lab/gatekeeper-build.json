@@ -1,0 +1,47 @@
+{
+  "status": "live trial completed: Gatekeeper rejected after unsupported RPMB read callback; no credential exported",
+  "serial": "99NAY1AZG1",
+  "linux_uid": 1234,
+  "gatekeeper_uid": "0x700004d2",
+  "source_sha256": {
+    "enroll-once.c": "27a0d451c77a5ff8e2d6203b949479e78bddb989722cbfcffd8b1ce593bf4251",
+    "test-enroll-once.c": "042459003098257eba679e5d8f26b51dfbfd8029198a384024fd377068e0c45a",
+    "lab_vault.py": "38c4607d903be9c63a1557c2289ea87bc58d7b94f8863af92bcafa4dc6529216",
+    "test-lab-vault.py": "38b67e64d2456feefd9f5233d92de7c1f963a20a74c64a66f3a6fb2aade99927",
+    "trial-gatekeeper.py": "b5d5ef56786da40bc474ce881b1181f837ad255ab517692f741bc8372aa565ff",
+    "prepare-enroll-overlay.py": "5777508de2e915c019f3f8e212a74f60e65251c59506cbe09c57f6384ba02a55",
+    "encrypt-record.c": "037d8a6f95f7584009f4297cb93b60d757044a6b37d401b9c42e95be8e1099b6",
+    "test-export-helper.py": "8fda6117e131090a63cf259e194f927c2ca6a5aa589c614979802cafc10026ed"
+  },
+  "helper_sha256": "c9f20444e381a88dbd4987b99b136c1c4859ff5e7551a733cd97cc073b475664",
+  "receiver_sha256": "a52b9fee11f477ae0d4aec189079fd97d4bdd332d9914e2e75c9854c5f26f41d",
+  "validation": [
+    "Host one-attempt lifecycle tests passed",
+    "ARM64 one-attempt lifecycle tests passed",
+    "Host RSA-OAEP and vault/launch-seal tests passed",
+    "Real ARM64 exporter / host RSA-OAEP decryption and invalid-input tests passed",
+    "Final private fixture fsck/SELinux label verification passed",
+    "Final seal checked exporter and libcrypto.so.4 presence in EROFS",
+    "Controller/export child core dumps disabled before private record access"
+  ],
+  "private_vault": "out/private/sargo-gatekeeper-20260911",
+  "export_helper_sha256": "a20f642971821279327ec77f4db898c587162c3ecbf4a767e25172bdce7031c7",
+  "export_link_libraries": [
+    "libcrypto.so.4",
+    "libc.so.6"
+  ],
+  "preparation_correction": "Missing openssl CLI detected before launch; initial artifacts archived, original intent/key retained, library-based exporter added.",
+  "private_run": "out/private/sargo-gatekeeper-20260911/runs/sargo-fingerprint-lab-gatekeeper-ro-20260911",
+  "launch_seal_sha256": "971f71097e5e8abbe91af382b1f4572cc4017e8f27f098bc6d6a27b195c16f99",
+  "run_manifest_sha256": "8c35fbbaf3a4026018e2173896b523be8669c04199c29ca9b610542f428f14c2",
+  "approval": {
+    "state": "granted",
+    "user_message": "this device is yours to do with as you will :D yes approved",
+    "scope": "prepared one-time Gatekeeper credential trial on test-sargo, with durable private recovery material and read-only RPMB receiver",
+    "execution_started": true,
+    "launch_reservation_consumed": true
+  },
+  "result": "gatekeeper-result.json",
+  "handoff": "Enforcing SELinux, matching .11 kernel and USB overlay root; pass",
+  "ended": "SysRq reset acknowledged, exact serial in fastboot, USB hosting stopped"
+}

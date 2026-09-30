@@ -1,0 +1,10 @@
+ARG BASE_IMAGE
+FROM scratch AS inputs
+COPY inputs /inputs
+FROM ${BASE_IMAGE}
+COPY --chmod=0755 install-upgrade.py /tmp/install-fingerprint-upgrade.py
+RUN --mount=from=inputs,source=/inputs,target=/run/fingerprint-upgrade,ro \
+    /usr/bin/python3 /tmp/install-fingerprint-upgrade.py && \
+    rm /tmp/install-fingerprint-upgrade.py && \
+    /usr/libexec/pocketfed-verify-oci && bootc container lint
+LABEL io.pocketfed.fingerprint-trial.activation="masked-pending-daily-device-validation"

@@ -1,0 +1,40 @@
+{
+  "boot_id": "cbfa1a02-40ae-4f6b-9d57-2c4637634745",
+  "user_report": "Right index enrolled in GNOME Settings; match green and other fingers red. Phosh lockscreen fingerprint unlock succeeded without PIN.",
+  "workers": [
+    "Started phosh-fingerprint-auth@0-4097-9726_30210-1000.service - Fingerprint authentication transaction for a desktop user (PID 9726/UID 1000).",
+    "pam_systemd_home(phosh-fingerprint:account): Home for user sam successfully acquired.",
+    "phosh-fingerprint-auth@0-4097-9726_30210-1000.service: Main process exited, code=exited, status=1/FAILURE",
+    "phosh-fingerprint-auth@0-4097-9726_30210-1000.service: Failed with result 'exit-code'."
+  ],
+  "signals": [
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.EnrollStatus ('enroll-stage-passed', false)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.EnrollStatus ('enroll-stage-passed', false)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.EnrollStatus ('enroll-stage-passed', false)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.EnrollStatus ('enroll-stage-passed', false)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.EnrollStatus ('enroll-stage-passed', false)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.EnrollStatus ('enroll-stage-passed', false)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.EnrollStatus ('enroll-stage-passed', false)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.EnrollStatus ('enroll-stage-passed', false)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.EnrollStatus ('enroll-completed', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-no-match', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-match', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-match', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-no-match', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-no-match', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-match', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-match', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-match', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-no-match', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-no-match', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-no-match', true)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-too-fast', false)",
+    "/net/reactivated/Fprint/Device/0: net.reactivated.Fprint.Device.VerifyStatus ('verify-match', true)"
+  ],
+  "enrolled_finger": "right-index-finger",
+  "gnome_enrollment_completed": true,
+  "gnome_match_and_nonmatch_confirmed": true,
+  "phosh_unlock_user_confirmed": true,
+  "scope_limit": "Second-finger enrollment hit the separate Settings async-stop race; patch and retest are in progress. Persistence after a further reboot has not been tested yet.",
+  "worker_exit_note": "The supervisor unit reported exit 1 after the observed unlock. Its source can return 1 when the client disconnects after the PAM child sends success; do not describe all worker unit statuses as successful."
+}

@@ -1,0 +1,188 @@
+--- a/libfprint/drivers/fpcqsee/protocol.c
++++ b/libfprint/drivers/fpcqsee/protocol.c
+@@ -1,5 +1,9 @@
+ /* SPDX-License-Identifier: LGPL-2.1-or-later */
++#ifndef _GNU_SOURCE
++#define _GNU_SOURCE
++#endif
+ #include "protocol.h"
++#include "trial-trace.h"
+ #include <errno.h>
+ #include <limits.h>
+ #include <stdlib.h>
+@@ -65,8 +69,13 @@
+ {
+     struct fpc_result r = invalid(-EINVAL);
+     if (!p || !p->exchange || !b || n < 12) return r;
++    const uint32_t target = fpc_get_le32(b), command = fpc_get_le32(b + 4);
++    fpc_trial_trace("protocol.begin", target, command, 0);
+     r.transport = p->exchange(p->ctx, b, n, &r.outer);
++    fpc_trial_trace("protocol.transport", target, command, r.transport);
++    fpc_trial_trace("protocol.outer", target, command, r.outer);
+     if (!r.transport && !r.outer) r.command = (int32_t)fpc_get_le32(b + 8);
++    fpc_trial_trace("protocol.end", target, command, r.command);
+     return r;
+ }
+ struct fpc_result fpc_sensor(struct fpc_protocol *p,
+--- a/libfprint/drivers/fpcqsee/sensor.c
++++ b/libfprint/drivers/fpcqsee/sensor.c
+@@ -1,6 +1,7 @@
+ /* SPDX-License-Identifier: LGPL-2.1-or-later */
+ #define _GNU_SOURCE
+ #include "sensor.h"
++#include "trial-trace.h"
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <poll.h>
+@@ -15,14 +16,19 @@
+ int fpc_sensor_open(struct fpc_sensor_device *sensor, const char *path)
+ {
+     if (!sensor || !path) return -EINVAL;
++    fpc_trial_trace("sensor.open.begin", 0, 0, 0);
+     sensor->fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
++    fpc_trial_trace("sensor.open.end", 0, 0, sensor->fd < 0 ? -errno : 0);
+     return sensor->fd < 0 ? -errno : 0;
+ }
+ int fpc_sensor_wakeup(struct fpc_sensor_device *sensor, bool enable)
+ {
+     __u32 value = enable;
+     if (!sensor || sensor->fd < 0) return -EINVAL;
+-    return ioctl(sensor->fd, FPC1020_IOC_SET_WAKEUP, &value) ? -errno : 0;
++    fpc_trial_trace("sensor.wakeup.begin", value, 0, 0);
++    int result = ioctl(sensor->fd, FPC1020_IOC_SET_WAKEUP, &value) ? -errno : 0;
++    fpc_trial_trace("sensor.wakeup.end", value, 0, result);
++    return result;
+ }
+ void fpc_sensor_close(struct fpc_sensor_device *sensor)
+ {
+@@ -36,7 +42,10 @@
+ int fpc_sensor_reset(struct fpc_sensor_device *sensor)
+ {
+     if (!sensor || sensor->fd < 0) return -EINVAL;
+-    return ioctl(sensor->fd, FPC1020_IOC_RESET) ? -errno : 0;
++    fpc_trial_trace("sensor.reset.begin", 0, 0, 0);
++    int result = ioctl(sensor->fd, FPC1020_IOC_RESET) ? -errno : 0;
++    fpc_trial_trace("sensor.reset.end", 0, 0, result);
++    return result;
+ }
+ int fpc_sensor_snapshot(struct fpc_sensor_device *sensor, struct fpc1020_irq_event *event)
+ {
+--- a/libfprint/drivers/fpcqsee/qsee-transport.c
++++ b/libfprint/drivers/fpcqsee/qsee-transport.c
+@@ -1,6 +1,7 @@
+ /* SPDX-License-Identifier: LGPL-2.1-or-later */
+ #define _GNU_SOURCE
+ #include "qsee-transport.h"
++#include "trial-trace.h"
+ 
+ #include <endian.h>
+ #include <errno.h>
+@@ -125,10 +126,13 @@
+     request->params[0].c = name.id;
+     buffer.buf_ptr = (uintptr_t)request;
+     buffer.buf_len = size;
++    fpc_trial_trace("tee.session.begin", 0, 0, 0);
+     if (ioctl(session->fd, TEE_IOC_OPEN_SESSION, &buffer)) {
+         result = -errno;
+-        goto out;
+-    }
++        fpc_trial_trace("tee.session.end", 0, 0, result);
++        goto out;
++    }
++    fpc_trial_trace("tee.session.end", 0, 0, request->ret);
+     if (request->ret) {
+         result = -EREMOTEIO;
+         goto out;
+@@ -154,7 +158,9 @@
+         return;
+     if (session->opened && session->fd >= 0) {
+         struct tee_ioctl_close_session_arg request = { .session = session->id };
+-        ioctl(session->fd, TEE_IOC_CLOSE_SESSION, &request);
++        fpc_trial_trace("tee.close.begin", 0, 0, 0);
++        int close_result = ioctl(session->fd, TEE_IOC_CLOSE_SESSION, &request);
++        fpc_trial_trace("tee.close.end", 0, 0, close_result ? -errno : 0);
+         close(session->fd);
+     }
+     session->fd = -1;
+@@ -215,10 +221,13 @@
+     }
+     buffer.buf_ptr = (uintptr_t)request;
+     buffer.buf_len = size;
++    fpc_trial_trace("tee.invoke.begin", 0, 0, 0);
+     if (ioctl(session->fd, TEE_IOC_INVOKE, &buffer)) {
+         result = -errno;
+-        goto out;
+-    }
++        fpc_trial_trace("tee.invoke.end", 0, 0, result);
++        goto out;
++    }
++    fpc_trial_trace("tee.invoke.end", 0, 0, request->ret);
+     if (request->ret) {
+         result = -EREMOTEIO;
+         goto out;
+--- a/libfprint/drivers/fpcqsee/fpc-qsee.c
++++ b/libfprint/drivers/fpcqsee/fpc-qsee.c
+@@ -6,6 +6,7 @@
+ #include "drivers_api.h"
+ #include "fpc-qsee.h"
+ #include "auth-client.h"
++#include "trial-trace.h"
+ #include <errno.h>
+ #include <dirent.h>
+ #include <fcntl.h>
+@@ -499,6 +500,7 @@
+   g_autoptr(GError) error = NULL;
+   struct result *result = g_new0 (struct result, 1);
+   gboolean success = FALSE;
++  fpc_trial_trace ("worker.begin", work->operation, 0, 0);
+   if (work->operation != OP_CLOSE && cancelled (cancel, &error)) goto out;
+   if (work->operation == OP_OPEN)
+     {
+@@ -544,6 +546,7 @@
+   else g_assert_not_reached ();
+   success = store_database (self, &error);
+ out:
++  fpc_trial_trace ("worker.end", work->operation, 0, success ? 0 : -1);
+   if (!success && work->operation == OP_OPEN) release_device (self);
+   if (success) g_task_return_pointer (task, result, g_free);
+   else
+--- /dev/null
++++ b/libfprint/drivers/fpcqsee/trial-trace.h
+@@ -0,0 +1,37 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later */
++/* Diagnostic-build-only markers. Call with literal stage names and operation
++ * numbers/statuses only. Never pass buffers, addresses, IDs or token values.
++ * One bounded write per marker; tracing failures must not change errno or the
++ * driver result. This deliberately adds latency and is not production logging.
++ */
++#ifndef FPC_TRIAL_TRACE_H
++#define FPC_TRIAL_TRACE_H
++#include <errno.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <sys/syscall.h>
++#include <time.h>
++#include <unistd.h>
++
++static inline void
++fpc_trial_trace(const char *stage, int64_t a, int64_t b, int64_t status)
++{
++    int saved_errno = errno;
++    struct timespec now = {0};
++    unsigned cpu = 0;
++    long tid = syscall(SYS_gettid);
++    int cpu_result = syscall(SYS_getcpu, &cpu, NULL, NULL);
++    char line[192];
++    (void)clock_gettime(CLOCK_MONOTONIC, &now);
++    int n = snprintf(line, sizeof(line),
++                     "FPC_TRACE %lld.%06ld tid=%ld cpu=%d %s a=%lld b=%lld status=%lld\n",
++                     (long long)now.tv_sec, now.tv_nsec / 1000, tid,
++                     cpu_result ? -1 : (int)cpu, stage,
++                     (long long)a, (long long)b, (long long)status);
++    if (n > 0 && (size_t)n < sizeof(line)) {
++        ssize_t written = write(STDERR_FILENO, line, (size_t)n);
++        (void)written;
++    }
++    errno = saved_errno;
++}
++#endif

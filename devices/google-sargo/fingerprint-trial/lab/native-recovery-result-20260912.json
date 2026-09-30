@@ -1,0 +1,224 @@
+{
+  "run_id": "sargo-fingerprint-lab-native-recovery-20260912",
+  "serial": "99NAY1AZG1",
+  "linux_uid": 1000,
+  "gatekeeper_uid": "0x700003e8",
+  "gatekeeper_enrollment": true,
+  "fingerprint_enrollment": false,
+  "existing_native_record_recovery": true,
+  "steps": [
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-firmware.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "qsee-supplicant.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "qsee-shared-loader@cmnlib64.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "qsee-app-loader@fpctzappfingerprint.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-keymaster-startup.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fpc-native-recovery-probe.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fpc-native-recovery-probe.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-keymaster-startup.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-app-loader@fpctzappfingerprint.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-shared-loader@cmnlib64.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "qsee-supplicant.service",
+      "status": 0,
+      "state": [
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0"
+      ]
+    }
+  ],
+  "prior_lab_credential_unchanged": true,
+  "intent_backup_matches": true,
+  "recovery_receipt_retained": true,
+  "result": "existing native lab UID 1000 recovered; encrypted export emitted",
+  "clean_shutdown": true,
+  "events": {
+    "pocketfed-fpc-native-recovery-probe.service": [
+      "Starting pocketfed-fpc-native-recovery-probe.service - One existing native UID 1000 recovery on test-sargo...",
+      "recovery_backend_status=0",
+      "recovery_enroll_transport=0 secure_status=0 validated_handle_length=58",
+      "recovery_commit_status=0",
+      "recovery_result=0",
+      "pocketfed-fpc-native-recovery-probe.service: Deactivated successfully.",
+      "Finished pocketfed-fpc-native-recovery-probe.service - One existing native UID 1000 recovery on test-sargo."
+    ],
+    "qsee-supplicant.service": [
+      "Starting qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant...",
+      "event=rpmb_ready sectors_512=32768 reliable_frames=32 authenticated_writes=1",
+      "event=listener_registered transport=qseecom id=10 size=20480",
+      "event=listener_registered transport=qseecom id=28672 size=516096",
+      "event=listener_registered transport=qseecom id=8192 size=25600",
+      "Started qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant.",
+      "Stopping qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant...",
+      "event=shutdown status=0 errno=0 stopping=1",
+      "qsee-supplicant.service: Deactivated successfully.",
+      "Stopped qsee-supplicant.service - Machine-wide Qualcomm TEE supplicant."
+    ],
+    "pocketfed-keymaster-startup.service": [
+      "Starting pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement...",
+      "wrapped_key transport=0 status=-24",
+      "get_hmac_parameters transport=0 status=0",
+      "compute_shared_hmac transport=0 status=0",
+      "sharing_check_length=32 participants=1",
+      "wrapped_key transport=0 status=0 codec_status=0 validated_blob_length=152",
+      "initialization_status=0",
+      "Finished pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement.",
+      "pocketfed-keymaster-startup.service: Deactivated successfully.",
+      "Stopped pocketfed-keymaster-startup.service - Prepare the Sargo Keymaster HMAC agreement."
+    ]
+  },
+  "schema_version": 1,
+  "source_image": "sha256:094ad9568428bb5351e0ab9d3c03c59ec71db60ed0d79b68ac7f53325d27f861",
+  "recovery_binary_sha256": "c36459ccbca8ceb6fed8b745c3817659ae3ebd71af164eff801dde94bbcccb22",
+  "credential_retained_privately": true,
+  "credential_changed": true,
+  "secure_user_id_changed": true,
+  "secret_unchanged": true,
+  "original_vault_retained": true,
+  "uart_sha256": "d37db67b534af7a6c2d05537bc86a5570703e3c295770b2eed72a7c644c1fcc6",
+  "handoff": {
+    "schema_version": 1,
+    "run_id": "sargo-fingerprint-lab-native-recovery-20260912",
+    "result": "pass",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "root_fstype": "overlay",
+    "root_mode": "usb",
+    "resident": {},
+    "usb_policy_state": "masked",
+    "module_mount": "/dev/ublkb1[/usr/lib/modules/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64] erofs",
+    "selinux": "Enforcing",
+    "label_repair_state": "active",
+    "failed_units": [],
+    "checks": {
+      "run_id_present": true,
+      "disposable_root": true,
+      "matching_modules_present": true,
+      "root_transport_ready": true,
+      "slot_marking_disabled": true,
+      "usb_transport_policy": true,
+      "selinux_enforcing": true,
+      "writable_root_labels_restored": true
+    }
+  },
+  "recovery": {
+    "uart_reset_requested": true,
+    "fastboot_serial": "99NAY1AZG1",
+    "usb_host_stopped_after_fastboot": true,
+    "host_exit_status": 0
+  },
+  "scope": "Existing native UID 1000 recovery on test-sargo using exact daily binary; no daily access or physical fingerprint test"
+}

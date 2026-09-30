@@ -1,0 +1,106 @@
+{
+  "captured_at": "2026-09-10T07:40:34.853518+00:00",
+  "kernel": "7.1.2-0.pocketfed.sdm670.8.fc46.aarch64",
+  "model": "Google Pixel 3a",
+  "compatible": [
+    "google,sargo",
+    "qcom,sdm670"
+  ],
+  "device_nodes": [],
+  "dt_matches": {
+    "reserved-memory/qseecom@9e400000": {
+      "reg": {
+        "hex": "000000009e4000000000000001400000"
+      },
+      "no-map": {
+        "hex": ""
+      }
+    }
+  },
+  "bus_devices": {
+    "/sys/bus/spi/devices/spi0.0": {
+      "modalias": "spi:rt5514",
+      "driver": "/sys/bus/spi/drivers/rt5514"
+    }
+  },
+  "matching_firmware_paths": [],
+  "kernel_config": [
+    "CONFIG_TEE_STMM_EFI=m",
+    "CONFIG_QCOM_SCM=y",
+    "CONFIG_QCOM_QSEECOM=y",
+    "CONFIG_QCOM_QSEECOM_UEFISECAPP=y",
+    "CONFIG_SPI_QCOM_QSPI=m",
+    "CONFIG_SPI_QCOM_GENI=m",
+    "CONFIG_TEE=m",
+    "CONFIG_TEE_DMABUF_HEAPS=y",
+    "CONFIG_QCOMTEE=m"
+  ],
+  "packages": {
+    "argv": [
+      "rpm",
+      "-qa",
+      "--qf",
+      "%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n"
+    ],
+    "returncode": 0,
+    "stdout": "blob-wrangler-v0.0.1-1.20260909081322171050.pr16.6.gd941987.fc45.aarch64\nkernel-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\nkernel-core-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\nkernel-modules-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\nkernel-modules-core-7.1.2-0.pocketfed.sdm670.8.fc46.aarch64\nphosh-0.57.0-1.fc46.aarch64\nphosh-mobile-settings-0.57.0-1.fc46.aarch64\nphosh-tour-0.57.0-1.fc46.aarch64",
+    "stderr": ""
+  },
+  "units": {
+    "argv": [
+      "systemctl",
+      "list-unit-files",
+      "--no-pager",
+      "--no-legend"
+    ],
+    "returncode": 0,
+    "stdout": "blob-wrangler.service                        enabled         enabled",
+    "stderr": ""
+  },
+  "loaded_modules": {
+    "argv": [
+      "lsmod"
+    ],
+    "returncode": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "kernel_messages": {
+    "argv": [
+      "journalctl",
+      "-k",
+      "-b",
+      "--no-pager",
+      "-o",
+      "short-monotonic",
+      "-g",
+      "qsee|qcomtee|fingerprint|fpc|qcom_scm"
+    ],
+    "returncode": 0,
+    "stdout": "[    3.968574] sam-sargo kernel: OF: reserved mem: 0x000000009e400000..0x000000009f7fffff (20480 KiB) nomap non-reusable qseecom@9e400000\n[    3.990290] sam-sargo kernel: qcom_scm: convention: smc arm 64\n[    3.992806] sam-sargo kernel: qcom_scm firmware:scm: qseecom: found qseecom with version 0x1400000\n[    3.994692] sam-sargo kernel: qcom_scm firmware:scm: qseecom: untested machine, skipping\n",
+    "stderr": ""
+  },
+  "qcomtee_module": {
+    "argv": [
+      "modinfo",
+      "qcomtee"
+    ],
+    "returncode": 0,
+    "stdout": "filename:       /lib/modules/7.1.2-0.pocketfed.sdm670.8.fc46.aarch64/kernel/drivers/tee/qcomtee/qcomtee.ko.xz\nlicense:        GPL\nversion:        1.0\ndescription:    QTEE driver\nauthor:         Qualcomm\nsrcversion:     D8343998148C98B845D94C2\nalias:          platform:qcomtee\ndepends:        tee\nintree:         Y\nname:           qcomtee\nvermagic:       7.1.2-0.pocketfed.sdm670.8.fc46.aarch64 SMP preempt mod_unload aarch64\nsig_id:         PKCS#7\nsigner:         Fedora kernel signing key\nsig_key:        2B:4B:AA:0D:91:6C:50:08:D1:4A:62:99:FD:9E:15:DE:93:69:69:71\nsig_hashalgo:   sha256\nsignature:      56:71:A6:36:39:13:5E:D5:F1:2E:39:27:F8:26:2D:D2:A9:5F:4A:51:\n\t\tA1:0F:A8:EC:47:83:FE:90:F8:E7:05:D0:E1:EB:21:58:E2:B8:E5:3F:\n\t\t48:EC:99:90:D8:41:C4:A3:E4:3A:6C:D6:8B:AB:F6:0F:7D:92:35:6D:\n\t\t7D:76:69:D7:F0:C7:35:67:48:D3:28:05:55:C6:EF:70:DB:5C:89:AE:\n\t\t56:82:59:5C:BD:5C:B7:12:0A:B8:EA:70:19:87:12:CA:6A:E7:3B:5B:\n\t\tC7:41:1D:21:2B:BC:FF:54:B6:56:06:99:C4:19:DE:F3:FA:18:C2:67:\n\t\t94:66:6F:52:87:02:04:12:8D:7B:AC:4E:81:64:43:1C:26:22:68:B8:\n\t\t54:8C:F6:98:8C:77:FC:0D:33:6B:0A:A2:D8:B9:5E:8F:CC:8B:FF:9E:\n\t\tEF:7C:BF:4A:F8:86:DC:09:F9:13:85:E3:E2:6C:67:22:12:DB:2F:5A:\n\t\tE4:87:D9:C8:6A:6C:75:4B:00:39:D5:A2:8A:9A:77:DD:25:21:F8:F4:\n\t\t1C:5C:C1:2A:C0:F6:6F:8E:1C:28:47:F0:60:AB:4A:81:40:73:C3:72:\n\t\t2C:28:1C:3D:18:77:DF:C2:1B:3C:97:EF:1D:12:CA:B9:B1:8D:85:0B:\n\t\tF9:F2:D1:B6:8D:67:48:DF:29:25:9F:FF:BB:A6:39:39:15:A7:04:CA:\n\t\tF5:63:C3:5A:05:C9:49:BE:34:56:63:01:43:6C:06:5D:BB:74:2A:C9:\n\t\t01:F1:40:0D:46:6D:7E:32:09:8F:52:72:E8:91:80:9D:79:22:27:DC:\n\t\t50:4E:32:DD:57:69:D5:D0:5E:2B:FE:72:D2:1F:B0:42:07:24:CD:1C:\n\t\t9B:39:93:B7:33:22:3D:D6:C2:C1:D9:93:1B:F6:1E:52:EA:C2:E7:8F:\n\t\tEA:29:0D:36:B4:EF:E3:79:25:3E:F0:73:EC:10:DF:69:C5:09:15:31:\n\t\t26:79:CA:E2:EC:08:0D:D3:D0:0E:6D:A3:02:7E:80:72:F7:9F:86:C9:\n\t\t08:4B:08:D0:0F:23:3A:53:E3:12:FD:B5:58:90:74:58:5C:53:FE:84:\n\t\t6D:DE:11:1A:D0:A6:0F:25:73:5A:1E:E2:AB:77:DF:C3:CC:51:4D:7E:\n\t\tA9:C5:9E:D6:B0:AC:02:A9:73:00:97:20:C1:CC:99:5F:02:72:80:A0:\n\t\t39:08:7E:29:D8:ED:BC:27:DE:9C:77:11:D1:57:83:E9:4D:E2:91:35:\n\t\tB2:E3:27:61:E4:45:96:78:D0:C0:16:46:63:F0:E0:3B:4E:93:1C:A1:\n\t\t1E:C1:46:B2:F4:6F:63:C1:CF:56:80:36:5D:43:D7:EB:D4:03:82:F5:\n\t\t7F:AC:C6:D4:7C:B0:B7:5E:8D:43:4D:49\n",
+    "stderr": ""
+  },
+  "blob_config": "[wrangler]\ndynpart = \"system\"\nfirmware = [\n    { partition = \"vendor\", origin = \"firmware\", destination = \"qcom/sdm670/sargo\", files = [\n            { name = \"a615_zap.mdt\" },\n            { name = \"adsp.mdt\" },\n            { name = \"adspr.jsn\" },\n            { name = \"adspua.jsn\" },\n            { name = \"cdsp.mdt\" },\n            { name = \"cdspr.jsn\" },\n            { name = \"ipa_fws.mdt\" },\n            { name = \"modemuw.jsn\" },\n            { name = \"venus.mdt\" },\n            { name = \"wlanmdsp.mbn\" },\n        ] },\n    { partition = \"vendor\", origin = \"etc/acdbdata/OEM/sdm670-intcodec-s4-snd-card\", destination = \"qcom/sdm670/sargo\", files = [\n            { name = \"Global_cal.acdb\" },\n        ] },\n    { partition = \"vendor\", origin = \"firmware\", destination = \"qca/sargo\", files = [\n            { name = \"crnv21.bin\" },\n        ] },\n    { partition = \"vendor\", origin = \"firmware\", destination = \"qca\", files = [\n            { name = \"crbtfw21.tlv\" },\n        ] },\n    { partition = \"vendor\", origin = \"rfs/msm/mpss/readonly/vendor/mbn/mcfg_sw/generic/AUNZ/Telstra/Commercial\", destination = \"qcom/sdm670/sargo/mcfg\", files = [\n            { name = \"mcfg_sw.mbn\", rename = \"telstra-au-commercial.mbn\" },\n        ] },\n    { partition = \"vendor\", origin = \"rfs/msm/mpss/readonly/vendor/mbn/mcfg_sw/generic/AUNZ/Optus/Commercial/AU\", destination = \"qcom/sdm670/sargo/mcfg\", files = [\n            { name = \"mcfg_sw.mbn\", rename = \"optus-au-commercial.mbn\" },\n        ] },\n    { partition = \"modem\", origin = \"image\", destination = \"qcom/sdm670/sargo\", files = [\n            { name = \"mba.mbn\" },\n            { name = \"modem.mdt\" },\n            { name = \"modemr.jsn\" },\n        ] },\n]\nfolders = [\n    { partition = \"vendor\", destination = \"/var/lib/blob-wrangler/sensors\", folders = [\n        { name = \"dsp\" },\n        { name = \"etc/acdbdata\", rename = \"acdb\" },\n        { name = \"etc/sensors\" },\n    ] },\n    { partition = \"persist\", destination = \"/var/lib/blob-wrangler/sensors/sensors\", folders = [\n        { name = \"sensors/registry/registry\" },\n    ] },\n]",
+  "auth_fingerprint_references": {
+    "argv": [
+      "grep",
+      "-HnE",
+      "fprint|fingerprint",
+      "/etc/pam.d/phosh",
+      "/etc/pam.d/system-auth",
+      "/etc/pam.d/fingerprint-auth"
+    ],
+    "returncode": 1,
+    "stdout": "",
+    "stderr": ""
+  }
+}

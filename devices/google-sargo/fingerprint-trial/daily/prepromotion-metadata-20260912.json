@@ -1,0 +1,109 @@
+{
+  "scope": "Read-only daily sam-sargo prepromotion metadata; no credential contents",
+  "identity": [
+    "androidboot.serialno=994AY18RSD",
+    "androidboot.slot_suffix=_b"
+  ],
+  "kernel": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+  "policy_sha256": {
+    "/etc/selinux/targeted/policy/policy.35": "2a6013d4c22133f1ea730df92bcf4c739b5ac49e43682007cce59ac39f99913a"
+  },
+  "packages": {
+    "status": 1,
+    "stdout": "libfprint-1.94.100-1.3.pocketfed.fc46.aarch64\nlibfprint-fpc-qsee-1.94.100-1.3.pocketfed.fc46.aarch64\nfprintd-1.94.5-6.fc45.aarch64\nfprintd-pam-1.94.5-6.fc45.aarch64\nqsee-supplicant-0.1.1-1.3.pocketfed.fc46.aarch64\npackage qsee-supplicant-sargo-rpmb is not installed\npocketfed-fpc-auth-0.1.0-0.2.pocketfed.fc46.aarch64\nphosh-0.57.0-1.5.fingerprint.fc46.aarch64\ngnome-control-center-51~beta-1.1.fingerprint.fc46.aarch64\nphosh-fingerprint-auth-0.1.0-0.1.pocketfed.fc46.aarch64",
+    "stderr": ""
+  },
+  "units": {
+    "qsee-supplicant.service": {
+      "status": 0,
+      "stdout": "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nResult=success\nNRestarts=0",
+      "stderr": ""
+    },
+    "qsee-shared-loader@cmnlib64.service": {
+      "status": 0,
+      "stdout": "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nResult=success\nNRestarts=0",
+      "stderr": ""
+    },
+    "qsee-app-loader@fpctzappfingerprint.service": {
+      "status": 0,
+      "stdout": "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nResult=success\nNRestarts=0",
+      "stderr": ""
+    },
+    "pocketfed-keymaster-startup.service": {
+      "status": 0,
+      "stdout": "LoadState=not-found\nActiveState=inactive\nSubState=dead\nMainPID=0\nResult=success\nNRestarts=0",
+      "stderr": ""
+    },
+    "pocketfed-fpc-auth.socket": {
+      "status": 0,
+      "stdout": "LoadState=masked\nActiveState=inactive\nSubState=dead\nResult=success",
+      "stderr": ""
+    },
+    "pocketfed-fpc-auth.service": {
+      "status": 0,
+      "stdout": "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nResult=success\nNRestarts=0",
+      "stderr": ""
+    },
+    "fprintd.service": {
+      "status": 0,
+      "stdout": "LoadState=loaded\nActiveState=inactive\nSubState=dead\nMainPID=0\nResult=success\nNRestarts=0",
+      "stderr": ""
+    },
+    "phosh-fingerprint-auth.socket": {
+      "status": 0,
+      "stdout": "LoadState=masked\nActiveState=inactive\nSubState=dead\nResult=success",
+      "stderr": ""
+    }
+  },
+  "credential_files": [
+    {
+      "path": "/var/lib/pocketfed-fpc-auth/.lock",
+      "exists": true,
+      "mode": "0o600",
+      "uid": 0,
+      "gid": 0,
+      "bytes": 0,
+      "links": 1,
+      "regular": true,
+      "symlink": null
+    },
+    {
+      "path": "/var/lib/pocketfed-fpc-auth/uid-1000.first-recovery-attempt",
+      "exists": true,
+      "mode": "0o600",
+      "uid": 0,
+      "gid": 0,
+      "bytes": 132,
+      "links": 1,
+      "regular": true,
+      "symlink": null
+    },
+    {
+      "path": "/var/lib/pocketfed-fpc-auth/uid-1000.intent",
+      "exists": true,
+      "mode": "0o600",
+      "uid": 0,
+      "gid": 0,
+      "bytes": 160,
+      "links": 1,
+      "regular": true,
+      "symlink": null
+    }
+  ],
+  "phosh_pam_sha256": "695d627f3d54bf6010b001bef211792f536437c34b01d60833862c4a9509d5b6",
+  "booted_checksum": "0a32cb8e3b19f53ea0525b1c07a9bd932060fd9a2253a6b97bb478e078fd48a4",
+  "base_image_id": "sha256:29e0cb65295162732906be1d0acb3915484ab229f4cb4f22a85657527ad48fdc",
+  "container_manifest": "sha256:9818228adae63d0f5eb859f131f40eeb815c6ae9aeb7a5ce9399e2b279a236b0",
+  "requests": {
+    "requested-packages": [
+      "tailscale"
+    ],
+    "requested-local-packages": [],
+    "requested-base-local-replacements": [
+      "81voltd-1.2.0-1.1.pocketfed.fc46.aarch64",
+      "ModemManager-1.24.2-5.1.pocketfed.fc46.aarch64",
+      "ModemManager-glib-1.24.2-5.1.pocketfed.fc46.aarch64",
+      "gtk4-4.23.4-1.1.pocketfed.fc46.aarch64"
+    ]
+  }
+}

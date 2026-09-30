@@ -1,0 +1,97 @@
+{
+  "status": "Independent image comparison passed; not yet staged or booted",
+  "base_image": "sha256:29e0cb65295162732906be1d0acb3915484ab229f4cb4f22a85657527ad48fdc",
+  "candidate_image": "sha256:39fd4d186f6235332d3ae1c6101b676091243d57d9d7d609a91f8962448f54b1",
+  "updated_packages": {
+    "qsee-supplicant": "0:0.1.1-1.4.pocketfed.fc46.aarch64",
+    "qsee-supplicant-sargo-rpmb": "0:0.1.1-1.4.pocketfed.fc46.aarch64",
+    "pocketfed-fpc-auth": "0:0.1.0-0.4.pocketfed.fc46.aarch64",
+    "libfprint": "0:1.94.100-1.6.pocketfed.fc46.aarch64",
+    "libfprint-fpc-qsee": "0:1.94.100-1.6.pocketfed.fc46.aarch64",
+    "pocketfed-fpc-selinux": "0:0.1.0-0.2.pocketfed.fc46.noarch"
+  },
+  "package_count": 940,
+  "preserved": [
+    "complete embedded boot payload",
+    "kernel, DT and fingerprint modules",
+    "current baseline initramfs module inventory",
+    "PIN/authentication policy",
+    "all unrelated package versions",
+    "unrelated systemd files",
+    "five activation masks"
+  ],
+  "changed_package_files": {
+    "files": [
+      "/usr/lib/systemd/system/pocketfed-fpc-auth.service",
+      "/usr/lib/systemd/system/pocketfed-fpc-provision@.service",
+      "/usr/lib/systemd/system/pocketfed-keymaster-startup.service"
+    ],
+    "systemd": [
+      "/usr/lib/systemd/system/fprintd.service.d/90-fpc-qsee.conf",
+      "/usr/lib/systemd/system/pocketfed-fpc-auth.service",
+      "/usr/lib/systemd/system/pocketfed-fpc-provision@.service",
+      "/usr/lib/systemd/system/pocketfed-keymaster-startup.service"
+    ]
+  },
+  "changed_policy_files": [
+    "/etc/selinux/targeted/contexts/files/file_contexts",
+    "/etc/selinux/targeted/contexts/files/file_contexts.bin",
+    "/etc/selinux/targeted/policy/policy.35"
+  ],
+  "initramfs_module_count": 95,
+  "broker_policy_sha256": "da1c3527aca1668594c767e610c4e98ec07c97c40d2feafa73c0d3d6fff57174",
+  "sources": {
+    "install-upgrade.py": "f243584386493961d4c664c51ad19839017ea826749c3e11f53cd6a91cbe4ae6",
+    "test-recovery-bundle.py": "17ccf6221d0ef13d9154732a23a82b538c5879353fc245544f81b47bad6ffc34",
+    "inspect-image.py": "c16621177a96436cadd38b303cdd775dd82638bb93b70c4bd84cfc8aaaeed35d",
+    "prepare-recovery.py": "bb2605e7f7e1945ff9ce162c451ffb22280bb211b808d7f46b851e9e525e0254",
+    "compare-images.py": "fb27a466254cc70bd22fd1979a61a35ac3902dbcf7f0b20d9a87eaf9b17094bd",
+    "launch-recovery.py": "1f40e96cc1708a7833d45b2bd70dd700e417320f36bb66f9d2c04156269bc622"
+  },
+  "evidence": {
+    "base-facts-current.json": "79288787e626e5be63e1101caa9e822796c45c218e7e5b2c9c00d4d7d1e04207",
+    "candidate-facts-current.json": "d745bdd21f63666db02831f51aa62c181eb16cf7b0073ece88beca409d60840f",
+    "build-r2.log": "5a8b9dd6612b6deb51f10495c3dc0bae693aab9b70d3fa3068c43b4762fd492b"
+  },
+  "oci": {
+    "manifest": "sha256:0e9857f2e728ae874706925166e42bc18123d2b17b28ee1ea65f6f2a88f6a1c0",
+    "image": "sha256:39fd4d186f6235332d3ae1c6101b676091243d57d9d7d609a91f8962448f54b1",
+    "layers": 143
+  },
+  "offline_broker_policy": {
+    "status": "offline compile and boundaries passed; hardware acceptance pending",
+    "base_policy_sha256": "2a6013d4c22133f1ea730df92bcf4c739b5ac49e43682007cce59ac39f99913a",
+    "policy_sha256": "da1c3527aca1668594c767e610c4e98ec07c97c40d2feafa73c0d3d6fff57174",
+    "module_sha256": "1c9703327b4a4ea0ef06a710a8ff457f15294c34ace0506845ec499142d4f143",
+    "sources": {
+      "pocketfed_fpc_broker.te": "bc31b6884d9bc5a582fbf2fec14cc06019385315c1566dcdedb4adcddf289346",
+      "pocketfed_fpc_broker.fc": "6c46092f5bce9130f4489db533d76f3b0a7aea33b6b7fadc09c1831ff73b0b3b",
+      "prepare-policy.py": "3ef623edb83f2362a523552cd17a893ae6442dfced7c90420c7db2c1db0f8209"
+    },
+    "existing_policy_preserved_outside_new_types": true,
+    "broker_domain_attributes": [
+      "domain"
+    ],
+    "fprintd_still_confined": true,
+    "fprintd_credential_access_denied": true,
+    "generic_service_peer_access_unchanged": true,
+    "public_tee_ioctls": [
+      "0xa400",
+      "0xa401",
+      "0xa402",
+      "0xa403",
+      "0xa405"
+    ],
+    "negative_checks": [
+      "private/generic TEE and RPMB devices",
+      "sensor access",
+      "generic filesystem writes",
+      "subprocess execution",
+      "network socket creation",
+      "unrelated executable/path labels"
+    ],
+    "host_policy_loaded": false
+  },
+  "build_log": "/tmp/sargo-fingerprint-daily-upgrade-20260912/build-r2.log",
+  "historical_validator_limit": "The original 11 September validator requires DRM modules absent from both current Plymouth baseline and candidate initramfs. Current parser independently validates both embedded boot payloads and requires identical complete current module inventories."
+}

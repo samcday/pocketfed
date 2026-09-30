@@ -1,0 +1,39 @@
+{
+  "status": "staged and verified; finalization locked; no reboot or credential recovery performed",
+  "booted_checksum": "06d451841d0119060d454da1744bdb47ce1bec3815530775aec3be4f235560b2",
+  "staged_checksum": "d639fe55e1cf11b2756f367fef1dad99ab7e2705c19b0b72f73e80c265d16b89",
+  "boot_id_unchanged": true,
+  "locked": true,
+  "pins": 10,
+  "package_requests_preserved": true,
+  "pin_pam_sha256": "695d627f3d54bf6010b001bef211792f536437c34b01d60833862c4a9509d5b6",
+  "credential_state_metadata": [
+    {
+      "name": ".lock",
+      "bytes": 0,
+      "mode": "0o600"
+    },
+    {
+      "name": "uid-1000.first-recovery-attempt",
+      "bytes": 132,
+      "mode": "0o600"
+    },
+    {
+      "name": "uid-1000.intent",
+      "bytes": 160,
+      "mode": "0o600"
+    },
+    {
+      "name": "uid-1000.pre-storage-recovery.intent",
+      "bytes": 160,
+      "mode": "0o600"
+    },
+    {
+      "name": "uid-1000.storage-recovery-attempt",
+      "bytes": 136,
+      "mode": "0o600"
+    }
+  ],
+  "temporary_keep_awake": "stopped",
+  "var_available_bytes": 5158608896
+}

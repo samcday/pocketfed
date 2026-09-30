@@ -1,0 +1,78 @@
+{
+  "boot": {
+    "bytes": 47947776,
+    "canonical_kernel_sha256": "b35bc456f9cb46b1cc44fb23e66016af9b6dc9f0570694267c328778e8aa7926",
+    "cmdline": "<S> init_on_alloc=0 sysrq_always_enabled=1 module_blacklist=rpmsg_wwan_ctrl root=LABEL=pfroot rw rootwait rootfstype=ext4 ostree=true <E>",
+    "dtb_sha256": "8b682c3860fce48701030ed4d18930f6895c1a670dc831b87bb3d88d99d476e7",
+    "initramfs_sha256": "48b1f8863bb4c548023f428c903707e5536fb6235aa4af3e81ef14480f8ffd07",
+    "outer_shim_sha256": "c3f8f285f94901cc0af73c47d88612ecc8f7b30eb363feded538894899471853",
+    "payloads_match_module_directory": true,
+    "sha256": "bd353580f8e92d2f902e84872c88f4830e07d75ebae256b43115f1c3d69a44c3"
+  },
+  "fingerprint_dt": {
+    "compatible": [
+      "google,sargo-fingerprint",
+      "fpc,fpc1020"
+    ],
+    "firmware_name": "fpctzappfingerprint",
+    "gpio_provider": "/soc@0/pinctrl@3400000",
+    "irq_active_high": true,
+    "irq_gpio": 121,
+    "present": true,
+    "reset_active_low": true,
+    "reset_gpio": 134,
+    "wakeup_source": true
+  },
+  "fingerprint_modules": {
+    "fpc1020": {
+      "depends": "",
+      "vermagic": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64 SMP preempt mod_unload aarch64"
+    },
+    "qseecomtee": {
+      "depends": "tee,mdt_loader",
+      "vermagic": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64 SMP preempt mod_unload aarch64"
+    }
+  },
+  "initial_activation": {
+    "broker_present": true,
+    "broker_runtime_state_present": false,
+    "build_only_helpers_present": false,
+    "database_init_marker_present": false,
+    "masks": {
+      "fprintd.service": {
+        "symlink": "/dev/null"
+      },
+      "phosh-fingerprint-auth.socket": {
+        "symlink": "/dev/null"
+      },
+      "pocketfed-fpc-auth.socket": {
+        "symlink": "/dev/null"
+      },
+      "pocketfed-fpc-provision@.service": {
+        "symlink": "/dev/null"
+      },
+      "qsee-supplicant.service": {
+        "symlink": "/dev/null"
+      }
+    }
+  },
+  "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+  "image_id": "671197f9f3bf539fc4e1fd138843a8739df3958cabcacd0e5f9ca6a3baaa9996",
+  "initramfs_critical_config": {
+    "CONFIG_DEVTMPFS": "y",
+    "CONFIG_DRM": "y",
+    "CONFIG_DRM_MSM": "m",
+    "CONFIG_DRM_PANEL_SAMSUNG_S6E3FA7": "m",
+    "CONFIG_EXT4_FS": "y",
+    "CONFIG_KEYBOARD_GPIO": "m",
+    "CONFIG_MMC": "m",
+    "CONFIG_MMC_BLOCK": "m",
+    "CONFIG_MMC_SDHCI": "m",
+    "CONFIG_MMC_SDHCI_MSM": "m",
+    "CONFIG_QCOM_SCM": "y",
+    "CONFIG_RMI4_CORE": "m",
+    "CONFIG_RMI4_I2C": "m"
+  },
+  "initramfs_kernel_module_count": 107,
+  "scope": "offline image inspection only; no trial boot, TA or enrollment operation"
+}

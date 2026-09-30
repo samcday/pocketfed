@@ -1,0 +1,15 @@
+{
+  "status": "Exclusive sam-sargo UART capture active and identity verified",
+  "uart": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0",
+  "device_serial": "994AY18RSD",
+  "boot_id": "0ac24861-f5de-4f09-8128-fd24c2f80070",
+  "held_locks": [
+    "994AY18RSD.lock"
+  ],
+  "global_host_lock_used": false,
+  "sensor_opened": false,
+  "fingerprint_units": "masked/inactive",
+  "authority": "Sam explicitly assigned A5069RR4 exclusively to this task and assigned test-sargo UART to another session",
+  "capture_metadata": "out/private/sargo-daily-uart-20260913/capture.json",
+  "logger_sha256": "1288b9a9b730330b141fe43d7c517892ace31b9936fe00808af8bfc27b897e91"
+}

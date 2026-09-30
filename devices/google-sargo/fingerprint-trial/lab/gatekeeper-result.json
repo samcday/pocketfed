@@ -1,0 +1,115 @@
+{
+  "serial": "99NAY1AZG1",
+  "run_id": "sargo-fingerprint-lab-gatekeeper-ro-20260911",
+  "rpmb_writes": false,
+  "linux_uid": 1234,
+  "steps": [
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-firmware.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-rpmb.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1083",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-cmnlib.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1090",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-fpc.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1100",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-keymaster.service",
+      "status": 0,
+      "state": [
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-enroll.service",
+      "status": 1,
+      "state": [
+        "ActiveState=failed",
+        "SubState=failed",
+        "MainPID=0",
+        "Result=exit-code",
+        "NRestarts=0"
+      ]
+    }
+  ],
+  "error": "operation did not complete successfully: pocketfed-fingerprint-lab-enroll.service",
+  "events": {
+    "rpmb": [
+      "event=rpmb_geometry sectors_512=32768 reliable_frames=32 writes=disabled",
+      "event=listener_registered transport=qseecom id=10 size=20480",
+      "event=listener_registered transport=qseecom id=28672 size=516096",
+      "event=listener_registered transport=qseecom id=8192 size=25600",
+      "event=rpmb_callback cmd=258 detail=34 version_field=0 dispatch=0 reply_status=-1 writes=disabled"
+    ],
+    "cmnlib": [
+      "event=shared_library_loaded app=cmnlib64 session=1"
+    ],
+    "fpc": [
+      "event=application_loaded app=fpctzappfingerprint session=1"
+    ],
+    "keymaster": [
+      "wrapped_key transport=0 status=-24",
+      "get_hmac_parameters transport=0 status=0",
+      "compute_shared_hmac transport=0 status=0",
+      "sharing_check_length=32 participants=1",
+      "wrapped_key transport=0 status=0 codec_status=0 validated_blob_length=152",
+      "initialization_status=0"
+    ],
+    "enroll": [
+      "lab_backend_status=0",
+      "lab_enroll_transport=0 secure_status=-30 validated_handle_length=0",
+      "lab_enroll_result=-13"
+    ]
+  },
+  "provenance": {
+    "collection": "checksummed UART report",
+    "run_id": "sargo-fingerprint-lab-gatekeeper-ro-20260911",
+    "uart_sha256": "74c0f8101a7f451570d124a76396b011c96614406fe78a8513cedc2d4bc91876",
+    "ended": "UART SysRq reset acknowledged and exact serial returned to fastboot; USB host stopped"
+  }
+}

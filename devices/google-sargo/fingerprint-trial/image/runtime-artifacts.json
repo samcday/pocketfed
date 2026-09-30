@@ -1,0 +1,147 @@
+{
+  "date": "2026-09-11",
+  "rpms": [
+    {
+      "filename": "phosh-0.57.0-1.5.fingerprint.fc46.aarch64.rpm",
+      "name": "phosh",
+      "evra": "0:0.57.0-1.5.fingerprint.fc46.aarch64",
+      "bytes": 976181,
+      "sha256": "7c0f69491f79e6706a4195fa77de3c576e882a76d324512c001c99c03e2988e9"
+    },
+    {
+      "filename": "libphosh-0.57.0-1.5.fingerprint.fc46.aarch64.rpm",
+      "name": "libphosh",
+      "evra": "0:0.57.0-1.5.fingerprint.fc46.aarch64",
+      "bytes": 568610,
+      "sha256": "99dff61240526422edd949b7611944f082ecc1440f01d3ab2b6358a51b3b93b6"
+    },
+    {
+      "filename": "phosh-fingerprint-auth-0.1.0-0.1.pocketfed.fc46.aarch64.rpm",
+      "name": "phosh-fingerprint-auth",
+      "evra": "0:0.1.0-0.1.pocketfed.fc46.aarch64",
+      "bytes": 33897,
+      "sha256": "40f88e6d34de22a3be0b7f81e98aaeac13dd608848e99f6b6a00b32ddc7dd88d"
+    },
+    {
+      "filename": "gnome-control-center-51~beta-1.1.fingerprint.fc46.aarch64.rpm",
+      "name": "gnome-control-center",
+      "evra": "0:51~beta-1.1.fingerprint.fc46.aarch64",
+      "bytes": 6193320,
+      "sha256": "499faab7b6cf34cf6d084dae877e383235d6bdc9c1999d9a5feeed1a7ea599e8"
+    },
+    {
+      "filename": "gnome-control-center-filesystem-51~beta-1.1.fingerprint.fc46.noarch.rpm",
+      "name": "gnome-control-center-filesystem",
+      "evra": "0:51~beta-1.1.fingerprint.fc46.noarch",
+      "bytes": 10949,
+      "sha256": "4c88d0399ebb5be2f317e953a8da0c599a81be6f321314da5df313e53f2fb5bf"
+    },
+    {
+      "filename": "fpc-qsee-probe-0.1.0-0.1.pocketfed.fc46.aarch64.rpm",
+      "name": "fpc-qsee-probe",
+      "evra": "0:0.1.0-0.1.pocketfed.fc46.aarch64",
+      "bytes": 34228,
+      "sha256": "debc1fc5716659d7fbe1b5c4df7e5de99bc84c21c5d113df5de45760b19f8f6c"
+    },
+    {
+      "filename": "libfprint-1.94.100-1.3.pocketfed.fc46.aarch64.rpm",
+      "name": "libfprint",
+      "evra": "0:1.94.100-1.3.pocketfed.fc46.aarch64",
+      "bytes": 388780,
+      "sha256": "fd1c0b9315fe75f34d2c5a9e747c4ee749d1841d0b6a94b9bf5b81ace5284f4a"
+    },
+    {
+      "filename": "libfprint-fpc-qsee-1.94.100-1.3.pocketfed.fc46.aarch64.rpm",
+      "name": "libfprint-fpc-qsee",
+      "evra": "0:1.94.100-1.3.pocketfed.fc46.aarch64",
+      "bytes": 11875,
+      "sha256": "174482b131f33d5c4235164aa3e49ef27086606380f60cfaf6a430d98c473d12"
+    },
+    {
+      "filename": "feedbackd-device-themes-0.8.9-1.fc46.noarch.rpm",
+      "name": "feedbackd-device-themes",
+      "evra": "0:0.8.9-1.fc46.noarch",
+      "bytes": 23539,
+      "sha256": "894021577c58792c8b54d72f9ba4e83dc1450f07b531e846e93f51fbd3017739"
+    },
+    {
+      "filename": "fprintd-1.94.5-6.fc45.aarch64.rpm",
+      "name": "fprintd",
+      "evra": "0:1.94.5-6.fc45.aarch64",
+      "bytes": 183607,
+      "sha256": "e363e6f703dcb91766408379bf6b3bf0796c2e3d9cb9399c44b815857ef299de"
+    },
+    {
+      "filename": "fprintd-pam-1.94.5-6.fc45.aarch64.rpm",
+      "name": "fprintd-pam",
+      "evra": "0:1.94.5-6.fc45.aarch64",
+      "bytes": 22321,
+      "sha256": "963b225b0e1e3d7175dbc1519f6675796c3c3acb8582e3e469db3ba1d290511c"
+    },
+    {
+      "filename": "lpa-gtk-0.4-1.4.pocketfed.fc46.noarch.rpm",
+      "name": "lpa-gtk",
+      "evra": "0:0.4-1.4.pocketfed.fc46.noarch",
+      "bytes": 86573,
+      "sha256": "8a8d43ecc79ad2a11c4d57f2fd9398972b6827fc0d6cf16ae2183a6f3ccf0144"
+    },
+    {
+      "filename": "python3-cairo-1.28.0-8.fc45.aarch64.rpm",
+      "name": "python3-cairo",
+      "evra": "0:1.28.0-8.fc45.aarch64",
+      "bytes": 131240,
+      "sha256": "e07f204164c87ba9cc0a2c4952a9d46bb369a3149b716ec65b68ba760f50e9ba"
+    },
+    {
+      "filename": "python3-gobject-3.57.1-6.fc46.aarch64.rpm",
+      "name": "python3-gobject",
+      "evra": "0:3.57.1-6.fc46.aarch64",
+      "bytes": 18963,
+      "sha256": "b5b133814589ffa7fdbf1c1a018340a72bbf13b34cc72d499e3c1fe4517b8bfd"
+    },
+    {
+      "filename": "python3-gobject-base-3.57.1-6.fc46.aarch64.rpm",
+      "name": "python3-gobject-base",
+      "evra": "0:3.57.1-6.fc46.aarch64",
+      "bytes": 410047,
+      "sha256": "c2b069f1ade2d0117c9087710ecb0a9330131a3c49e66797bf3eb6b4ba5a80c7"
+    },
+    {
+      "filename": "tailscale-1.98.8-1.fc45.aarch64.rpm",
+      "name": "tailscale",
+      "evra": "0:1.98.8-1.fc45.aarch64",
+      "bytes": 14297277,
+      "sha256": "5ba450adf152639f2c8a739af4b4616b401ba87a9ea0f4e1fa2b48b6ee35340a"
+    },
+    {
+      "filename": "qsee-supplicant-0.1.1-1.3.pocketfed.fc46.aarch64.rpm",
+      "bytes": 32759,
+      "sha256": "621e9c8fd55f2f4b801904e932998058365e989c9e4c285975ca7dad84d04e55",
+      "name": "qsee-supplicant",
+      "evra": "0:0.1.1-1.3.pocketfed.fc46.aarch64"
+    },
+    {
+      "filename": "pocketfed-fpc-auth-0.1.0-0.2.pocketfed.fc46.aarch64.rpm",
+      "bytes": 36811,
+      "sha256": "4e6d9c43c9a087fcf63ab733acc9c766f8dbdee106120181b69f80db1367ec87",
+      "name": "pocketfed-fpc-auth",
+      "evra": "0:0.1.0-0.2.pocketfed.fc46.aarch64"
+    },
+    {
+      "filename": "pocketfed-fpc-selinux-0.1.0-0.1.pocketfed.fc46.noarch.rpm",
+      "bytes": 9948,
+      "sha256": "83db7b510528be7f00976e59d827356a35bd60f4640b4f5e3c5a983ab60693ea",
+      "name": "pocketfed-fpc-selinux",
+      "evra": "0:0.1.0-0.1.pocketfed.fc46.noarch"
+    }
+  ],
+  "signature_evidence": [
+    "packages/libfprint/build.json",
+    "packages/fingerprint-desktop/build-results.json",
+    "packages/fpc-qsee/build.json",
+    "/tmp/sargo-fingerprint-image/extra-signatures.txt",
+    "packages/qsee-supplicant/readiness-build.json",
+    "packages/fpc-auth/backend-build.json",
+    "packages/fpc-selinux/build.json"
+  ]
+}

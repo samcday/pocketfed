@@ -1,0 +1,12 @@
+ARG KERNEL_IMAGE
+FROM scratch AS inputs
+COPY inputs /inputs
+FROM ${KERNEL_IMAGE}
+COPY --chmod=0755 install-userspace.py /tmp/install-fingerprint-upgrade.py
+COPY --chmod=0755 firmware/extract-firmware.py /usr/libexec/pocketfed-fingerprint-firmware
+COPY firmware/firmware-manifest.json /usr/share/pocketfed/fingerprint-trial/firmware-manifest.json
+COPY firmware/pocketfed-fingerprint-firmware.service /usr/lib/systemd/system/pocketfed-fingerprint-firmware.service
+COPY firmware/qsee-shared-loader@cmnlib64.service.d/ /usr/lib/systemd/system/qsee-shared-loader@cmnlib64.service.d/
+COPY firmware/qsee-app-loader@fpctzappfingerprint.service.d/ /usr/lib/systemd/system/qsee-app-loader@fpctzappfingerprint.service.d/
+RUN --mount=from=inputs,source=/inputs,target=/run/fingerprint-upgrade,ro /usr/bin/python3 /tmp/install-fingerprint-upgrade.py && rm /tmp/install-fingerprint-upgrade.py && /usr/libexec/pocketfed-verify-oci && bootc container lint
+LABEL io.pocketfed.fingerprint-trial.activation="masked-pending-daily-device-validation"

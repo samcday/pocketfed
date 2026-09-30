@@ -1,0 +1,373 @@
+{
+  "run_id": "sargo-fingerprint-lab-fprintd-reopen-20260912",
+  "serial": "99NAY1AZG1",
+  "linux_uid": 1234,
+  "gatekeeper_enrollment": false,
+  "steps": [
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-firmware.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-rpmb.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1142",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-cmnlib.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1147",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-fpc.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1151",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fingerprint-lab-keymaster.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=exited",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fpc-auth.socket",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=listening",
+        "Result=success"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "pocketfed-fpc-auth.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1327",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "start",
+      "unit": "fprintd.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=active",
+        "SubState=running",
+        "MainPID=1343",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "dbus": "GetDevices",
+      "status": "returned"
+    },
+    {
+      "dbus": "Claim",
+      "status": "returned"
+    },
+    {
+      "dbus": "GetAll",
+      "status": "returned"
+    },
+    {
+      "dbus": "ListEnrolledFingers",
+      "status": "returned"
+    },
+    {
+      "dbus": "VerifyStart",
+      "status": "returned"
+    },
+    {
+      "dbus": "VerifyStop",
+      "status": "returned"
+    },
+    {
+      "dbus": "VerifyStart",
+      "status": "returned"
+    },
+    {
+      "dbus": "VerifyStop",
+      "status": "returned"
+    },
+    {
+      "dbus": "Release",
+      "status": "returned"
+    },
+    {
+      "action": "stop",
+      "unit": "fprintd.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fpc-auth.socket",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "Result=success"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fpc-auth.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-keymaster.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-fpc.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-cmnlib.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    },
+    {
+      "action": "stop",
+      "unit": "pocketfed-fingerprint-lab-rpmb.service",
+      "status": 0,
+      "state": [
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "SubState=dead",
+        "MainPID=0",
+        "Result=success",
+        "NRestarts=0"
+      ]
+    }
+  ],
+  "signals": [],
+  "restored_file_count": 2,
+  "broker_readiness": {
+    "result": "invalid version rejected before authorization",
+    "peer_domain": "system_u:system_r:pocketfed_fpc_auth_t:s0",
+    "status": -71,
+    "token_requested": false
+  },
+  "fprintd_requires": [
+    "pocketfed-fingerprint-lab-fpc.service",
+    "system.slice",
+    "pocketfed-fingerprint-lab-rpmb.service",
+    "dbus.socket",
+    "pocketfed-fingerprint-lab-keymaster.service",
+    "sysinit.target"
+  ],
+  "interactive": [
+    {
+      "phase": "match",
+      "events": [
+        {
+          "phase": "match",
+          "status": "verify-match",
+          "done": true
+        }
+      ],
+      "terminal": "verify-match",
+      "timed_out": false,
+      "cancelled_on_device": false,
+      "input_error": null
+    },
+    {
+      "phase": "nonmatch",
+      "events": [
+        {
+          "phase": "nonmatch",
+          "status": "verify-no-match",
+          "done": true
+        }
+      ],
+      "terminal": "verify-no-match",
+      "timed_out": false,
+      "cancelled_on_device": false,
+      "input_error": null
+    }
+  ],
+  "device_properties": {
+    "name": "Pixel 3a FPC QSEE fingerprint sensor",
+    "num-enroll-stages": 101,
+    "scan-type": "press",
+    "finger-present": false,
+    "finger-needed": false
+  },
+  "enrolled_finger_count": 1,
+  "restored_enrollment_found": true,
+  "restored_database_unchanged": true,
+  "credential_unchanged": true,
+  "result": "restored fingerprint matched and different finger rejected after reboot",
+  "process_domains": {
+    "fprintd.service": "system_u:system_r:fprintd_t:s0",
+    "pocketfed-fpc-auth.service": "system_u:system_r:pocketfed_fpc_auth_t:s0"
+  },
+  "object_labels": [
+    "drwx------. 2 root root system_u:object_r:pocketfed_fpc_auth_run_t:s0      60 Sep  8 10:00 /run/pocketfed-fpc-auth",
+    "srw-------. 1 root root system_u:object_r:pocketfed_fpc_auth_run_t:s0       0 Sep  8 10:00 /run/pocketfed-fpc-auth/token.sock",
+    "-rwxr-xr-x. 1 root root system_u:object_r:pocketfed_fpc_auth_exec_t:s0  69336 Sep 11  2026 /usr/bin/pocketfed-fpc-auth",
+    "drwx------. 2 root root system_u:object_r:pocketfed_fpc_auth_state_t:s0    58 Sep 12  2026 /var/lib/pocketfed-fpc-auth"
+  ],
+  "clean_shutdown": true,
+  "events": {
+    "pocketfed-fingerprint-lab-rpmb.service": [
+      "Starting pocketfed-fingerprint-lab-rpmb.service - Test-sargo bounded authenticated RPMB trial...",
+      "event=rpmb_geometry sectors_512=32768 reliable_frames=32 writes=bounded",
+      "event=listener_registered transport=qseecom id=10 size=20480",
+      "event=listener_registered transport=qseecom id=28672 size=516096",
+      "event=listener_registered transport=qseecom id=8192 size=25600",
+      "Started pocketfed-fingerprint-lab-rpmb.service - Test-sargo bounded authenticated RPMB trial.",
+      "Stopping pocketfed-fingerprint-lab-rpmb.service - Test-sargo bounded authenticated RPMB trial...",
+      "event=shutdown status=0 errno=0 stopping=1",
+      "pocketfed-fingerprint-lab-rpmb.service: Deactivated successfully.",
+      "Stopped pocketfed-fingerprint-lab-rpmb.service - Test-sargo bounded authenticated RPMB trial."
+    ],
+    "pocketfed-fpc-auth.socket": [
+      "Starting pocketfed-fpc-auth.socket - Native fingerprint enrollment token broker...",
+      "Listening on pocketfed-fpc-auth.socket - Native fingerprint enrollment token broker.",
+      "pocketfed-fpc-auth.socket: Deactivated successfully.",
+      "Closed pocketfed-fpc-auth.socket - Native fingerprint enrollment token broker."
+    ],
+    "pocketfed-fpc-auth.service": [
+      "Starting pocketfed-fpc-auth.service - Native fingerprint enrollment token broker...",
+      "Started pocketfed-fpc-auth.service - Native fingerprint enrollment token broker.",
+      "Stopping pocketfed-fpc-auth.service - Native fingerprint enrollment token broker...",
+      "pocketfed-fpc-auth.service: Deactivated successfully.",
+      "Stopped pocketfed-fpc-auth.service - Native fingerprint enrollment token broker."
+    ],
+    "fprintd.service": [
+      "Starting fprintd.service - Fingerprint Authentication Daemon...",
+      "Started fprintd.service - Fingerprint Authentication Daemon.",
+      "Stopping fprintd.service - Fingerprint Authentication Daemon...",
+      "fprintd.service: Deactivated successfully.",
+      "Stopped fprintd.service - Fingerprint Authentication Daemon.",
+      "fprintd.service: Consumed 1.312s CPU time over 1min 25.740s wall clock time, 16.9M memory peak."
+    ]
+  },
+  "outcome": "Saved enrollment reopened after reboot; match and different-finger rejection passed",
+  "physical_finger": "left index (user reported)",
+  "fprintd_finger_label": "right-index-finger",
+  "handoff": {
+    "schema_version": 1,
+    "run_id": "sargo-fingerprint-lab-fprintd-reopen-20260912",
+    "result": "pass",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "root_fstype": "overlay",
+    "root_mode": "usb",
+    "resident": {},
+    "usb_policy_state": "masked",
+    "module_mount": "/dev/ublkb0[/usr/lib/modules/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64] erofs",
+    "selinux": "Enforcing",
+    "label_repair_state": "active",
+    "failed_units": [],
+    "checks": {
+      "run_id_present": true,
+      "disposable_root": true,
+      "matching_modules_present": true,
+      "root_transport_ready": true,
+      "slot_marking_disabled": true,
+      "usb_transport_policy": true,
+      "selinux_enforcing": true,
+      "writable_root_labels_restored": true
+    }
+  },
+  "recovery": {
+    "clean_shutdown": true,
+    "uart_reset_acknowledged": true,
+    "fastboot_serial": "99NAY1AZG1",
+    "usb_host_stopped_after_fastboot": true
+  }
+}

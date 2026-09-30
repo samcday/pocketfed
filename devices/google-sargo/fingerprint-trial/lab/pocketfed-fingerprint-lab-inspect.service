@@ -1,0 +1,16 @@
+[Unit]
+Description=Inspect test-sargo fingerprint prerequisites during liveboot
+Wants=blob-wrangler.service
+After=blob-wrangler.service pocketfed-liveboot-check.service
+ConditionKernelCommandLine=pocketfed.liveboot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/libexec/sargo-fingerprint-lab/inspect-device.py
+TimeoutStartSec=180
+StandardOutput=journal+console
+StandardError=journal+console
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

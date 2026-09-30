@@ -1,0 +1,15 @@
+{
+  "serial": "994AY18RSD",
+  "boot_id": "cbfa1a02-40ae-4f6b-9d57-2c4637634745",
+  "source": "live AT-SPI read of gnome-control-center only",
+  "settings_application": "gnome-control-center",
+  "page": "Users",
+  "fingerprint_control_label": "Fingerprint Authentication",
+  "fingerprint_control_role": "button",
+  "fingerprint_state_label": "Disabled",
+  "tree_nodes_inspected": 92,
+  "tree_complete": true,
+  "enrollment_complete": false,
+  "remote_open_action": "GetActions returned an empty list; no action invoked",
+  "pending_user_step": "Tap Fingerprint Authentication and enroll left index finger"
+}

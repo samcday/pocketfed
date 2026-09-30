@@ -1,0 +1,233 @@
+{
+  "status": "test-sargo initialization/deep-sleep trace passed; daily freeze unresolved",
+  "run_id": "sargo-fingerprint-lab-kernel-trace-20260913",
+  "serial": "99NAY1AZG1",
+  "build": {
+    "run_id": "sargo-fingerprint-lab-kernel-trace-20260913",
+    "serial": "99NAY1AZG1",
+    "fixture_image": "sha256:094ad9568428bb5351e0ab9d3c03c59ec71db60ed0d79b68ac7f53325d27f861",
+    "toolchain_image": "sha256:69ffaa7c0dec7f64cdd3cbfb877f69d3d7b7d840a5afc961e66ecba4bbcc9135",
+    "probe_sha256": "6d5967bd0c9c3e32a8c6baad88a78df399dadfd2e415cf7ccb39ae083abfe0e0",
+    "protocol_source_commit": "430e24e538ba137b6edcfe2e1b3b8cc29c66fa6a",
+    "source": {
+      "fpc1020.h": "ee8cd308d9587ee9fc63d81a5b91a6755511efb972f6f9c78a32a5352b2213d0",
+      "protocol.c": "d4423191c7aec4fe1c616eb78904d07591a7de80a2bd4b6d05dc5e3b0b9d9e43",
+      "qsee-transport.h": "37d95818ea237019e9415e737b1f300a606b683728c010354ba69610bd048366",
+      "protocol.h": "801868688aaa68161ed96a68197c477a5c3e3fbef658410ed7defbe64a9bcaf8",
+      "trial-trace.h": "bffca1a88f7e9d021e930c8c65ad51af49395a960c2cfc3f185c619a418d4d52",
+      "sensor.c": "56710d227da22482bacff8f1be8964cb44d743f71aab18ce791588d5b6664ea2",
+      "sensor.h": "e3779aad0edeb514506db3ebd850d05f193bea7d197a690f8490642e845fc165",
+      "qsee-transport.c": "28c61c5340d76b707839d74607e40b82976845908b01ce8b2810b1042ec23455",
+      "initialize-once.c": "4477b9619bb968edc79bf05bf29e1b277a0774e8922c5ab90ded27e2046c09be"
+    },
+    "overlay_base": "/var/home/sam/src/pocketfed/out/liveboot/overlays/sargo-fingerprint-ordered-20260911",
+    "controller_sha256": "439ebb8c91aedf6a75f2cc8c3e75beb74299899adcf79561b8e8f3302b08d62c",
+    "receiver_sha256": "a52b9fee11f477ae0d4aec189079fd97d4bdd332d9914e2e75c9854c5f26f41d",
+    "keymaster_helper_sha256": "4cff2ecf8139cbfacb608e378d9fe372b17f105c823742a96cc03fef184cb371",
+    "runtime": "not booted",
+    "capture_started": false,
+    "credential_or_template_input": false,
+    "kernel_modified": false,
+    "prepared_boot": {
+      "run_id": "sargo-fingerprint-lab-kernel-trace-20260913",
+      "device_serial": "99NAY1AZG1",
+      "root_mode": "usb",
+      "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+      "kernel_bundle": {
+        "path": "/var/home/sam/src/pocketfed/out/fingerprint-kernel-trace-20260913/fixture/kernel-bundle/bundle.json",
+        "sha256": "5f9d566943d267d6802531d37bea7f63b266cc9936d18c90eb6d8ee42ddac236",
+        "source": "fixture"
+      },
+      "boot_image_sha256": "ada102eef0b2a7d0e2ee7be858ddc19bd19324e18dfc57a6dcd9d627ceb54622"
+    },
+    "fixture_manifest_sha256": "aa3d824a77f46d6714755e3c4b06c112e3884dfb202f65210f561b8767a80e8e",
+    "run_manifest_sha256": "72ff59e99c0f4a5d9ee67358c9c870786a622a974eb457f408cff55decc70dbd",
+    "prepared_manifest_sha256": "3ea7eaa4eb439c664c608d91fadb1d63f188a804846567be5db1764799490b9d",
+    "host_checks": {
+      "arm64_compile": "passed -Wall -Wextra -Werror",
+      "trace_metadata_checks": "9 passed",
+      "fixture_export": "passed root layout, policy composition and label checks",
+      "boot_prepare": "passed using snapshots from the accepted ordered startup trial"
+    },
+    "availability": "A5 has global USB-host reservation; no acquisition or phone boot attempted",
+    "daily_health": {
+      "boot_id": "0ac24861-f5de-4f09-8128-fd24c2f80070",
+      "uptime_seconds": 24149.05,
+      "fprintd": "masked/inactive",
+      "phosh_fingerprint_socket": "masked/inactive",
+      "physical_pin_login_check": "no user response yet"
+    }
+  },
+  "trial": {
+    "run_id": "sargo-fingerprint-lab-kernel-trace-20260913",
+    "serial": "99NAY1AZG1",
+    "steps": [
+      {
+        "unit": "pocketfed-fingerprint-lab-firmware.service",
+        "status": 0
+      },
+      {
+        "unit": "pocketfed-fingerprint-lab-rpmb.service",
+        "status": 0
+      },
+      {
+        "unit": "pocketfed-fingerprint-lab-cmnlib.service",
+        "status": 0
+      },
+      {
+        "unit": "pocketfed-fingerprint-lab-fpc.service",
+        "status": 0
+      },
+      {
+        "unit": "pocketfed-fingerprint-lab-keymaster.service",
+        "status": 0
+      }
+    ],
+    "capture_started": false,
+    "credential_operations": false,
+    "rpmb_writes_allowed": false,
+    "automatic_retry": false,
+    "probe_status": 0,
+    "clean_shutdown": true,
+    "uncertain_call_pending": false,
+    "owned_probes_removed": true,
+    "trace": [
+      {
+        "ready": true
+      },
+      {
+        "pid": 1094,
+        "cpu": 5,
+        "time": "41.386351",
+        "event": "app_enter"
+      },
+      {
+        "pid": 1094,
+        "cpu": 5,
+        "time": "41.386386",
+        "event": "scm_enter"
+      },
+      {
+        "pid": 1094,
+        "cpu": 5,
+        "time": "41.386401",
+        "event": "quirk_enter"
+      },
+      {
+        "pid": 1094,
+        "cpu": 7,
+        "time": "41.631599",
+        "event": "quirk_exit"
+      },
+      {
+        "pid": 1094,
+        "cpu": 7,
+        "time": "41.631624",
+        "event": "scm_exit",
+        "status": 0
+      },
+      {
+        "pid": 1094,
+        "cpu": 7,
+        "time": "41.631629",
+        "event": "app_exit",
+        "status": 0
+      },
+      {
+        "pid": 1094,
+        "cpu": 6,
+        "time": "41.632533",
+        "event": "app_enter"
+      },
+      {
+        "pid": 1094,
+        "cpu": 6,
+        "time": "41.632552",
+        "event": "scm_enter"
+      },
+      {
+        "pid": 1094,
+        "cpu": 6,
+        "time": "41.632560",
+        "event": "quirk_enter"
+      },
+      {
+        "pid": 1094,
+        "cpu": 6,
+        "time": "41.646542",
+        "event": "quirk_exit"
+      },
+      {
+        "pid": 1094,
+        "cpu": 6,
+        "time": "41.646561",
+        "event": "scm_exit",
+        "status": 0
+      },
+      {
+        "pid": 1094,
+        "cpu": 6,
+        "time": "41.646565",
+        "event": "app_exit",
+        "status": 0
+      }
+    ],
+    "trace_errors": [],
+    "trace_records_dropped": 0,
+    "passed": true
+  },
+  "independent_boundary_order_check": "passed for both complete nested call/return sequences",
+  "duration_ms": [
+    245.278,
+    14.032
+  ],
+  "handoff": {
+    "schema_version": 1,
+    "run_id": "sargo-fingerprint-lab-kernel-trace-20260913",
+    "result": "pass",
+    "scope": "systemd handoff; hardware subsystems not yet accepted",
+    "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+    "root_fstype": "overlay",
+    "root_mode": "usb",
+    "resident": {},
+    "usb_policy_state": "masked",
+    "module_mount": "/dev/ublkb0[/usr/lib/modules/7.1.2-0.pocketfed.sdm670.11.fc46.aarch64] erofs",
+    "selinux": "Enforcing",
+    "label_repair_state": "active",
+    "failed_units": [],
+    "checks": {
+      "run_id_present": true,
+      "disposable_root": true,
+      "matching_modules_present": true,
+      "root_transport_ready": true,
+      "slot_marking_disabled": true,
+      "usb_transport_policy": true,
+      "selinux_enforcing": true,
+      "writable_root_labels_restored": true
+    }
+  },
+  "handoff_recovered_from_interleaved_uart": true,
+  "automatic_handoff_result": "not accepted before explicit recovery; no result.json",
+  "recovery": {
+    "serial": "99NAY1AZG1",
+    "product": "sargo",
+    "uart_sysrq_reset_acknowledged": true,
+    "fastboot_verified_before_host_stop": true,
+    "observed_at": 1789232820.7516978,
+    "host_pid": 4012627,
+    "host_stop": "SIGTERM after verified guest return"
+  },
+  "ownership_released": {
+    "global_host_lock": true,
+    "test_device_lock": true,
+    "test_uart": true,
+    "a5_notified": true
+  },
+  "uart_sha256": "3bbae506a166d6eb179a538a84a828792abb669e631bb0096e468c427227680c",
+  "progress_report_issue": "Startup snapshots reused a report name in this frozen run. Excluded only that progress name to collect other complete checksummed reports; final report retains every startup result. Source now uses per-unit names and regression check passes.",
+  "limits": [
+    "Standalone init probe uses the same protocol/transport/sensor sources, but is not a full fprintd Claim",
+    "One successful USB-root test-sargo run does not reproduce or resolve daily sam-sargo freeze",
+    "Successful init entered on CPU5 and returned on CPU7; sleep ran on CPU6. Daily stuck worker ran on CPU1. CPU affinity is an untested difference, not an established cause."
+  ]
+}

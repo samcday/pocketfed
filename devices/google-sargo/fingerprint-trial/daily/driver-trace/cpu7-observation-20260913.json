@@ -1,0 +1,59 @@
+{
+  "date": "2026-09-13",
+  "boot_id": "872c3f31-1436-4b85-b8af-77ddd19bdfd6",
+  "serial": "994AY18RSD",
+  "source": "cpu7-claim-20260913.py",
+  "planned_claims": 50,
+  "planned_daemon_lifetimes": 10,
+  "passed_claims": 1,
+  "failed_claim": 2,
+  "kernel_probes": false,
+  "cpu_affinity": "7",
+  "last_userspace_marker": {
+    "tid": 7228,
+    "cpu": 7,
+    "init_return": 228.080492,
+    "deep_sleep_ioctl_begin": 228.080747
+  },
+  "worker": {
+    "pid": 7212,
+    "tid": 7228,
+    "state": "D",
+    "stack": [
+      "synchronize_rcu_expedited",
+      "lru_cache_disable",
+      "alloc_contig_frozen_range_noprof",
+      "cma_alloc",
+      "dma_alloc_attrs",
+      "qcom_tzmem_pool_add_memory",
+      "qcom_tzmem_pool_new",
+      "qseecom_tee_invoke_func"
+    ]
+  },
+  "unresponsive_cpu": 2,
+  "current_task_on_cpu2": {
+    "pid": 712,
+    "name": "systemd-oomd",
+    "state": "R"
+  },
+  "responding_cpus": [
+    0,
+    1,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "controller_state": "D in fsync while preserving result; final durable result unconfirmed",
+  "no_second_secure_call_proven": true,
+  "conclusion": "CPU affinity does not prevent the freeze. The fingerprint worker is waiting in allocation, while another CPU fails to answer. This reproduces the allocation/RCU stall without kernel tracing. Root cause remains unconfirmed.",
+  "private_logs": [
+    "out/private/sargo-daily-settings-freeze-recovery-20260913/uart.log",
+    "out/private/sargo-daily-cpu7-freeze-tasks-20260913/uart.log",
+    "out/private/sargo-daily-cpu7-freeze-backtraces-20260913/uart.log"
+  ],
+  "recovery_pending": false,
+  "recovered_boot_id": "958f6ac0-f6a3-4b7e-815d-875c2a9a948d",
+  "recovery": "One explicit UART SysRq reboot; fingerprint services persistently masked."
+}

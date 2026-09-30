@@ -1,0 +1,184 @@
+{
+  "captured_at": "2026-09-10T07:43:45.911241+00:00",
+  "vendor_mapping": "/dev/mapper/vendor_b",
+  "build_identity": [
+    "ro.vendor.build.fingerprint=google/sargo/sargo:12/SP2A.220505.008/8782922:user/release-keys",
+    "ro.vendor.build.id=SP2A.220505.008",
+    "ro.vendor.build.security_patch=2022-05-05"
+  ],
+  "listings": {
+    "/firmware": [
+      "    819  100644 (1)      0      0     244  1-Jan-2009 11:00 cmnlib.b00",
+      "    820  100644 (1)      0      0    6632  1-Jan-2009 11:00 cmnlib.b01",
+      "    821  100644 (1)      0      0   336212  1-Jan-2009 11:00 cmnlib.b02",
+      "    822  100644 (1)      0      0    2460  1-Jan-2009 11:00 cmnlib.b03",
+      "    823  100644 (1)      0      0     144  1-Jan-2009 11:00 cmnlib.b04",
+      "    824  100644 (1)      0      0   22317  1-Jan-2009 11:00 cmnlib.b05",
+      "    825  100644 (1)      0      0   373281  1-Jan-2009 11:00 cmnlib.mbn",
+      "    826  100644 (1)      0      0    6876  1-Jan-2009 11:00 cmnlib.mdt",
+      "    827  100644 (1)      0      0     400  1-Jan-2009 11:00 cmnlib64.b00",
+      "    828  100644 (1)      0      0    6632  1-Jan-2009 11:00 cmnlib64.b01",
+      "    829  100644 (1)      0      0   436992  1-Jan-2009 11:00 cmnlib64.b02",
+      "    830  100644 (1)      0      0    4240  1-Jan-2009 11:00 cmnlib64.b03",
+      "    831  100644 (1)      0      0     288  1-Jan-2009 11:00 cmnlib64.b04",
+      "    832  100644 (1)      0      0   30371  1-Jan-2009 11:00 cmnlib64.b05",
+      "    833  100644 (1)      0      0   489123  1-Jan-2009 11:00 cmnlib64.mbn",
+      "    834  100644 (1)      0      0    7032  1-Jan-2009 11:00 cmnlib64.mdt",
+      "    870  100644 (1)      0      0     512  1-Jan-2009 11:00 fpctzappfingerprint.b00",
+      "    871  100644 (1)      0      0    6696  1-Jan-2009 11:00 fpctzappfingerprint.b01",
+      "    872  100644 (1)      0      0   522392  1-Jan-2009 11:00 fpctzappfingerprint.b02",
+      "    873  100644 (1)      0      0     165  1-Jan-2009 11:00 fpctzappfingerprint.b03",
+      "    874  100644 (1)      0      0   57576  1-Jan-2009 11:00 fpctzappfingerprint.b04",
+      "    875  100644 (1)      0      0     720  1-Jan-2009 11:00 fpctzappfingerprint.b05",
+      "    876  100644 (1)      0      0     304  1-Jan-2009 11:00 fpctzappfingerprint.b06",
+      "    877  100644 (1)      0      0   85332  1-Jan-2009 11:00 fpctzappfingerprint.b07",
+      "    878  100644 (1)      0      0   691540  1-Jan-2009 11:00 fpctzappfingerprint.mbn",
+      "    879  100644 (1)      0      0    7208  1-Jan-2009 11:00 fpctzappfingerprint.mdt"
+    ],
+    "/bin/hw": [
+      "     93  100755 (1)      0   2000   63360  1-Jan-2009 11:00 android.hardware.biometrics.fingerprint@2.1-service.fpc",
+      "    111  100755 (1)      0   2000   11712  1-Jan-2009 11:00 android.hardware.keymaster@4.0-service-qti",
+      "    112  100755 (1)      0   2000   15520  1-Jan-2009 11:00 android.hardware.keymaster@4.1-service.citadel"
+    ],
+    "/bin": [
+      "    153  100755 (1)      0   2000    1339  1-Jan-2009 11:00 init.fingerprint.sh",
+      "    226  100755 (1)      0   2000   15744  1-Jan-2009 11:00 qseecomd"
+    ],
+    "/lib64": [
+      "   1426  100644 (1)      0      0   159624  1-Jan-2009 11:00 android.hardware.biometrics.fingerprint@2.1.so",
+      "   1427  100644 (1)      0      0   148896  1-Jan-2009 11:00 android.hardware.biometrics.fingerprint@2.2.so",
+      "   1467  100644 (1)      0      0   161680  1-Jan-2009 11:00 android.hardware.keymaster@3.0.so",
+      "   1468  100644 (1)      0      0   193352  1-Jan-2009 11:00 android.hardware.keymaster@4.0.so",
+      "   1469  100644 (1)      0      0   177488  1-Jan-2009 11:00 android.hardware.keymaster@4.1-impl.nos.so",
+      "   1470  100644 (1)      0      0   134616  1-Jan-2009 11:00 android.hardware.keymaster@4.1.so",
+      "   1596  100644 (1)      0      0   659248  1-Jan-2009 11:00 com.fingerprints.extension@1.0.so",
+      "   1684  100644 (1)      0      0   31784  1-Jan-2009 11:00 libQSEEComAPI.so",
+      "   1779  100644 (1)      0      0   143400  1-Jan-2009 11:00 libkeymaster4_1support.so",
+      "   1780  100644 (1)      0      0   108336  1-Jan-2009 11:00 libkeymaster4support.so",
+      "   1781  100644 (1)      0      0   105416  1-Jan-2009 11:00 libkeymaster_messages.so",
+      "   1782  100644 (1)      0      0   507400  1-Jan-2009 11:00 libkeymaster_portable.so",
+      "   1783  100644 (1)      0      0   15392  1-Jan-2009 11:00 libkeymasterdeviceutils.so",
+      "   1784  100644 (1)      0      0   28112  1-Jan-2009 11:00 libkeymasterprovision.so",
+      "   1785  100644 (1)      0      0   38248  1-Jan-2009 11:00 libkeymasterutils.so",
+      "   1828  100644 (1)      0      0   77152  1-Jan-2009 11:00 libpuresoftkeymasterdevice.so",
+      "   1856  100644 (1)      0      0   84240  1-Jan-2009 11:00 libqtikeymaster4.so",
+      "   1927  100644 (1)      0      0   31528  1-Jan-2009 11:00 nos_app_keymaster.so",
+      "   1978  100644 (1)      0      0   375464  1-Jan-2009 11:00 vendor.qti.hardware.fingerprint@1.0.so",
+      "   1983  100644 (1)      0      0   123000  1-Jan-2009 11:00 vendor.qti.hardware.qseecom@1.0.so"
+    ],
+    "/lib64/hw": [],
+    "/etc/init": [
+      "    493  100644 (1)      0      0     398  1-Jan-2009 11:00 android.hardware.biometrics.fingerprint@2.2-service.fpc.rc",
+      "    511  100644 (1)      0      0     173  1-Jan-2009 11:00 android.hardware.keymaster@4.0-service-qti.rc",
+      "    512  100644 (1)      0      0     153  1-Jan-2009 11:00 android.hardware.keymaster@4.1-service.citadel.rc"
+    ]
+  },
+  "binary_metadata": {
+    "/firmware/fpctzappfingerprint.mbn": {
+      "bytes": 691540,
+      "sha256": "e947fd8b081b47be9bd75c87cbd95a79fd8955b9d3310631680ca47fd76997e8",
+      "elf_class": "ELF64",
+      "elf_machine": 183,
+      "section_header_count": 0
+    },
+    "/firmware/fpctzappfingerprint.mdt": {
+      "bytes": 7208,
+      "sha256": "3d23e9a669df46ab3bc50af44215670a5de60be1f623e0e20e69e0bdcce3ab71",
+      "elf_class": "ELF64",
+      "elf_machine": 183,
+      "section_header_count": 0
+    },
+    "/bin/hw/android.hardware.biometrics.fingerprint@2.1-service.fpc": {
+      "bytes": 63360,
+      "sha256": "11b4f4069ef6fd8b06147be8a696944aa50d664c6969a30f40ee224440a6de48",
+      "elf_class": "ELF64",
+      "elf_machine": 183,
+      "section_header_count": 27,
+      "symbol_sections": [
+        {
+          "name": ".dynsym",
+          "entries": 112
+        }
+      ],
+      "needed_libraries": [
+        "liblog.so",
+        "libhidlbase.so",
+        "libhidltransport.so",
+        "libutils.so",
+        "android.hardware.biometrics.fingerprint@2.1.so",
+        "android.hardware.biometrics.fingerprint@2.2.so",
+        "com.fingerprints.extension@1.0.so",
+        "android.frameworks.stats@1.0.so",
+        "libQSEEComAPI.so",
+        "libc++.so",
+        "libc.so",
+        "libm.so",
+        "libdl.so"
+      ]
+    },
+    "/lib64/libQSEEComAPI.so": {
+      "bytes": 31784,
+      "sha256": "6ae96f5eda8f4411c42f9323cabe82f4ecea58a1692d409df21892aa1ba71859",
+      "elf_class": "ELF64",
+      "elf_machine": 183,
+      "section_header_count": 21,
+      "symbol_sections": [
+        {
+          "name": ".dynsym",
+          "entries": 55
+        }
+      ],
+      "needed_libraries": [
+        "libcutils.so",
+        "libutils.so",
+        "liblog.so",
+        "libc++.so",
+        "libc.so",
+        "libm.so",
+        "libdl.so"
+      ]
+    },
+    "/lib64/com.fingerprints.extension@1.0.so": {
+      "bytes": 659248,
+      "sha256": "67ca56bdc1de71a38acf714fdee45968adef55b5653cf2a2853dbd29b33da8af",
+      "elf_class": "ELF64",
+      "elf_machine": 183,
+      "section_header_count": 25,
+      "symbol_sections": [
+        {
+          "name": ".dynsym",
+          "entries": 1250
+        }
+      ],
+      "needed_libraries": [
+        "libhidlbase.so",
+        "liblog.so",
+        "libutils.so",
+        "libcutils.so",
+        "libc++.so",
+        "libc.so",
+        "libm.so",
+        "libdl.so"
+      ]
+    },
+    "/lib64/hw/fingerprint.sdm670.so": {
+      "error": "debugfs 1.47.4 (6-Mar-2025)\n/lib64/hw/fingerprint.sdm670.so: File not found by ext2_lookup \n"
+    }
+  },
+  "pin_state": {
+    "/sys/kernel/debug/pinctrl/62b40000.pinctrl/pinconf-pins": [],
+    "/sys/kernel/debug/pinctrl/62b40000.pinctrl/pinmux-pins": [],
+    "/sys/kernel/debug/pinctrl/3400000.pinctrl/pinconf-pins": [
+      "pin 121 (GPIO_121): ",
+      "pin 134 (GPIO_134): "
+    ],
+    "/sys/kernel/debug/pinctrl/3400000.pinctrl/pinmux-pins": [
+      "pin 121 (GPIO_121): UNCLAIMED",
+      "pin 134 (GPIO_134): UNCLAIMED"
+    ],
+    "/sys/kernel/debug/pinctrl/c440000.spmi:pmic@2:gpio@c000/pinconf-pins": [],
+    "/sys/kernel/debug/pinctrl/c440000.spmi:pmic@2:gpio@c000/pinmux-pins": [],
+    "/sys/kernel/debug/pinctrl/c440000.spmi:pmic@0:gpio@c000/pinconf-pins": [],
+    "/sys/kernel/debug/pinctrl/c440000.spmi:pmic@0:gpio@c000/pinmux-pins": []
+  }
+}

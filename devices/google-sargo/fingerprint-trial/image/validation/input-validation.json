@@ -1,0 +1,86 @@
+{
+  "captured_at": "2026-09-11T00:26:27.831469+00:00",
+  "validator": "devices/google-sargo/fingerprint-trial/image/validate-inputs.py",
+  "validator_sha256": "a0670c358fff5626b99d58ddc3bbf21a4acd3b8f131186ba4f1bd71b37da1793",
+  "scope": "Synthetic input-parser fixtures only; no RPM transaction, image build, firmware or device operation.",
+  "result": "passed",
+  "cases": [
+    {
+      "case": "valid exact set",
+      "accepted": true,
+      "expected_acceptance": true
+    },
+    {
+      "case": "missing listed RPM",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "extra unlisted RPM",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "extra non-RPM metadata",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "extra directory",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "digest mismatch",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "RPM symlink",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "manifest symlink",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "root symlink",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "parent traversal",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "absolute path",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "nested path",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "duplicate manifest entry",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "empty manifest",
+      "accepted": false,
+      "expected_acceptance": false
+    },
+    {
+      "case": "missing manifest",
+      "accepted": false,
+      "expected_acceptance": false
+    }
+  ],
+  "cases_passed": 15,
+  "cases_failed": 0
+}

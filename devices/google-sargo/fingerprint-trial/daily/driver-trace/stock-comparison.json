@@ -1,0 +1,33 @@
+{
+  "date": "2026-09-12",
+  "sources": [
+    {
+      "source": "https://android.googlesource.com/kernel/msm/+/refs/heads/android-msm-bonito-4.9-android12L/drivers/misc/qseecom.c?format=TEXT",
+      "path": "/tmp/sargo-fpc-stock-power-20260912/qseecom.c",
+      "sha256": "cf2bac1fe9935bcceb5f1ddd5f3631ad1156972c45a097962c1f7706a07d7442",
+      "bytes": 256150
+    },
+    {
+      "source": "https://android.googlesource.com/kernel/msm/+/refs/heads/android-msm-bonito-4.9-android12L/drivers/input/misc/fpc_fingerprint/fpc1020_platform_tee.c?format=TEXT",
+      "path": "/tmp/sargo-fpc-stock-power-20260912/fpc1020_platform_tee.c",
+      "sha256": "61e9d120c237e6164969528ac4229098d1c133ec5cd9e2c52b3493158f063dd5",
+      "bytes": 16259
+    },
+    {
+      "source": "https://android.googlesource.com/kernel/msm/+/refs/heads/android-msm-bonito-4.9-android12L/arch/arm64/boot/dts/google/sdm670-b4s4-fingerprint.dtsi?format=TEXT",
+      "path": "/tmp/sargo-fpc-stock-power-20260912/sdm670-b4s4-fingerprint.dtsi",
+      "sha256": "36187ab69a839297b79d908b68565fda1ac02bfc5f5cbe2ee1b1d71ac8ba56c4",
+      "bytes": 1497
+    },
+    {
+      "source": "https://android.googlesource.com/kernel/msm/+/refs/heads/android-msm-bonito-4.9-android12L/arch/arm64/boot/dts/qcom/sdm670.dtsi?format=TEXT",
+      "path": "/tmp/sargo-fpc-stock-power-20260912/sdm670.dtsi",
+      "sha256": "e86f49b7f48abcf0dbafbca24d64b524dd32f7f3c1f04a0d97ff8521fc737f61",
+      "bytes": 76609
+    }
+  ],
+  "electrical_comparison": "GPIO134 reset, GPIO121 rising IRQ, pin pull/drive settings and reset delays agree with the selected stock board/driver. No new electrical mismatch established.",
+  "qsee_power_comparison": "Stock send-command ioctl code can add bus/crypto-clock votes, but the matching SDM670 node declares qcom,no-clock-support and does not enable qcom,support-bus-scaling. The stock probe rejects enabling those two flags together. The native absence of votes is therefore not enough to call this a missing-power-vote defect.",
+  "limits": "The matched SoC include is retained with hashes; the final flattened Android DT and all board overrides were not newly reconstructed in this check. No power or kernel change has been applied.",
+  "next_action": "Trace native open/reset/TEE command begin and completion, then perform a claim/release without a capture request."
+}

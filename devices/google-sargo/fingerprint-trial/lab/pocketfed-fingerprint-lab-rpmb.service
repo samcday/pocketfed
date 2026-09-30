@@ -1,0 +1,33 @@
+[Unit]
+Description=Test-sargo read-only RPMB receiver
+After=pocketfed-fingerprint-lab-inspect.service
+ConditionKernelCommandLine=pocketfed.liveboot
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStartPre=/usr/bin/python3 /usr/libexec/sargo-fingerprint-lab/guard-device.py
+ExecStart=/usr/libexec/sargo-fingerprint-lab/rpmb-supplicant-ro --serve-read-only
+TimeoutStartSec=45
+TimeoutStopSec=infinity
+Restart=no
+StateDirectory=qsee-supplicant
+StateDirectoryMode=0700
+UMask=0077
+AmbientCapabilities=CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_SYS_ADMIN
+NoNewPrivileges=yes
+PrivateDevices=no
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+StandardOutput=journal+console
+StandardError=journal+console

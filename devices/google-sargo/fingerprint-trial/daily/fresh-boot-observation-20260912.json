@@ -1,0 +1,72 @@
+{
+  "date": "2026-09-12",
+  "serial": "994AY18RSD",
+  "user_recovery": "Sam force-rebooted to fastboot, then confirmed PIN login/Wi-Fi after the serial-verified normal fastboot reboot",
+  "boot_id": "b6706828-c85c-42b6-bff5-c3f06e0d5ad4",
+  "deployment": "d639fe55e1cf11b2756f367fef1dad99ab7e2705c19b0b72f73e80c265d16b89",
+  "kernel": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+  "settings_version": "51~rc.1-1.1.fingerprint.fc46",
+  "selinux": "Enforcing",
+  "pin_pam_sha256": "695d627f3d54bf6010b001bef211792f536437c34b01d60833862c4a9509d5b6",
+  "uart_identity_marker_confirmed": true,
+  "runtime_diagnostics": {
+    "console_loglevel": 8,
+    "softlockup_all_cpu_backtrace": 1,
+    "persistent_boot_configuration_changed": false
+  },
+  "first_observation": "Settings closed and fingerprint service chain inactive",
+  "normal_fprintd_activation": {
+    "uptime_before_seconds": 286.11,
+    "returncode": 0,
+    "enrolled_finger_labels": [
+      "right-index-finger"
+    ],
+    "UART_begin_and_end_markers": true,
+    "native_recovery_run": false,
+    "new_enrollment_run": false
+  },
+  "persistence_limit": "The original right-index label survived; the second finger reported before the previous freeze is absent. The post-reboot lockscreen attempt froze the phone before any retained verification result.",
+  "previous_boot_kernel_journal": {
+    "path": "out/private/sargo-daily-freeze-20260912/previous-boot-kernel.log",
+    "sha256": "950bbf018287793730e15fcfb82659feb7bbe1c942df1bf34c7790adbbb67702",
+    "last_monotonic_seconds": 136.962088,
+    "initiating_lockup_warning_retained": false
+  },
+  "previous_boot_desktop_evidence": "Settings logged enrollment completed at 150.561325s with progress 0.09. Phosh journal contains no retained crash explanation, and no coredump record was returned. No core contents read.",
+  "next_check": "The traced no-capture claim reproduced a stall in the sensor initialization ioctl. See driver-trace/claim-only-observation.json; task dump/recovery pending.",
+  "uart_coordination": "Premouth task 01a0941c-d662-73a3-8532-e64c9ddbcbac requested a release notice when finished, attributing the coordination request to Sam; keep harness for this investigation until then.",
+  "diagnostic_units_on_observed_boot": [
+    "pocketfed-fpc-device-signals-fresh-20260912.service",
+    "pocketfed-fpc-uart-journal-fresh-20260912.service"
+  ],
+  "diagnostic_units_expired_on_reboot": true,
+  "lockscreen_touch_result": {
+    "user_report": "Sam touched the enrolled finger on the lockscreen before swiping; the phone froze and subsequently rebooted. Sam identifies this reset as watchdog-driven.",
+    "uart_timeline_monotonic_seconds": {
+      "phosh_fingerprint_worker_started": 606.537461,
+      "fprintd_starting": 606.563289,
+      "fprintd_started": 606.77856,
+      "display_frame_done_timeout": 607.040973,
+      "rpmh_write_batch_warning": 616.938956,
+      "amc_rpmh_request_timeout": 617.355788
+    },
+    "following_uart": "SBL/UEFI boot sequence, Reset REASON 8",
+    "verified_match_retained": false,
+    "causal_limit": "The trigger is associated with the fingerprint attempt, but the UART does not yet distinguish driver initialization, capture, identification or unrelated concurrent power transitions. Reset reason alone does not prove the underlying watchdog cause.",
+    "private_uart_path": "out/private/sargo-daily-freeze-20260912/replay-log/uart.log"
+  },
+  "subsequent_boot": {
+    "boot_id": "51d59842-0056-46a5-a417-532ef194ad54",
+    "verified_responsive_at_uptime_minutes": 9,
+    "phosh_fingerprint_socket": "inactive, masked-runtime",
+    "qsee_supplicant": "inactive",
+    "fprintd": "inactive",
+    "auth_broker": "inactive",
+    "pause_receipt": "/var/tmp/sargo-fingerprint-mm-20260912/sensor-freeze-runtime-pause.json",
+    "pause_expires_on_reboot": true,
+    "credential_or_template_mutation": false,
+    "pin_route_changed": false,
+    "restore": "systemctl unmask --runtime phosh-fingerprint-auth.socket; systemctl start phosh-fingerprint-auth.socket",
+    "latest_state": "SSH unresponsive after traced sensor initialization at uptime 4213.492s; UART still responds to diagnostic SysRq"
+  }
+}
