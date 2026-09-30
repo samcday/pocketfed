@@ -2,12 +2,59 @@
 
 Tracking: [sam-sargo #11](https://github.com/samcday/sam-sargo/issues/11).
 
-The active goal is working native **fprint**, successful enrollment by Sam in
+The original goal was working native **fprint**, successful enrollment by Sam in
 **GNOME Control Center**, and fingerprint authentication through **Phosh and
 Phrog**. PIN fallback must remain available. Neither protocol unit tests nor
 sensor interrupts establish that this goal is complete.
 
-## Implementation state — 11 September 2026
+## Status — 1 October 2026
+
+**Accepted on sam-sargo on 2026-09-13** with kernel `.12`: Settings
+enrolment and normal Phosh lockscreen unlock, with PIN once after reboot and
+then fingerprints. Phrog fingerprint login and fingerprint-only encrypted-home
+unlock were dropped from scope. **Nothing is integrated into `main`.** This
+tree is a source publication of the local snapshot `0f08890d`
+(`wip/shared-checkout-20260917`, 2026-09-17); integration and the Fedora HWE
+move are tracked in [pocketfed#115](https://github.com/samcday/pocketfed/issues/115).
+The 11 September notes below are kept as history and still say "pending" in
+places.
+
+| Component | Directory | Accepted version |
+|---|---|---|
+| Kernel | [kernel-fingerprint](../../packages/kernel-fingerprint/) | `7.1.2-0.pocketfed.sdm670.12` (COPR 10980882) |
+| FPC/Gatekeeper codecs, transport, probe | [fpc-qsee](../../packages/fpc-qsee/) | `fpc-qsee-probe 0.1.0-0.1.pocketfed` |
+| Enrolment broker, Keymaster startup | [fpc-auth](../../packages/fpc-auth/) | `pocketfed-fpc-auth 0.1.0-0.4.pocketfed` |
+| Supplicant + RPMB listener | [qsee-supplicant](../../packages/qsee-supplicant/) | `0.1.1-1.4.pocketfed` (+`-sargo-rpmb`) |
+| libfprint `fpcqsee` driver | [libfprint](../../packages/libfprint/) | `1.94.100-1.6.pocketfed` |
+| SELinux policy | [fpc-selinux](../../packages/fpc-selinux/) | `pocketfed-fpc-selinux 0.1.0-0.2.pocketfed` |
+| Settings, Phosh, PAM helper | [fingerprint-desktop](../../packages/fingerprint-desktop/) | g-c-c `51~rc.1-1.2.fingerprint`, phosh `0.57.0-1.5.fingerprint`, `phosh-fingerprint-auth 0.1.0-0.1.pocketfed` |
+| Firmware prep, device config, trial records | [fingerprint-trial](fingerprint-trial/) | — |
+| fprintd | stock Fedora | `1.94.5-6.fc45` |
+
+Where the rest lives:
+
+- Kernel: reproducible `.12` source on samcday/linux branch
+  [`codex/sargo-fingerprint-invoke-pool-fix`](https://github.com/samcday/linux/tree/codex/sargo-fingerprint-invoke-pool-fix)
+  (release commit `3ad4e5eac8aa`), RPMs on the
+  [`sargo-fingerprint-kernel-12`](https://github.com/samcday/linux/releases/tag/sargo-fingerprint-kernel-12)
+  release, upstream-shaped series in [linux#14](https://github.com/samcday/linux/pull/14).
+- Invoke-pool validation: [pocketfed#62](https://github.com/samcday/pocketfed/pull/62).
+- Device acceptance history: [sam-sargo#11](https://github.com/samcday/sam-sargo/issues/11);
+  raw working-tree copy under `pocketfed-workdir/` in
+  [sam-sargo-slush](https://github.com/samcday/sam-sargo-slush).
+- Handoff note: `git fetch origin refs/notes/evidence:refs/notes/fingerprint-handoff && git notes --ref=fingerprint-handoff show 15d4fe2d8dca65cda11e2ae47f9a2fa2c894b4c7`.
+
+**Gatekeeper finding.** Sargo's FPC TA refuses to complete enrolment without a
+Gatekeeper-signed, challenge-bound hardware authentication token. The
+`fpc-auth` broker obtains one through its own QSEECOM Gatekeeper session with a
+native service credential, independent of the user's PIN. That session only
+works when the AP-side secure-storage listeners are up: FS, GPFS and RPMB
+(listener id `0x2000`), which
+[`sargo-rpmb`](../../packages/qsee-supplicant/sargo-rpmb/) registers in one
+lifetime, with RPMB operating on `mmcblk0rpmb`. Proprietary TA and firmware binaries are not in this tree;
+they are extracted and hash-verified on the device.
+
+## Historical implementation state — 11 September 2026
 
 The last successful phone inventory on 11 September AEST recorded: kernel
 `7.1.2-0.pocketfed.sdm670.8.fc46.aarch64`, Phosh 0.57.0, Phrog 0.53.0,
