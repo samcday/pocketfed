@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: MIT
+# Source-only candidate. Do not install without the trial coordinator's review.
+module pocketfed_fpc 1.1;
+
+require {
+    type fprintd_t;
+    type init_t;
+    attribute device_node;
+    attribute file_type;
+    attribute non_auth_file_type;
+    attribute non_security_file_type;
+    attribute pidfile;
+    class chr_file { getattr open read write ioctl };
+    class dir { create setattr search };
+    class sock_file { getattr write };
+}
+
+# Only the exact character-device paths in pocketfed_fpc.fc receive these types.
+# device_node gives existing udev/device administration policy its normal scope;
+# these are not generic file_type or domain attributes.
+type pocketfed_fpc_device_t, device_node;
+type pocketfed_fpc_tee_device_t, device_node;
+
+# Distinct private state and socket labels. Do not use fprintd_var_lib_t for
+# the service credential: fprintd must request a token through the broker.
+type pocketfed_fpc_auth_state_t, file_type, non_auth_file_type, non_security_file_type;
+type pocketfed_fpc_auth_run_t, file_type, non_auth_file_type, non_security_file_type, pidfile;
+
+# systemd creates StateDirectory; the broker manages its contents. Existing
+# init_t file_type metadata/relabel rules cover the remaining setup operations.
+allow init_t pocketfed_fpc_auth_state_t:dir { create setattr };
+
+# Socket pathname access only. systemd derives the activation peer SID from
+# the service executable, not PID1. The supplementary broker policy supplies
+# its dedicated process transition and connectto permission after live review.
+allow fprintd_t pocketfed_fpc_auth_run_t:dir search;
+allow fprintd_t pocketfed_fpc_auth_run_t:sock_file { getattr write };
+
+# Both clients open O_RDWR. The sensor consumes IRQ events; the TEE client uses
+# only ioctls. getattr supports device discovery. Neither device itself is mmap'd.
+allow fprintd_t pocketfed_fpc_device_t:chr_file { getattr open read write ioctl };
+allow fprintd_t pocketfed_fpc_tee_device_t:chr_file { getattr open read write ioctl };
+
+# SELinux ioctl extended permissions use the low 16 bits, not direction/size.
+# RESET, SET_WAKEUP, GET_IRQ; no other sensor ioctl.
+allowxperm fprintd_t pocketfed_fpc_device_t:chr_file ioctl { 0x4600 0x4601 0x4602 };
+# VERSION, SHM_ALLOC, OPEN_SESSION, INVOKE, CLOSE_SESSION. No privileged
+# supplicant operations, SHM registration, object invocation or unused CANCEL.
+allowxperm fprintd_t pocketfed_fpc_tee_device_t:chr_file ioctl { 0xa400 0xa401 0xa402 0xa403 0xa405 };

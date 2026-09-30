@@ -1,0 +1,38 @@
+{
+  "status": "local candidate; not published or installed",
+  "nvr": "pocketfed-fpc-auth-0.1.0-0.3.pocketfed.fc46.aarch64",
+  "rpm_path": "/tmp/sargo-fpc-auth-startup-rpmbuild-20260911/RPMS/aarch64/pocketfed-fpc-auth-0.1.0-0.3.pocketfed.fc46.aarch64.rpm",
+  "rpm_sha256": "7b3f605e40e638df8e2e246ddd8f3c1d82cba095d0d3ba4ffbf7747a16acb853",
+  "source_manifest": {
+    "auth-broker.c": "0cc7f33b409c6ccd6508109652f51960c6a35f27cca9691126741c7e00afc336",
+    "auth-store.c": "99f34c30b530907a0fdc747524a77c9473ea349f6aa23f944eb85179cf463759",
+    "auth-store.h": "c458b5c7bd174879dcc846494b0bfcace6a128236b8596b4fcd92d4d966e1a3a",
+    "test-auth-store.c": "e5f5d9385f5b6f3c2321b839e05192b63441d82c3812cf3cd2117e0b5684deb7",
+    "Makefile": "a04a99db4929c1b19999dd674bd5953e64a5dd0d6d8bf602b61c21f6ecc4beb0",
+    "auth-backend.c": "261616e353f07d58299bc7f1ba7664614591fc4ea19328ab145ef11b4972d7fa",
+    "auth-backend.h": "ef430c2d834057dc982262e8d082f66f46cbe9cf1b1345ddc5d2e4b8b0f3124a",
+    "test-auth-backend.c": "d413068d8d272ba21ef707cd69d598921f1dfbd003c2c445988453608f07f98e",
+    "pocketfed-fpc-provision@.service": "c2d24455ce60a512a8f1083b10777b046bdb720c194474109c720e239252fd95",
+    "pocketfed-fpc-auth.socket": "86c119a57bd60e873ec1caaf9b56377d042ba0396713cb3d46be3a83af28fe55",
+    "pocketfed-fpc-auth.service": "4f4f9cf47e5b5f46907dcc8925ebd6d0d39fd41035b4bea89272eee1ee1cb5f8",
+    "COPYING": "5df07007198989c622f5d41de8d703e7bef3d0e79d62e24332ee739a452af62a",
+    "README.md": "8daa5a1a4160ad37cf9601369c7ea8e39396b8194bcccac768fc57a9bea94652",
+    "keymaster-startup.c": "635b0e4683f9caf2763ec42792cc26d196c25172465a791668011c9677f00ce0",
+    "test-keymaster-startup.c": "c1fc5af4540644a8680bc92db9ee154b5d58790f95ee072252f7e00c29c88abf",
+    "pocketfed-keymaster-startup.service": "de047ddc54a79446279942ce997434cbfdacb3721faa00889ad193dc093ee156",
+    "auth-broker.h": "696121bf8306c74e83c92bab166b1dc4610c6764f4903fb3ddc226f754e73ab7",
+    "gatekeeper-protocol.c": "050aa3b46016588b3b0884651057f200391dec3bf8ab3a8d49f42b2074ccf69f",
+    "gatekeeper-protocol.h": "ecad7859725b90a0c91cec09fa4fb115c13f11ee3aab1df59c34c50e653c12cf",
+    "qsee-transport.c": "6c381c0ba09cb86f73709488d531d49873855c333f97b4d39db04c71935cc16c",
+    "qsee-transport.h": "37d95818ea237019e9415e737b1f300a606b683728c010354ba69610bd048366",
+    "protocol.c": "0cbfa936d715d2a3441928ff9ec5c94192b996091e2777025c6930f0a8d4bc10",
+    "protocol.h": "801868688aaa68161ed96a68197c477a5c3e3fbef658410ed7defbe64a9bcaf8",
+    "pocketfed-fpc-auth.spec": "2bcc15e40e12fa4bb5574d2f23ab899af1688fb19a4adc8d7ae42d47062deb80"
+  },
+  "validation": [
+    "host full make check passed",
+    "ARM64 rpmbuild -ba passed, including full make check",
+    "RPM contains startup binary, static service and flock dependency"
+  ],
+  "live_acceptance": "0.3 helper passed in disposable test-sargo run after FPC-before-Keymaster ordering fix; the original ordering failed. See ordering-build.json."
+}

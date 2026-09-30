@@ -1,0 +1,39 @@
+{
+  "status": "Local noarch RPM and SRPM built; inactive payload verified; hardware acceptance pending",
+  "sources": {
+    "README.broker.md": "d4cf946ffcb031be1464c9297247e18369f37f47e17df1b41858e83bf9adabc7",
+    "pocketfed_fpc_broker.fc": "6c46092f5bce9130f4489db533d76f3b0a7aea33b6b7fadc09c1831ff73b0b3b",
+    "pocketfed_fpc_broker.te": "bc31b6884d9bc5a582fbf2fec14cc06019385315c1566dcdedb4adcddf289346",
+    "COPYING": "8bb24b5e169efa5be290ae5581fb7aab7207fe47f8032f7498c5f388dd5667dd",
+    "README.package.md": "400f0028522b4e0b031dca7b95f4e944086f80c4befdd6d96df7db55773d48a1",
+    "Makefile": "1a7355c4d53274a5d5ee89618a7b0d12c021a7e02623c92e5d7eead77729810f",
+    "pocketfed_fpc.fc": "66cf7e9f96c7a203bcc0c95d33bf2cb1ca7b0116fda5ee380c6ea7b577219d6e",
+    "pocketfed_fpc.te": "6b8ab07d0c6ee9e8c9db04b3661f2b014c09757b449a24dc3695f3610eac4051"
+  },
+  "artifacts": [
+    {
+      "path": "/tmp/sargo-fpc-broker-policy-rpm-exec-20260912/RPMS/noarch/pocketfed-fpc-selinux-0.1.0-0.2.pocketfed.fc46.noarch.rpm",
+      "sha256": "c3bc9c6ebf6c10322e5fa664bf5505a6b72348de745abbbbf7becb76d6b41bff",
+      "bytes": 12343
+    },
+    {
+      "path": "/tmp/sargo-fpc-broker-policy-rpm-exec-20260912/SRPMS/pocketfed-fpc-selinux-0.1.0-0.2.pocketfed.fc46.src.rpm",
+      "sha256": "739396ebdfb32285837d1d8b837904437fadeb0f3c30033bf7712cb0f1655662",
+      "bytes": 16150
+    }
+  ],
+  "payload": [
+    "/usr/share/doc/pocketfed-fpc-selinux",
+    "/usr/share/doc/pocketfed-fpc-selinux/README.broker.md",
+    "/usr/share/doc/pocketfed-fpc-selinux/README.package.md",
+    "/usr/share/licenses/pocketfed-fpc-selinux",
+    "/usr/share/licenses/pocketfed-fpc-selinux/COPYING",
+    "/usr/share/selinux/packages/targeted/pocketfed_fpc.pp",
+    "/usr/share/selinux/packages/targeted/pocketfed_fpc_broker.pp"
+  ],
+  "scriptlets": [],
+  "broker_module_matches_tested_policy": true,
+  "broker_module_sha256": "1c9703327b4a4ea0ef06a710a8ff457f15294c34ace0506845ec499142d4f143",
+  "published": false,
+  "installed": false
+}

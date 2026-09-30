@@ -1,0 +1,389 @@
+{
+  "policy_sha256": "ca98dfcea858d4974bdaa1e10e54e1d70264a28c0fb79c03e339565360384973",
+  "transitions_from_init_t": {
+    "fprintd_exec_t": [
+      "type_transition init_t fprintd_exec_t:process fprintd_t;"
+    ],
+    "bin_t": [
+      "type_transition init_t bin_t:process unconfined_service_t;"
+    ]
+  },
+  "queries": {
+    "fprintd_t -> device_t:chr_file": [
+      {
+        "rule": "allow domain file_type:chr_file map; [ domain_can_mmap_files ]:True",
+        "condition": "domain_can_mmap_files",
+        "conditional_block": true,
+        "condition_default": false,
+        "default_enabled": false
+      }
+    ],
+    "fprintd_t -> fprintd_var_lib_t:dir": [
+      {
+        "rule": "allow fprintd_t fprintd_var_lib_t:dir { add_name create getattr ioctl link lock open read remove_name rename reparent rmdir search setattr unlink watch watch_reads write };",
+        "default_enabled": true
+      }
+    ],
+    "fprintd_t -> fprintd_var_lib_t:file": [
+      {
+        "rule": "allow fprintd_t fprintd_var_lib_t:file { append create getattr ioctl link lock open read rename setattr unlink watch watch_reads write };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow domain file_type:file map; [ domain_can_mmap_files ]:True",
+        "condition": "domain_can_mmap_files",
+        "conditional_block": true,
+        "condition_default": false,
+        "default_enabled": false
+      }
+    ],
+    "fprintd_t -> var_lib_t:dir": [
+      {
+        "rule": "allow nsswitch_domain var_lib_t:dir { ioctl lock read };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow domain base_file_type:dir { getattr open search };",
+        "default_enabled": true
+      }
+    ],
+    "fprintd_t -> var_lib_t:file": [
+      {
+        "rule": "allow domain file_type:file map; [ domain_can_mmap_files ]:True",
+        "condition": "domain_can_mmap_files",
+        "conditional_block": true,
+        "condition_default": false,
+        "default_enabled": false
+      }
+    ],
+    "fprintd_t -> var_run_t:dir": [
+      {
+        "rule": "allow domain var_run_t:dir { ioctl lock read };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow nsswitch_domain pidfile:dir { getattr open search };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow domain base_file_type:dir { getattr open search };",
+        "default_enabled": true
+      }
+    ],
+    "fprintd_t -> var_run_t:sock_file": [],
+    "fprintd_t -> init_t:unix_stream_socket": [
+      {
+        "rule": "allow daemon init_t:unix_stream_socket { accept append bind connect connectto getattr getopt ioctl listen lock read setattr setopt shutdown write };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow system_bus_type init_t:unix_stream_socket { accept bind connect connectto getopt listen lock setattr setopt shutdown };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow systemprocess init_t:unix_stream_socket { append getattr ioctl read write };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow nsswitch_domain init_t:unix_stream_socket connectto;",
+        "default_enabled": true
+      }
+    ],
+    "fprintd_t -> unconfined_service_t:unix_stream_socket": [],
+    "fprintd_t -> unconfined_service_t:dbus": [
+      {
+        "rule": "allow nsswitch_domain dbusd_unconfined:dbus send_msg;",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow system_bus_type dbusd_unconfined:dbus send_msg;",
+        "default_enabled": true
+      }
+    ],
+    "init_t -> fprintd_t:process": [
+      {
+        "rule": "allow initrc_domain daemon:process transition;",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow init_t domain:process { getattr getpgid noatsecure rlimitinh setrlimit setsched sigchld sigkill signal signull sigstop };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow init_t daemon:process siginh;",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow init_t systemprocess:process { dyntransition siginh };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow initrc_domain systemprocess:process transition;",
+        "default_enabled": true
+      }
+    ],
+    "init_t -> fprintd_t:process2": [
+      {
+        "rule": "allow init_t fprintd_t:process2 { nnp_transition nosuid_transition };",
+        "default_enabled": true
+      }
+    ],
+    "unconfined_service_t -> device_t:chr_file": [
+      {
+        "rule": "allow files_unconfined_type file_type:chr_file { append audit_access create execute execute_no_trans getattr ioctl link lock map mounton open quotaon read relabelfrom relabelto rename setattr swapon unlink watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm write };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow devices_unconfined_type device_node:chr_file { append audit_access create execute execute_no_trans getattr ioctl link lock map mounton open quotaon read relabelfrom relabelto rename setattr swapon unlink watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm write };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow filesystem_unconfined_type filesystem_type:chr_file { append audit_access create entrypoint execmod execute execute_no_trans getattr ioctl link lock map mounton open quotaon read relabelfrom relabelto rename setattr swapon unlink watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm write };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow domain file_type:chr_file map; [ domain_can_mmap_files ]:True",
+        "condition": "domain_can_mmap_files",
+        "conditional_block": true,
+        "condition_default": false,
+        "default_enabled": false
+      }
+    ],
+    "unconfined_service_t -> var_lib_t:dir": [
+      {
+        "rule": "allow named_filetrans_domain mountpoint:dir { add_name getattr ioctl lock open read remove_name search write };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow domain base_file_type:dir { getattr open search };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow userdom_filetrans_type var_lib_t:dir { add_name ioctl lock read remove_name write };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow files_unconfined_type file_type:dir { add_name append audit_access create execmod execute getattr ioctl link lock mounton open quotaon read relabelfrom relabelto remove_name rename reparent rmdir search setattr swapon unlink watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm write };",
+        "default_enabled": true
+      }
+    ],
+    "unconfined_service_t -> var_lib_t:file": [
+      {
+        "rule": "allow files_unconfined_type file_type:file { append audit_access create execute execute_no_trans getattr ioctl link lock map mounton open quotaon read relabelfrom relabelto rename setattr swapon unlink watch watch_mount watch_mountns watch_reads watch_sb watch_with_perm write };",
+        "default_enabled": true
+      },
+      {
+        "rule": "allow domain file_type:file map; [ domain_can_mmap_files ]:True",
+        "condition": "domain_can_mmap_files",
+        "conditional_block": true,
+        "condition_default": false,
+        "default_enabled": false
+      },
+      {
+        "rule": "allow files_unconfined_type file_type:file execmod; [ selinuxuser_execmod ]:True",
+        "condition": "selinuxuser_execmod",
+        "conditional_block": true,
+        "condition_default": true,
+        "default_enabled": true
+      }
+    ]
+  },
+  "image_id": "d00f4e30950d566d2bb5181343d61836bf95e9d04f99cfb0a4c604def65889db",
+  "image_status": "rejected earlier candidate; offline policy review only",
+  "contexts": {
+    "/usr/libexec/fprintd": {
+      "class": "file",
+      "label": "system_u:object_r:fprintd_exec_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/usr/bin/qsee-supplicant": {
+      "class": "file",
+      "label": "system_u:object_r:bin_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/usr/bin/qsee-app-loader": {
+      "class": "file",
+      "label": "system_u:object_r:bin_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/usr/libexec/phosh-fingerprint-worker": {
+      "class": "file",
+      "label": "system_u:object_r:bin_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/usr/bin/pocketfed-fpc-auth": {
+      "class": "file",
+      "label": "system_u:object_r:bin_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/var/lib/fprint": {
+      "class": "dir",
+      "label": "system_u:object_r:fprintd_var_lib_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/var/lib/fprint/fpc-qsee": {
+      "class": "dir",
+      "label": "system_u:object_r:fprintd_var_lib_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/var/lib/fprint/fpc-qsee/device.lock": {
+      "class": "file",
+      "label": "system_u:object_r:fprintd_var_lib_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/var/lib/qsee-supplicant": {
+      "class": "dir",
+      "label": "system_u:object_r:var_lib_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/var/lib/qsee-supplicant/fpc-test": {
+      "class": "file",
+      "label": "system_u:object_r:var_lib_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/run/pocketfed-fpc-auth": {
+      "class": "dir",
+      "label": "system_u:object_r:var_run_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/run/pocketfed-fpc-auth/token.sock": {
+      "class": "sock_file",
+      "label": "system_u:object_r:var_run_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/run/phosh-fingerprint-auth": {
+      "class": "dir",
+      "label": "system_u:object_r:var_run_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/run/phosh-fingerprint-auth/socket": {
+      "class": "sock_file",
+      "label": "system_u:object_r:var_run_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/fpc1020": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee0": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee1": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee2": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee3": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee4": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee5": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee6": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee7": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee8": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee9": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee10": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee11": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee12": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee13": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee14": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/tee15": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    },
+    "/dev/teepriv0": {
+      "class": "chr_file",
+      "label": "system_u:object_r:device_t:s0",
+      "status": 0,
+      "stderr": ""
+    }
+  },
+  "fprintd_t_ispermissive": false,
+  "scope": "compiled policy and default file contexts only; no observed live inode/process labels; no policy or device changes"
+}

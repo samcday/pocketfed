@@ -1,0 +1,63 @@
+[Unit]
+Description=Provision native fingerprint service credential for UID %i
+Documentation=file:/usr/share/doc/pocketfed-fpc-auth/README.md
+Requires=qsee-supplicant.service pocketfed-keymaster-startup.service
+BindsTo=qsee-supplicant.service
+After=qsee-supplicant.service pocketfed-keymaster-startup.service
+ConditionKernelVersion=>=7.1.2-0.pocketfed.sdm670.11
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/pocketfed-fpc-auth provision %i
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+StateDirectory=pocketfed-fpc-auth
+StateDirectoryMode=0700
+UMask=0077
+LimitCORE=0
+TimeoutStartSec=infinity
+TimeoutStopSec=infinity
+KillMode=control-group
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=no
+DevicePolicy=closed
+DeviceAllow=/dev/tee0 rw
+DeviceAllow=/dev/tee1 rw
+DeviceAllow=/dev/tee2 rw
+DeviceAllow=/dev/tee3 rw
+DeviceAllow=/dev/tee4 rw
+DeviceAllow=/dev/tee5 rw
+DeviceAllow=/dev/tee6 rw
+DeviceAllow=/dev/tee7 rw
+DeviceAllow=/dev/tee8 rw
+DeviceAllow=/dev/tee9 rw
+DeviceAllow=/dev/tee10 rw
+DeviceAllow=/dev/tee11 rw
+DeviceAllow=/dev/tee12 rw
+DeviceAllow=/dev/tee13 rw
+DeviceAllow=/dev/tee14 rw
+DeviceAllow=/dev/tee15 rw
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+
+# Public TEE attachment only; no privileged loader/listener device access.
+# A synchronous secure call retains its session and state lock until it returns.

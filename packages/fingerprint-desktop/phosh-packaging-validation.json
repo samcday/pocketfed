@@ -1,0 +1,60 @@
+{
+  "status": "Local corrected Phosh build and payload verification passed; refreshed source RPM handed to parent for isolated ARM64 COPR submission.",
+  "release": "0.57.0-1.3.fingerprint.fc46",
+  "supersedes": {
+    "release": "0.57.0-1.2.fingerprint.fc46",
+    "copr_build": 10973639,
+    "reason": "Its Source3 PAM file used pam_unix directly and would replace the existing Fedora system-auth policy, bypassing the systemd-homed PIN path."
+  },
+  "base_image_id": "7abbae67bf384120c183f236b02909dc398f01ff929a565fc4b10865f0655b85",
+  "policy": {
+    "source": "phosh-system-auth.pam",
+    "installed_path": "/etc/pam.d/phosh",
+    "bytes": 252,
+    "sha256": "695d627f3d54bf6010b001bef211792f536437c34b01d60833862c4a9509d5b6",
+    "matches_base_bytes": true,
+    "rpm_file_flags": "config,noreplace"
+  },
+  "spec": {
+    "source": "phosh.spec",
+    "sha256": "321c21eceee095f16f17c50d117e0736554d8b05fd46be7451c8798e3ee30d43",
+    "install_order": "Explicit policy installed after meson_install; check compares staged bytes with Source3."
+  },
+  "preserved_patches": [
+    {
+      "source": "../phosh/0001-auth-do-not-replay-a-rejected-token.patch",
+      "sha256": "6a9e88a7e4fe43175e9779ed3a61cda4d40ec7201a7b5e50f208cc46029bb5b3",
+      "byte_identical_to_1_2": true
+    },
+    {
+      "source": "0001-lockscreen-add-cancellable-fingerprint-auth.patch",
+      "sha256": "5acc3063e1736f7798e8801e5adbce54bb55c4fd3830c2c4ebc1dc4ba0e85ad9",
+      "byte_identical_to_1_2": true
+    }
+  ],
+  "source_rpm": {
+    "path": "build/phosh-1.3-review/SRPMS/phosh-0.57.0-1.3.fingerprint.fc46.src.rpm",
+    "sha256": "c840dbe288632ff67333446a3e5b0cc017b45bafe108e15eaa2718f73c50af6c",
+    "sources_extracted_and_compared": true
+  },
+  "local_binary_rpm": {
+    "path": "build/phosh/RPMS/x86_64/phosh-0.57.0-1.3.fingerprint.fc46.x86_64.rpm",
+    "sha256": "6c80e14874de11a5c509a2f573a03c6e4f8ba3b83bf1b22e5d0a9a0692814b5f",
+    "payload_extracted_and_compared_to_base": true
+  },
+  "validation": {
+    "architecture": "x86_64",
+    "container": "pocketfed-fingerprint-desktop-build-x86_64",
+    "command": "rpmbuild -ba --define \"_topdir /work/build/phosh\" --define \"_smp_mflags -j4\" /work/build/phosh/SPECS/phosh.spec",
+    "exit_status": 0,
+    "log": "build/phosh-1.3-rpmbuild.log",
+    "phosh_tests_passed": 45,
+    "phosh_tests_failed": 0,
+    "staged_policy_cmp": "passed",
+    "final_rpm_policy_cmp": "passed",
+    "final_rpm_config_flags": "cn",
+    "note": "The handoff SRPM contains a final comment wording correction; code, build and install behavior are identical to the completed binary build."
+  },
+  "device_changes": false,
+  "helper_or_control_center_changes": false
+}

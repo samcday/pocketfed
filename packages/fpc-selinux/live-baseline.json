@@ -1,0 +1,10 @@
+{
+  "date": "2026-09-11",
+  "kernel": "7.1.2-0.pocketfed.sdm670.8.fc46.aarch64",
+  "enforcement": "Enforcing",
+  "policy_package": "selinux-policy-targeted-45.15-2.fc46.noarch",
+  "semodule_list_full": "No modules.",
+  "persistent_policy_sha256": "ca98dfcea858d4974bdaa1e10e54e1d70264a28c0fb79c03e339565360384973",
+  "kernel_exported_policy_sha256": "9b14d2b6ce294a2f05215f720c38d0af7fdb933097e8b0137e26bb1175fa14bb",
+  "interpretation": "Persistent compiled policy matches the audited image; semodule reports an empty module store. Different kernel-exported hash alone does not establish different rule semantics. No policy installation or reload was attempted."
+}

@@ -1,0 +1,11 @@
+{
+  "scope": "Read-only daily sam-sargo metadata; no service or authentication changes",
+  "address": "100.64.0.11",
+  "kernel_release": "7.1.2-0.pocketfed.sdm670.11.fc46.aarch64",
+  "model": "Google Pixel 3a",
+  "fprintd": "inactive",
+  "native_broker_socket": "inactive",
+  "home_state": "active",
+  "linux_uid": 1000,
+  "credential_fields_read": false
+}

@@ -1,0 +1,4 @@
+PASS systemd-analyze verify --man=no on temporary copies of pocketfed-fpc-auth.socket and pocketfed-fpc-auth.service.
+ExecStart was replaced only in the temporary verification copy with the already built local binary path, because the package is not installed.
+Neither unit was installed, enabled, or started.
+The sandbox denied systemd credential socket calls; the read-only verification passed outside that sandbox.

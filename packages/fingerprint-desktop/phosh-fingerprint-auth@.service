@@ -1,0 +1,12 @@
+[Unit]
+Description=Fingerprint authentication transaction for a desktop user
+
+[Service]
+ExecStart=/usr/libexec/phosh-fingerprint-worker
+StandardInput=socket
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=yes
+KillMode=control-group
+RuntimeMaxSec=90s
+TimeoutStopSec=2s

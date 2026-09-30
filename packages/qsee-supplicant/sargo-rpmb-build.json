@@ -1,0 +1,63 @@
+{
+  "status": "ARM64 RPM build and required tests passed; not installed or activated",
+  "version": "0.1.1-1.4.pocketfed.fc46",
+  "source_commit": "36e06680cf7f690fccbdcd07abc2a64c4bb061d8",
+  "source_archive_origin": "local git archive of the pinned upstream commit",
+  "build_image": "sha256:a11b75544e1e5f304d103fa4602068bc70e2ce2aa6d557a1eb8b7eab742f0dd3",
+  "build_log_sha256": "6d61c307a79836245b112bad8b0f3c7a3ef854e9d62dcfc803d631dd5c4a5602",
+  "host_tests_sha256": "b72e034f8ab1f57fa3178a9c00ea49d854e1c3468f6e0202553e3361c6da1190",
+  "rpms": [
+    {
+      "path": "/tmp/sargo-rpmb-package-rpm-20260912/RPMS/aarch64/qsee-supplicant-0.1.1-1.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "95c1458aa0da99ee18b5aab1b53d59b45e24b724411844d87b0261d3e38134e9",
+      "bytes": 33010
+    },
+    {
+      "path": "/tmp/sargo-rpmb-package-rpm-20260912/RPMS/aarch64/qsee-supplicant-debuginfo-0.1.1-1.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "88b1d0eac321e96c63b5b3efceef435e8cb1ac03baee00dc7b61644d119151df",
+      "bytes": 50167
+    },
+    {
+      "path": "/tmp/sargo-rpmb-package-rpm-20260912/RPMS/aarch64/qsee-supplicant-debugsource-0.1.1-1.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "41d7edb24bb7809ff5f7071524b280cb12bbf9033b2daa969a43f89390c70d14",
+      "bytes": 25797
+    },
+    {
+      "path": "/tmp/sargo-rpmb-package-rpm-20260912/RPMS/aarch64/qsee-supplicant-sargo-rpmb-0.1.1-1.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "eab77fe984fa4ca19b452dca419ff18947da2874885c45bb51b070d872c3c3d0",
+      "bytes": 28734
+    },
+    {
+      "path": "/tmp/sargo-rpmb-package-rpm-20260912/RPMS/aarch64/qsee-supplicant-sargo-rpmb-debuginfo-0.1.1-1.4.pocketfed.fc46.aarch64.rpm",
+      "sha256": "62ed013a7e3beb3e19da93dd188302b3c0cd5430ad807aad3a2b1a7289ec2cb7",
+      "bytes": 48637
+    }
+  ],
+  "sources": {
+    "prepare-sargo-rpmb.py": "d116ca88993df9c16ed1b2cc7b2229af6ba926dfa34fafd00f24b67615dd4b77",
+    "qsee-supplicant.spec": "d3db8bfaa176dbe8c90c1977201a915259e3f0c09fefdf01c9110de4ffef645a",
+    "sargo-rpmb/90-sargo-rpmb.conf": "6fd338c6f56e3aebda0335e88190e593a3dd413aa90ddf1c7712209bb9fb740a",
+    "sargo-rpmb/LICENSE.MIT": "b0c180622764119a3467b087302cdf78258f2a5a280d3935cdcf7eb719a4f378",
+    "sargo-rpmb/Makefile": "bc96412acd08e686c34d8fde58a1b44202dd4f409cc10e3298c23f02409cf550",
+    "sargo-rpmb/README.md": "863c9b7f82561f0bd111bc9eda5f9743b39b65554fd4da2b9f7f97c4ba26ae68",
+    "sargo-rpmb/main.c": "5de0ffd7dc60dd767add1dcaaee4f89c6457b9a194f24d474bba38a55fbd4c79",
+    "sargo-rpmb/rpmb-mmc.c": "ce6036d731cf660d6129d3f7086c58c9ed60b6a3ee8d8a5bed4953f51a7a1405",
+    "sargo-rpmb/rpmb-mmc.h": "02744188a8e55a4073b674a70540e0fd8042b933a94bc4d54f8778d0821e189b",
+    "sargo-rpmb/rpmb-protocol.c": "f6032a2f7ed10db6cde734a0f2879843d9bf72131e2f18b2cf4b44d75ecac071",
+    "sargo-rpmb/rpmb-protocol.h": "ebd6e6e059086520f8cc4f9bc5689fc9400cd98803facfb13a67ee6f081b271c",
+    "sargo-rpmb/sargo-device.h": "0db4795160944acf9b163627043fc1f0f89f283720da052915ef6c5380d99452",
+    "sargo-rpmb/source-origin.json": "247e28398d242094b6ade3adfda78e2c433341163681c23430a8b498a86ef5af",
+    "sargo-rpmb/test-receiver.c": "7ec25dbaf2fff676214698759d6d41ddfe5a48ce0fd92abda25b7af5d49bb859",
+    "sargo-rpmb/test-rpmb-mmc.c": "8691b28ccd0ab2b45b2cdb7480de6aa763dda3d68c422761fe2f838cf831f302",
+    "sargo-rpmb/test-rpmb-protocol.c": "b56d8c02c25fe3c21b76427270108c46a5abfd9da82a091f0cea788fc47850ac",
+    "sargo-rpmb/test-sargo-device.c": "e2c197cd8ed93206bcbe922e8de99e3437ab87fbd9ad45ded476a19883128ddd",
+    "sargo-rpmb/write-policy.h": "31fefe1900b242dde12fab302bc771208f2bc28442477ac02f931e5487aa9129"
+  },
+  "hardware_acceptance": false,
+  "activation": "Only a template in documentation; no new service is enabled or started",
+  "payload_verification": {
+    "no_scriptlets": true,
+    "no_active_unit_or_dropin_paths": true,
+    "binary_path": "/usr/bin/qsee-sargo-rpmb"
+  }
+}

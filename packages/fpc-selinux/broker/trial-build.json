@@ -1,0 +1,44 @@
+{
+  "status": "offline compile and boundaries passed; hardware acceptance pending",
+  "base_policy_sha256": "61a507b528b021177198aed1ea54b2233ee4cdb959b550bc3c3fef2e7be71077",
+  "policy_sha256": "7c1f0c2c2857badd6a8b2d6ed9b254b41e3a92729f2352dd3b0476a12304f0fc",
+  "module_sha256": "1c9703327b4a4ea0ef06a710a8ff457f15294c34ace0506845ec499142d4f143",
+  "sources": {
+    "pocketfed_fpc_broker.te": "bc31b6884d9bc5a582fbf2fec14cc06019385315c1566dcdedb4adcddf289346",
+    "pocketfed_fpc_broker.fc": "6c46092f5bce9130f4489db533d76f3b0a7aea33b6b7fadc09c1831ff73b0b3b",
+    "prepare-policy.py": "3ef623edb83f2362a523552cd17a893ae6442dfced7c90420c7db2c1db0f8209"
+  },
+  "existing_policy_preserved_outside_new_types": true,
+  "broker_domain_attributes": [
+    "domain"
+  ],
+  "fprintd_still_confined": true,
+  "fprintd_credential_access_denied": true,
+  "generic_service_peer_access_unchanged": true,
+  "public_tee_ioctls": [
+    "0xa400",
+    "0xa401",
+    "0xa402",
+    "0xa403",
+    "0xa405"
+  ],
+  "negative_checks": [
+    "private/generic TEE and RPMB devices",
+    "sensor access",
+    "generic filesystem writes",
+    "subprocess execution",
+    "network socket creation",
+    "unrelated executable/path labels"
+  ],
+  "host_policy_loaded": false,
+  "prepared_directory": "/tmp/sargo-fpc-broker-policy-20260912/candidate-exec",
+  "context_files": {
+    "file_contexts.bin": "59622b3e9ccacfba0f8411dcfaa51124110be82bbd127fa4aa3761222611f217",
+    "file_contexts": "073d757c02a52d9b19d2129cbff2bbf58527019db16562bc39bea0901f5a86c4",
+    "file_contexts.homedirs": "62e3b85df4253cfd9c117bc3fafdcf0b4d41013033e43ab8373be22c6b8b3470",
+    "file_contexts.local": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "file_contexts.subs": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "file_contexts.subs_dist": "208512ae62d82e07699c16863b7029101969c7af038db233b76e94b09310e709"
+  },
+  "source_trial": "sargo-fingerprint-lab-fprintd-peer-20260912"
+}

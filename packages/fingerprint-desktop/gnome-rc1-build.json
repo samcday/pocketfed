@@ -1,0 +1,35 @@
+{
+  "source_url": "https://kojipkgs.fedoraproject.org/packages/gnome-control-center/51~rc.1/1.fc46/src/gnome-control-center-51~rc.1-1.fc46.src.rpm",
+  "source_rpm_sha256": "5bff2482ce559452979186385df1bee1d9e9b7712a084eae1bb5191437e60701",
+  "patch_sha256": "4895014db4debacc5ad42061f1878d33b7cdea3e3daea8c3185f00785bc62924",
+  "spec_sha256": "1c23a2f0090bbded1f2cbad56f491b2c860e8a2953a93077b354b9c72239da63",
+  "upstream_version": "51~rc.1",
+  "trial_release": "1.1.fingerprint.fc46",
+  "toolchain_image": "sha256:52042b9e154f017c0ecd0cede90f762e1ce08046f0448b281b86409048cf6e9d",
+  "build_log_sha256": "a99168c4174b860cf0cbefeeaecf3654bb44f1a32b35bfe4b4e1362e6b391806",
+  "source_tarball_sha256": "05ddb05a9bbbbc3d80336b04921e55a0f9d4dd36797ef8dc0c81d18ede7c79d7",
+  "rpms": [
+    {
+      "name": "gnome-control-center-51~rc.1-1.1.fingerprint.fc46.aarch64.rpm",
+      "sha256": "9563b1d96472a4b6ef768ff5c96342392a02d747bbf465e904da615368f4bd4a"
+    },
+    {
+      "name": "gnome-control-center-debuginfo-51~rc.1-1.1.fingerprint.fc46.aarch64.rpm",
+      "sha256": "a420f2ea298ee7792038fb2d13a0dbb26210b8018b9c41544dbca106dbeb450c"
+    },
+    {
+      "name": "gnome-control-center-debugsource-51~rc.1-1.1.fingerprint.fc46.aarch64.rpm",
+      "sha256": "3840e490346a7abc330400ab7b7ff7fa69146b65bc7b7a466b6b96eff53c11d3"
+    },
+    {
+      "name": "gnome-control-center-filesystem-51~rc.1-1.1.fingerprint.fc46.noarch.rpm",
+      "sha256": "c4198af1a16fb5d0772d21aad233b27567faae38ef9228130ff9fa447abaefaa"
+    }
+  ],
+  "build_status": "ARM64 rpmbuild passed",
+  "tests": {
+    "status": "not executed",
+    "reason": "Fedora source spec has no %check section; rpmbuild removed the Meson build metadata before the post-build test attempt.",
+    "test_attempt_log_sha256": "3ffc92ddc5e3fd094aa65bacfa257cd6556e8480a77a99174a6236b559d70f59"
+  }
+}

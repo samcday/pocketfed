@@ -1,0 +1,61 @@
+{
+  "status": "passed exact preservation outside the reviewed fingerprint additions",
+  "base_policy_sha256": "ca98dfcea858d4974bdaa1e10e54e1d70264a28c0fb79c03e339565360384973",
+  "candidate_policy_sha256": "2a6013d4c22133f1ea730df92bcf4c739b5ac49e43682007cce59ac39f99913a",
+  "base_decompiled_cil_sha256": "a83556da4721b1afcac13ba161d6e49c4c48a355b2cfd949812151588e78ec1a",
+  "new_top_level_forms": [
+    "(allow fprintd_t pocketfed_fpc_auth_run_t (sock_file (write getattr)))",
+    "(allow fprintd_t pocketfed_fpc_device_t (chr_file (ioctl read write getattr open)))",
+    "(allow fprintd_t pocketfed_fpc_tee_device_t (chr_file (ioctl read write getattr open)))",
+    "(allow init_t pocketfed_fpc_auth_state_t (dir (create setattr)))",
+    "(allow pocketfed_fpc_auth_run_t self (filesystem (associate)))",
+    "(allow pocketfed_fpc_auth_state_t self (filesystem (associate)))",
+    "(allowx fprintd_t pocketfed_fpc_device_t (ioctl chr_file (((range 0x4600 0x4602)))))",
+    "(allowx fprintd_t pocketfed_fpc_tee_device_t (ioctl chr_file (((range 0xa400 0xa403) 0xa405))))",
+    "(roletype object_r pocketfed_fpc_auth_run_t)",
+    "(roletype object_r pocketfed_fpc_auth_state_t)",
+    "(roletype object_r pocketfed_fpc_device_t)",
+    "(roletype object_r pocketfed_fpc_tee_device_t)",
+    "(type pocketfed_fpc_auth_run_t)",
+    "(type pocketfed_fpc_auth_state_t)",
+    "(type pocketfed_fpc_device_t)",
+    "(type pocketfed_fpc_tee_device_t)"
+  ],
+  "attribute_additions": {
+    "device_node": [
+      "pocketfed_fpc_device_t",
+      "pocketfed_fpc_tee_device_t"
+    ],
+    "file_type": [
+      "pocketfed_fpc_auth_run_t",
+      "pocketfed_fpc_auth_state_t"
+    ],
+    "non_auth_file_type": [
+      "pocketfed_fpc_auth_run_t",
+      "pocketfed_fpc_auth_state_t"
+    ],
+    "non_security_file_type": [
+      "pocketfed_fpc_auth_run_t",
+      "pocketfed_fpc_auth_state_t"
+    ],
+    "pidfile": [
+      "pocketfed_fpc_auth_run_t"
+    ]
+  },
+  "preserved_context_text_files": {
+    "file_contexts": "2032f42b11fa2783e9f395336c3b2eeab5b8c995d5f6dfd7427e01c062f94194",
+    "file_contexts.homedirs": "62e3b85df4253cfd9c117bc3fafdcf0b4d41013033e43ab8373be22c6b8b3470",
+    "file_contexts.local": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "file_contexts.subs": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "file_contexts.subs_dist": "208512ae62d82e07699c16863b7029101969c7af038db233b76e94b09310e709",
+    "media": "08062b1ce71faab6f7a21a62b6cb71a88b275e7f36fad087d29fd7e0f121d13d"
+  },
+  "new_context_lines": [
+    "/dev/fpc1020\t-c\tsystem_u:object_r:pocketfed_fpc_device_t:s0",
+    "/dev/tee([0-9]|1[0-5])\t-c\tsystem_u:object_r:pocketfed_fpc_tee_device_t:s0",
+    "/run/pocketfed-fpc-auth\t-d\tsystem_u:object_r:pocketfed_fpc_auth_run_t:s0",
+    "/run/pocketfed-fpc-auth/token\\.sock\t-s\tsystem_u:object_r:pocketfed_fpc_auth_run_t:s0",
+    "/var/lib/pocketfed-fpc-auth(/.*)?\tsystem_u:object_r:pocketfed_fpc_auth_state_t:s0"
+  ],
+  "harness_sha256": "26a8248501748e26e5bba8fa53b27bad61de20bf6ea3939383fd917f8549ba9b"
+}

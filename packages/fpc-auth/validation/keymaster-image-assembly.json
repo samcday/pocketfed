@@ -1,0 +1,37 @@
+{
+  "result": "PASS",
+  "scope": "Offline production kernel assembly fixture only; no device access, TA call, residency inference, or load decision.",
+  "kernel_source": "/tmp/sargo-fingerprint-kernel",
+  "source_path": "/tmp/sargo-fingerprint-private/keymaster_b.mbn",
+  "source_sha256": "8f800f36d6eef63373dc502462c5f52d1d779dd078e0ae429108ea86fcbb261a",
+  "source_size": 524288,
+  "elf_class": 64,
+  "elf_machine": "AArch64",
+  "program_headers": 8,
+  "private_mdt_path": "/tmp/sargo-fingerprint-private/keymaster64.from-keymaster_b.mdt",
+  "private_mdt_mode": "0600",
+  "private_mdt_size": 7208,
+  "mdt_definition": "Concatenation of the first two program-header file extents; original ELF/program headers followed by hash segment.",
+  "private_mdt_sha256": "d33f5e369c5ffcb3fb52c66c18b48e5215669d4a194dc8bd5497be6ad9122cf8",
+  "first_extent": {
+    "offset": 0,
+    "size": 512
+  },
+  "hash_extent": {
+    "offset": 4096,
+    "size": 6696
+  },
+  "maximum_segment_end": 220777,
+  "assembled_size": 208631,
+  "command": [
+    "python3",
+    "packages/kernel-fingerprint/test-image-loader.py",
+    "/tmp/sargo-fingerprint-kernel",
+    "--mdt",
+    "/tmp/sargo-fingerprint-private/keymaster64.from-keymaster_b.mdt",
+    "--mbn",
+    "/tmp/sargo-fingerprint-private/keymaster_b.mbn"
+  ],
+  "exit_code": 0,
+  "fixture_output": "PASS: production ELF32/ELF64 assembly, exact payloads, truncated segments,\n      destination bounds, truncated headers, invalid class/data/header, overflow\nPASS: exact stock Sargo ELF64 MDT, 8 segments, 208631 assembled bytes\n"
+}

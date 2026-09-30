@@ -1,0 +1,15 @@
+Subject: [PATCH] goodixqsee: include the response parser declaration
+
+The transport calls goodix_qsee_parse_response_status(), declared by the
+protocol header. Include that declaration so the full all-driver build
+succeeds with implicit function declarations treated as errors.
+
+--- a/libfprint/drivers/goodixqsee/goodix-qsee-transport.c
++++ b/libfprint/drivers/goodixqsee/goodix-qsee-transport.c
+@@ -1,5 +1,6 @@
+ /* SPDX-License-Identifier: LGPL-2.1-or-later */
+ #include "goodix-qsee-transport.h"
++#include "goodix-qsee-proto.h"
+ 
+ #include <errno.h>
+ #include <fcntl.h>

@@ -1,0 +1,333 @@
+From de09a5427cb6f114b91a29b9c7f8f8d1cb53f752 Mon Sep 17 00:00:00 2001
+From: PocketFed contributors <me@samcday.com>
+Date: Fri, 11 Sep 2026 11:32:16 +1000
+Subject: [PATCH] Exit after listener readiness is lost and check registration
+ status
+
+---
+ Makefile                           | 12 +++-
+ src/main.c                         | 30 +++++++--
+ src/transport_qseecom.c            |  4 +-
+ tests/test_listener_lifecycle.c    | 99 ++++++++++++++++++++++++++++++
+ tests/test_listener_registration.c | 96 +++++++++++++++++++++++++++++
+ 5 files changed, 232 insertions(+), 9 deletions(-)
+ create mode 100644 tests/test_listener_lifecycle.c
+ create mode 100644 tests/test_listener_registration.c
+
+diff --git a/Makefile b/Makefile
+index 6176eb1..e11900a 100644
+--- a/Makefile
++++ b/Makefile
+@@ -36,11 +36,19 @@ test-app-acquire: tests/test_app_acquire.c $(APP_ACQUIRE)
+ test-loader-session: tests/test_loader_session.c src/app_loader.c $(APP_ACQUIRE) $(NOTIFY)
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(APP_ACQUIRE) $(NOTIFY) $(LDLIBS) -Wl,--wrap=ioctl,--wrap=mmap,--wrap=munmap,--wrap=close
+ 
+-check: test-protocol test-notify test-app-acquire test-loader-session
++test-listener-lifecycle: tests/test_listener_lifecycle.c src/main.c
++	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
++
++test-listener-registration: tests/test_listener_registration.c src/transport_qseecom.c
++	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
++
++check: test-protocol test-notify test-app-acquire test-loader-session test-listener-lifecycle test-listener-registration
+ 	./test-protocol
+ 	./test-notify
+ 	./test-app-acquire
+ 	./test-loader-session
++	./test-listener-lifecycle
++	./test-listener-registration
+ 
+ install: install-bin install-systemd install-openrc install-doc
+ 
+@@ -65,4 +73,4 @@ install-doc:
+ 	install -m 0644 README.md $(DESTDIR)$(DOCDIR)/README.md
+ 
+ clean:
+-	rm -f qsee-supplicant qsee-app-loader test-protocol test-notify test-app-acquire
++	rm -f qsee-supplicant qsee-app-loader test-protocol test-notify test-app-acquire test-loader-session test-listener-lifecycle test-listener-registration
+diff --git a/src/main.c b/src/main.c
+index edd84e4..8d6f01a 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -13,9 +13,9 @@ static volatile sig_atomic_t stopping;
+ static void stop_handler(int signal_number) { (void)signal_number; stopping = 1; }
+ static void ready_handler(void *data)
+ {
+-	unsigned int *delay = data;
++	bool *registered = data;
+ 
+-	*delay = 1;
++	*registered = true;
+ 	if (qs_notify("READY=1\nSTATUS=Listener services registered") < 0)
+ 		fprintf(stderr, "event=notify_error errno=%d message=\"%s\"\n",
+ 			errno, strerror(errno));
+@@ -25,6 +25,8 @@ int main(int argc, char **argv)
+ {
+ 	const char *state = "/var/lib/qsee-supplicant"; struct qs_store store = { .root_fd = -1 };
+ 	unsigned int delay = 1;
++	bool registered = false;
++	int status = 0;
+ 	if (argc == 3 && !strcmp(argv[1], "--state-dir")) state = argv[2];
+ 	else if (argc != 1) { fprintf(stderr, "usage: %s [--state-dir PATH]\n", argv[0]); return 2; }
+ 	umask(0077);
+@@ -37,15 +39,31 @@ int main(int argc, char **argv)
+ 		sigaction(SIGTERM, &action, NULL);
+ 	}
+ 	while (!stopping) {
++		int rc, error;
++		registered = false;
+ 		fprintf(stderr, "event=transport_start transport=%s state=%s\n", qs_qseecom_transport.name, state);
+-		if (!qs_qseecom_transport.serve(&store, qs_builtin_services,
++		rc = qs_qseecom_transport.serve(&store, qs_builtin_services,
+ 					 qs_builtin_service_count, &stopping,
+-					 ready_handler, &delay)) break;
++					 ready_handler, &registered);
++		error = rc ? errno : EIO;
++		if (stopping) break;
++		/* READY belongs to this registration lifetime. Exit after losing
++		 * it so the supervisor withdraws readiness and restarts the unit.
++		 * Retrying here would leave dependent services using stale READY.
++		 */
++		if (registered || !rc) {
++			fprintf(stderr, "event=transport_lost transport=%s errno=%d message=\"%s\"\n",
++				qs_qseecom_transport.name, error, strerror(error));
++			status = 1;
++			break;
++		}
+ 		fprintf(stderr, "event=transport_error transport=%s errno=%d message=\"%s\" retry=%u\n",
+-			qs_qseecom_transport.name, errno, strerror(errno), delay);
++			qs_qseecom_transport.name, error, strerror(error), delay);
+ 		for (unsigned int i = 0; i < delay && !stopping; i++) sleep(1);
+ 		if (delay < 30) delay *= 2;
+ 	}
++	if (registered)
++		(void)qs_notify("STOPPING=1\nSTATUS=Listener services stopped");
+ 	qs_store_close(&store);
+-	fprintf(stderr, "event=shutdown\n"); return 0;
++	fprintf(stderr, "event=shutdown\n"); return status;
+ }
+diff --git a/src/transport_qseecom.c b/src/transport_qseecom.c
+index bd3af0a..394551b 100644
+--- a/src/transport_qseecom.c
++++ b/src/transport_qseecom.c
+@@ -56,7 +56,9 @@ static int register_service(int fd, struct registered_service *registered)
+ 	params[1].b = registered->memory.size;
+ 	params[1].c = registered->memory.id;
+ 	data.buf_ptr = (uintptr_t)request_storage; data.buf_len = sizeof(request_storage);
+-	return ioctl(fd, TEE_IOC_OPEN_SESSION, &data);
++	if (ioctl(fd, TEE_IOC_OPEN_SESSION, &data)) return -1;
++	if (request->ret) { errno = EREMOTEIO; return -1; }
++	return 0;
+ }
+ 
+ static int serve_qseecom(struct qs_store *store, const struct qs_service *services,
+diff --git a/tests/test_listener_lifecycle.c b/tests/test_listener_lifecycle.c
+new file mode 100644
+index 0000000..8125a15
+--- /dev/null
++++ b/tests/test_listener_lifecycle.c
+@@ -0,0 +1,99 @@
++// SPDX-License-Identifier: BSD-2-Clause
++#define main supplicant_program_main
++#define sleep test_sleep
++#include "../src/main.c"
++#undef main
++#undef sleep
++#include <assert.h>
++
++enum scenario { READY_ERROR, READY_STOP, RETRY_READY_ERROR, INITIAL_STOP,
++	BACKOFF_STOP, UNEXPECTED_END, NOTIFY_ERROR, STORE_ERROR };
++static enum scenario scenario;
++static unsigned int serves, sleeps, opens, closes, ready_count, stop_count;
++const struct qs_service qs_builtin_services[2] = { { .id = 10 }, { .id = 0x7000 } };
++const size_t qs_builtin_service_count = 2;
++
++int qs_store_open(struct qs_store *store, const char *path,
++		  uint32_t file_mode, uint32_t dir_mode)
++{
++	assert(!strcmp(path, "/var/lib/qsee-supplicant"));
++	assert(file_mode == 0600 && dir_mode == 0700);
++	opens++;
++	if (scenario == STORE_ERROR) { errno = EACCES; return -1; }
++	store->root_fd = 77;
++	return 0;
++}
++void qs_store_close(struct qs_store *store)
++{
++	assert(store->root_fd == 77);
++	store->root_fd = -1;
++	closes++;
++}
++int qs_notify(const char *state)
++{
++	if (!strcmp(state, "READY=1\nSTATUS=Listener services registered")) {
++		assert(!stop_count);
++		ready_count++;
++	} else {
++		assert(!strcmp(state, "STOPPING=1\nSTATUS=Listener services stopped"));
++		assert(ready_count == 1);
++		stop_count++;
++	}
++	if (scenario == NOTIFY_ERROR) { errno = ECONNREFUSED; return -1; }
++	return 0;
++}
++unsigned int test_sleep(unsigned int seconds)
++{
++	assert(seconds == 1);
++	sleeps++;
++	if (scenario == BACKOFF_STOP) stopping = 1;
++	return 0;
++}
++static int serve_mock(struct qs_store *store, const struct qs_service *services,
++		 size_t count, volatile sig_atomic_t *stop,
++		 void (*ready)(void *), void *data)
++{
++	assert(store->root_fd == 77 && services == qs_builtin_services && count == 2);
++	assert(stop == &stopping && !*stop);
++	serves++;
++	assert(serves <= 2); /* A post-READY retry is a test failure. */
++	if ((scenario == RETRY_READY_ERROR && serves == 1) || scenario == BACKOFF_STOP) {
++		errno = ENODEV;
++		return -1;
++	}
++	if (scenario == INITIAL_STOP) {
++		*stop = 1;
++		errno = EINTR;
++		return -1;
++	}
++	if (scenario == UNEXPECTED_END) return 0;
++	ready(data);
++	if (scenario == READY_STOP) { *stop = 1; return 0; }
++	errno = EIO;
++	return -1;
++}
++const struct qs_transport qs_qseecom_transport = { .name = "mock", .serve = serve_mock };
++
++int main(void)
++{
++	char *args[] = { "qsee-supplicant", NULL };
++	for (scenario = READY_ERROR; scenario <= STORE_ERROR; scenario++) {
++		serves = sleeps = opens = closes = ready_count = stop_count = 0;
++		stopping = 0;
++		int rc = supplicant_program_main(1, args);
++		assert(opens == 1);
++		if (scenario == STORE_ERROR) {
++			assert(rc == 1 && !serves && !closes && !ready_count && !stop_count);
++			continue;
++		}
++		assert(closes == 1);
++		assert(serves == (scenario == RETRY_READY_ERROR ? 2u : 1u));
++		assert(sleeps == (scenario == RETRY_READY_ERROR || scenario == BACKOFF_STOP ? 1u : 0u));
++		assert(rc == (scenario == READY_STOP || scenario == INITIAL_STOP || scenario == BACKOFF_STOP ? 0 : 1));
++		bool ready = scenario == READY_ERROR || scenario == READY_STOP ||
++			scenario == RETRY_READY_ERROR || scenario == NOTIFY_ERROR;
++		assert(ready_count == (unsigned int)ready && stop_count == (unsigned int)ready);
++	}
++	puts("listener readiness lifetime and supervised failure tests: OK");
++	return 0;
++}
+diff --git a/tests/test_listener_registration.c b/tests/test_listener_registration.c
+new file mode 100644
+index 0000000..1430665
+--- /dev/null
++++ b/tests/test_listener_registration.c
+@@ -0,0 +1,96 @@
++// SPDX-License-Identifier: BSD-2-Clause
++#define open test_open
++#define close test_close
++#define ioctl test_ioctl
++#define mmap test_mmap
++#define munmap test_munmap
++#include "../src/transport_qseecom.c"
++#undef open
++#undef close
++#undef ioctl
++#undef mmap
++#undef munmap
++#include <assert.h>
++#include <stdarg.h>
++#include <stdlib.h>
++
++static unsigned int registrations, allocations, unmaps, closes, ready_count;
++static unsigned int remote_failure, syscall_failure;
++static void *memory[2];
++static size_t sizes[2];
++static volatile sig_atomic_t stop;
++
++int test_open(const char *path, int flags, ...)
++{
++	assert(!strcmp(path, "/dev/teepriv0") && flags == (O_RDWR | O_CLOEXEC));
++	return 7;
++}
++int test_close(int fd) { assert(fd >= 7 && fd <= 9); closes++; return 0; }
++void *test_mmap(void *address, size_t size, int prot, int flags, int fd, off_t offset)
++{
++	assert(!address && !offset && prot == (PROT_READ | PROT_WRITE) && flags == MAP_SHARED);
++	assert(fd == (int)(7 + allocations) && allocations <= 2);
++	sizes[allocations - 1] = size;
++	memory[allocations - 1] = malloc(size);
++	assert(memory[allocations - 1]);
++	return memory[allocations - 1];
++}
++int test_munmap(void *address, size_t size)
++{
++	assert(unmaps < allocations && address == memory[unmaps] && size == sizes[unmaps]);
++	free(address);
++	unmaps++;
++	return 0;
++}
++int test_ioctl(int fd, unsigned long operation, ...)
++{
++	assert(fd == 7);
++	va_list args;
++	va_start(args, operation);
++	void *arg = va_arg(args, void *);
++	va_end(args);
++	if (operation == TEE_IOC_VERSION) {
++		((struct tee_ioctl_version_data *)arg)->impl_id = TEE_IMPL_ID_QSEECOM;
++		return 0;
++	}
++	if (operation == TEE_IOC_SHM_ALLOC) {
++		struct tee_ioctl_shm_alloc_data *shm = arg;
++		shm->id = ++allocations;
++		return (int)(7 + allocations);
++	}
++	assert(operation == TEE_IOC_OPEN_SESSION);
++	struct tee_ioctl_buf_data *data = arg;
++	struct tee_ioctl_open_session_arg *session = (void *)(uintptr_t)data->buf_ptr;
++	assert(session->num_params == 2);
++	registrations++;
++	if (registrations == syscall_failure) { errno = EIO; return -1; }
++	session->ret = registrations == remote_failure ? 0xffff0000u : 0;
++	return 0;
++}
++static void ready(void *data)
++{
++	assert(data == &stop && registrations == 2);
++	ready_count++;
++	stop = 1;
++}
++int main(void)
++{
++	struct qs_store store = { .root_fd = -1 };
++	const struct qs_service services[] = {
++		{ .id = QS_FS_SERVICE_ID, .buffer_size = QS_FS_BUFFER_SIZE },
++		{ .id = QS_GPFS_SERVICE_ID, .buffer_size = QS_GPFS_BUFFER_SIZE },
++	};
++	for (unsigned int scenario = 0; scenario < 5; scenario++) {
++		registrations = allocations = unmaps = closes = ready_count = 0;
++		remote_failure = scenario <= 2 ? scenario : 0;
++		syscall_failure = scenario > 2 ? scenario - 2 : 0;
++		stop = 0;
++		int rc = serve_qseecom(&store, services, 2, &stop, ready, (void *)&stop);
++		assert(rc == (scenario ? -1 : 0));
++		assert(ready_count == (scenario ? 0u : 1u));
++		assert(unmaps == allocations && closes == allocations + 1);
++		if (scenario) assert(errno == (remote_failure ? EREMOTEIO : EIO));
++	}
++	puts("listener registration status and readiness tests: OK");
++	return 0;
++}
+-- 
+2.55.0
+

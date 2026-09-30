@@ -1,0 +1,67 @@
+{
+  "status": "ARM64 build and unit/FPC tests passed",
+  "candidate_release": "1.94.100-1.5.pocketfed",
+  "upstream_commit": "430e24e538ba137b6edcfe2e1b3b8cc29c66fa6a",
+  "build_image": "sha256:a11b75544e1e5f304d103fa4602068bc70e2ce2aa6d557a1eb8b7eab742f0dd3",
+  "library": {
+    "path": "/tmp/sargo-fingerprint-work/libfprint/build-all/libfprint/libfprint-2.so.2.0.0",
+    "sha256": "a4e1726d32335d758ee7205280985870266cb5af24915f915b128c44b58611e0"
+  },
+  "sources": {
+    "0001-fpcqsee-native-sargo-driver.patch": "0b264cc0b68c872e82805d19aa639bbf2067fe1c2150bc63b7ec715e80507a52",
+    "0002-goodixqsee-include-protocol-header.patch": "dfbee3f9561e422294f6005a2e1c87c6484e3fb124ca6adff6eb063d500d1a76",
+    "0003-fpcqsee-handle-empty-database-identification.patch": "0609d7007ed86e8ea855e7c525ae4a811d026e59b9b472b9e960e44eabba4fc5",
+    "libfprint.spec": "a6304345d265a3775442f3bc4626dd9a84797eca72112cff7a90882df3943150",
+    "90-fpc-qsee.conf": "c7a475b77dd740730b825259bc6731664d27a91f6b1c7b08e697b44340946c37"
+  },
+  "tests": [
+    {
+      "name": "fpcqsee - libfprint:fpc-auth-client",
+      "result": "OK",
+      "duration": 0.06228041648864746
+    },
+    {
+      "name": "fpcqsee - libfprint:fpc-driver",
+      "result": "OK",
+      "duration": 0.11297965049743652
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-ssm",
+      "result": "OK",
+      "duration": 1.1029534339904785
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-assembling",
+      "result": "OK",
+      "duration": 1.963071584701538
+    },
+    {
+      "name": "unit-tests - libfprint:fp-context",
+      "result": "OK",
+      "duration": 2.274806261062622
+    },
+    {
+      "name": "unit-tests - libfprint:fp-device",
+      "result": "OK",
+      "duration": 6.153395414352417
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-device",
+      "result": "OK",
+      "duration": 8.009800672531128
+    }
+  ],
+  "driver_cases": [
+    "ok 1 /fpc-driver/verify-capture-order-and-rejection",
+    "ok 2 /fpc-driver/identify-gallery-bound",
+    "ok 3 /fpc-driver/empty-device-database-and-enumeration-error",
+    "ok 4 /fpc-driver/enroll-needs-broker-and-persistence",
+    "ok 5 /fpc-driver/cancellation-wins-match-race"
+  ],
+  "hardware_acceptance": false,
+  "runtime_link_check": {
+    "image": "sha256:671197f9f3bf539fc4e1fd138843a8739df3958cabcacd0e5f9ca6a3baaa9996",
+    "status": "all shared-library dependencies resolved",
+    "log_sha256": "5b394048aeeb3e6c5a64f2481d0cab1cbfc99c2c553c2779b643c18efebb778f"
+  }
+}

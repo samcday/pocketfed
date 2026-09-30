@@ -1,0 +1,48 @@
+{
+  "status": "COPR succeeded; signatures verified; packaged module byte-identical to offline validated module",
+  "copr": {
+    "build_id": 10973947,
+    "url": "https://copr.fedorainfracloud.org/coprs/build/10973947",
+    "project": "samcday/pocketfed:custom:fingerprint-trial",
+    "chroot": "fedora-rawhide-aarch64",
+    "state": "succeeded"
+  },
+  "srpm": {
+    "path": "/tmp/fpc-selinux-module-final-srpm/SRPMS/pocketfed-fpc-selinux-0.1.0-0.1.pocketfed.fc46.src.rpm",
+    "bytes": 12448,
+    "sha256": "319fa97e7337854674b30f95740ac32f74e144b181f6220bb566e875bd6e8694"
+  },
+  "source_sha256": {
+    "pocketfed_fpc.te": "14b98b0fc22f676f0039a7e574ea0a94174bf236f1e56a10548f73240dde0dad",
+    "pocketfed_fpc.fc": "66cf7e9f96c7a203bcc0c95d33bf2cb1ca7b0116fda5ee380c6ea7b577219d6e",
+    "Makefile": "397b7fac7363e8e0a78acc8d17857386383a6278c39f2f7b9064e74b2793a108",
+    "README.package.md": "b4c134bd764f0345c1d50b42520cf7a7ca704ec2c49c6b157604b16bf2cbab1f",
+    "COPYING": "8bb24b5e169efa5be290ae5581fb7aab7207fe47f8032f7498c5f388dd5667dd",
+    "pocketfed-fpc-selinux.spec": "8f69c46de499af293841b6be267b253f8408d44eebe386a1b2ca51df8df2671c"
+  },
+  "activation": "data only; no scriptlets, service activation, policy load or relabeling",
+  "image_updated": true,
+  "device_changed": false,
+  "rpms": [
+    {
+      "filename": "pocketfed-fpc-selinux-0.1.0-0.1.pocketfed.fc46.noarch.rpm",
+      "bytes": 9948,
+      "sha256": "83db7b510528be7f00976e59d827356a35bd60f4640b4f5e3c5a983ab60693ea",
+      "signature_verification": "/tmp/fpc-selinux-module-rpms/fedora-rawhide-aarch64/pocketfed-fpc-selinux-0.1.0-0.1.pocketfed.fc46.noarch.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "pocketfed-fpc-selinux-0.1.0-0.1.pocketfed.fc46.src.rpm",
+      "bytes": 12435,
+      "sha256": "8dd702c158dfe7446aa6c11e13a8aeb3f5f8c66b57e895bc8095ba039ed2cd79",
+      "signature_verification": "/tmp/fpc-selinux-module-rpms/fedora-rawhide-aarch64/pocketfed-fpc-selinux-0.1.0-0.1.pocketfed.fc46.src.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    }
+  ],
+  "packaged_payload_validation": {
+    "module_pp_sha256": "994cebfad06b908e82bf0ac14fc6d44676204909eb41e0a8e86f920813ecbdef",
+    "byte_identical_to_validated_module": true,
+    "scriptlets_absent": true,
+    "only_module_and_documentation_paths": true
+  },
+  "image_id": "671197f9f3bf539fc4e1fd138843a8739df3958cabcacd0e5f9ca6a3baaa9996",
+  "image_evidence": "devices/google-sargo/fingerprint-trial/image/validation/v3-result.json"
+}

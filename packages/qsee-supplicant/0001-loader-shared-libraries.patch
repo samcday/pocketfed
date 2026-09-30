@@ -1,0 +1,304 @@
+diff --git a/Makefile b/Makefile
+index ba1ada5..6176eb1 100644
+--- a/Makefile
++++ b/Makefile
+@@ -33,10 +33,14 @@ test-notify: tests/test_notify.c $(NOTIFY)
+ test-app-acquire: tests/test_app_acquire.c $(APP_ACQUIRE)
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+ 
+-check: test-protocol test-notify test-app-acquire
++test-loader-session: tests/test_loader_session.c src/app_loader.c $(APP_ACQUIRE) $(NOTIFY)
++	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(APP_ACQUIRE) $(NOTIFY) $(LDLIBS) -Wl,--wrap=ioctl,--wrap=mmap,--wrap=munmap,--wrap=close
++
++check: test-protocol test-notify test-app-acquire test-loader-session
+ 	./test-protocol
+ 	./test-notify
+ 	./test-app-acquire
++	./test-loader-session
+ 
+ install: install-bin install-systemd install-openrc install-doc
+ 
+@@ -49,6 +53,7 @@ install-systemd:
+ 	install -d $(DESTDIR)$(UNITDIR)
+ 	install -m 0644 packaging/qsee-supplicant.service $(DESTDIR)$(UNITDIR)/
+ 	install -m 0644 packaging/qsee-app-loader@.service $(DESTDIR)$(UNITDIR)/
++	install -m 0644 packaging/qsee-shared-loader@.service $(DESTDIR)$(UNITDIR)/
+ 
+ install-openrc:
+ 	install -d $(DESTDIR)$(SYSCONFDIR)/init.d
+diff --git a/src/app_loader.c b/src/app_loader.c
+index 40164f1..22254cf 100644
+--- a/src/app_loader.c
++++ b/src/app_loader.c
+@@ -23,6 +23,7 @@ struct loader_context {
+ 	const char *application;
+ 	int client_fd;
+ 	int loader_fd;
++	bool shared;
+ };
+ 
+ static void stop_handler(int signal_number)
+@@ -53,11 +54,11 @@ static int open_qseecom_device(bool privileged)
+ }
+ 
+ static int open_named_session(int fd, const char *application,
+-			      uint32_t *session_id)
++			      bool shared, uint32_t *session_id)
+ {
+ 	struct tee_ioctl_shm_alloc_data allocation = { .size = APP_NAME_MAX };
+ 	uint64_t session_storage[(sizeof(struct tee_ioctl_open_session_arg) +
+-				  sizeof(struct tee_ioctl_param) + 7) / 8] = {};
++				  2 * sizeof(struct tee_ioctl_param) + 7) / 8] = {};
+ 	struct tee_ioctl_open_session_arg *session = (void *)session_storage;
+ 	struct tee_ioctl_param *params = session->params;
+ 	struct tee_ioctl_buf_data data;
+@@ -76,12 +77,16 @@ static int open_named_session(int fd, const char *application,
+ 
+ 	memset(name_memory, 0, allocation.size);
+ 	memcpy(name_memory, application, strlen(application));
+-	session->num_params = 1;
++	session->num_params = shared ? 2 : 1;
+ 	params[0].attr = TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT;
+ 	params[0].b = strlen(application) + 1;
+ 	params[0].c = allocation.id;
++	if (shared) {
++		params[1].attr = TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INPUT;
++		params[1].a = 1; /* QSEECOM service-image load, not an application. */
++	}
+ 	data.buf_ptr = (uintptr_t)session_storage;
+-	data.buf_len = sizeof(session_storage);
++	data.buf_len = sizeof(*session) + session->num_params * sizeof(*params);
+ 	if (ioctl(fd, TEE_IOC_OPEN_SESSION, &data)) {
+ 		saved_errno = errno;
+ 		munmap(name_memory, allocation.size);
+@@ -89,6 +94,8 @@ static int open_named_session(int fd, const char *application,
+ 	}
+ 
+ 	munmap(name_memory, allocation.size);
++	if (session->ret)
++		return -EREMOTEIO;
+ 	*session_id = session->session;
+ 	return 0;
+ }
+@@ -103,7 +110,7 @@ static int attach_application(void *opaque, uint32_t *session)
+ 			return -errno;
+ 	}
+ 	return open_named_session(context->client_fd, context->application,
+-				  session);
++				  false, session);
+ }
+ 
+ static int load_application(void *opaque, uint32_t *session)
+@@ -116,7 +123,7 @@ static int load_application(void *opaque, uint32_t *session)
+ 			return -errno;
+ 	}
+ 	return open_named_session(context->loader_fd, context->application,
+-				  session);
++				  context->shared, session);
+ }
+ 
+ int main(int argc, char **argv)
+@@ -130,23 +137,37 @@ int main(int argc, char **argv)
+ 		.loader_fd = -1,
+ 	};
+ 	struct sigaction action = { .sa_handler = stop_handler };
++	sigset_t wait_mask, previous_mask;
+ 	enum qs_app_acquisition acquisition;
+ 	uint32_t session;
+ 	int active_fd;
+ 	int result;
+ 
+-	if (argc != 2 || !argv[1][0] || strlen(argv[1]) >= APP_NAME_MAX ||
+-	    strchr(argv[1], '/')) {
+-		fprintf(stderr, "usage: %s APPLICATION\n", argv[0]);
++	if (argc == 3 && !strcmp(argv[1], "--shared")) {
++		context.shared = true;
++		context.application = argv[2];
++	} else if (argc == 2) {
++		context.application = argv[1];
++	}
++	if (!context.application || !context.application[0] ||
++	    strlen(context.application) >= APP_NAME_MAX ||
++	    strchr(context.application, '/') || context.application[0] == '-') {
++		fprintf(stderr, "usage: %s [--shared] APPLICATION\n", argv[0]);
+ 		return 2;
+ 	}
+ 
+-	context.application = argv[1];
+-	result = qs_app_acquire(&ops, &context, &acquisition, &session);
++	if (context.shared) {
++		/* Shared libraries have no application lookup ID. The privileged
++		 * kernel operation owns once-per-boot loading and duplicate handling. */
++		result = load_application(&context, &session);
++		acquisition = QS_APP_LOADED;
++	} else {
++		result = qs_app_acquire(&ops, &context, &acquisition, &session);
++	}
+ 	if (result) {
+ 		result = -result;
+ 		fprintf(stderr, "event=loader_error app=%s stage=acquire errno=%d message=\"%s\"\n",
+-			argv[1], result, strerror(result));
++			context.application, result, strerror(result));
+ 		if (context.client_fd >= 0)
+ 			close(context.client_fd);
+ 		if (context.loader_fd >= 0)
+@@ -158,25 +179,31 @@ int main(int argc, char **argv)
+ 		active_fd = context.loader_fd;
+ 		if (context.client_fd >= 0)
+ 			close(context.client_fd);
+-		fprintf(stderr, "event=application_loaded app=%s session=%u\n",
+-			argv[1], session);
++		fprintf(stderr, "event=%s app=%s session=%u\n",
++			context.shared ? "shared_library_loaded" : "application_loaded",
++			context.application, session);
+ 	} else {
+ 		active_fd = context.client_fd;
+ 		if (context.loader_fd >= 0)
+ 			close(context.loader_fd);
+ 		fprintf(stderr, "event=application_attached app=%s session=%u\n",
+-			argv[1], session);
++			context.application, session);
+ 	}
+ 	if (qs_notify("READY=1\nSTATUS=Trusted application available") < 0)
+ 		fprintf(stderr, "event=notify_error app=%s errno=%d message=\"%s\"\n",
+-			argv[1], errno, strerror(errno));
++			context.application, errno, strerror(errno));
+ 	sigemptyset(&action.sa_mask);
+ 	sigaction(SIGINT, &action, NULL);
+ 	sigaction(SIGTERM, &action, NULL);
++	sigemptyset(&wait_mask);
++	sigaddset(&wait_mask, SIGINT);
++	sigaddset(&wait_mask, SIGTERM);
++	sigprocmask(SIG_BLOCK, &wait_mask, &previous_mask);
+ 	while (!stopping)
+-		pause();
++		sigsuspend(&previous_mask);
++	sigprocmask(SIG_SETMASK, &previous_mask, NULL);
+ 	fprintf(stderr, "event=application_releasing app=%s session=%u\n",
+-		argv[1], session);
++		context.application, session);
+ 	close(active_fd);
+ 	return 0;
+ }
+diff --git a/packaging/qsee-shared-loader@.service b/packaging/qsee-shared-loader@.service
+new file mode 100644
+index 0000000..a71e053
+--- /dev/null
++++ b/packaging/qsee-shared-loader@.service
+@@ -0,0 +1,29 @@
++[Unit]
++Description=Load Qualcomm QSEE shared library %i
++Documentation=file:///usr/share/doc/qsee-supplicant/README.md
++Requires=qsee-supplicant.service
++After=qsee-supplicant.service
++
++[Service]
++Type=notify
++NotifyAccess=main
++ExecStart=/usr/sbin/qsee-app-loader --shared %i
++Restart=on-failure
++RestartSec=2s
++CapabilityBoundingSet=CAP_SYS_ADMIN
++NoNewPrivileges=yes
++PrivateDevices=no
++PrivateTmp=yes
++ProtectSystem=strict
++ProtectHome=yes
++ProtectKernelTunables=yes
++ProtectKernelModules=yes
++ProtectControlGroups=yes
++RestrictAddressFamilies=AF_UNIX
++RestrictRealtime=yes
++LockPersonality=yes
++MemoryDenyWriteExecute=yes
++SystemCallArchitectures=native
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/tests/test_loader_session.c b/tests/test_loader_session.c
+new file mode 100644
+index 0000000..8a2a9ed
+--- /dev/null
++++ b/tests/test_loader_session.c
+@@ -0,0 +1,81 @@
++// SPDX-License-Identifier: BSD-2-Clause
++#define main loader_program_main
++#include "../src/app_loader.c"
++#undef main
++#include <assert.h>
++#include <stdarg.h>
++
++static unsigned char name_buffer[APP_NAME_MAX];
++static bool expect_shared, fail_mapping, return_error;
++static unsigned int closed, unmapped;
++
++int __wrap_ioctl(int fd, unsigned long operation, ...)
++{
++	va_list args;
++	va_start(args, operation);
++	void *arg = va_arg(args, void *);
++	va_end(args);
++	assert(fd == 7);
++	if (operation == TEE_IOC_SHM_ALLOC) {
++		struct tee_ioctl_shm_alloc_data *allocation = arg;
++		assert(allocation->size == APP_NAME_MAX);
++		allocation->id = 42;
++		return 8;
++	}
++	assert(operation == TEE_IOC_OPEN_SESSION);
++	struct tee_ioctl_buf_data *buffer = arg;
++	struct tee_ioctl_open_session_arg *session = (void *)(uintptr_t)buffer->buf_ptr;
++	assert(session->num_params == (expect_shared ? 2 : 1));
++	assert(buffer->buf_len == sizeof(*session) + session->num_params * sizeof(struct tee_ioctl_param));
++	assert(session->params[0].attr == TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT);
++	assert(session->params[0].b == strlen((char *)name_buffer) + 1);
++	assert(session->params[0].c == 42);
++	if (expect_shared) {
++		assert(!strcmp((char *)name_buffer, "cmnlib64"));
++		assert(session->params[1].attr == TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INPUT);
++		assert(session->params[1].a == 1 && !session->params[1].b && !session->params[1].c);
++	} else {
++		assert(!strcmp((char *)name_buffer, "fpctzappfingerprint"));
++	}
++	session->ret = return_error ? 0xffff0000u : 0;
++	session->session = 43;
++	return 0;
++}
++void *__wrap_mmap(void *address, size_t length, int protection, int flags, int fd, off_t offset)
++{
++	(void)address;
++	assert(length == APP_NAME_MAX && fd == 8 && !offset);
++	assert(protection == (PROT_READ | PROT_WRITE) && flags == MAP_SHARED);
++	if (fail_mapping) { errno = ENOMEM; return MAP_FAILED; }
++	return name_buffer;
++}
++int __wrap_munmap(void *address, size_t length)
++{
++	assert(address == name_buffer && length == APP_NAME_MAX);
++	unmapped++;
++	return 0;
++}
++int __wrap_close(int fd)
++{
++	assert(fd == 8);
++	closed++;
++	return 0;
++}
++int main(void)
++{
++	uint32_t session = 99;
++	assert(!open_named_session(7, "fpctzappfingerprint", false, &session));
++	assert(session == 43);
++	expect_shared = true;
++	assert(!open_named_session(7, "cmnlib64", true, &session));
++	assert(closed == 2 && unmapped == 2);
++	return_error = true;
++	session = 99;
++	assert(open_named_session(7, "cmnlib64", true, &session) == -EREMOTEIO);
++	assert(session == 99 && closed == 3 && unmapped == 3);
++	fail_mapping = true;
++	assert(open_named_session(7, "cmnlib64", true, &session) == -ENOMEM);
++	assert(closed == 4 && unmapped == 3);
++	puts("shared/app loader request and failure tests: OK");
++	return 0;
++}

@@ -1,0 +1,31 @@
+{
+  "architecture": "aarch64",
+  "cflags": "-O2 -flto=auto -ffat-lto-objects -fexceptions -fstack-protector-strong -D_FORTIFY_SOURCE=3 -mbranch-protection=standard",
+  "cases": [
+    {
+      "name": "fpcqsee - libfprint:fpc-auth-client",
+      "result": "OK",
+      "duration": 0.05536055564880371
+    },
+    {
+      "name": "fpcqsee - libfprint:fpc-driver",
+      "result": "OK",
+      "duration": 0.11183357238769531
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-assembling",
+      "result": "OK",
+      "duration": 0.5437448024749756
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-ssm",
+      "result": "OK",
+      "duration": 1.0946669578552246
+    },
+    {
+      "name": "unit-tests - libfprint:fpi-device",
+      "result": "OK",
+      "duration": 8.016385793685913
+    }
+  ]
+}

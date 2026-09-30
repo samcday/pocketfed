@@ -1,0 +1,56 @@
+{
+  "build_id": 10973705,
+  "url": "https://copr.fedorainfracloud.org/coprs/build/10973705",
+  "status": "succeeded",
+  "chroot": "fedora-rawhide-aarch64",
+  "rpms": [
+    {
+      "filename": "libfprint-1.94.100-1.3.pocketfed.fc46.aarch64.rpm",
+      "bytes": 388780,
+      "sha256": "fd1c0b9315fe75f34d2c5a9e747c4ee749d1841d0b6a94b9bf5b81ace5284f4a",
+      "signature_verification": "/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/libfprint-1.94.100-1.3.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "libfprint-1.94.100-1.3.pocketfed.fc46.src.rpm",
+      "bytes": 11931848,
+      "sha256": "a95f8ddb7b6ccac38164825297b3a188b9063791854789aec31d7827d9439172",
+      "signature_verification": "/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/libfprint-1.94.100-1.3.pocketfed.fc46.src.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "libfprint-debuginfo-1.94.100-1.3.pocketfed.fc46.aarch64.rpm",
+      "bytes": 1087651,
+      "sha256": "556659038260ad7c7bef7b58164ab5efdee73718ea2530fc8bea86c01e979f41",
+      "signature_verification": "/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/libfprint-debuginfo-1.94.100-1.3.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "libfprint-debugsource-1.94.100-1.3.pocketfed.fc46.aarch64.rpm",
+      "bytes": 512976,
+      "sha256": "316e41fa7e9bda38e365d6cc13fa5d97773601f852e4a01f03693254a9228132",
+      "signature_verification": "/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/libfprint-debugsource-1.94.100-1.3.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "libfprint-devel-1.94.100-1.3.pocketfed.fc46.aarch64.rpm",
+      "bytes": 27783,
+      "sha256": "0290132a44367f527764b80654978a4388f2e9630e120ff9d46e9217754d86a8",
+      "signature_verification": "/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/libfprint-devel-1.94.100-1.3.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "libfprint-fpc-qsee-1.94.100-1.3.pocketfed.fc46.aarch64.rpm",
+      "bytes": 11875,
+      "sha256": "174482b131f33d5c4235164aa3e49ef27086606380f60cfaf6a430d98c473d12",
+      "signature_verification": "/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/libfprint-fpc-qsee-1.94.100-1.3.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "libfprint-tests-1.94.100-1.3.pocketfed.fc46.aarch64.rpm",
+      "bytes": 8275977,
+      "sha256": "20eb4758912478b0dd9e501265d37cb9a1d497df1d87c4a293b61f1aee07482b",
+      "signature_verification": "/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/libfprint-tests-1.94.100-1.3.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "libfprint-tests-debuginfo-1.94.100-1.3.pocketfed.fc46.aarch64.rpm",
+      "bytes": 541394,
+      "sha256": "e019518c48ed0273cb18f6343813fff9c461de889f315e7f76ec45a34fc83ca8",
+      "signature_verification": "/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/libfprint-tests-debuginfo-1.94.100-1.3.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    }
+  ]
+}

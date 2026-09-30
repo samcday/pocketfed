@@ -1,0 +1,26 @@
+{
+  "/tmp/sargo-fingerprint-work/rpmbuild-libfprint/SOURCES/libfprint-430e24e538ba137b6edcfe2e1b3b8cc29c66fa6a.tar.gz": {
+    "size": 11920303,
+    "sha256": "60ed43e7567bd63b2fb0d5aa0df1412540fc8859dd056aa8e2cd41ad956613cd"
+  },
+  "/var/home/sam/src/pocketfed/packages/libfprint/0001-fpcqsee-native-sargo-driver.patch": {
+    "size": 111079,
+    "sha256": "0b264cc0b68c872e82805d19aa639bbf2067fe1c2150bc63b7ec715e80507a52"
+  },
+  "/var/home/sam/src/pocketfed/packages/libfprint/0002-goodixqsee-include-protocol-header.patch": {
+    "size": 573,
+    "sha256": "dfbee3f9561e422294f6005a2e1c87c6484e3fb124ca6adff6eb063d500d1a76"
+  },
+  "/var/home/sam/src/pocketfed/packages/libfprint/90-fpc-qsee.conf": {
+    "size": 1061,
+    "sha256": "6960506693680e26f2f2e4d6099a51c59d142eccb1f2d7d94f654a90b8ea620b"
+  },
+  "/var/home/sam/src/pocketfed/packages/libfprint/libfprint.spec": {
+    "size": 4650,
+    "sha256": "d80b62bb7c1bbf3b986301cebea3fa70568f133cfd043057a134d20cdecdafb7"
+  },
+  "/tmp/sargo-fingerprint-work/rpmbuild-libfprint/SRPMS/libfprint-1.94.100-1.3.pocketfed.fc44.src.rpm": {
+    "size": 11932148,
+    "sha256": "f55f739f84bbb4d3a6bc998d13c5ea80a816a69abd94ae69c4ae009bca6f3e2c"
+  }
+}

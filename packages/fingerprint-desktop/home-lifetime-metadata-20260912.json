@@ -1,0 +1,52 @@
+{
+  "observed_at_utc": "2026-09-12T00:36:48.246590+00:00",
+  "scope": "Read-only daily sam-sargo session metadata",
+  "home_state": "active",
+  "linger": false,
+  "user_manager": "active",
+  "sessions": [
+    {
+      "Id": "2",
+      "Name": "sam",
+      "Remote": "yes",
+      "Service": "sshd",
+      "Desktop": "",
+      "Type": "tty",
+      "Class": "user-incomplete",
+      "State": "active"
+    },
+    {
+      "Id": "3",
+      "Name": "sam",
+      "Remote": "no",
+      "Service": "greetd",
+      "Desktop": "phosh",
+      "Type": "wayland",
+      "Class": "user",
+      "State": "active"
+    },
+    {
+      "Id": "4",
+      "Name": "sam",
+      "Remote": "no",
+      "Service": "systemd-user",
+      "Desktop": "",
+      "Type": "unspecified",
+      "Class": "manager",
+      "State": "active"
+    },
+    {
+      "Id": "5",
+      "Name": "sam",
+      "Remote": "yes",
+      "Service": "sshd",
+      "Desktop": "",
+      "Type": "tty",
+      "Class": "user",
+      "State": "active"
+    }
+  ],
+  "interpretation": "Current active-home state includes non-graphical sessions and is insufficient evidence of fingerprint-only Phrog re-entry after desktop logout",
+  "changes_performed": [],
+  "next_acceptance_requirement": "Record the actual Phrog transition and home state without relying on an unrelated sam SSH session to keep the encrypted home active"
+}

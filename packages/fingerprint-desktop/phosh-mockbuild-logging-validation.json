@@ -1,0 +1,58 @@
+{
+  "status": "Corrected 1.5 source RPM prepared; focused non-root wrapper validation passed four cases. Parent manages ARM64 COPR submission.",
+  "cases": [
+    {
+      "case": "gtk_success",
+      "passed": true,
+      "exit_status": 0,
+      "uid": 65534,
+      "runtime_removed": true,
+      "log": "build/phosh-1.5-nonroot-gtk_success.log"
+    },
+    {
+      "case": "test_failure_status_preserved",
+      "passed": true,
+      "exit_status": 37,
+      "uid": 65534,
+      "runtime_removed": true,
+      "log": "build/phosh-1.5-nonroot-test_failure_status_preserved.log"
+    },
+    {
+      "case": "server_failure_log_emitted",
+      "passed": true,
+      "exit_status": 1,
+      "uid": 65534,
+      "runtime_removed": true,
+      "log": "build/phosh-1.5-nonroot-server_failure_log_emitted.log"
+    },
+    {
+      "case": "old_dev_stderr_failure_reproduced",
+      "passed": true,
+      "exit_status": 1,
+      "uid": 65534,
+      "runtime_removed": true,
+      "log": "build/phosh-1.5-nonroot-old_dev_stderr_failure_reproduced.log"
+    }
+  ],
+  "method": "Actual Fedora xvfb-run and GTK3 display initialization under UID65534 with a root-owned mode0600 file inherited as stderr. The descriptor is writable while reopening /dev/stderr fails. No product code rebuilt or biometric operation performed.",
+  "harness_source": "phosh.spec %check runtime section; only Meson command replaced with validation probe",
+  "spec_sha256": "caf8b92d7ccb0024cd659aa85acd0c2f7d687a6f74e4baea1f717b16dd3b0e58",
+  "release": "0.57.0-1.5.fingerprint.fc46",
+  "previous_copr_build": 10973738,
+  "failure_evidence": "xvfb-run could not reopen /dev/stderr under mockbuild, before the Meson tests started.",
+  "change": "Xvfb writes a regular file within its private runtime directory. EXIT captures the command status, prints that file using inherited fd2, removes the runtime directory, and returns the original status.",
+  "preservation": {
+    "source_rpm_comparison": "Only phosh.spec differs from 1.4; all archives, both code patches, the test suite and the 252-byte PAM source are unchanged.",
+    "pam_sha256": "695d627f3d54bf6010b001bef211792f536437c34b01d60833862c4a9509d5b6",
+    "test_count": 45,
+    "full_compile_repeated": false,
+    "previous_full_local_suite": "1.4 passed 45/45; see phosh-harness-validation.json",
+    "diff": "build/phosh-1.5-harness.diff"
+  },
+  "source_rpm": {
+    "path": "build/phosh-1.5-review/SRPMS/phosh-0.57.0-1.5.fingerprint.fc46.src.rpm",
+    "sha256": "cacdbaba47dac74ef165b195f3e213d0308d860987ad2f0fb8f05a6ce435947c"
+  },
+  "nonroot_harness": "build/check-phosh-1.5-nonroot.py",
+  "device_changes": false
+}

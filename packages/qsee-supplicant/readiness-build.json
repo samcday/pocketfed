@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-11",
+  "status": "ARM64 COPR succeeded; all downloaded RPM signatures verified",
+  "srpm": {
+    "path": "/tmp/sargo-qsee-readiness-srpm/SRPMS/qsee-supplicant-0.1.1-1.3.pocketfed.fc46.src.rpm",
+    "sha256": "cb842c09df38cceae43505262e8092e6d6216fa576b8fafc1f67f0cb4983be5b",
+    "bytes": 51782
+  },
+  "source_patch_sha256": "79005d8fc1c03d4caebd8191ee2c838b5e3552680e0d402adbbcf6af0a8c0712",
+  "validation": {
+    "host_make_check": "all six suites passed outside the restricted socket sandbox",
+    "listener_lifecycle_cases": 8,
+    "registration_cases": 5,
+    "device_operations": false
+  },
+  "copr": {
+    "build_id": 10973847,
+    "url": "https://copr.fedorainfracloud.org/coprs/build/10973847",
+    "project": "samcday/pocketfed:custom:fingerprint-trial",
+    "chroot": "fedora-rawhide-aarch64",
+    "state": "succeeded"
+  },
+  "rpms": [
+    {
+      "filename": "qsee-supplicant-0.1.1-1.3.pocketfed.fc46.aarch64.rpm",
+      "bytes": 32759,
+      "sha256": "621e9c8fd55f2f4b801904e932998058365e989c9e4c285975ca7dad84d04e55",
+      "signature_verification": "/tmp/sargo-qsee-readiness-rpms/fedora-rawhide-aarch64/qsee-supplicant-0.1.1-1.3.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "qsee-supplicant-0.1.1-1.3.pocketfed.fc46.src.rpm",
+      "bytes": 51494,
+      "sha256": "c5088f47bf1f5aa7e17c6d192b59ace2684eb763de8331945551ff2b8c9d8824",
+      "signature_verification": "/tmp/sargo-qsee-readiness-rpms/fedora-rawhide-aarch64/qsee-supplicant-0.1.1-1.3.pocketfed.fc46.src.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "qsee-supplicant-debuginfo-0.1.1-1.3.pocketfed.fc46.aarch64.rpm",
+      "bytes": 50250,
+      "sha256": "504577a97a3eb5f9e1957647d5a385f8ebbe10503938b1d59124f249b6251a8f",
+      "signature_verification": "/tmp/sargo-qsee-readiness-rpms/fedora-rawhide-aarch64/qsee-supplicant-debuginfo-0.1.1-1.3.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    },
+    {
+      "filename": "qsee-supplicant-debugsource-0.1.1-1.3.pocketfed.fc46.aarch64.rpm",
+      "bytes": 19210,
+      "sha256": "2a46f41b1503c9123a15260c157b08b1c1c0933cc1e7aebd09a9714c45fb0f3e",
+      "signature_verification": "/tmp/sargo-qsee-readiness-rpms/fedora-rawhide-aarch64/qsee-supplicant-debugsource-0.1.1-1.3.pocketfed.fc46.aarch64.rpm:\n    Header OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK\n    Header SHA256 digest: OK\n    Payload SHA256 digest: OK\n    Legacy OpenPGP V4 RSA/SHA256 signature, key fingerprint: f247f3b726a312e90d74bb76e220b1e0ae59fcb5: OK"
+    }
+  ],
+  "image_updated": true,
+  "image_id": "671197f9f3bf539fc4e1fd138843a8739df3958cabcacd0e5f9ca6a3baaa9996",
+  "image_evidence": "devices/google-sargo/fingerprint-trial/image/validation/v3-result.json"
+}

@@ -1,0 +1,31 @@
+{
+  "upstream_commit": "36e06680cf7f690fccbdcd07abc2a64c4bb061d8",
+  "copr_build": 10973582,
+  "copr_url": "https://copr.fedorainfracloud.org/coprs/build/10973582",
+  "repository": "samcday/pocketfed:custom:fingerprint-trial",
+  "status": "succeeded",
+  "architecture": "aarch64",
+  "signature_check": "/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/qsee-supplicant-0.1.1-1.2.pocketfed.fc46.aarch64.rpm: digests signatures OK\n/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/qsee-supplicant-0.1.1-1.2.pocketfed.fc46.src.rpm: digests signatures OK\n/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/qsee-supplicant-debuginfo-0.1.1-1.2.pocketfed.fc46.aarch64.rpm: digests signatures OK\n/tmp/sargo-fingerprint-rpms/fedora-rawhide-aarch64/qsee-supplicant-debugsource-0.1.1-1.2.pocketfed.fc46.aarch64.rpm: digests signatures OK",
+  "artifacts": [
+    {
+      "name": "qsee-supplicant-0.1.1-1.2.pocketfed.fc46.aarch64.rpm",
+      "bytes": 32245,
+      "sha256": "25940a1e0c330520e0b94f0dc6014a9495af88a8ff20fcbe733f437f02110b3b"
+    },
+    {
+      "name": "qsee-supplicant-0.1.1-1.2.pocketfed.fc46.src.rpm",
+      "bytes": 46954,
+      "sha256": "dc25719bf9781428d5d8653b1917019adc0711545e6af249fc889c09801443a3"
+    },
+    {
+      "name": "qsee-supplicant-debuginfo-0.1.1-1.2.pocketfed.fc46.aarch64.rpm",
+      "bytes": 49582,
+      "sha256": "e479febffe60cb8a89c52b8698135d1b601cefef3a414d50cc112a0ce3fc9225"
+    },
+    {
+      "name": "qsee-supplicant-debugsource-0.1.1-1.2.pocketfed.fc46.aarch64.rpm",
+      "bytes": 18701,
+      "sha256": "da0f1a982db1e1b3097756d88795a5cf2a48fad318bb68f65bec3c56212014c9"
+    }
+  ]
+}

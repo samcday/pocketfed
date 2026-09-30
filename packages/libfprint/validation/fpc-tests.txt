@@ -1,0 +1,158 @@
+Log of Meson test suite run on 2026-09-10T23:50:34.236405
+
+Inherited environment: container=oci PATH=/usr/local/bin:/usr/bin HOME=/root HOSTNAME=3bb8352eb32b LC_CTYPE=C.UTF-8 
+
+==================================== 1/2 =====================================
+test:         fpcqsee - libfprint:fpc-auth-client
+start time:   23:50:34
+duration:     0.06s
+result:       exit status 0
+command:      ASAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1 MESON_TEST_ITERATION=1 MALLOC_PERTURB_=201 MSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 /src/build-fpc/tests/fpc-auth-client
+----------------------------------- stdout -----------------------------------
+TAP version 14
+# random seed: R02S83c433378050a4ab14fd36b876bf08aa
+1..2
+# Start of fpc-auth tests
+ok 1 /fpc-auth/wire-and-partial-io
+ok 2 /fpc-auth/reject-invalid-untrusted-timeout-cancel
+# End of fpc-auth tests
+==============================================================================
+
+==================================== 2/2 =====================================
+test:         fpcqsee - libfprint:fpc-driver
+start time:   23:50:34
+duration:     0.10s
+result:       exit status 0
+command:      FP_PRINTS_PATH=/src/examples/prints NO_AT_BRIDGE=1 ASAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1 LD_LIBRARY_PATH=/src/build-fpc/libfprint:/src/build-fpc/libfprint MESON_BUILD_ROOT=/src/build-fpc G_TEST_BUILDDIR=/src/build-fpc/tests MALLOC_PERTURB_=85 MESON_TEST_ITERATION=1 FP_DEVICE_EMULATION=1 FP_DRIVERS_ALLOWLIST=virtual_image:virtual_device:virtual_device_storage MSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 MESON_SOURCE_ROOT=/src G_MESSAGES_DEBUG=all UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1:print_summary=1:print_stacktrace=1 G_DEBUG=fatal-warnings G_TEST_SRCDIR=/src/tests /src/build-fpc/tests/fpc-driver
+----------------------------------- stdout -----------------------------------
+TAP version 14
+# random seed: R02Sdbbf354f8729d8e483b6a37eaf39254d
+1..4
+# Start of fpc-driver tests
+# libfprint-device-DEBUG: Device reported open completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_OPEN in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NONE -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NONE
+# libfprint-device-DEBUG: Device reported verify result (result: FPI_MATCH_SUCCESS, print: 0x32f2540, error: none)
+# libfprint-device-DEBUG: Device reported verify completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_VERIFY in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NONE -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NONE
+# libfprint-device-DEBUG: Device reported verify result (result: FPI_MATCH_FAIL, print: (nil), error: none)
+# libfprint-device-DEBUG: Device reported verify completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_VERIFY in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NONE -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NONE
+# libfprint-device-DEBUG: Device reported verify result (result: FPI_MATCH_FAIL, print: (nil), error: none)
+# libfprint-device-DEBUG: Device reported verify completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_VERIFY in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NONE -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NONE
+# libfprint-device-DEBUG: Device reported verify result (result: FPI_MATCH_FAIL, print: (nil), error: none)
+# libfprint-device-DEBUG: Device reported verify completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_VERIFY in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NONE -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NONE
+# libfprint-device-DEBUG: Device reported verify completion (error: [G_IO_ERROR_FAILED] Matching fingerprint: Input/output error)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_VERIFY in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NONE -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NONE
+# libfprint-device-DEBUG: Device reported verify completion (error: [FP_DEVICE_ERROR_GENERAL] Matching fingerprint failed (dispatcher -201, command -2147483648))
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_VERIFY in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NONE -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NONE
+# libfprint-device-DEBUG: Device reported verify result (result: FPI_MATCH_ERROR, print: (nil), error: [FP_DEVICE_RETRY_TOO_FAST] The swipe was too fast, please try again.)
+# libfprint-device-DEBUG: Device reported verify completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_VERIFY in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported close completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_CLOSE in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+ok 1 /fpc-driver/verify-capture-order-and-rejection
+# libfprint-device-DEBUG: Device reported open completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_OPEN in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NONE -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NONE
+# libfprint-device-DEBUG: Device reported identify result (match: (nil), print: (nil), error: none)
+# libfprint-device-DEBUG: Device reported identify completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_IDENTIFY in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NONE -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NONE
+# libfprint-device-DEBUG: Device reported identify result (match: 0x32f1e10, print: 0x32f2540, error: none)
+# libfprint-device-DEBUG: Device reported identify completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_IDENTIFY in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported close completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_CLOSE in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+ok 2 /fpc-driver/identify-gallery-bound
+# libfprint-device-DEBUG: Device reported open completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_OPEN in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported enroll completion (print: (nil), error: [G_IO_ERROR_NOT_FOUND] Synthetic broker absent)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_ENROLL in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NONE -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Device reported enroll progress, reported 50 of 100 have been completed
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NONE
+# libfprint-device-DEBUG: Device reported enroll completion (print: (nil), error: [FP_DEVICE_ERROR_GENERAL] Saving fingerprint database failed (dispatcher 0, command -206))
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_ENROLL in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported close completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_CLOSE in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+ok 3 /fpc-driver/enroll-needs-broker-and-persistence
+# libfprint-device-DEBUG: Device reported open completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_OPEN in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NONE -> FP_FINGER_STATUS_NEEDED
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_NEEDED -> FP_FINGER_STATUS_PRESENT
+# libfprint-device-DEBUG: Task cancellable for operation 5 cancelled
+# libfprint-device-DEBUG: Idle cancelling on ongoing operation!
+# libfprint-device-DEBUG: Device reported finger status change: FP_FINGER_STATUS_PRESENT -> FP_FINGER_STATUS_NONE
+# libfprint-device-DEBUG: Device reported verify completion (error: [G_IO_ERROR_CANCELLED] Operation was cancelled)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_VERIFY in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+# libfprint-device-DEBUG: Device reported close completion (error: none)
+# libfprint-device-DEBUG: Completing action FPI_DEVICE_ACTION_CLOSE in idle!
+# libfprint-device-DEBUG: Not updating temperature model, device can run continuously!
+ok 4 /fpc-driver/cancellation-wins-match-race
+# End of fpc-driver tests
+==============================================================================
+
+
+Ok:                2   
+Fail:              0   
