@@ -1,0 +1,28 @@
+# bad: [ea67a11faa3fa8660185cbde661e62865084141c] 4.23.1
+# good: [7f99ab1a26408b6499a18f353f081e3c0598ea5c] 4.22.4
+git bisect start '4.23.1' '4.22.4'
+# good: [e9cf81c266d2c42957443cc98867afa9f199bcf5] Merge branch '4-22-0' into 'main'
+git bisect good e9cf81c266d2c42957443cc98867afa9f199bcf5
+# bad: [c7b0eb19ae13e034ac8b5fd8871453a9e1b7ddf2] svg: Add gtk_svg_pick_element
+git bisect bad c7b0eb19ae13e034ac8b5fd8871453a9e1b7ddf2
+# good: [89945a4e0eda65c77d6baa8721a32a8ee23a23a4] Merge branch 'for-main' into 'main'
+git bisect good 89945a4e0eda65c77d6baa8721a32a8ee23a23a4
+# good: [228b648f93f2a260f8e19e109bf756a9a7eff96f] Merge branch 'for-main' into 'main'
+git bisect good 228b648f93f2a260f8e19e109bf756a9a7eff96f
+# bad: [ffb1d7cdfb59dcdd9975ae9c7a48e152596559a5] Merge branch 'svg-3d-transforms' into 'main'
+git bisect bad ffb1d7cdfb59dcdd9975ae9c7a48e152596559a5
+# good: [1284084bdb1421eefc4555a08e14922debf6cc7a] Merge branch 'xjuan/inspector-layout-names-fix' into 'main'
+git bisect good 1284084bdb1421eefc4555a08e14922debf6cc7a
+# bad: [7a1929b567c3aa54552977669dcf270671b18c20] Merge branch 'paintable-reduction' into 'main'
+git bisect bad 7a1929b567c3aa54552977669dcf270671b18c20
+# bad: [39c632d3c479d553a76b5997c37d94b01d30388b] gtk: Add private API to set the parent CSS node for pre-edit styling
+git bisect bad 39c632d3c479d553a76b5997c37d94b01d30388b
+# good: [16a9d6eb220ba27bcfa1350e0231dc6762cbff6b] build: Require wayland-protocols 1.48
+git bisect good 16a9d6eb220ba27bcfa1350e0231dc6762cbff6b
+# good: [2da065478aa17abf0190a972c09c6fe3ed468870] Merge branch 'for-main' into 'main'
+git bisect good 2da065478aa17abf0190a972c09c6fe3ed468870
+# bad: [1d83c7a953209c27a38e92a13fb420493f96669b] gtk/imwayland: Make text-input caret location animatable
+git bisect bad 1d83c7a953209c27a38e92a13fb420493f96669b
+# good: [87d0eec0d31b2da2c23905b33487aa8eac6a31f7] gtkimcontextwayland: Implement version 2 of text_input_v3 protocol
+git bisect good 87d0eec0d31b2da2c23905b33487aa8eac6a31f7
+# first 'bad' commit: [1d83c7a953209c27a38e92a13fb420493f96669b] gtk/imwayland: Make text-input caret location animatable

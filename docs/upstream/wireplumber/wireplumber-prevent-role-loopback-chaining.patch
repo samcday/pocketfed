@@ -1,0 +1,43 @@
+From f65ea7c4e7090f8c6854b99aff7b8a62eaa8f2b2 Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Mon, 7 Sep 2026 16:21:07 +1000
+Subject: [PATCH] linking: prevent role loopbacks from targeting other role
+ sinks
+
+- Reject a role-policy target when the stream's link group already
+  contains a role-policy target.
+- Prevent output removal from rerouting a role loopback into a higher
+  priority role and corking application streams after reconnect.
+- Preserve ordinary filter and monitor routing.
+
+Assisted-by: Codex:gpt-6-astra
+---
+ src/scripts/lib/linking-utils.lua | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/src/scripts/lib/linking-utils.lua b/src/scripts/lib/linking-utils.lua
+index e1b4f32..200ff97 100644
+--- a/src/scripts/lib/linking-utils.lua
++++ b/src/scripts/lib/linking-utils.lua
+@@ -268,6 +268,21 @@ function lutils.canLink (properties, si_target)
+     return false
+   end
+ 
++  -- A role loopback must not feed another role policy sink. When the
++  -- hardware disappears, selecting one as a fallback creates a priority
++  -- link that can cork client streams even after the hardware returns.
++  if properties ["node.link-group"] and
++      lutils.is_role_policy_target (properties, target_props) then
++    local role_sink = cutils.get_object_manager ("session-item"):lookup {
++      type = "SiLinkable",
++      Constraint { "node.link-group", "=", properties ["node.link-group"] },
++      Constraint { "policy.role-based.target", "=", true },
++    }
++    if role_sink then
++      return false
++    end
++  end
++
+   -- check link group
+   local function canLinkGroupCheck(link_group, si_target, hops)
+     local target_props = si_target.properties

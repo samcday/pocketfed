@@ -1,0 +1,208 @@
+{
+  "date": "2026-09-08",
+  "source_checkout_head": "336ba9cb5c7051d7b24b93815e8d60a32aa74ece",
+  "note": "These investigation files were uncommitted in the source checkout; HEAD identifies context, not their contents. SHA-256 entries identify the selected local inputs and published copies. Only machine-local path prefixes were replaced in marked JSON evidence.",
+  "files": [
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/harness/dbus.conf",
+      "published": "harness/dbus.conf",
+      "source_sha256": "66bc8606818919aaee3b541ff39e3259d696d1e085810f2edb4ccd81871cdeac",
+      "published_sha256": "66bc8606818919aaee3b541ff39e3259d696d1e085810f2edb4ccd81871cdeac",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/harness/gtk4-preedit.c",
+      "published": "harness/gtk4-preedit.c",
+      "source_sha256": "18f6757d7a12eb6626b3d829c719f5d1d6fbb38af228afbda7994d1ac4cc4604",
+      "published_sha256": "18f6757d7a12eb6626b3d829c719f5d1d6fbb38af228afbda7994d1ac4cc4604",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/harness/ime-driver.py",
+      "published": "harness/ime-driver.py",
+      "source_sha256": "b70a0951d0a2062c5365691e44c8d59e45e553ed9f94650b07e726da650e4a92",
+      "published_sha256": "b70a0951d0a2062c5365691e44c8d59e45e553ed9f94650b07e726da650e4a92",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/harness/input-method-unstable-v2.xml",
+      "published": "harness/input-method-unstable-v2.xml",
+      "source_sha256": "33ac1a0325dcfefd566773928917b0251f54078d0f530852cbfe82aa0270a0d9",
+      "published_sha256": "33ac1a0325dcfefd566773928917b0251f54078d0f530852cbfe82aa0270a0d9",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/harness/run-case.py",
+      "published": "harness/run-case.py",
+      "source_sha256": "d13c7211754f08525c3eed602f76d8e1e135a29b7ba100a63c910f38d7219741",
+      "published_sha256": "d13c7211754f08525c3eed602f76d8e1e135a29b7ba100a63c910f38d7219741",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/validation/dbus.conf",
+      "published": "validation/dbus.conf",
+      "source_sha256": "66bc8606818919aaee3b541ff39e3259d696d1e085810f2edb4ccd81871cdeac",
+      "published_sha256": "66bc8606818919aaee3b541ff39e3259d696d1e085810f2edb4ccd81871cdeac",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/validation/gtk4-preedit.c",
+      "published": "validation/gtk4-preedit.c",
+      "source_sha256": "0fff40e9b0011f57e73701f426efc9ab1d4473dbe7265fcd7fac8633bd611ba6",
+      "published_sha256": "0fff40e9b0011f57e73701f426efc9ab1d4473dbe7265fcd7fac8633bd611ba6",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/validation/ime-driver.py",
+      "published": "validation/ime-driver.py",
+      "source_sha256": "984ba9295b71af6a39376268ac022c538489d68402647117ba212281df8b00e4",
+      "published_sha256": "984ba9295b71af6a39376268ac022c538489d68402647117ba212281df8b00e4",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/validation/input-method-unstable-v2.xml",
+      "published": "validation/input-method-unstable-v2.xml",
+      "source_sha256": "33ac1a0325dcfefd566773928917b0251f54078d0f530852cbfe82aa0270a0d9",
+      "published_sha256": "33ac1a0325dcfefd566773928917b0251f54078d0f530852cbfe82aa0270a0d9",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/validation/run-case.py",
+      "published": "validation/run-case.py",
+      "source_sha256": "c088812a5912e040a0e7274624f4a96ad7d8467e04845d53111977825687de27",
+      "published_sha256": "c088812a5912e040a0e7274624f4a96ad7d8467e04845d53111977825687de27",
+      "sanitized": false
+    },
+    {
+      "source": "packages/gtk4/validation/run-matrix.py",
+      "published": "validation/run-matrix.py",
+      "source_sha256": "2508bd54e1d15af508365a428b1ecb9482a025d31e6d33b3cdafa5744da7ff79",
+      "published_sha256": "2508bd54e1d15af508365a428b1ecb9482a025d31e6d33b3cdafa5744da7ff79",
+      "sanitized": false
+    },
+    {
+      "source": "packages/gtk4/gtk4-wayland-preserve-preedit-on-layout.patch",
+      "published": "patches/gtk4-wayland-preserve-preedit-on-layout.patch",
+      "source_sha256": "b106524005f8b87915cc93aec5dabc6834cd4963ec95a169c0d4c3e737fb329b",
+      "published_sha256": "b106524005f8b87915cc93aec5dabc6834cd4963ec95a169c0d4c3e737fb329b",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/evidence/first-bad-cause-fix.diff",
+      "published": "patches/first-bad-cause-fix.diff",
+      "source_sha256": "1b43b50b666ab509f263728c8782785d231d13f91bc68b8958140f5e3960266d",
+      "published_sha256": "1b43b50b666ab509f263728c8782785d231d13f91bc68b8958140f5e3960266d",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/evidence/bisect.log",
+      "published": "evidence/bisect.log",
+      "source_sha256": "9379f50e98ca06f0964df72eba1e6c6f4f5192f706c6988decddf09df76162cc",
+      "published_sha256": "9379f50e98ca06f0964df72eba1e6c6f4f5192f706c6988decddf09df76162cc",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/evidence/outcomes.jsonl",
+      "published": "evidence/outcomes.jsonl",
+      "source_sha256": "ff99b405475091d127b583dcae992021725c81fd3b6e20cdd3f02421c94b05ba",
+      "published_sha256": "785199d9418913b0964ad9bebf34312ca201b26e27cb7cee654c5e9bd05cf57c",
+      "sanitized": true
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/evidence/validation-host-stable-summary.json",
+      "published": "evidence/validation-host-stable-summary.json",
+      "source_sha256": "cebb554671d87fe3d02f72d578a97d8e514a8de8831ec25d125d7f93c258395c",
+      "published_sha256": "cebb554671d87fe3d02f72d578a97d8e514a8de8831ec25d125d7f93c258395c",
+      "sanitized": false
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/evidence/validation-fixed-stable-summary.json",
+      "published": "evidence/validation-fixed-stable-summary.json",
+      "source_sha256": "f6198723281847c1c15a672cf1cece14625a798148be8ce895d2c1f322f6083a",
+      "published_sha256": "9cc4eaadb3fe5611c7a4f26cefbf73060263e409692f499ce238d4e5a9d033a2",
+      "sanitized": true
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/evidence/parent-good/result.json",
+      "published": "evidence/parent-good.json",
+      "source_sha256": "789a05602dfe2a6f3ecdea3d0c1bd491a8dbd576e4fedf04ec8ce1590a268792",
+      "published_sha256": "1dc9a311dd3b77e03b55d90a9f4b169ecf668e3022559fada98516030fc17602",
+      "sanitized": true
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/evidence/first-bad/result.json",
+      "published": "evidence/first-bad.json",
+      "source_sha256": "e5e68a922612e4833c3b1ba0f522647cc6f4cc7afc3e7f07a379e30ec59c3500",
+      "published_sha256": "3f05b71aef2f26017affd087c8e72da6dfd6420a60b549ff633e8bfe7df687da",
+      "sanitized": true
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/evidence/first-bad-fixed/result.json",
+      "published": "evidence/first-bad-fixed.json",
+      "source_sha256": "77a49776ec359468343846bb76006c8f9f4e7445953fb6e3d10c139577a319ce",
+      "published_sha256": "bc27d56cca4e4ac4238d67ea60b5136399f68be0ca96ea318d431a9083189309",
+      "sanitized": true
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/evidence/4.23.3-bad/result.json",
+      "published": "evidence/4.23.3-bad.json",
+      "source_sha256": "04cee2f28db42bd6a7e0ca620ec0c3f7875703db62445def09871df569d9752d",
+      "published_sha256": "ba70261db4bae49b776866bc6e78727d4bee03913b0d510be5e68691998a1112",
+      "sanitized": true
+    },
+    {
+      "source": "phosh/diagnostics/gtk4-ime-bisect/evidence/4.23.3-fixed/result.json",
+      "published": "evidence/4.23.3-fixed.json",
+      "source_sha256": "8d7be767ec6eafc5710126039e1f32bd9655afb5f538cc58ee3ab48a62bd0283",
+      "published_sha256": "8f99d8a08f9d1eefed43a887b989f0fe655fdc8c628f2a29ca7df21fb2416da6",
+      "sanitized": true
+    },
+    {
+      "source": "packages/gtk4/validation/x86_64.json",
+      "published": "evidence/rpm-x86_64.json",
+      "source_sha256": "f47e5f1425d41c5073160ddfa5a6f6095bfeb573b3478841d459d06037ea5d9b",
+      "published_sha256": "a9e4c1678161c9aac7c8289d8e717b961ffa86b49f7ab1f0fe26ded017d37f76",
+      "sanitized": true
+    },
+    {
+      "source": "packages/gtk4/validation/sam-sargo.json",
+      "published": "evidence/rpm-aarch64.json",
+      "source_sha256": "efa661baf1a7663ffd62edb93f1b2c357dde47f22295584def849b97fd10f46d",
+      "published_sha256": "695bcf546b052d44c168e491e3b236fa285e38f2e7caa77399d2b889a458af39",
+      "sanitized": true
+    },
+    {
+      "source": "packages/gtk4/validation/sam-sargo-installed-control.json",
+      "published": "evidence/device-unpatched-control.json",
+      "source_sha256": "cd976fab0e1b7a0d5549f54725102e31bbf22749b573b057ee33dd69ed7f37a5",
+      "published_sha256": "cd976fab0e1b7a0d5549f54725102e31bbf22749b573b057ee33dd69ed7f37a5",
+      "sanitized": false
+    },
+    {
+      "source": "packages/gtk4/gtk4.spec",
+      "published": "packaging/gtk4.spec",
+      "source_sha256": "70a9b929ceb29a11ceaea9ace4d8c061acab3c22388bb59a58b14440ddf3d1e1",
+      "published_sha256": "70a9b929ceb29a11ceaea9ace4d8c061acab3c22388bb59a58b14440ddf3d1e1",
+      "sanitized": false
+    },
+    {
+      "source": "packages/gtk4/sources",
+      "published": "packaging/sources",
+      "source_sha256": "30d8e6160ff349d76cefbc270b5fe6ef79df1a28c578b18fc80b9e3e65b33859",
+      "published_sha256": "30d8e6160ff349d76cefbc270b5fe6ef79df1a28c578b18fc80b9e3e65b33859",
+      "sanitized": false
+    },
+    {
+      "source": "packages/gtk4/sources.sha256",
+      "published": "packaging/sources.sha256",
+      "source_sha256": "c823972e518605a5b45e1d2864b9c42627056d6ed5dde9a7b43d685302981cea",
+      "published_sha256": "c823972e518605a5b45e1d2864b9c42627056d6ed5dde9a7b43d685302981cea",
+      "sanitized": false
+    },
+    {
+      "source": "packages/gtk4/build.json",
+      "published": "packaging/build.json",
+      "transformation": "Omitted unrelated local image-validation record; package build and library validation retained."
+    }
+  ]
+}

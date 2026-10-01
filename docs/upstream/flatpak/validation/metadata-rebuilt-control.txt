@@ -1,0 +1,15 @@
+1741269372/pid: 11938
+1741269372/bwrapinfo.json: {
+    "child-pid": 11950,
+    "ipc-namespace": 4026533726,
+    "mnt-namespace": 4026533725,
+    "pid-namespace": 4026533728
+}
+
+1962849610/pid: 11909
+1962849610/bwrapinfo.json: {
+    "child-pid": 11921,
+    "mnt-namespace": 4026533720,
+    "pid-namespace": 4026533722
+}
+

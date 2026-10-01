@@ -1,0 +1,167 @@
+/* Harness generated from pinned production code by test-start-notification.
+ * Only Flatpak metadata plumbing and D-Bus signal delivery are test doubles.
+ * The get_pid() implementation, async callback and retry loop come from source.
+ */
+
+#include <glib.h>
+#include <gio/gio.h>
+#include <glib/gstdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#define INSTANCE_ID_BUFFER_SIZE 64
+#define CHILD_STATUS_CHECK_ATTEMPTS 20
+#define FLATPAK_PORTAL_PATH "/org/freedesktop/portal/Flatpak"
+#define FLATPAK_PORTAL_INTERFACE "org.freedesktop.portal.Flatpak"
+typedef GObject FlatpakInstance;
+G_DEFINE_AUTOPTR_CLEANUP_FUNC (FlatpakInstance, g_object_unref)
+typedef struct { gboolean expose_or_share_pids; char *client; } PidData;
+static GHashTable *client_pid_data_hash;
+static GDBusConnection *session_bus;
+static char *test_dir;
+static guint signals;
+static guint constructions;
+static guint reported_pid;
+
+@GET_PID@
+
+/* Construction uses the unmodified 1.19.0 get_pid() above, including real
+ * g_file_get_contents() errors. Remaining instance metadata is a test double. */
+static FlatpakInstance *flatpak_instance_new_for_id (const char *id, GError **error)
+{
+  constructions++;
+  if (get_pid(test_dir, error) <= 0) return NULL;
+  return g_object_new(G_TYPE_OBJECT, NULL);
+}
+static int flatpak_instance_get_child_pid (FlatpakInstance *instance)
+{
+  g_autofree char *path = g_build_filename(test_dir, "child-pid", NULL);
+  g_autofree char *contents = NULL;
+  if (!g_file_get_contents(path, &contents, NULL, NULL)) return 0;
+  return atoi(contents);
+}
+static gboolean capture_signal (GDBusConnection *connection, const char *destination,
+ const char *path, const char *interface, const char *name, GVariant *parameters, GError **error)
+{
+  guint relative_pid;
+  g_assert_cmpstr(name, ==, "SpawnStarted");
+  g_variant_get(parameters, "(uu)", &reported_pid, &relative_pid);
+  signals++;
+  return TRUE;
+}
+#define g_dbus_connection_emit_signal capture_signal
+
+@PORTAL_CALLBACKS@
+
+static gboolean write_pid (gpointer value)
+{
+  g_autofree char *path = g_build_filename(test_dir, "pid", NULL);
+  g_assert_true(g_file_set_contents(path, (const char *) value, -1, NULL));
+  return G_SOURCE_REMOVE;
+}
+static gboolean write_child_pid (gpointer value)
+{
+  g_autofree char *path = g_build_filename(test_dir, "child-pid", NULL);
+  g_assert_true(g_file_set_contents(path, "31338", -1, NULL));
+  return G_SOURCE_REMOVE;
+}
+static gboolean stop_loop (gpointer loop)
+{
+  g_main_loop_quit(loop);
+  return G_SOURCE_REMOVE;
+}
+static gboolean process_exit (gpointer value)
+{
+  g_hash_table_remove(client_pid_data_hash, GUINT_TO_POINTER(31337));
+  return G_SOURCE_REMOVE;
+}
+
+typedef struct {
+  InstanceIdReadData *read_data;
+  int pid_delay;
+  int child_delay;
+  int exit_delay;
+  const char *pid_contents;
+} PendingStart;
+static void begin_start (GObject *source, GAsyncResult *res, gpointer user_data)
+{
+  PendingStart *pending = user_data;
+  instance_id_read_finish(source, res, pending->read_data);
+  if (pending->pid_delay > 0)
+    g_timeout_add(pending->pid_delay, write_pid, (gpointer) pending->pid_contents);
+  if (pending->child_delay > 0)
+    g_timeout_add(pending->child_delay, write_child_pid, NULL);
+  if (pending->exit_delay > 0)
+    g_timeout_add(pending->exit_delay, process_exit, NULL);
+}
+
+static void run_case (const char *name, int pid_delay, int child_delay,
+                     int exit_delay, const char *pid_contents,
+                     guint expected_signals, guint expected_min_constructions)
+{
+  g_autoptr(GMainLoop) loop = g_main_loop_new(NULL, FALSE);
+  GInputStream *input = NULL;
+  g_autofree char *pid_path = NULL;
+  g_autofree char *child_path = NULL;
+  PidData pid_data = { FALSE, ":1.test" };
+  InstanceIdReadData *data = g_new0(InstanceIdReadData, 1);
+  guint attempts_before_wait;
+  PendingStart pending = { data, pid_delay, child_delay, exit_delay, pid_contents };
+
+  test_dir = g_build_filename(g_get_tmp_dir(), "flatpak-portal-test-XXXXXX", NULL);
+  g_assert_nonnull(g_mkdtemp(test_dir));
+  g_assert_nonnull(test_dir);
+  pid_path = g_build_filename(test_dir, "pid", NULL);
+  child_path = g_build_filename(test_dir, "child-pid", NULL);
+  signals = constructions = reported_pid = 0;
+  g_hash_table_insert(client_pid_data_hash, GUINT_TO_POINTER(31337), &pid_data);
+  if (pid_contents == NULL) g_assert_cmpint(g_mkdir(pid_path, 0700), ==, 0);
+  else if (pid_delay == 0) write_pid((gpointer) pid_contents);
+  if (child_delay == 0) write_child_pid(NULL);
+  if (exit_delay == 0) process_exit(NULL);
+
+  /* Exercise the production async-read callback, then the production timer. */
+  data->pid = 31337;
+  input = g_memory_input_stream_new_from_data("12345", 5, NULL);
+  g_input_stream_read_async(input, data->buffer, INSTANCE_ID_BUFFER_SIZE - 1,
+                           G_PRIORITY_DEFAULT, NULL, begin_start, &pending);
+  g_timeout_add(250, stop_loop, loop);
+  g_main_loop_run(loop);
+  g_assert_cmpuint(signals, ==, expected_signals);
+  g_assert_cmpuint(constructions, >=, expected_min_constructions);
+  if (exit_delay >= 0 || pid_contents == NULL || g_strcmp0(pid_contents, "0") == 0)
+    g_assert_cmpuint(constructions, ==, expected_min_constructions);
+  if (signals) g_assert_cmpuint(reported_pid, ==, 31337);
+
+  /* Ensure canceled/complete watchers don't attempt another construction. */
+  attempts_before_wait = constructions;
+  g_timeout_add(125, stop_loop, loop);
+  g_main_loop_run(loop);
+  g_assert_cmpuint(constructions, ==, attempts_before_wait);
+  g_print("PASS %s: SpawnStarted=%u, constructors=%u, no further retries\n",
+          name, signals, constructions);
+  g_hash_table_remove_all(client_pid_data_hash);
+  if (pid_contents == NULL) g_rmdir(pid_path); else g_unlink(pid_path);
+  g_unlink(child_path); g_rmdir(test_dir);
+  g_clear_pointer(&test_dir, g_free);
+}
+int main (int argc, char **argv)
+{
+  client_pid_data_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
+  if (argc == 2 && g_str_equal(argv[1], "--require-delayed-pid-notification"))
+    {
+      run_case("delayed pid file regression oracle", 60, 0, -1, "31337", 1, 1);
+      g_hash_table_unref(client_pid_data_hash);
+      return 0;
+    }
+  run_case("ready metadata", 0, 0, -1, "31337", 1, 1);
+  run_case("delayed child metadata", 0, 60, -1, "31337", 1, 1);
+  run_case("delayed pid file", 60, 0, -1, "31337", PATCHED ? 1 : 0, PATCHED ? 2 : 1);
+  run_case("exit before ID callback", 60, 0, 0, "31337", 0, PATCHED ? 0 : 1);
+  run_case("exit before first retry", 60, 0, 10, "31337", 0, 1);
+  run_case("exit after first retry", 160, 0, 60, "31337", 0, PATCHED ? 2 : 1);
+  run_case("invalid pid rejected", 0, 0, -1, "0", 0, 1);
+  run_case("permanent file error rejected", 0, 0, -1, NULL, 0, 1);
+  g_hash_table_unref(client_pid_data_hash);
+  return 0;
+}

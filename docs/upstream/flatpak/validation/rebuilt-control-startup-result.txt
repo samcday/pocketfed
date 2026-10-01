@@ -1,0 +1,3 @@
+Exit status: 124
+[2:15:0908/135553.942387:VERBOSE1:sandbox/linux/services/flatpak_sandbox.cc:560] Spawn() returned PID 11938
+[2:2:0908/135553.943389:VERBOSE1:sandbox/linux/services/flatpak_sandbox.cc:596] Waiting for 11938

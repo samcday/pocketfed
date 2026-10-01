@@ -1,0 +1,125 @@
+From 5df6741803e7660323bfea640840429e3a4eec43 Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Mon, 7 Sep 2026 16:21:07 +1000
+Subject: [PATCH] tests: cover role loopback target restrictions
+
+- Load the role rescan hook in the script test fixture.
+- Check that role outputs can reach hardware and ordinary filters,
+  but cannot feed their own role sink or another role sink.
+- Cover normal clients, ordinary filters and monitor streams.
+
+Assisted-by: Codex:gpt-6-astra
+---
+ tests/script-tester.c                         |  6 ++
+ tests/scripts/meson.build                     |  7 ++
+ .../18-test-linking-role-loopbacks.lua        | 69 +++++++++++++++++++
+ 3 files changed, 82 insertions(+)
+ create mode 100644 tests/scripts/scripts/18-test-linking-role-loopbacks.lua
+
+diff --git a/tests/script-tester.c b/tests/script-tester.c
+index e89e76b..676ddf7 100644
+--- a/tests/script-tester.c
++++ b/tests/script-tester.c
+@@ -250,6 +250,12 @@ load_components (ScriptRunnerFixture *f, gconstpointer argv)
+     load_component (f, "linking/prepare-link.lua", "script/lua");
+     load_component (f, "linking/rescan.lua", "script/lua");
+ 
++    wp_core_load_component (f->base.core,
++        "linking/rescan-media-role-links.lua", "script/lua", NULL,
++        "hooks.linking.role-based.rescan", NULL,
++        (GAsyncReadyCallback) on_plugin_loaded, f);
++    g_main_loop_run (f->base.loop);
++
+     {
+       g_autoptr (WpTestServerLocker) lock =
+         wp_test_server_locker_new (&f->base.server);
+diff --git a/tests/scripts/meson.build b/tests/scripts/meson.build
+index 34bb434..9e10eb5 100644
+--- a/tests/scripts/meson.build
++++ b/tests/scripts/meson.build
+@@ -142,3 +142,10 @@ test(
+   args: ['script-tests', '00-test-default-nodes-initial-metadata-update.lua'],
+   env: common_env,
+ )
++
++test(
++  'test-linking-role-loopbacks',
++  script_tester,
++  args: ['script-tests', '18-test-linking-role-loopbacks.lua'],
++  env: common_env,
++)
+diff --git a/tests/scripts/scripts/18-test-linking-role-loopbacks.lua b/tests/scripts/scripts/18-test-linking-role-loopbacks.lua
+new file mode 100644
+index 0000000..01b8f15
+--- /dev/null
++++ b/tests/scripts/scripts/18-test-linking-role-loopbacks.lua
+@@ -0,0 +1,69 @@
++-- Role loopbacks must not become clients of another role sink when a
++-- hardware output disappears. Ordinary filters and monitor streams may
++-- still connect to role sinks.
++
++local lutils = require ("linking-utils")
++local tu = require ("test-utils")
++
++Script.async_activation = true
++
++tu.createDeviceNode ("music", "Audio/Sink", {
++  ["node.link-group"] = "music-group",
++  ["policy.role-based.target"] = true,
++})
++tu.createDeviceNode ("alert", "Audio/Sink", {
++  ["node.link-group"] = "alert-group",
++  ["policy.role-based.target"] = true,
++})
++tu.createDeviceNode ("filter", "Audio/Sink", {
++  ["node.link-group"] = "filter-group",
++  ["policy.role-based.target"] = false,
++})
++tu.createDeviceNode ("speaker", "Audio/Sink")
++
++SimpleEventHook {
++  name = "linkable-added@test-role-loopbacks",
++  after = "linkable-added@test-utils-linking",
++  interests = {
++    EventInterest {
++      Constraint { "event.type", "=", "session-item-added" },
++      Constraint { "event.session-item.interface", "=", "linkable" },
++    },
++  },
++  execute = function (event)
++    if not tu.linkablesReady () then
++      return
++    end
++
++    assert (Core.test_feature ("hooks.linking.role-based.rescan"))
++    local output = {
++      ["media.type"] = "Audio",
++      ["item.node.direction"] = "output",
++      ["node.link-group"] = "music-group",
++    }
++
++    -- A role output can reach hardware or an ordinary filter, but cannot
++    -- enter either its own role sink or a different role sink.
++    assert (lutils.canLink (output, tu.lnkbls.speaker))
++    assert (lutils.canLink (output, tu.lnkbls.filter))
++    assert (not lutils.canLink (output, tu.lnkbls.music))
++    assert (not lutils.canLink (output, tu.lnkbls.alert))
++
++    -- Keeping role sinks available to normal clients and filters is
++    -- necessary for normal role-based playback.
++    output ["node.link-group"] = nil
++    assert (lutils.canLink (output, tu.lnkbls.alert))
++    output ["node.link-group"] = "filter-group"
++    assert (lutils.canLink (output, tu.lnkbls.alert))
++
++    -- Monitor streams do not participate in role priority policy.
++    output ["node.link-group"] = "music-group"
++    output ["stream.monitor"] = "true"
++    assert (lutils.canLink (output, tu.lnkbls.alert))
++    output ["stream.monitor"] = nil
++    output ["item.node.direction"] = "input"
++    assert (lutils.canLink (output, tu.lnkbls.alert))
++
++    Script:finish_activation ()
++  end,
++}:register ()

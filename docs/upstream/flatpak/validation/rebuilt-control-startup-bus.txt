@@ -1,0 +1,11 @@
+‣ Type=method_call  Endian=l  Flags=0  Version=1 Cookie=11  Timestamp="Tue 2026-09-08 03:55:53.919420 UTC"
+  Sender=:1.98  Destination=org.freedesktop.portal.Flatpak  Path=/org/freedesktop/portal/Flatpak  Interface=org.freedesktop.portal.Flatpak  Member=Spawn
+  UniqueName=:1.98
+
+‣ Type=method_return  Endian=l  Flags=1  Version=1 Cookie=15  ReplyCookie=11  Timestamp="Tue 2026-09-08 03:55:53.941695 UTC"
+  Sender=:1.91  Destination=:1.98
+  UniqueName=:1.91
+  MESSAGE "u" {
+          UINT32 11938;
+  };
+

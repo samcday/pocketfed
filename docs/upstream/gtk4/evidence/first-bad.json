@@ -1,0 +1,51 @@
+{
+  "classification": "bad",
+  "exit_code": 1,
+  "library": "<POCKETFED_CHECKOUT>/.tmp-gtk-bisect/build/gtk/libgtk-4.so.1.2300.0",
+  "disabled_wayland_globals": "wp_cursor_shape_manager_v1",
+  "gtk_a11y": "test",
+  "library_sha256": "162aea3ccced95fc7fb5e82103ac3633a6ec19df202993377a95c1276c0d0328",
+  "gtk_version": "4.23.0",
+  "mapped_library": [
+    "<POCKETFED_CHECKOUT>/.tmp-gtk-bisect/build/gtk/libgtk-4.so.1.2300.0"
+  ],
+  "observation": {
+    "state": {
+      "active": true,
+      "serial": 5,
+      "cause": 1,
+      "sent": true,
+      "reset": true,
+      "committed": false,
+      "text": "",
+      "sent_at": 194612.899550214
+    },
+    "events": [
+      {
+        "serial": 1,
+        "cause": 1,
+        "text": ""
+      },
+      {
+        "serial": 2,
+        "cause": 0,
+        "text": ""
+      },
+      {
+        "serial": 3,
+        "cause": 1,
+        "text": ""
+      },
+      {
+        "serial": 4,
+        "cause": 0,
+        "text": ""
+      },
+      {
+        "serial": 5,
+        "cause": 1,
+        "text": ""
+      }
+    ]
+  }
+}

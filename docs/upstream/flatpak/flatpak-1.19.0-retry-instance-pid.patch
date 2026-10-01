@@ -1,0 +1,73 @@
+--- a/portal/flatpak-portal.c
++++ b/portal/flatpak-portal.c
+@@ -274,6 +274,7 @@
+ typedef struct
+ {
+   FlatpakInstance *instance;
++  char            *instance_id;
+   guint            pid;
+   guint            attempt;
+ } BwrapinfoWatcherData;
+@@ -281,7 +282,8 @@
+ static void
+ bwrapinfo_watcher_data_free (BwrapinfoWatcherData* data)
+ {
+-  g_object_unref (data->instance);
++  g_clear_object (&data->instance);
++  g_free (data->instance_id);
+   g_free (data);
+ }
+ 
+@@ -379,7 +381,25 @@
+       return G_SOURCE_REMOVE;
+     }
+ 
+-  child_pid = flatpak_instance_get_child_pid (data->instance);
++  /* flatpak run sends the instance ID before writing the pid file. Since
++   * constructing a FlatpakInstance requires that file, wait for it using the
++   * same retry loop as for bwrapinfo.json. Keep checking for process exit above
++   * so that we do not emit SpawnStarted after SpawnExited. */
++  if (data->instance == NULL)
++    {
++      g_autoptr(GError) error = NULL;
++
++      data->instance = flatpak_instance_new_for_id (data->instance_id, &error);
++      if (data->instance == NULL &&
++          !g_error_matches (error, G_FILE_ERROR, G_FILE_ERROR_NOENT))
++        {
++          g_warning ("Failed to create instance for id %s: %s",
++                     data->instance_id, error->message);
++          return G_SOURCE_REMOVE;
++        }
++    }
++
++  child_pid = data->instance != NULL ? flatpak_instance_get_child_pid (data->instance) : 0;
+   if (child_pid == 0)
+     {
+       gint timeout;
+@@ -443,7 +463,6 @@
+ {
+   g_autoptr(GInputStream) stream = NULL;
+   g_autofree InstanceIdReadData *data = NULL;
+-  g_autoptr(FlatpakInstance) instance = NULL;
+   g_autoptr(GError) error = NULL;
+   BwrapinfoWatcherData *watcher_data = NULL;
+   gssize bytes_read;
+@@ -463,16 +482,8 @@
+ 
+   data->buffer[bytes_read] = 0;
+ 
+-  instance = flatpak_instance_new_for_id (data->buffer, &error);
+-  if (!instance)
+-    {
+-      g_warning ("Failed to create instance for id %s: %s",
+-                 data->buffer, error->message);
+-      return;
+-    }
+-
+   watcher_data = g_new0 (BwrapinfoWatcherData, 1);
+-  watcher_data->instance = g_steal_pointer (&instance);
++  watcher_data->instance_id = g_strdup (data->buffer);
+   watcher_data->pid = data->pid;
+ 
+   check_child_pid_status (watcher_data);

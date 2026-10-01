@@ -1,0 +1,506 @@
+[
+  {
+    "classification": "good",
+    "exit_code": 0,
+    "word": "hello",
+    "action": null,
+    "library": "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0",
+    "disabled_wayland_globals": "wp_cursor_shape_manager_v1",
+    "gtk_a11y": "test",
+    "library_sha256": "bf0233efcb9417a89418282fcf02fe11c0b1d1b2cb05404953c319fcc42e26cd",
+    "gtk_version": "4.23.4",
+    "mapped_library": [
+      "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0"
+    ],
+    "observation": {
+      "state": {
+        "active": true,
+        "serial": 5,
+        "cause": 0,
+        "sent": true,
+        "reset": false,
+        "committed": true,
+        "text": "hello ",
+        "cursor": 6,
+        "anchor": 6,
+        "last_done_at": 198736.625993452,
+        "sent_at": 198736.018361195
+      },
+      "events": [
+        {
+          "serial": 1,
+          "cause": 1,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 2,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 3,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 4,
+          "cause": 0,
+          "text": "hello ",
+          "cursor": 6,
+          "anchor": 6
+        },
+        {
+          "serial": 5,
+          "cause": 0,
+          "text": "hello ",
+          "cursor": 6,
+          "anchor": 6
+        }
+      ]
+    },
+    "case": "hello",
+    "expected_exit": 0,
+    "passed": true
+  },
+  {
+    "classification": "good",
+    "exit_code": 0,
+    "word": "caf\u00e9",
+    "action": null,
+    "library": "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0",
+    "disabled_wayland_globals": "wp_cursor_shape_manager_v1",
+    "gtk_a11y": "test",
+    "library_sha256": "bf0233efcb9417a89418282fcf02fe11c0b1d1b2cb05404953c319fcc42e26cd",
+    "gtk_version": "4.23.4",
+    "mapped_library": [
+      "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0"
+    ],
+    "observation": {
+      "state": {
+        "active": true,
+        "serial": 5,
+        "cause": 0,
+        "sent": true,
+        "reset": false,
+        "committed": true,
+        "text": "caf\u00e9 ",
+        "cursor": 6,
+        "anchor": 6,
+        "last_done_at": 198739.022204819,
+        "sent_at": 198738.414322483
+      },
+      "events": [
+        {
+          "serial": 1,
+          "cause": 1,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 2,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 3,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 4,
+          "cause": 0,
+          "text": "caf\u00e9 ",
+          "cursor": 6,
+          "anchor": 6
+        },
+        {
+          "serial": 5,
+          "cause": 0,
+          "text": "caf\u00e9 ",
+          "cursor": 6,
+          "anchor": 6
+        }
+      ]
+    },
+    "case": "unicode",
+    "expected_exit": 0,
+    "passed": true
+  },
+  {
+    "classification": "good",
+    "exit_code": 0,
+    "word": "hello!",
+    "action": null,
+    "library": "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0",
+    "disabled_wayland_globals": "wp_cursor_shape_manager_v1",
+    "gtk_a11y": "test",
+    "library_sha256": "bf0233efcb9417a89418282fcf02fe11c0b1d1b2cb05404953c319fcc42e26cd",
+    "gtk_version": "4.23.4",
+    "mapped_library": [
+      "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0"
+    ],
+    "observation": {
+      "state": {
+        "active": true,
+        "serial": 5,
+        "cause": 0,
+        "sent": true,
+        "reset": false,
+        "committed": true,
+        "text": "hello! ",
+        "cursor": 7,
+        "anchor": 7,
+        "last_done_at": 198741.400086792,
+        "sent_at": 198740.792572305
+      },
+      "events": [
+        {
+          "serial": 1,
+          "cause": 1,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 2,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 3,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 4,
+          "cause": 0,
+          "text": "hello! ",
+          "cursor": 7,
+          "anchor": 7
+        },
+        {
+          "serial": 5,
+          "cause": 0,
+          "text": "hello! ",
+          "cursor": 7,
+          "anchor": 7
+        }
+      ]
+    },
+    "case": "punctuation",
+    "expected_exit": 0,
+    "passed": true
+  },
+  {
+    "classification": "good",
+    "exit_code": 0,
+    "word": "hello",
+    "action": "layout",
+    "library": "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0",
+    "disabled_wayland_globals": "wp_cursor_shape_manager_v1",
+    "gtk_a11y": "test",
+    "library_sha256": "bf0233efcb9417a89418282fcf02fe11c0b1d1b2cb05404953c319fcc42e26cd",
+    "gtk_version": "4.23.4",
+    "mapped_library": [
+      "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0"
+    ],
+    "observation": {
+      "state": {
+        "active": true,
+        "serial": 6,
+        "cause": 0,
+        "sent": true,
+        "reset": false,
+        "committed": true,
+        "text": "hello ",
+        "cursor": 6,
+        "anchor": 6,
+        "last_done_at": 198743.794369085,
+        "sent_at": 198743.188515469
+      },
+      "events": [
+        {
+          "serial": 1,
+          "cause": 1,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 2,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 3,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 4,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 5,
+          "cause": 0,
+          "text": "hello ",
+          "cursor": 6,
+          "anchor": 6
+        },
+        {
+          "serial": 6,
+          "cause": 0,
+          "text": "hello ",
+          "cursor": 6,
+          "anchor": 6
+        }
+      ]
+    },
+    "case": "layout",
+    "expected_exit": 0,
+    "passed": true
+  },
+  {
+    "classification": "bad",
+    "exit_code": 1,
+    "word": "hello",
+    "action": "reset",
+    "library": "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0",
+    "disabled_wayland_globals": "wp_cursor_shape_manager_v1",
+    "gtk_a11y": "test",
+    "library_sha256": "bf0233efcb9417a89418282fcf02fe11c0b1d1b2cb05404953c319fcc42e26cd",
+    "gtk_version": "4.23.4",
+    "mapped_library": [
+      "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0"
+    ],
+    "observation": {
+      "state": {
+        "active": true,
+        "serial": 6,
+        "cause": 0,
+        "sent": true,
+        "reset": true,
+        "committed": false,
+        "text": "",
+        "cursor": 0,
+        "anchor": 0,
+        "last_done_at": 198745.779236756,
+        "sent_at": 198745.576665105
+      },
+      "events": [
+        {
+          "serial": 1,
+          "cause": 1,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 2,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 3,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 4,
+          "cause": 1,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 5,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 6,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        }
+      ]
+    },
+    "case": "reset",
+    "expected_exit": 1,
+    "passed": true
+  },
+  {
+    "classification": "bad",
+    "exit_code": 1,
+    "word": "hello",
+    "action": "cursor",
+    "library": "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0",
+    "disabled_wayland_globals": "wp_cursor_shape_manager_v1",
+    "gtk_a11y": "test",
+    "library_sha256": "bf0233efcb9417a89418282fcf02fe11c0b1d1b2cb05404953c319fcc42e26cd",
+    "gtk_version": "4.23.4",
+    "mapped_library": [
+      "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0"
+    ],
+    "observation": {
+      "state": {
+        "active": true,
+        "serial": 7,
+        "cause": 0,
+        "sent": true,
+        "reset": true,
+        "committed": false,
+        "text": "prefix ",
+        "cursor": 0,
+        "anchor": 0,
+        "last_done_at": 198748.165351751,
+        "sent_at": 198747.96272643
+      },
+      "events": [
+        {
+          "serial": 1,
+          "cause": 1,
+          "text": "prefix ",
+          "cursor": 7,
+          "anchor": 7
+        },
+        {
+          "serial": 2,
+          "cause": 0,
+          "text": "prefix ",
+          "cursor": 7,
+          "anchor": 7
+        },
+        {
+          "serial": 3,
+          "cause": 0,
+          "text": "prefix ",
+          "cursor": 7,
+          "anchor": 7
+        },
+        {
+          "serial": 4,
+          "cause": 0,
+          "text": "prefix ",
+          "cursor": 7,
+          "anchor": 7
+        },
+        {
+          "serial": 5,
+          "cause": 1,
+          "text": "prefix ",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 6,
+          "cause": 1,
+          "text": "prefix ",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 7,
+          "cause": 0,
+          "text": "prefix ",
+          "cursor": 0,
+          "anchor": 0
+        }
+      ]
+    },
+    "case": "cursor",
+    "expected_exit": 1,
+    "passed": true
+  },
+  {
+    "classification": "focus-cleared",
+    "exit_code": 0,
+    "word": "hello",
+    "action": "focus",
+    "library": "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0",
+    "disabled_wayland_globals": "wp_cursor_shape_manager_v1",
+    "gtk_a11y": "test",
+    "library_sha256": "bf0233efcb9417a89418282fcf02fe11c0b1d1b2cb05404953c319fcc42e26cd",
+    "gtk_version": "4.23.4",
+    "mapped_library": [
+      "<POCKETFED_CHECKOUT>/.tmp-gtk-copr/x86_64/root/usr/lib64/libgtk-4.so.1.2304.0"
+    ],
+    "observation": {
+      "state": {
+        "active": false,
+        "serial": 4,
+        "cause": 0,
+        "sent": true,
+        "reset": false,
+        "committed": false,
+        "text": "",
+        "cursor": 0,
+        "anchor": 0,
+        "last_done_at": 198750.542592954,
+        "sent_at": 198750.341810765
+      },
+      "events": [
+        {
+          "serial": 1,
+          "cause": 1,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 2,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 3,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        },
+        {
+          "serial": 4,
+          "cause": 0,
+          "text": "",
+          "cursor": 0,
+          "anchor": 0
+        }
+      ]
+    },
+    "case": "focus",
+    "expected_exit": 0,
+    "passed": true
+  }
+]

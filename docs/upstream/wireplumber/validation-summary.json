@@ -1,0 +1,907 @@
+{
+  "recorded_on": "2026-09-07",
+  "extracted_on": "2026-09-08",
+  "upstream_base": "7c3bf214b7026ff7bb32e94d7489dcadbc4580b5",
+  "fix_commit": "f65ea7c4e7090f8c6854b99aff7b8a62eaa8f2b2",
+  "test_commit": "5df6741803e7660323bfea640840429e3a4eec43",
+  "extraction": "Only test name/result/returncode/duration and synthetic graph node names/link states were retained. Complete environment, command lines, logs, client metadata, and absolute local paths are omitted.",
+  "suites": {
+    "baseline": {
+      "source_sha256": "0038491ba1a6c3a036987736210207f9eb31f5ea1e62d8751f2cb84a49187355",
+      "tests": [
+        {
+          "name": "wireplumber:test-component-loader",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.027827739715576172
+        },
+        {
+          "name": "wireplumber:test-core",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.03292536735534668
+        },
+        {
+          "name": "wireplumber:test-events",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.03751420974731445
+        },
+        {
+          "name": "wireplumber:test-metadata",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.026998519897460938
+        },
+        {
+          "name": "wireplumber:test-object-interest",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.02595686912536621
+        },
+        {
+          "name": "wireplumber:test-object-manager",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.023267745971679688
+        },
+        {
+          "name": "wireplumber:test-properties",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.01844620704650879
+        },
+        {
+          "name": "wireplumber:test-client-context",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.07532811164855957
+        },
+        {
+          "name": "wireplumber:test-spa-json",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.018947124481201172
+        },
+        {
+          "name": "wireplumber:test-proxy",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.03727078437805176
+        },
+        {
+          "name": "wireplumber:test-spa-pod",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.021688461303710938
+        },
+        {
+          "name": "wireplumber:test-spa-type",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.015943288803100586
+        },
+        {
+          "name": "wireplumber:test-session-item",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.05180621147155762
+        },
+        {
+          "name": "wireplumber:test-state",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.0251314640045166
+        },
+        {
+          "name": "wireplumber:test-transition",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.02655792236328125
+        },
+        {
+          "name": "wireplumber:test-factory",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.021451950073242188
+        },
+        {
+          "name": "wireplumber:test-conf",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.022239208221435547
+        },
+        {
+          "name": "wireplumber:test-settings",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.05370807647705078
+        },
+        {
+          "name": "wireplumber:test-json-utils",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.03521561622619629
+        },
+        {
+          "name": "wireplumber:test-wplua",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.02731156349182129
+        },
+        {
+          "name": "wireplumber:test-lua-pod",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.02034902572631836
+        },
+        {
+          "name": "wireplumber:test-lua-json",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.026198863983154297
+        },
+        {
+          "name": "wireplumber:test-lua-json-utils",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.02938246726989746
+        },
+        {
+          "name": "wireplumber:test-lua-monitor-rules",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.028678178787231445
+        },
+        {
+          "name": "wireplumber:test-lua-require",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.026253700256347656
+        },
+        {
+          "name": "wireplumber:test-lua-settings",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.0174100399017334
+        },
+        {
+          "name": "wireplumber:test-lua-event-hooks",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.018565893173217773
+        },
+        {
+          "name": "wireplumber:test-lua-properties",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.019500732421875
+        },
+        {
+          "name": "wireplumber:test-lua-node-utils",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.018861770629882812
+        },
+        {
+          "name": "wireplumber:test-linking-non-default-device-node",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.048607587814331055
+        },
+        {
+          "name": "wireplumber:test-dynamic-rules",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.20611190795898438
+        },
+        {
+          "name": "wireplumber:test-linking-default-device-node",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.07008004188537598
+        },
+        {
+          "name": "wireplumber:test-linking-non-default-device-node-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.23876047134399414
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-string",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.09229564666748047
+        },
+        {
+          "name": "wireplumber:test-lua-async-activation",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.35973525047302246
+        },
+        {
+          "name": "wireplumber:test-linking-default-device-node-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.2353987693786621
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-int",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.13168120384216309
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-name",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.12799477577209473
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-node-target",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.06770920753479004
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-int-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.2554500102996826
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-string-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.27908968925476074
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-node-metadata",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.06997275352478027
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-name-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.2976112365722656
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-metadata",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.08235335350036621
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-node-target-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.27462267875671387
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-node-metadata-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.2508504390716553
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-int-metadata",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.10524940490722656
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-metadata-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.2705497741699219
+        },
+        {
+          "name": "wireplumber:test-dbus-connection",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.027532577514648438
+        },
+        {
+          "name": "wireplumber:test-file-monitor",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.01556086540222168
+        },
+        {
+          "name": "wireplumber:test-reserve-device",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.04287314414978027
+        },
+        {
+          "name": "wireplumber:test-si-audio-adapter",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.014459371566772461
+        },
+        {
+          "name": "wireplumber:test-si-standard-link",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.017705202102661133
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-int-metadata-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.22861957550048828
+        },
+        {
+          "name": "wireplumber:00-test-default-nodes-initial-metadata-update",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.2285449504852295
+        },
+        {
+          "name": "wireplumber:test-si-node",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.14333319664001465
+        }
+      ]
+    },
+    "patched": {
+      "source_sha256": "722b16cbc065b9fcabfe4de51f83daaffaee80c8aa7bb1376a6b0a6172832e2b",
+      "tests": [
+        {
+          "name": "wireplumber:test-component-loader",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.022433996200561523
+        },
+        {
+          "name": "wireplumber:test-core",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.028788089752197266
+        },
+        {
+          "name": "wireplumber:test-metadata",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.01759195327758789
+        },
+        {
+          "name": "wireplumber:test-events",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.04362821578979492
+        },
+        {
+          "name": "wireplumber:test-object-interest",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.027782440185546875
+        },
+        {
+          "name": "wireplumber:test-properties",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.014053583145141602
+        },
+        {
+          "name": "wireplumber:test-object-manager",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.02520608901977539
+        },
+        {
+          "name": "wireplumber:test-client-context",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.0739603042602539
+        },
+        {
+          "name": "wireplumber:test-spa-json",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.019278287887573242
+        },
+        {
+          "name": "wireplumber:test-proxy",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.03766632080078125
+        },
+        {
+          "name": "wireplumber:test-spa-pod",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.02206587791442871
+        },
+        {
+          "name": "wireplumber:test-spa-type",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.020308971405029297
+        },
+        {
+          "name": "wireplumber:test-state",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.018097400665283203
+        },
+        {
+          "name": "wireplumber:test-session-item",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.05132603645324707
+        },
+        {
+          "name": "wireplumber:test-transition",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.025504589080810547
+        },
+        {
+          "name": "wireplumber:test-conf",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.013627290725708008
+        },
+        {
+          "name": "wireplumber:test-factory",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.02027440071105957
+        },
+        {
+          "name": "wireplumber:test-json-utils",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.02017354965209961
+        },
+        {
+          "name": "wireplumber:test-settings",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.05953502655029297
+        },
+        {
+          "name": "wireplumber:test-wplua",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.026392221450805664
+        },
+        {
+          "name": "wireplumber:test-lua-pod",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.027710437774658203
+        },
+        {
+          "name": "wireplumber:test-lua-json",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.026249170303344727
+        },
+        {
+          "name": "wireplumber:test-lua-json-utils",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.028151750564575195
+        },
+        {
+          "name": "wireplumber:test-lua-monitor-rules",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.028058290481567383
+        },
+        {
+          "name": "wireplumber:test-lua-require",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.0265810489654541
+        },
+        {
+          "name": "wireplumber:test-lua-settings",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.01853632926940918
+        },
+        {
+          "name": "wireplumber:test-lua-event-hooks",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.01985907554626465
+        },
+        {
+          "name": "wireplumber:test-lua-properties",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.019692182540893555
+        },
+        {
+          "name": "wireplumber:test-lua-node-utils",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.01971912384033203
+        },
+        {
+          "name": "wireplumber:test-linking-non-default-device-node",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.04700040817260742
+        },
+        {
+          "name": "wireplumber:test-dynamic-rules",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.21090173721313477
+        },
+        {
+          "name": "wireplumber:test-linking-default-device-node",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.07884955406188965
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-string",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.0814051628112793
+        },
+        {
+          "name": "wireplumber:test-linking-non-default-device-node-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.296184778213501
+        },
+        {
+          "name": "wireplumber:test-lua-async-activation",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.37741875648498535
+        },
+        {
+          "name": "wireplumber:test-linking-default-device-node-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.2409677505493164
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-int",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.10284280776977539
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-name",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.13960671424865723
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-node-target",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.0712287425994873
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-int-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.26966381072998047
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-string-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.29677462577819824
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-node-metadata",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.08426189422607422
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-name-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.3181884288787842
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-metadata",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.08389163017272949
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-node-metadata-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.25602245330810547
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-node-target-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.299022912979126
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-int-metadata",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.11116456985473633
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-metadata-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.2818007469177246
+        },
+        {
+          "name": "wireplumber:test-dbus-connection",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.029091358184814453
+        },
+        {
+          "name": "wireplumber:test-linking-role-loopbacks",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.06844639778137207
+        },
+        {
+          "name": "wireplumber:test-linking-defined-device-node-target-object-int-metadata-capture",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.25046396255493164
+        },
+        {
+          "name": "wireplumber:00-test-default-nodes-initial-metadata-update",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.25987887382507324
+        },
+        {
+          "name": "wireplumber:test-file-monitor",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.04357028007507324
+        },
+        {
+          "name": "wireplumber:test-reserve-device",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.1103971004486084
+        },
+        {
+          "name": "wireplumber:test-si-audio-adapter",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.020546674728393555
+        },
+        {
+          "name": "wireplumber:test-si-standard-link",
+          "result": "OK",
+          "returncode": 0,
+          "duration": 0.014912605285644531
+        },
+        {
+          "name": "wireplumber:test-si-node",
+          "result": "FAIL",
+          "returncode": -6,
+          "duration": 0.1512138843536377
+        }
+      ]
+    }
+  },
+  "hotplug": {
+    "baseline": {
+      "disconnected-0.json": {
+        "source_sha256": "9ffeef8a3866e0f4ff723ccb2763f607292a4f3a70a4859504c94add54ec6d31",
+        "crosslinks": [
+          [
+            "output.loopback.sink.role.multimedia",
+            "input.loopback.sink.role.alert",
+            "paused"
+          ],
+          [
+            "output.loopback.sink.role.multimedia",
+            "input.loopback.sink.role.alert",
+            "paused"
+          ]
+        ],
+        "playerlinks": []
+      },
+      "initial.json": {
+        "source_sha256": "efd72f086f4dc0b1f66f5e3a95cda2f2c6a097d1300f7b4ac6e9ac58cc2b51b8",
+        "crosslinks": [],
+        "playerlinks": [
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ],
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ]
+        ]
+      },
+      "reconnected-0.json": {
+        "source_sha256": "291d01f83bbb5c04763c885ec70889f152756e451ca5305ee2a6802cf30fdb59",
+        "crosslinks": [
+          [
+            "output.loopback.sink.role.multimedia",
+            "input.loopback.sink.role.alert",
+            "paused"
+          ],
+          [
+            "output.loopback.sink.role.multimedia",
+            "input.loopback.sink.role.alert",
+            "paused"
+          ]
+        ],
+        "playerlinks": []
+      }
+    },
+    "patched": {
+      "disconnected-0.json": {
+        "source_sha256": "5083145b3b049d3e559a6c97d7eba22e1dddddcf309d96b6e9917814d148d877",
+        "crosslinks": [],
+        "playerlinks": [
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ],
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ]
+        ]
+      },
+      "disconnected-1.json": {
+        "source_sha256": "ae311d61a6ba6c4b9c848eda8e8303e66d895895d7566ac72d893cc731e54101",
+        "crosslinks": [],
+        "playerlinks": [
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ],
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ]
+        ]
+      },
+      "disconnected-2.json": {
+        "source_sha256": "edd1a1b52321cd2b77d39f2c46cdfa93be3a349a1432201bd768f1594436cd7e",
+        "crosslinks": [],
+        "playerlinks": [
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ],
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ]
+        ]
+      },
+      "initial.json": {
+        "source_sha256": "48a2dadb08ec16b622ede69f1e1961061cf230e405cd43fcb7b92e605e26878f",
+        "crosslinks": [],
+        "playerlinks": [
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ],
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ]
+        ]
+      },
+      "phone-active.json": {
+        "source_sha256": "014865ca465afabec57bdbf89808be80b489a445b68d99c53e47e2eb0b5f6268",
+        "crosslinks": [],
+        "playerlinks": []
+      },
+      "phone-finished.json": {
+        "source_sha256": "0e07b52da52ef75649aa81152d277a251f0227cfe43061b578eda4828c0ff832",
+        "crosslinks": [],
+        "playerlinks": [
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ],
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ]
+        ]
+      },
+      "reconnected-0.json": {
+        "source_sha256": "b1c1e21e52cd4cae56ef5ad17f015d9c93acc722f0bbb1e3653bb207907a90dd",
+        "crosslinks": [],
+        "playerlinks": [
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ],
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ]
+        ]
+      },
+      "reconnected-1.json": {
+        "source_sha256": "2aac51cf44d335628f39c52a40843d9d7153bf51e3465253bcb9d54cefc3e5f4",
+        "crosslinks": [],
+        "playerlinks": [
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ],
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ]
+        ]
+      },
+      "reconnected-2.json": {
+        "source_sha256": "2617c05fc911ad4a457063c6030cff074d13aab8523e7290ee7ab145536e22ae",
+        "crosslinks": [],
+        "playerlinks": [
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ],
+          [
+            "hotplug-test-player",
+            "input.loopback.sink.role.multimedia",
+            "active"
+          ]
+        ]
+      }
+    }
+  },
+  "new_regression_test": {
+    "without_fix": {
+      "source_sha256": "9657ebce060687bf4c2f3bd096b5ce8f8b11d9dd6683599ba49a88e26c2cc09b",
+      "excerpts": [
+        "test:         wireplumber:test-linking-role-loopbacks",
+        "result:       killed by signal 6 SIGABRT",
+        "not ok 1 /lua/linking-tests",
+        "Ok:                0   ",
+        "Fail:              1   "
+      ]
+    },
+    "with_fix": {
+      "source_sha256": "10c2bb27d45732731a648210f8584cc762515a2bf986631a91e2590026a380f7",
+      "excerpts": [
+        "test:         wireplumber:test-linking-role-loopbacks",
+        "result:       exit status 0",
+        "ok 1 /lua/linking-tests",
+        "Ok:                1   ",
+        "Fail:              0   "
+      ]
+    }
+  }
+}
