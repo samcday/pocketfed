@@ -1,0 +1,205 @@
+From d770a390bd9860db53eb9e439d19a3f0418ef0e2 Mon Sep 17 00:00:00 2001
+From: Viorel Cernateanu <vrilutza@gmail.com>
+Date: Thu, 30 Jul 2026 07:40:28 +0300
+Subject: [PATCH 2/2] gstpipewiresrc: copy the last free buffer instead of
+ stalling the stream
+
+A buffer is handed back to the producer as soon as it has been passed on, in the
+same graph cycle, so when downstream keeps hold of the whole pool the producer
+is left with nothing to fill and the stream stops rather than degrading. With
+the four buffers a v4l2 source negotiates by default, a consumer holding four
+frames is enough.
+
+Handing over the last free buffer is the moment that decides it, and it is also
+the last moment that buffer can still be made to come back: copy it there
+instead of sharing it, and it returns to the producer straight away.
+
+This follows the design as stated rather than working against it. @wtaymans in
+!1917: "How about stating to copy the buffers when the gstreamer source is
+lagging for more than X buffers?", and in #4174: "The best is to just deal with
+it in the client." So the producer keeps its round-robin reuse and the consumer
+stops assuming the memory stays still.
+
+Measured on three sources -- facetimehd on a MacBookPro14,1, a UVC camera on a
+Lenovo, and vivid, which is in the kernel tree and needs no particular hardware
+to reproduce any of this. appsink holding N samples referenced, pool size set
+with max-buffers, arms alternated run by run, and every frame classified as
+shared or copied by two independent signals that had to agree. "dead" is the
+stream stopping after exactly pool frames.
+
+	pool  held   before      after    frames copied
+	   2      1      55         55              49%
+	   2      2    dead         41              66%
+	   3      2      55         55              33%
+	   3      3    dead         37              49%
+	   4      3      55         55              24%
+	   4      4    dead         34              38%
+	  16     15      37         37               5%
+	  16     16    dead         22               9%
+
+Every case that used to stop now survives. The cost is the last column, and it
+is not zero before it is needed: the decision has to be taken before the buffer
+is handed over, from how many are outstanding at that moment, and that number
+cannot tell a consumer that returns the buffer at once from one that keeps it.
+The smaller the pool the less room there is between the two, which is why a pool
+of two copies about half its frames while nothing is wrong.
+
+While it applies, downstream receives system memory where it would otherwise get
+the DMA-BUF, including on caps carrying memory:DMABuf and format=DMA_DRM. That
+was checked rather than assumed: with glupload downstream, every frame still
+arrives and nothing fails. Other consumers have not been tried.
+
+An explicit use-bufferpool=false is unaffected, and use-bufferpool=true keeps
+sharing as asked -- the test applies to USE_BUFFERPOOL_AUTO alone. A DMA-BUF
+without SPA_DATA_FLAG_MAPPABLE cannot be copied at all, so those keep sharing.
+A pool of one is left out, because there every buffer is the last one, which is
+what use-bufferpool=false already provides explicitly.
+
+What this does not do is make the sharing itself safe: the producer still hands
+a buffer back while downstream may be reading it, so a consumer that holds a
+single buffer for a long time can still have it overwritten without ever
+starving the pool. Closing that would need SPA_META_Busy implemented on the
+producer side, which no SPA plugin does today.
+
+It does not treat #4797's "buffer was not recycled" directly either -- that
+check returns before this decision is reached. What it does is make the state
+arise less often: on a pool of four with the consumer holding four, the message
+goes from 25 occurrences to 10 on one machine and from 81 to 31 on the other,
+in runs of the same length.
+
+Related: #5363, #4797, #4174, #4863, !1917.
+(cherry picked from commit bf3951eb0daa936248766491079d9eff202ca830)
+---
+ src/gst/gstpipewiresrc.c | 53 ++++++++++++++++++++++++++++++++++++++--
+ src/gst/gstpipewiresrc.h |  2 ++
+ 2 files changed, 53 insertions(+), 2 deletions(-)
+
+diff --git a/src/gst/gstpipewiresrc.c b/src/gst/gstpipewiresrc.c
+index 9615b6dfe..9a589f028 100644
+--- a/src/gst/gstpipewiresrc.c
++++ b/src/gst/gstpipewiresrc.c
+@@ -599,6 +599,8 @@ buffer_recycle (GstMiniObject *obj)
+   gst_mini_object_ref (obj);
+ 
+   data->queued = TRUE;
++  if (src->n_outstanding > 0)
++    src->n_outstanding--;
+ 
+   if ((res = pw_stream_queue_buffer (src->stream->pwstream, data->b)) < 0)
+     GST_WARNING_OBJECT (src, "can't queue recycled buffer %p, %s", obj, spa_strerror(res));
+@@ -626,6 +628,10 @@ on_add_buffer (void *_data, struct pw_buffer *b)
+   GST_MINI_OBJECT_CAST (data->buf)->dispose = buffer_recycle;
+ 
+   pwsrc->n_buffers++;
++  if (pwsrc->n_buffers == 1) {
++    pwsrc->n_outstanding = 0;
++    pwsrc->warned_starving = FALSE;
++  }
+ }
+ 
+ static void
+@@ -726,6 +732,23 @@ static const char *spa_transform_value_to_gst_image_orientation(uint32_t transfo
+   return transform_map[transform_value];
+ }
+ 
++/* Memory that can be read with a plain mmap can be copied; a DMA-BUF without
++ * SPA_DATA_FLAG_MAPPABLE cannot, and there is nothing better to do for such a
++ * buffer than to keep sharing it. */
++static gboolean
++buffer_is_copyable (struct pw_buffer *b)
++{
++  uint32_t i;
++
++  for (i = 0; i < b->buffer->n_datas; i++) {
++    struct spa_data *d = &b->buffer->datas[i];
++
++    if (d->type == SPA_DATA_DmaBuf && !(d->flags & SPA_DATA_FLAG_MAPPABLE))
++      return FALSE;
++  }
++  return TRUE;
++}
++
+ static GstBuffer *dequeue_buffer(GstPipeWireSrc *pwsrc)
+ {
+   struct pw_buffer *b;
+@@ -736,6 +759,7 @@ static GstBuffer *dequeue_buffer(GstPipeWireSrc *pwsrc)
+   enum spa_meta_videotransform_value transform_value;
+   struct spa_meta_cursor *cursor;
+   struct pw_time time;
++  gboolean use_pool;
+   guint i;
+ 
+   b = pw_stream_dequeue_buffer (pwsrc->stream->pwstream);
+@@ -754,6 +778,30 @@ static GstBuffer *dequeue_buffer(GstPipeWireSrc *pwsrc)
+     return NULL;
+   }
+ 
++  use_pool = pwsrc->use_bufferpool != USE_BUFFERPOOL_NO;
++
++  /* Downstream can hold every buffer of the pool, leaving the producer with
++   * nothing to fill; the stream then stops instead of degrading. Handing over
++   * the last free buffer is what decides that, and it is also the last moment a
++   * buffer can still be made to come back, so copy it instead of sharing it and
++   * the pool buffer is returned straight away.
++   *
++   * This is not free while it applies: downstream receives system memory where
++   * it would otherwise get the DMA-BUF. A pool of one is left out, because
++   * there every buffer is the last one -- which is what use-bufferpool=false
++   * already provides explicitly. */
++  if (use_pool && pwsrc->use_bufferpool == USE_BUFFERPOOL_AUTO &&
++      pwsrc->n_buffers > 1 &&
++      pwsrc->n_outstanding + 1 >= pwsrc->n_buffers &&
++      buffer_is_copyable (b)) {
++    use_pool = FALSE;
++    if (!pwsrc->warned_starving) {
++      pwsrc->warned_starving = TRUE;
++      GST_INFO_OBJECT (pwsrc, "downstream holds %d of %d buffers, copying to "
++          "keep the stream going", pwsrc->n_outstanding, pwsrc->n_buffers);
++    }
++  }
++
+   pw_stream_get_time_n(pwsrc->stream->pwstream, &time, sizeof(time));
+ 
+   if (pwsrc->delay != time.delay && time.rate.denom != 0) {
+@@ -770,6 +818,7 @@ static GstBuffer *dequeue_buffer(GstPipeWireSrc *pwsrc)
+   buf = gst_buffer_new ();
+ 
+   data->queued = FALSE;
++  pwsrc->n_outstanding++;
+   GST_BUFFER_PTS (buf) = GST_CLOCK_TIME_NONE;
+   GST_BUFFER_DTS (buf) = GST_CLOCK_TIME_NONE;
+ 
+@@ -875,7 +924,7 @@ static GstBuffer *dequeue_buffer(GstPipeWireSrc *pwsrc)
+     GstMemory *pmem = gst_buffer_peek_memory (data->buf, i);
+     if (pmem) {
+       GstMemory *mem;
+-      if (pwsrc->use_bufferpool != USE_BUFFERPOOL_NO)
++      if (use_pool)
+         mem = gst_memory_share (pmem, d->chunk->offset, d->chunk->size);
+       else
+         mem = gst_memory_copy (pmem, d->chunk->offset, d->chunk->size);
+@@ -886,7 +935,7 @@ static GstBuffer *dequeue_buffer(GstPipeWireSrc *pwsrc)
+       GST_BUFFER_FLAG_SET (buf, GST_BUFFER_FLAG_CORRUPTED);
+     }
+   }
+-  if (pwsrc->use_bufferpool != USE_BUFFERPOOL_NO) {
++  if (use_pool) {
+     /* the meta keeps a reference, so this is not the last one and the recycle
+      * happens later, from whichever thread drops it */
+     gst_buffer_add_parent_buffer_meta (buf, data->buf);
+diff --git a/src/gst/gstpipewiresrc.h b/src/gst/gstpipewiresrc.h
+index 7e4813cde..27dad260c 100644
+--- a/src/gst/gstpipewiresrc.h
++++ b/src/gst/gstpipewiresrc.h
+@@ -55,6 +55,8 @@ struct _GstPipeWireSrc {
+   /*< private >*/
+   gint n_buffers;
+   GstBuffer *buf_to_release;
++  gboolean warned_starving;
++  gint n_outstanding;
+   gint use_bufferpool;
+   gint min_buffers;
+   gint max_buffers;
+-- 
+2.55.0
+

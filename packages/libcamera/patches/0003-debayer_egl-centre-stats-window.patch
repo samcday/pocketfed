@@ -1,0 +1,39 @@
+From: Sam Day <me@samcday.com>
+Date: Tue, 15 Sep 2026 16:05:00 +1000
+Subject: [PATCH] libcamera: software_isp: debayer_egl: Compute stats on the centred window
+
+DebayerEGL::configure() sets the statistics window to Rectangle(window_.size()),
+i.e. an output-sized rectangle anchored at (0, 0) of the raw frame. That is
+correct for DebayerCpu, which feeds SwStatsCpu one line at a time from inside
+the centred window, but the EGL path hands SwStatsCpu the whole mapped input
+buffer through processFrame(), so the (0, 0) anchor makes AGC and AWB measure
+only the top-left corner of the sensor image. On a 4032x3024 sensor with a
+1280x960 output that corner is roughly 10% of the frame, so the displayed image
+is exposed and white-balanced for whatever happens to be in that corner.
+
+Pass the centred window (with its x/y offset) instead, matching what the
+frame actually shows.
+
+Observed on Google Pixel 3a (IMX363, simple pipeline, LIBCAMERA_SOFTISP_MODE=gpu):
+AGC kept raising exposure on a blown-out frame because the corner was dark.
+---
+ src/libcamera/software_isp/debayer_egl.cpp | 7 ++-----
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+diff --git a/src/libcamera/software_isp/debayer_egl.cpp b/src/libcamera/software_isp/debayer_egl.cpp
+--- a/src/libcamera/software_isp/debayer_egl.cpp
++++ b/src/libcamera/software_isp/debayer_egl.cpp
+@@ -339,11 +339,8 @@
+ 	window_.width = outputCfg.size.width;
+ 	window_.height = outputCfg.size.height;
+ 
+-	/*
+-	 * Don't pass x,y from window_ since process() already adjusts for it.
+-	 * But crop the window to 2/3 of its width and height for speedup.
+-	 */
+-	stats_->setWindow(Rectangle(window_.size()));
++	/* processFrame() sees the whole input buffer, so keep the window offset. */
++	stats_->setWindow(window_);
+ 
+ 	inputBufferCount_ = inputCfg.bufferCount;
+ 	outputBufferCount_ = outputCfg.bufferCount;

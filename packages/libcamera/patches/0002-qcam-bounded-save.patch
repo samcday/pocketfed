@@ -1,0 +1,232 @@
+diff --git a/src/apps/qcam/main.cpp b/src/apps/qcam/main.cpp
+index 8c43d43..500ef7a 100644
+--- a/src/apps/qcam/main.cpp
++++ b/src/apps/qcam/main.cpp
+@@ -9,6 +9,7 @@
+ #include <string.h>
+ 
+ #include <QApplication>
++#include <QString>
+ #include <QtDebug>
+ 
+ #include <libcamera/camera_manager.h>
+@@ -46,6 +47,12 @@ OptionsParser::Options parseOptions(int argc, char *argv[])
+ 			 "Set configuration of a camera stream", "stream", true);
+ 	parser.addOption(OptVerbose, OptionNone,
+ 			 "Print verbose log messages", "verbose");
++	parser.addOption(OptAfterFrames, OptionString,
++			 "Save one image to --output after this many frames (1..1800), then exit",
++			 "after-frames", ArgumentRequired, "frames");
++	parser.addOption(OptOutput, OptionString,
++			 "Save one image to this file after --after-frames frames, then exit",
++			 "output", ArgumentRequired, "filename");
+ 
+ 	OptionsParser::Options options = parser.parse(argc, argv);
+ 	if (options.isSet(OptHelp))
+@@ -67,6 +74,38 @@ int main(int argc, char **argv)
+ 	if (options.isSet(OptHelp))
+ 		return 0;
+ 
++	/*
++	 * The automatic one-shot save is optional. Validate it here, before the
++	 * camera is started, so an invalid request fails without touching the
++	 * hardware. Both options must be given together; neither leaves the
++	 * interactive qcam behaviour unchanged.
++	 */
++	const bool autoSave = options.isSet(OptOutput) || options.isSet(OptAfterFrames);
++	if (options.isSet(OptOutput) != options.isSet(OptAfterFrames)) {
++		qWarning() << "--output and --after-frames must be used together";
++		return EXIT_FAILURE;
++	}
++	if (autoSave) {
++		uint32_t frames = 0;
++		if (!MainWindow::parseAfterFrames(
++			    QString::fromStdString(options[OptAfterFrames].toString()),
++			    &frames)) {
++			qWarning() << "Invalid --after-frames"
++				   << options[OptAfterFrames].toString().c_str()
++				   << "(expected 1.." << MainWindow::kMaxAutoSaveFrames << ")";
++			return EXIT_FAILURE;
++		}
++		if (options[OptOutput].toString().empty()) {
++			qWarning() << "--output must not be empty";
++			return EXIT_FAILURE;
++		}
++		if (options.isSet(OptRenderer) &&
++		    options[OptRenderer].toString() != "qt") {
++			qWarning() << "Automatic save requires the Qt renderer (-r qt)";
++			return EXIT_FAILURE;
++		}
++	}
++
+ 	MessageHandler msgHandler(options.isSet(OptVerbose));
+ 
+ 	struct sigaction sa = {};
+diff --git a/src/apps/qcam/main_window.cpp b/src/apps/qcam/main_window.cpp
+index 59c2aa6..792aed3 100644
+--- a/src/apps/qcam/main_window.cpp
++++ b/src/apps/qcam/main_window.cpp
+@@ -8,6 +8,7 @@
+ #include "main_window.h"
+ 
+ #include <assert.h>
++#include <cstdlib>
+ #include <iomanip>
+ #include <string>
+ 
+@@ -86,12 +87,44 @@ private:
+ 	PlugEvent plugEvent_;
+ };
+ 
++bool MainWindow::parseAfterFrames(const QString &text, uint32_t *frames)
++{
++	if (text.isEmpty())
++		return false;
++
++	/*
++	 * Strict ASCII decimal only: reject signs, whitespace, hex, exponents
++	 * and non-ASCII digits before converting. toUInt() then fails on
++	 * overflow instead of wrapping.
++	 */
++	for (QChar c : text) {
++		ushort value = c.unicode();
++		if (value < '0' || value > '9')
++			return false;
++	}
++
++	bool ok = false;
++	unsigned int value = text.toUInt(&ok, 10);
++	if (!ok || value < 1 || value > kMaxAutoSaveFrames)
++		return false;
++
++	*frames = value;
++	return true;
++}
++
+ MainWindow::MainWindow(CameraManager *cm, const OptionsParser::Options &options)
+ 	: saveRaw_(nullptr), options_(options), cm_(cm), isCapturing_(false),
+ 	  captureRaw_(false)
+ {
+ 	int ret;
+ 
++	if (options_.isSet(OptOutput))
++		output_ = QString::fromStdString(options_[OptOutput].toString());
++	if (options_.isSet(OptAfterFrames) &&
++	    !parseAfterFrames(QString::fromStdString(options_[OptAfterFrames].toString()),
++			      &afterFrames_))
++		afterFrames_ = 0;
++
+ 	/*
+ 	 * Initialize the UI: Create the toolbar, set the window title and
+ 	 * create the viewfinder widget.
+@@ -625,6 +658,18 @@ void MainWindow::removeCamera(std::shared_ptr<Camera> camera)
+  * Image Save
+  */
+ 
++bool MainWindow::saveImage(const QImage &image, const QString &filename)
++{
++	QImageWriter writer(filename);
++	writer.setQuality(95);
++	if (!writer.write(image)) {
++		lastSaveError_ = writer.errorString();
++		return false;
++	}
++
++	return true;
++}
++
+ void MainWindow::saveImageAs()
+ {
+ 	QImage image = viewfinder_->getCurrentImage();
+@@ -635,10 +680,8 @@ void MainWindow::saveImageAs()
+ 	if (filename.isEmpty())
+ 		return;
+ 
+-	QImageWriter writer(filename);
+-	writer.setQuality(95);
+-	if (!writer.write(image))
+-		QMessageBox::warning(this, "Failed to save image", writer.errorString());
++	if (!saveImage(image, filename))
++		QMessageBox::warning(this, "Failed to save image", lastSaveError_);
+ }
+ 
+ void MainWindow::captureRaw()
+@@ -740,6 +783,23 @@ void MainWindow::processViewfinder(FrameBuffer *buffer)
+ 
+ 	/* Render the frame on the viewfinder. */
+ 	viewfinder_->render(buffer, mappedBuffers_[buffer].get());
++
++	/*
++	 * Optional bounded one-shot save. The Qt viewfinder exposes the last
++	 * rendered frame at full stream resolution through getCurrentImage();
++	 * only after the requested frame count has been rendered do we write it
++	 * once and exit. A failed write is logged and exits with a nonzero
++	 * status, never as success.
++	 */
++	if (afterFrames_ && !saved_ && framesCaptured_ >= afterFrames_) {
++		saved_ = true;
++		if (saveImage(viewfinder_->getCurrentImage(), output_)) {
++			quit();
++		} else {
++			qWarning() << "Failed to save image" << output_ << lastSaveError_;
++			QCoreApplication::exit(EXIT_FAILURE);
++		}
++	}
+ }
+ 
+ void MainWindow::renderComplete(FrameBuffer *buffer)
+diff --git a/src/apps/qcam/main_window.h b/src/apps/qcam/main_window.h
+index 20d369a..977e474 100644
+--- a/src/apps/qcam/main_window.h
++++ b/src/apps/qcam/main_window.h
+@@ -32,6 +32,7 @@
+ #include "viewfinder.h"
+ 
+ class QAction;
++class QImage;
+ 
+ class CameraSelectorDialog;
+ class Image;
+@@ -43,6 +44,8 @@ enum {
+ 	OptRenderer = 'r',
+ 	OptStream = 's',
+ 	OptVerbose = 'v',
++	OptAfterFrames = 'a',
++	OptOutput = 'o',
+ };
+ 
+ class MainWindow : public QMainWindow
+@@ -56,6 +59,13 @@ public:
+ 
+ 	bool event(QEvent *e) override;
+ 
++	/*
++	 * Strict ASCII-decimal parse of --after-frames, bounded to 1..1800
++	 * (about one minute at 30 fps). Shared with the command-line validation.
++	 */
++	static constexpr uint32_t kMaxAutoSaveFrames = 1800;
++	static bool parseAfterFrames(const QString &text, uint32_t *frames);
++
+ private Q_SLOTS:
+ 	void quit();
+ 	void updateTitle();
+@@ -63,6 +73,7 @@ private Q_SLOTS:
+ 	void switchCamera();
+ 	void toggleCapture(bool start);
+ 
++	bool saveImage(const QImage &image, const QString &filename);
+ 	void saveImageAs();
+ 	void captureRaw();
+ 	void processRaw(libcamera::FrameBuffer *buffer,
+@@ -129,5 +140,11 @@ private:
+ 	uint32_t previousFrames_;
+ 	uint32_t framesCaptured_;
+ 
++	/* Optional bounded one-shot save (see --output/--after-frames). */
++	QString output_;
++	uint32_t afterFrames_ = 0;
++	bool saved_ = false;
++	QString lastSaveError_;
++
+ 	std::vector<std::unique_ptr<libcamera::Request>> requests_;
+ };

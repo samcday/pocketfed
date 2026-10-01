@@ -1,0 +1,124 @@
+From 3c6601fac37d521caa41af0326cfcd8381c5a514 Mon Sep 17 00:00:00 2001
+From: Sam Day <me@samcday.com>
+Date: Thu, 10 Sep 2026 10:42:43 +1000
+Subject: [PATCH] media: i2c: lc898219xi: power the lens before restoring focus
+
+Opening the lens subdevice restores its controls before acquiring the
+runtime PM reference. After autosuspend, this writes the focus DAC while
+the actuator is unpowered. On the Pixel 3a this produces CCI queue timeouts
+and errors writing register 0x84.
+
+Resume the actuator before restoring controls, use the locking control
+helper, and propagate failures. Unwind the open reference if restoring
+focus fails. Retain the reference until close so an idle interval between
+manual focus adjustments does not power off the actuator during capture.
+
+Also check every transfer during power-on and unwind the regulator enable
+on failure. Preserve transport errors and report a wrong chip ID or an
+exhausted wakeup poll explicitly, rather than leaving the supplies enabled
+after a failed probe or runtime resume.
+
+Signed-off-by: Sam Day <me@samcday.com>
+---
+ drivers/media/i2c/lc898219xi.c | 57 ++++++++++++++++++++++++----------
+ 1 file changed, 40 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/media/i2c/lc898219xi.c b/drivers/media/i2c/lc898219xi.c
+index 1516524c63cbe..5cc118a13dd2b 100644
+--- a/drivers/media/i2c/lc898219xi.c
++++ b/drivers/media/i2c/lc898219xi.c
+@@ -64,8 +64,8 @@ static int lc898219xi_set_dac(struct lc898219xi *lc898219xi, u16 val)
+ 
+ static int lc898219xi_power_on(struct lc898219xi *lc898219xi)
+ {
+-	int ret;
+ 	struct i2c_client *client = v4l2_get_subdevdata(&lc898219xi->sd);
++	int ret, retry;
+ 
+ 	ret = regulator_bulk_enable(ARRAY_SIZE(lc898219xi_supply_names),
+ 				    lc898219xi->supplies);
+@@ -77,32 +77,46 @@ static int lc898219xi_power_on(struct lc898219xi *lc898219xi)
+ 
+ 	usleep_range(8000, 10000);
+ 
+-	uint32_t regdata = i2c_smbus_read_byte_data(client, 0xF0);
+-	if (regdata != 0xA5) {
+-		dev_err(&client->dev, "communication error: regdata: %x \n",
+-		        regdata);
+-		return -1;
++	ret = i2c_smbus_read_byte_data(client, 0xF0);
++	if (ret < 0)
++		goto err_disable_regulators;
++	if (ret != 0xA5) {
++		dev_err(&client->dev, "unexpected chip ID: %x\n", ret);
++		ret = -ENODEV;
++		goto err_disable_regulators;
+ 	}
+ 
+ 	usleep_range(1000, 1010);
+ 
+-	i2c_smbus_write_byte_data(client, 0xE0, 0x01);
++	ret = i2c_smbus_write_byte_data(client, 0xE0, 0x01);
++	if (ret < 0)
++		goto err_disable_regulators;
+ 	msleep(8);
+ 
+-	int retry;
+ 	for (retry = 0; retry < 10; retry++) {
+-		uint32_t check = i2c_smbus_read_byte_data(client, 0xB3);
+-		if ((check & 0XE0) == 0) {
++		ret = i2c_smbus_read_byte_data(client, 0xB3);
++		if (ret < 0)
++			goto err_disable_regulators;
++		if (!(ret & 0xE0))
+ 			break;
+-		} else if (retry >= 9) {
+-			dev_err(&client->dev, "LSI wake up check failed");
+-			return -1;
+-		}
+ 		usleep_range(1000, 1010);
+ 	}
+ 
+-	i2c_smbus_write_byte_data(client, 0x8C, 0xE9);
++	if (retry == 10) {
++		dev_err(&client->dev, "LSI wake up check failed\n");
++		ret = -ETIMEDOUT;
++		goto err_disable_regulators;
++	}
++
++	ret = i2c_smbus_write_byte_data(client, 0x8C, 0xE9);
++	if (ret < 0)
++		goto err_disable_regulators;
+ 
++	return 0;
++
++err_disable_regulators:
++	regulator_bulk_disable(ARRAY_SIZE(lc898219xi_supply_names),
++			       lc898219xi->supplies);
+ 	return ret;
+ }
+ 
+@@ -155,9 +169,18 @@ static const struct v4l2_ctrl_ops lc898219xi_ctrl_ops = {
+ static int lc898219xi_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+ {
+ 	struct lc898219xi *lc898219xi = sd_to_lc898219xi(sd);
+-	__v4l2_ctrl_handler_setup(&lc898219xi->ctrls);
++	int ret;
++
++	/* Keep the lens powered, and its focus stable, until this file closes. */
++	ret = pm_runtime_resume_and_get(sd->dev);
++	if (ret < 0)
++		return ret;
+ 
+-	return pm_runtime_resume_and_get(sd->dev);
++	ret = v4l2_ctrl_handler_setup(&lc898219xi->ctrls);
++	if (ret)
++		pm_runtime_put_autosuspend(sd->dev);
++
++	return ret;
+ }
+ 
+ static int lc898219xi_close(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
+-- 
+2.55.0
+
