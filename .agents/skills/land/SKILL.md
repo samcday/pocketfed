@@ -31,7 +31,7 @@ full local image builds are optional. Sam runs Delta `/review` himself; don't st
 
 ## 2. Gate the current head (any new head restarts this section)
 
-Set `HEAD_SHA` from `gh pr view <pr> -R samcday/pocketfed --json headRefOid`.
+Set `HEAD_SHA` from `gh pr view <pr> -R samcday/pocketfed --json headRefOid --jq '.headRefOid'`.
 
 1. Post two separate PR comments, `@coderabbitai review` and `@codex review`, with `gh pr comment`.
 2. Wait with `gh pr checks <pr> -R samcday/pocketfed --watch`. Then the latest run of each workflow
