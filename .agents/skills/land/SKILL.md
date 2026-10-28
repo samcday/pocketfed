@@ -2,7 +2,7 @@
 name: land
 description: >-
   Land requested PocketFed changes on samcday/pocketfed main through a GitHub pull request after
-  green GitHub Actions plus CodeRabbit and Codex reviews of the PR head. Run only when a person
+  green GitHub Actions and a Codex review of the PR head. Run only when a person
   invokes /land or Land Changes; not for review, preparation, passing checks, or skill setup.
 disable-model-invocation: true
 metadata:
@@ -33,19 +33,18 @@ full local image builds are optional. Sam runs Delta `/review` himself; don't st
 
 Set `HEAD_SHA` from `gh pr view <pr> -R samcday/pocketfed --json headRefOid --jq '.headRefOid'`.
 
-1. Post two separate PR comments, `@coderabbitai review` and `@codex review`, with `gh pr comment`.
-2. Wait with `gh pr checks <pr> -R samcday/pocketfed --watch`. Then the latest run of each workflow
+1. Post `@codex review` with `gh pr comment`.
+2. Wait with `gh run watch <run-id> -R samcday/pocketfed --exit-status`, using a bounded terminal timeout.
+   The latest run of each workflow
    in `gh run list -R samcday/pocketfed --commit <HEAD_SHA> --json workflowName,conclusion,url` must
    be `success`; if no run for `HEAD_SHA` appears within 10 minutes, CI is unavailable.
-3. CodeRabbit: its `CodeRabbit` check/status on `HEAD_SHA` must read `Review completed`.
-   `Review skipped`, rate limits, pauses and errors mean no review.
-4. Codex: `chatgpt-codex-connector[bot]` must post a review with `commit_id` `HEAD_SHA` or a
-   "Didn't find any major issues" comment whose **Reviewed commit** abbreviates `HEAD_SHA`. Either
-   bot lacking such a result 30 minutes after its request is unavailable; reactions don't count.
-5. Read every finding (`gh api --paginate` on `repos/samcday/pocketfed/pulls/<pr>/reviews`,
+3. Codex: `chatgpt-codex-connector[bot]` must post a review with `commit_id` `HEAD_SHA` or a
+   "Didn't find any major issues" comment whose **Reviewed commit** abbreviates `HEAD_SHA`.
+   If no such result arrives within 30 minutes, the review is unavailable; reactions don't count.
+4. Read every finding (`gh api --paginate` on `repos/samcday/pocketfed/pulls/<pr>/reviews`,
    `.../pulls/<pr>/comments`, `.../issues/<pr>/comments`), nitpick and outside-diff sections too.
    Fix valid in-scope findings in a new commit or reply with evidence; ask before scope changes. A
-   human `CHANGES_REQUESTED` review blocks. Never clear a gate with `@coderabbitai resolve`/`approve`.
+   human `CHANGES_REQUESTED` review blocks.
 
 ## 3. Merge and report
 
