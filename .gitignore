@@ -1,0 +1,7 @@
+/mkosi.cache/
+/mkosi.output/
+/mkosi.pkgcache/
+/mkosi.tools/
+/mkosi.tools.manifest
+/mkosi.local.conf
+/mkosi.local/

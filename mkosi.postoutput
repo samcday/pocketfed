@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Check the finalized tree after cleanup and SELinux relabeling.
+output=$(jq -r '[.Output, .OutputExtension] | map(select(length > 0)) | join(".")' "$MKOSI_CONFIG")
+TIMEFORMAT='Base checks: %3R s'
+time chroot "$OUTPUTDIR/$output" /usr/bin/bash -s -- \
+    "$IMAGE_ID" "$DISTRIBUTION_ARCHITECTURE" <<'CHECKS'
+set -euxo pipefail
+
+# shellcheck source=/dev/null
+source /usr/lib/os-release
+test "$ID" = fedora
+test "${IMAGE_ID:-}" = "$1"
+test "$REDHAT_BUGZILLA_PRODUCT_VERSION" = rawhide
+
+rpm -q bootc rpm-ostree ostree systemd NetworkManager openssh-server \
+    selinux-policy-targeted authselect btrfs-progs cracklib-dicts
+test "$(rpm -q --qf '%{ARCH}' systemd)" = "$2"
+test -z "$(rpm -qa 'kernel*' 'phosh*' qbootctl blob-wrangler)"
+test -s /usr/share/man/man1/bash.1.gz
+
+test "$(readlink /ostree)" = sysroot/ostree
+test "$(readlink /usr/lib/sysimage/rpm)" = ../../share/rpm
+for name in home opt srv mnt; do
+    test "$(readlink "/$name")" = "var/$name"
+done
+test "$(readlink /root)" = var/roothome
+test "$(readlink /usr/local)" = ../var/usrlocal
+
+for directory in /boot /run /var; do
+    test -d "$directory"
+    test -z "$(find "$directory" -mindepth 1 -print -quit)"
+done
+test ! -e /buildroot
+test ! -e /etc/fstab
+test -f /etc/machine-id
+test ! -s /etc/machine-id || test "$(cat /etc/machine-id)" = uninitialized
+test -z "$(find /etc/ssh -name 'ssh_host_*_key' -print -quit)"
+grep -Eq '^root:[!*]' /etc/shadow
+
+grep -Fxq SELINUX=enforcing /etc/selinux/config
+test "$(stat -c %C /etc/shadow)" = system_u:object_r:shadow_t:s0
+test "$(stat -c %C /usr/bin/bash)" = system_u:object_r:shell_exec_t:s0
+
+authselect check
+authselect is-feature-enabled with-systemd-homed
+for unit in NetworkManager sshd systemd-homed; do
+    test "$(readlink "/etc/systemd/system/multi-user.target.wants/$unit.service")" = \
+        "/usr/lib/systemd/system/$unit.service"
+done
+test "$(readlink /etc/systemd/system/systemd-homed.service.wants/systemd-homed-activate.service)" = \
+    /usr/lib/systemd/system/systemd-homed-activate.service
+test -f /etc/ssh/sshd_config.d/20-systemd-userdb.conf
+test "$(readlink /etc/ssh/sshd_config.d/20-systemd-userdb.conf)" = \
+    /usr/lib/systemd/sshd_config.d/20-systemd-userdb.conf
+CHECKS

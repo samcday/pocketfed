@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+# Extend Fedora's PAM stack without replacing conventional account support.
+authselect enable-feature with-systemd-homed
+authselect check
