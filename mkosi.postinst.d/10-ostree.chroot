@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euxo pipefail
+
+ldconfig -X
+
+mkdir -p /sysroot/ostree
+ln -snf sysroot/ostree /ostree
+
+# rpm-ostree uses this location for the immutable RPM database.
+mv /usr/lib/sysimage/rpm /usr/share/rpm
+ln -snf ../../share/rpm /usr/lib/sysimage/rpm
+
+# Keep writable paths outside the immutable deployment.
+for name in home opt srv mnt; do
+    rmdir "/$name"
+    ln -s "var/$name" "/$name"
+done
+rm -rf /root
+ln -s var/roothome /root
+# shellcheck disable=SC2114
+rm -rf /usr/local
+ln -s ../var/usrlocal /usr/local
+
+# /etc is part of the image; /var is initialized at boot.
+printf 'TIMESTAMP_NSEC=%s\n' "$SOURCE_DATE_EPOCH" >/etc/.updated
